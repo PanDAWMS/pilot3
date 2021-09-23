@@ -1144,6 +1144,10 @@ def get_disk_usage(start_path='.'):
             fp = os.path.join(dirpath, f)
             # skip if it is symbolic link
             if os.path.exists(fp) and not os.path.islink(fp):
-                total_size += os.path.getsize(fp)
+                try:
+                    total_size += os.path.getsize(fp)
+                except FileNotFoundError as exc:
+                    logger.warning('caught exception: %s (skipping this file)', exc)
+                    continue
 
     return total_size
