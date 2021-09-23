@@ -1,10 +1,10 @@
-# PanDA Pilot 2
+# PanDA Pilot 3
 
 ## Contributions
 
 1. Check the ``TODO.md`` and ``STYLEGUIDE.md`` files.
 
-2. Fork the ``PanDAWMS/pilot2`` repository into your private account as ``origin``. Clone it and set the ``PanDAWMS/pilot2`` repository as ``upstream``.
+2. Fork the ``PanDAWMS/pilot3`` repository into your private account as ``origin``. Clone it and set the ``PanDAWMS/pilot3`` repository as ``upstream``.
 
 3. Make new code contributions only to a new branch in your repository, push to ``origin`` and make a pull request into ``upstream``. Depending on the type of contribution this should go yo either ``upstream/next`` or ``upstream/hotfix``. 
    Any pull requests directly to the master branch will be rejected since that would trigger the automatic pilot tarball creation.
@@ -51,10 +51,10 @@ See existing rst files. For more info, visit http://sphinx-doc.org
 
 Before making a pull request, make sure that you are synced to the latest version.
 
-1. git clone https://github.com/USERNAME/pilot2.git
-2. cd pilot2
+1. git clone https://github.com/USERNAME/pilot3.git
+2. cd pilot3
 3. git checkout next
 4. git remote -v
-5. git remote add upstream https://github.com/PanDAWMS/pilot2.git
+5. git remote add upstream https://github.com/PanDAWMS/pilot3.git
 6. git fetch upstream
 7. git merge upstream/next
