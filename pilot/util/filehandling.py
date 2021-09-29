@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 import collections
 import hashlib
@@ -40,7 +40,7 @@ def get_pilot_work_dir(workdir):
     :return: The name of main work directory
     """
 
-    return os.path.join(workdir, "PanDA_Pilot2_%d_%s" % (os.getpid(), str(int(time.time()))))
+    return os.path.join(workdir, "PanDA_Pilot3_%d_%s" % (os.getpid(), str(int(time.time()))))
 
 
 def mkdirs(workdir, chmod=0o770):  # Python 2/3
@@ -1062,7 +1062,7 @@ def copy_pilot_source(workdir):
     """
 
     diagnostics = ""
-    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot2')
+    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     try:
         logger.debug('copy %s to %s', srcdir, workdir)
         cmd = 'cp -r %s/* %s' % (srcdir, workdir)
@@ -1071,7 +1071,7 @@ def copy_pilot_source(workdir):
             diagnostics = 'file copy failed: %d, %s' % (exit_code, stdout)
             logger.warning(diagnostics)
     except Exception as exc:
-        diagnostics = 'exception caught when copying pilot2 source: %s' % exc
+        diagnostics = 'exception caught when copying pilot3 source: %s' % exc
         logger.warning(diagnostics)
 
     return diagnostics

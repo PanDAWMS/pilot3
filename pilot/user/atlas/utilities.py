@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import os
 import time
@@ -344,11 +344,11 @@ def get_pid_for_trf(ps, transformation, outdata):
     return pid
 
 
-def get_pid_for_command(ps, command="python pilot2/pilot.py"):
+def get_pid_for_command(ps, command="python pilot3/pilot.py"):
     """
     Return the process id for the given command and user.
     The function returns 0 in case pid could not be found.
-    If no command is specified, the function looks for the "python pilot2/pilot.py" command in the ps output.
+    If no command is specified, the function looks for the "python pilot3/pilot.py" command in the ps output.
 
     :param ps: ps command output (string).
     :param command: command string expected to be in ps output (string).

@@ -1179,8 +1179,8 @@ def store_jobid(jobid, init_dir):
     """
 
     try:
-        path = os.path.join(os.path.join(init_dir, 'pilot2'), config.Pilot.jobid_file)
-        path = path.replace('pilot2/pilot2', 'pilot2')  # dirty fix for bad paths
+        path = os.path.join(os.path.join(init_dir, 'pilot3'), config.Pilot.jobid_file)
+        path = path.replace('pilot3/pilot3', 'pilot3')  # dirty fix for bad paths
         mode = 'a' if os.path.exists(path) else 'w'
         logger.debug('path=%s  mode=%s', path, mode)
         write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)

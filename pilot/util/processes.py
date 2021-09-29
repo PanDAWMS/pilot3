@@ -410,7 +410,7 @@ def kill_orphans():
                 continue
             if 'cvmfs2' in args:
                 logger.info("ignoring possible orphan process running cvmfs2: pid=%s, ppid=%s, args=\'%s\'", pid, ppid, args)
-            elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args:
+            elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args or 'runpilot3-wrapper.sh' in args:
                 logger.info("ignoring pilot launcher: pid=%s, ppid=%s, args='%s'", pid, ppid, args)
             elif ppid == '1':
                 count += 1

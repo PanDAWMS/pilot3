@@ -188,7 +188,7 @@ def open_remote_files(indata, workdir, nthreads):
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
-        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot2'), script_path)
+        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
         full_script_path = dir1 if os.path.exists(dir1) else dir2
         if not os.path.exists(full_script_path):
@@ -1861,7 +1861,7 @@ def get_redundants():
                 "/cores",  # new
                 "/work",  # new
                 "docs/",  # new
-                "/pilot2"]  # new
+                "/pilot3"]  # new
 
     return dir_list
 
