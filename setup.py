@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Fernando Barreiro Megino, fernando.harald.barreiro.megino@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
 import sys
 
 from setuptools import setup, find_packages
@@ -20,12 +20,12 @@ with open('PILOTVERSION') as reader:
 setup(
     name="panda-pilot",
     version=release_version,
-    description='PanDA Pilot 2',
-    long_description='''This package contains the PanDA Pilot 2 source code''',
+    description='PanDA Pilot 3',
+    long_description='''This package contains the PanDA Pilot 3 source code''',
     license='Apache License 2.0',
     author='PanDA Team',
     author_email='atlas-adc-panda@cern.ch',
-    url='https://github.com/PanDAWMS/pilot2/wiki',
+    url='https://github.com/PanDAWMS/pilot3/wiki',
     python_requires='>=2.7',
     packages=find_packages(),
     install_requires=[],
