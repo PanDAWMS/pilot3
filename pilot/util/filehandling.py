@@ -21,6 +21,8 @@ from json import dump as dumpjson
 from shutil import copy2, rmtree
 import sys
 from zlib import adler32
+from functools import partial
+from mmap import mmap
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
@@ -742,7 +744,7 @@ def calculate_checksum(filename, algorithm='adler32'):
 
     :param filename: file name (string).
     :param algorithm: optional algorithm string.
-    :raises FileHandlingFailure, NotImplementedError: exception raised when file does not exist or for unknown algorithm.
+    :raises FileHandlingFailure, NotImplementedError, Exception.
     :return: checksum value (string).
     """
 
@@ -750,7 +752,11 @@ def calculate_checksum(filename, algorithm='adler32'):
         raise FileHandlingFailure('file does not exist: %s' % filename)
 
     if algorithm == 'adler32' or algorithm == 'adler' or algorithm == 'ad' or algorithm == 'ad32':
-        return calculate_adler32_checksum(filename)
+        try:
+            checksum = calculate_adler32_checksum(filename)
+        except Exception as exc:
+            raise exc
+        return checksum
     elif algorithm == 'md5' or algorithm == 'md5sum' or algorithm == 'md':
         return calculate_md5_checksum(filename)
     else:
@@ -761,27 +767,32 @@ def calculate_checksum(filename, algorithm='adler32'):
 
 def calculate_adler32_checksum(filename):
     """
-    Calculate the adler32 checksum for the given file.
-    The file is assumed to exist.
+    An Adler-32 checksum is obtained by calculating two 16-bit checksums A and B and concatenating their bits
+    into a 32-bit integer. A is the sum of all bytes in the stream plus one, and B is the sum of the individual values
+    of A from each step.
 
     :param filename: file name (string).
-    :return: checksum value (string).
+    :raises: Exception.
+    :returns: hexadecimal string, padded to 8 values (string).
     """
 
-    asum = 1  # default adler32 starting value
-    blocksize = 64 * 1024 * 1024  # read buffer size, 64 Mb
+    # adler starting value is _not_ 0
+    adler = 1
 
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(blocksize)
-            if not data:
-                break
-            asum = adler32(data, asum)
-            if asum < 0:
-                asum += 2**32
+    try:
+        with open(filename, 'r+b') as _file:
+            m = mmap(_file.fileno(), 0)
+            for block in iter(partial(m.read, io.DEFAULT_BUFFER_SIZE), b''):
+                adler = adler32(block, adler)
+    except Exception as exc:
+        raise Exception('failed to get adler32 checksum for file %s - %s' % (filename, exc))
+
+    # backflip on 32bit
+    if adler < 0:
+        adler = adler + 2 ** 32
 
     # convert to hex
-    return "{0:08x}".format(asum)
+    return "{0:08x}".format(adler)
 
 
 def calculate_md5_checksum(filename):

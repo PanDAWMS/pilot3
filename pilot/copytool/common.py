@@ -14,6 +14,7 @@ import os
 import re
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import FileHandlingFailure
 from pilot.util.filehandling import calculate_checksum, get_checksum_type, get_checksum_value
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,16 @@ def verify_catalog_checksum(fspec, path):
         fspec.status = 'failed'
         state = 'UNKNOWN_CHECKSUM_TYPE'
     else:
-        checksum_local = calculate_checksum(path, algorithm=checksum_type)
+        try:
+            checksum_local = calculate_checksum(path, algorithm=checksum_type)
+        except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+            diagnostics = 'caught exception during checksum calculation: %s' % exc
+            logger.warning(diagnostics)
+            fspec.status_code = ErrorCodes.CHECKSUMCALCFAILURE
+            fspec.status = 'failed'
+            state = 'CHECKSUMCALCULATIONFAILURE'
+            return state, diagnostics
+
         if checksum_type == 'ad32':
             checksum_type = 'adler32'
         logger.info('checksum (catalog): %s (type: %s)', checksum_catalog, checksum_type)

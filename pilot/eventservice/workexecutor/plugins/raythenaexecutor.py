@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Miha Muskinja, miha.muskinja@cern.ch, 2020
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
 
 import json
 import os
@@ -14,6 +14,7 @@ import time
 import traceback
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import FileHandlingFailure
 from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.info.filespec import FileSpec
 from pilot.util.filehandling import calculate_checksum, move
@@ -52,7 +53,12 @@ class RaythenaExecutor(BaseExecutor):
         return self.exit_code
 
     def create_file_spec(self, pfn):
-        checksum = calculate_checksum(pfn)
+        try:
+            checksum = calculate_checksum(pfn)
+        except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+            logger.warning('caught exception: %s', exc)
+            checksum = ''  # fail later
+
         filesize = os.path.getsize(pfn)
         file_data = {'scope': 'transient',
                      'lfn': os.path.basename(pfn),

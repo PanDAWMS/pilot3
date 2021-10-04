@@ -54,7 +54,7 @@ from pilot.util.auxiliary import (
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import TrfDownloadFailure, PilotException
+from pilot.common.exception import TrfDownloadFailure, PilotException, FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -1102,17 +1102,25 @@ def discover_new_output(name_pattern, workdir):
             # get file size
             filesize = get_local_file_size(path)
             # get checksum
-            checksum = calculate_checksum(path)
-
-            if filesize and checksum:
-                new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
-            else:
+            try:
+                checksum = calculate_checksum(path)
+            except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                 logger.warning(
-                    'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                    'failed to create file info (filesize=%d) for lfn=%s: %s',
                     filesize,
-                    checksum,
-                    lfn
+                    lfn,
+                    exc
                 )
+            else:
+                if filesize and checksum:
+                    new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
+                else:
+                    logger.warning(
+                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                        filesize,
+                        checksum,
+                        lfn
+                    )
 
     return new_output
 
