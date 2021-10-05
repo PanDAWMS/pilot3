@@ -49,7 +49,6 @@ from .utilities import (
 from pilot.util.auxiliary import (
     get_resource_name,
     show_memory_usage,
-    is_python3,
     get_key_value,
 )
 
@@ -217,7 +216,8 @@ def open_remote_files(indata, workdir, nthreads):
             show_memory_usage()
 
             logger.info('*** executing file open verification script:\n\n\'%s\'\n\n', cmd)
-            exit_code, stdout, stderr = execute(cmd, usecontainer=False)
+            timeout = len(indata) * 120 + 120
+            exit_code, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
@@ -1527,13 +1527,8 @@ def parse_jobreport_data(job_report):  # noqa: C901
     work_attributes['outputfiles'] = outputfiles_dict
 
     if work_attributes['inputfiles']:
-        if is_python3():
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
-                                                                         work_attributes['inputfiles']])
-        else:
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, map(lambda inpfiles: len(inpfiles['subFiles']),
-                                                                            work_attributes['inputfiles']))
-
+        work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
+                                                                     work_attributes['inputfiles']])
     if 'resource' in job_report and 'executor' in job_report['resource']:
         j = job_report['resource']['executor']
 

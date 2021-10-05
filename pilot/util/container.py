@@ -47,6 +47,7 @@ def execute(executable, **kwargs):
     usecontainer = kwargs.get('usecontainer', False)
     returnproc = kwargs.get('returnproc', False)
     job = kwargs.get('job')
+    timeout = kwargs.get('timeout', None)
 
     # convert executable to string if it is a list
     if type(executable) is list:
@@ -80,22 +81,15 @@ def execute(executable, **kwargs):
         exe = ['/bin/bash', '-c', executable]
 
     # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
-    if is_python3():  # Python 3
-        process = subprocess.Popen(exe,
-                                   bufsize=-1,
-                                   stdout=stdout_name,
-                                   stderr=stderr_name,
-                                   cwd=cwd,
-                                   preexec_fn=setpgrp,
-                                   encoding='utf-8',
-                                   errors='replace')
-    else:
-        process = subprocess.Popen(exe,
-                                   bufsize=-1,
-                                   stdout=stdout_name,
-                                   stderr=stderr_name,
-                                   cwd=cwd,
-                                   preexec_fn=setpgrp)
+    process = subprocess.Popen(exe,
+                               bufsize=-1,
+                               stdout=stdout_name,
+                               stderr=stderr_name,
+                               cwd=cwd,
+                               preexec_fn=setpgrp,
+                               encoding='utf-8',
+                               errors='replace',
+                               timeout=timeout)
     if returnproc:
         return process
     else:
