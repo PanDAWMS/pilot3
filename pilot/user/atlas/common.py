@@ -217,7 +217,7 @@ def open_remote_files(indata, workdir, nthreads):
 
             logger.info('*** executing file open verification script:\n\n\'%s\'\n\n', cmd)
             timeout = len(indata) * 120 + 120
-            exit_code, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
+            exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
@@ -225,8 +225,10 @@ def open_remote_files(indata, workdir, nthreads):
             show_memory_usage()
 
             # error handling
-            if exit_code:
-                logger.warning('script %s finished with ec=%d', script, exit_code)
+            if exitcode:
+                logger.warning('script %s finished with ec=%d', script, exitcode)
+                if exitcode == errors.COMMANDTIMEDOUT:
+                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
             else:
                 dictionary_path = os.path.join(
                     workdir,

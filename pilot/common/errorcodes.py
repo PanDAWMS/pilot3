@@ -149,6 +149,8 @@ class ErrorCodes:
     MISSINGCREDENTIALS = 1364
     NOCTYPES = 1365
     CHECKSUMCALCFAILURE = 1366
+    COMMANDTIMEDOUT = 1367
+    REMOTEFILEOPENTIMEDOUT = 1368
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -276,7 +278,9 @@ class ErrorCodes:
         KILLPAYLOAD: "Raythena has decided to kill payload",
         MISSINGCREDENTIALS: "Unable to locate credentials for S3 transfer",
         NOCTYPES: "Python module ctypes not available on worker node",
-        CHECKSUMCALCFAILURE: "Failure during checksum calculation"
+        CHECKSUMCALCFAILURE: "Failure during checksum calculation",
+        COMMANDTIMEDOUT: "Command timed out",
+        REMOTEFILEOPENTIMEDOUT: "Remote file open timed out"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
