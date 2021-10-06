@@ -1095,10 +1095,7 @@ class StageOutClient(StagingClient):
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_protocols', True) and files:
-            try:
-                output_dir = kwargs['output_dir']
-            except Exception:
-                output_dir = ""
+            output_dir = kwargs.get('output_dir', '')
             self.require_protocols(files, copytool, activity, local_dir=output_dir)
 
         if not copytool.is_valid_for_copy_out(files):
