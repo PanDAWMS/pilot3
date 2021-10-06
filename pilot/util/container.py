@@ -95,10 +95,12 @@ def execute(executable, **kwargs):
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            stdout = ''
-            stderr = 'subprocess communicate sent TimeoutExpired: %s', exc
-            logger.warning(stderr)
+            _stderr = 'subprocess communicate sent TimeoutExpired: %s', exc
+            logger.warning(_stderr)
             exit_code = errors.COMMANDTIMEDOUT
+            process.kill()
+            stdout, stderr = process.communicate()
+            stderr += '\n' + _stderr
         else:
             exit_code = process.poll()
 
