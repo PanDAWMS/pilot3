@@ -27,7 +27,7 @@ jobs:
                 # fi
 
             - name: Setup Python3
-              uses: actions/setup-python@v3
+              uses: actions/setup-python@v2
               with:
                 python-version: ${{ matrix.python-version }}
                 architecture: x64
