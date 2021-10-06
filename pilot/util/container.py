@@ -88,12 +88,11 @@ def execute(executable, **kwargs):
                                cwd=cwd,
                                preexec_fn=setpgrp,
                                encoding='utf-8',
-                               errors='replace',
-                               timeout=timeout)
+                               errors='replace')
     if returnproc:
         return process
     else:
-        stdout, stderr = process.communicate()
+        stdout, stderr = process.communicate(timeout=timeout)
         exit_code = process.poll()
 
         # remove any added \n
