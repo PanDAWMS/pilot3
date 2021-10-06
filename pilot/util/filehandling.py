@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 import collections
 import hashlib
@@ -21,6 +21,8 @@ from json import dump as dumpjson
 from shutil import copy2, rmtree
 import sys
 from zlib import adler32
+from functools import partial
+from mmap import mmap
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
@@ -40,10 +42,10 @@ def get_pilot_work_dir(workdir):
     :return: The name of main work directory
     """
 
-    return os.path.join(workdir, "PanDA_Pilot2_%d_%s" % (os.getpid(), str(int(time.time()))))
+    return os.path.join(workdir, "PanDA_Pilot3_%d_%s" % (os.getpid(), str(int(time.time()))))
 
 
-def mkdirs(workdir, chmod=0o770):  # Python 2/3
+def mkdirs(workdir, chmod=0o770):
     """
     Create a directory.
     Perform a chmod if set.
@@ -277,24 +279,12 @@ def convert(data):
     :return: converted data to utf-8
     """
 
-    try:
-        _basestring = basestring  # Python 2  # noqa: F821
-    except Exception:
-        _basestring = str  # Python 3 (note order in try statement)
-    if isinstance(data, _basestring):
+    if isinstance(data, str):
         return str(data)
     elif isinstance(data, collections.Mapping):
-        try:
-            ret = dict(list(map(convert, iter(list(data.items())))))  # Python 3
-        except Exception:
-            ret = dict(map(convert, data.iteritems()))  # Python 2
-        return ret
+        return dict(list(map(convert, iter(list(data.items())))))
     elif isinstance(data, collections.Iterable):
-        try:
-            ret = type(data)(list(map(convert, data)))  # Python 3
-        except Exception:
-            ret = type(data)(map(convert, data))  # Python 2
-        return ret
+        return type(data)(list(map(convert, data)))
     else:
         return data
 
@@ -598,10 +588,7 @@ def add_to_total_size(path, total_size):
         fsize = get_local_file_size(path)
         if fsize:
             logger.info("size of file %s: %d B", path, fsize)
-            try:
-                total_size += long(fsize)  # Python 2  # noqa: F821
-            except Exception:
-                total_size += int(fsize)  # Python 3 (note order in try statement)
+            total_size += int(fsize)
     else:
         logger.warning("skipping file %s since it is not present", path)
 
@@ -742,7 +729,7 @@ def calculate_checksum(filename, algorithm='adler32'):
 
     :param filename: file name (string).
     :param algorithm: optional algorithm string.
-    :raises FileHandlingFailure, NotImplementedError: exception raised when file does not exist or for unknown algorithm.
+    :raises FileHandlingFailure, NotImplementedError, Exception.
     :return: checksum value (string).
     """
 
@@ -750,7 +737,11 @@ def calculate_checksum(filename, algorithm='adler32'):
         raise FileHandlingFailure('file does not exist: %s' % filename)
 
     if algorithm == 'adler32' or algorithm == 'adler' or algorithm == 'ad' or algorithm == 'ad32':
-        return calculate_adler32_checksum(filename)
+        try:
+            checksum = calculate_adler32_checksum(filename)
+        except Exception as exc:
+            raise exc
+        return checksum
     elif algorithm == 'md5' or algorithm == 'md5sum' or algorithm == 'md':
         return calculate_md5_checksum(filename)
     else:
@@ -761,27 +752,32 @@ def calculate_checksum(filename, algorithm='adler32'):
 
 def calculate_adler32_checksum(filename):
     """
-    Calculate the adler32 checksum for the given file.
-    The file is assumed to exist.
+    An Adler-32 checksum is obtained by calculating two 16-bit checksums A and B and concatenating their bits
+    into a 32-bit integer. A is the sum of all bytes in the stream plus one, and B is the sum of the individual values
+    of A from each step.
 
     :param filename: file name (string).
-    :return: checksum value (string).
+    :raises: Exception.
+    :returns: hexadecimal string, padded to 8 values (string).
     """
 
-    asum = 1  # default adler32 starting value
-    blocksize = 64 * 1024 * 1024  # read buffer size, 64 Mb
+    # adler starting value is _not_ 0
+    adler = 1
 
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(blocksize)
-            if not data:
-                break
-            asum = adler32(data, asum)
-            if asum < 0:
-                asum += 2**32
+    try:
+        with open(filename, 'r+b') as _file:
+            m = mmap(_file.fileno(), 0)
+            for block in iter(partial(m.read, io.DEFAULT_BUFFER_SIZE), b''):
+                adler = adler32(block, adler)
+    except Exception as exc:
+        raise Exception('failed to get adler32 checksum for file %s - %s' % (filename, exc))
+
+    # backflip on 32bit
+    if adler < 0:
+        adler = adler + 2 ** 32
 
     # convert to hex
-    return "{0:08x}".format(asum)
+    return "{0:08x}".format(adler)
 
 
 def calculate_md5_checksum(filename):
@@ -839,7 +835,7 @@ def get_checksum_type(checksum):
 
     checksum_type = 'unknown'
     if type(checksum) == dict:
-        for key in list(checksum.keys()):  # Python 2/3
+        for key in list(checksum.keys()):
             # the dictionary is assumed to only contain one key-value pair
             checksum_type = key
             break
@@ -1062,7 +1058,7 @@ def copy_pilot_source(workdir):
     """
 
     diagnostics = ""
-    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot2')
+    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     try:
         logger.debug('copy %s to %s', srcdir, workdir)
         cmd = 'cp -r %s/* %s' % (srcdir, workdir)
@@ -1071,7 +1067,7 @@ def copy_pilot_source(workdir):
             diagnostics = 'file copy failed: %d, %s' % (exit_code, stdout)
             logger.warning(diagnostics)
     except Exception as exc:
-        diagnostics = 'exception caught when copying pilot2 source: %s' % exc
+        diagnostics = 'exception caught when copying pilot3 source: %s' % exc
         logger.warning(diagnostics)
 
     return diagnostics

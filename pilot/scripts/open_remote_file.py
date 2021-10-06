@@ -191,7 +191,7 @@ if __name__ == '__main__':
         while turls:
 
             try:
-                _ = queues.result.get(block=True, timeout=60)
+                _ = queues.result.get(block=True)
             except queue.Empty:
                 message("reached time-out")
                 timedout = True

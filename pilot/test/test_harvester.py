@@ -6,6 +6,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021
 
 import os
 import random
@@ -318,12 +319,12 @@ class TestHarvesterStageOut(unittest.TestCase):
                                                    'lifetime': 600,
                                                    'rse': 'CERN-PROD_SCRATCHDISK',
                                                    'attach': {'scope': 'tests',
-                                                              'name': 'pilot2.tests.test_harvester'}},
+                                                              'name': 'pilot3.tests.test_harvester'}},
                                                   {'scope': 'tests',
                                                    'file': tmp_file2,
                                                    'rse': 'CERN-PROD_SCRATCHDISK',
                                                    'attach': {'scope': 'tests',
-                                                              'name': 'pilot2.tests.test_harvester'}}])
+                                                              'name': 'pilot3.tests.test_harvester'}}])
 
         for _file in result:
             self.assertEqual(_file['errno'], 0)
@@ -410,7 +411,7 @@ class TestHarvesterStageOut(unittest.TestCase):
                                                    'lifetime': 600,
                                                    'rse': 'CERN-PROD_SCRATCHDISK',
                                                    'attach': {'scope': 'tests',
-                                                              'name': 'pilot2.tests.test_harvester'}}])
+                                                              'name': 'pilot3.tests.test_harvester'}}])
 
         for _file in result:
             self.assertEqual(_file['errno'], 0)

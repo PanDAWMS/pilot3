@@ -49,12 +49,11 @@ from .utilities import (
 from pilot.util.auxiliary import (
     get_resource_name,
     show_memory_usage,
-    is_python3,
     get_key_value,
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import TrfDownloadFailure, PilotException
+from pilot.common.exception import TrfDownloadFailure, PilotException, FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -188,7 +187,7 @@ def open_remote_files(indata, workdir, nthreads):
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
-        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot2'), script_path)
+        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
         full_script_path = dir1 if os.path.exists(dir1) else dir2
         if not os.path.exists(full_script_path):
@@ -217,7 +216,8 @@ def open_remote_files(indata, workdir, nthreads):
             show_memory_usage()
 
             logger.info('*** executing file open verification script:\n\n\'%s\'\n\n', cmd)
-            exit_code, stdout, stderr = execute(cmd, usecontainer=False)
+            timeout = len(indata) * 120 + 120
+            exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
@@ -225,8 +225,10 @@ def open_remote_files(indata, workdir, nthreads):
             show_memory_usage()
 
             # error handling
-            if exit_code:
-                logger.warning('script %s finished with ec=%d', script, exit_code)
+            if exitcode:
+                logger.warning('script %s finished with ec=%d', script, exitcode)
+                if exitcode == errors.COMMANDTIMEDOUT:
+                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
             else:
                 dictionary_path = os.path.join(
                     workdir,
@@ -1102,17 +1104,25 @@ def discover_new_output(name_pattern, workdir):
             # get file size
             filesize = get_local_file_size(path)
             # get checksum
-            checksum = calculate_checksum(path)
-
-            if filesize and checksum:
-                new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
-            else:
+            try:
+                checksum = calculate_checksum(path)
+            except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                 logger.warning(
-                    'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                    'failed to create file info (filesize=%d) for lfn=%s: %s',
                     filesize,
-                    checksum,
-                    lfn
+                    lfn,
+                    exc
                 )
+            else:
+                if filesize and checksum:
+                    new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
+                else:
+                    logger.warning(
+                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                        filesize,
+                        checksum,
+                        lfn
+                    )
 
     return new_output
 
@@ -1519,13 +1529,8 @@ def parse_jobreport_data(job_report):  # noqa: C901
     work_attributes['outputfiles'] = outputfiles_dict
 
     if work_attributes['inputfiles']:
-        if is_python3():
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
-                                                                         work_attributes['inputfiles']])
-        else:
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, map(lambda inpfiles: len(inpfiles['subFiles']),
-                                                                            work_attributes['inputfiles']))
-
+        work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
+                                                                     work_attributes['inputfiles']])
     if 'resource' in job_report and 'executor' in job_report['resource']:
         j = job_report['resource']['executor']
 
@@ -1861,7 +1866,7 @@ def get_redundants():
                 "/cores",  # new
                 "/work",  # new
                 "docs/",  # new
-                "/pilot2"]  # new
+                "/pilot3"]  # new
 
     return dir_list
 

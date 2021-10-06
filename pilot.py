@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 from __future__ import print_function  # Python 2 (2to3 complains about this)
 from __future__ import absolute_import
@@ -405,7 +405,7 @@ def set_environment_variables(args, mainworkdir):
     # working directory as set with a pilot option (e.g. ..)
     environ['PILOT_WORK_DIR'] = args.workdir  # TODO: replace with singleton
 
-    # main work directory (e.g. /scratch/PanDA_Pilot2_3908_1537173670)
+    # main work directory (e.g. /scratch/PanDA_Pilot3_3908_1537173670)
     environ['PILOT_HOME'] = mainworkdir  # TODO: replace with singleton
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
@@ -510,8 +510,8 @@ def get_pilot_source_dir():
     """
 
     cwd = getcwd()
-    if exists(join(join(cwd, 'pilot2'), 'pilot.py')):  # in case wrapper has untarred src as pilot2 in init dir
-        return join(cwd, 'pilot2')
+    if exists(join(join(cwd, 'pilot3'), 'pilot.py')):  # in case wrapper has untarred src as pilot3 in init dir
+        return join(cwd, 'pilot3')
     elif exists(join(cwd, 'pilot.py')):  # in case pilot gets launched from within the src dir
         return cwd
     else:

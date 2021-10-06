@@ -151,7 +151,7 @@ def get_script_path(script):
     srcdir = environ.get('PILOT_SOURCE_DIR', '.')
     _path = path.join(srcdir, 'pilot/scripts')
     if not path.exists(_path):
-        _path = path.join(srcdir, 'pilot2')
+        _path = path.join(srcdir, 'pilot3')
         _path = path.join(_path, 'pilot/scripts')
     _path = path.join(_path, script)
     if not path.exists(_path):

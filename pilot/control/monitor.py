@@ -89,7 +89,7 @@ def control(queues, traces, args):
 
             # time to check the CPU?
             if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
-                processes = get_process_info('python pilot2/pilot.py', pid=getpid())
+                processes = get_process_info('python pilot3/pilot.py', pid=getpid())
                 if processes:
                     logger.info('-' * 100)
                     logger.info('PID=%d has CPU usage=%s%% MEM usage=%s%% CMD=%s', getpid(), processes[0], processes[1], processes[2])
@@ -129,7 +129,7 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     """
     Return process info for given command.
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
-    a given command (e.g. python pilot2/pilot.py).
+    a given command (e.g. python pilot3/pilot.py).
 
     Example
       get_processes_for_command('sshd:')
