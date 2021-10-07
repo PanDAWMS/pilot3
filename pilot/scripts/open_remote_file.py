@@ -111,9 +111,6 @@ def try_open_file(turl, queues):
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
         message("internal TFile.Open() time-out set to %d ms" % _timeout)
         in_file = ROOT.TFile.Open(turl)
-
-
-        sleep(60)
     except Exception as exc:
         message('caught exception: %s' % exc)
     else:
