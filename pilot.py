@@ -87,12 +87,12 @@ def main():
 
     # execute workflow
     try:
-        exit_code = workflow.run(args)
+        exitcode = workflow.run(args)
     except Exception as exc:
         logger.fatal('main pilot function caught exception: %s', exc)
-        exit_code = None
+        exitcode = None
 
-    return exit_code
+    return exitcode
 
 
 def str2bool(_var):
