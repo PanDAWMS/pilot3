@@ -10,27 +10,18 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
 
 import collections
-import subprocess  # Python 2/3
-try:
-    import commands  # Python 2
-except Exception:
-    pass
+import subprocess
 import json
 import os
 import platform
 import ssl
 import sys
-try:
-    import urllib.request  # Python 3
-    import urllib.error  # Python 3
-    import urllib.parse  # Python 3
-except Exception:
-    import urllib  # Python 2
-    import urllib2  # Python 2
+import urllib.request
+import urllib.error
+import urllib.parse
 import pipes
 
 from .filehandling import write_file
-from .auxiliary import is_python3
 from .config import config
 from .constants import get_pilot_version
 
@@ -142,27 +133,19 @@ def https_setup(args=None, version=None):
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
 
-    if sys.version_info < (2, 7, 9):  # by anisyonk: actually SSL context should work, but prior to 2.7.9 there is no automatic hostname/certificate validation
-        logger.warn('Python version <2.7.9 lacks SSL contexts -- falling back to curl')
+    try:
+        _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
+                                                      cafile=_ctx.cacert)
+    except Exception as exc:
+        logger.warn('SSL communication is impossible due to SSL error: %s -- falling back to curl', exc)
         _ctx.ssl_context = None
-    else:
-        try:
-            _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
-                                                          cafile=_ctx.cacert)
-        except Exception as e:
-            logger.warn('SSL communication is impossible due to SSL error: %s -- falling back to curl' % str(e))
-            _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
     ctx.capath = _ctx.capath
     ctx.cacert = _ctx.cacert
     ctx.user_agent = _ctx.user_agent
-
-    try:
-        ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
-        ctx.ssl_context.load_cert_chain(ctx.cacert)
-    except Exception as e:  # redandant try-catch protection, should work well for both python2 & python3 -- CLEAN ME later (anisyonk)
-        logger.warn('Failed to initialize SSL context .. skipped, error: %s' % str(e))
+    ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
+    ctx.ssl_context.load_cert_chain(ctx.cacert)
 
 
 def request(url, data=None, plain=False, secure=True):
@@ -233,14 +216,9 @@ def request(url, data=None, plain=False, secure=True):
         req = execute_urllib(url, data, plain, secure)
         context = _ctx.ssl_context if secure else None
 
-        if is_python3():  # Python 3
-            ec, output = get_urlopen_output(req, context)
-            if ec:
-                return None
-        else:  # Python 2
-            ec, output = get_urlopen2_output(req, context)
-            if ec:
-                return None
+        ec, output = get_urlopen_output(req, context)
+        if ec:
+            return None
 
         return output.read() if plain else json.load(output)
 
@@ -276,12 +254,9 @@ def get_vars(url, data):
 
     strdata = ""
     for key in data:
-        try:
-            strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})  # Python 3
-        except Exception:
-            strdata += 'data="%s"\n' % urllib.urlencode({key: data[key]})  # Python 2
+        strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})
     jobid = ''
-    if 'jobId' in list(data.keys()):  # Python 2/3
+    if 'jobId' in list(data.keys()):
         jobid = '_%s' % data['jobId']
 
     # write data to temporary config file
@@ -303,10 +278,7 @@ def get_curl_config_option(writestatus, url, data, filename):
 
     if not writestatus:
         logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
-        try:
-            dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')  # Python 3
-        except Exception:
-            dat = pipes.quote(url + '?' + urllib.urlencode(data) if data else '')  # Python 2
+        dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
     else:
         dat = '--config %s %s' % (filename, url)
 
@@ -320,11 +292,8 @@ def execute_request(req):
     :param req: curl request command (string).
     :return: status (int), output (string).
     """
-    try:
-        status, output = subprocess.getstatusoutput(req)  # Python 3
-    except Exception:
-        status, output = commands.getstatusoutput(req)  # Python 2
-    return status, output
+
+    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):
@@ -335,11 +304,8 @@ def execute_urllib(url, data, plain, secure):
     :param data: data structure
     :return: urllib request structure.
     """
-    try:
-        req = urllib.request.Request(url, urllib.parse.urlencode(data))  # Python 3
-    except Exception:
-        req = urllib2.Request(url, urllib.urlencode(data))  # Python 2
 
+    req = urllib.request.Request(url, urllib.parse.urlencode(data))
     if not plain:
         req.add_header('Accept', 'application/json')
     if secure:

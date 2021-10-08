@@ -12,9 +12,6 @@ import json
 import numbers
 import traceback
 import threading
-
-from pilot.util.auxiliary import is_python3
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -107,29 +104,6 @@ def is_int(val):
         return False
 
 
-def is_long(s):
-    """
-    Test value to be convertable to integer.
-
-    :param s: string or whatever
-    :return: True if the value may be converted to Long
-    """
-
-    try:
-        if not isinstance(s, basestring):  # Python 2 # noqa: F821
-            try:
-                long(s)  # noqa: F821
-                return True
-            except ValueError:
-                return False
-    except Exception:
-        return False  # Python 3 - this function should not be used on Python 3
-
-    if s and s[0] in ('-', '+'):
-        return s[1:].isdigit()
-    return s.isdigit()
-
-
 def parse_value(value):
     """
     Tries to parse value as number or None. If some of this can be done, parsed value is returned. Otherwise returns
@@ -139,19 +113,12 @@ def parse_value(value):
     :return: mixed
     """
 
-    try:
-        if not isinstance(value, basestring):  # Python 2 # noqa: F821
-            return value
-    except Exception:
-        if not isinstance(value, str):  # Python 3
-            return value
+    if not isinstance(value, str):
+        return value
 
-    if is_python3():  # Python 3
-        if is_int(value):  # Python 3
-            return int(value)
-    else:
-        if is_long(value):  # Python 2
-            return long(value)  # noqa: F821
+    if is_int(value):
+        return int(value)
+
     if is_float(value):
         return float(value)
 
@@ -403,12 +370,8 @@ class JobDescription(object):
         return join(ret)
 
     def load(self, new_desc):
-        try:
-            if isinstance(new_desc, basestring):  # Python 2 # noqa: F821
-                new_desc = json.loads(new_desc)
-        except Exception:
-            if isinstance(new_desc, str):  # Python 3
-                new_desc = json.loads(new_desc)
+        if isinstance(new_desc, str):
+            new_desc = json.loads(new_desc)
 
         if "PandaID" in new_desc:
             logger.info("Parsing description to be of readable, easy to use format")

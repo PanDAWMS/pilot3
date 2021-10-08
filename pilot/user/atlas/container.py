@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-2020
 
 import os
@@ -21,7 +21,6 @@ from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import verify_proxy
 from pilot.info import InfoService, infosys
-from pilot.util.auxiliary import is_python3
 from pilot.util.config import config
 from pilot.util.filehandling import write_file
 from pilot.util import https
@@ -980,14 +979,12 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
     if 'rucio' in middleware_container:
         content = sitename + 'python3 %s ' % cmd  # only works with python 3
     else:
-        content = ''
-        if is_python3():
-            content += 'export ALRB_LOCAL_PY3=YES; '
+        content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
             content += get_asetup(asetup=False)
         if label == 'stagein' or label == 'stageout':
             content += sitename + 'lsetup rucio davix xrootd; '
-            content += 'python3 %s ' % cmd if is_python3() else 'python %s' % cmd
+            content += 'python3 %s ' % cmd
         else:
             content += cmd
     if not asetup:

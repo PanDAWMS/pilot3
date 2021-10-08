@@ -9,23 +9,12 @@
 
 import subprocess
 from os import environ, getcwd, setpgrp  #, getpgid  #setsid
-from sys import version_info
 
 from pilot.common.errorcodes import ErrorCodes
 
 import logging
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
-
-
-def is_python3():
-    """
-    Check if we are running on Python 3.
-
-    :return: boolean.
-    """
-
-    return version_info >= (3, 0)
 
 
 def execute(executable, **kwargs):

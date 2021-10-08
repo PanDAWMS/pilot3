@@ -15,12 +15,8 @@ from collections import Set, Mapping, deque, OrderedDict
 from numbers import Number
 from time import sleep
 
-try:
-    zero_depth_bases = (basestring, Number, xrange, bytearray)  # Python 2
-    iteritems = 'iteritems'
-except NameError:
-    zero_depth_bases = (str, bytes, Number, range, bytearray)  # Python 3
-    iteritems = 'items'
+zero_depth_bases = (str, bytes, Number, range, bytearray)
+iteritems = 'items'
 
 from pilot.util.constants import (
     SUCCESS,
@@ -125,21 +121,13 @@ def get_batchsystem_jobid():
                         'clusterid': 'Condor',  # Condor (variable sent through job submit file)
                         'SLURM_JOB_ID': 'SLURM'}
 
-    try:
-        for key, value in batchsystem_dict.iteritems():  # Python 2
-            if key in os.environ:
-                return value, os.environ.get(key, '')
-    except Exception:
-        for key, value in list(batchsystem_dict.items()):  # Python 3
-            if key in os.environ:
-                return value, os.environ.get(key, '')
+    for key, value in list(batchsystem_dict.items()):
+        if key in os.environ:
+            return value, os.environ.get(key, '')
 
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
-        try:
-            from commands import getoutput  # Python 2
-        except Exception:
-            from subprocess import getoutput  # Python 3
+        from subprocess import getoutput
         return "Condor", getoutput(
             'sed -n "s/^GlobalJobId.*\\"\\(.*\\)\\".*/\\1/p" %s' % os.environ.get("_CONDOR_JOB_AD"))
 
@@ -175,30 +163,6 @@ def whoami():
     exit_code, who_am_i, stderr = execute('whoami', mute=True)
 
     return who_am_i
-
-
-def get_logger(job_id, log=None):
-    """
-    Return the logger object.
-    Use this function to get the proper logger object. It relies on a python 2.7 function, getChild(), but if the queue
-    is only using Python 2.6, the standard logger object will be returned instead.
-
-    WARNING: it seems using this function can lead to severe memory leaks (multiple GB) in some jobs. Do not use. Keep
-    this definition for possible later investigation.
-
-    :param jod_id: PanDA job id (string).
-    :return: logger object.
-    """
-
-    try:
-        if log:
-            log = log.getChild(job_id)
-        else:
-            log = logger.getChild(job_id)
-    except Exception:
-        if not log:
-            log = logger
-    return log
 
 
 def get_error_code_translation_dictionary():
@@ -387,16 +351,6 @@ def check_for_final_server_update(update_server):
         logger.info('server update not finished (#%d/#%d)', i + 1, max_i)
         sleep(30)
         i += 1
-
-
-def is_python3():
-    """
-    Check if we are running on Python 3.
-
-    :return: boolean.
-    """
-
-    return sys.version_info >= (3, 0)
 
 
 def get_resource_name():
@@ -668,12 +622,4 @@ def is_string(obj):
     :return: True if obj is a string (Boolean).
     """
 
-    value = False
-    try:
-        if isinstance(obj, basestring):  # Python 2 # noqa: F821
-            value = True
-    except NameError:
-        if isinstance(obj, str):  # Python 3
-            value = True
-
-    return value
+    return True if isinstance(obj, str) else False

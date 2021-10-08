@@ -18,12 +18,7 @@ import hashlib
 import random
 import socket
 import logging
-
-try:
-    import Queue as queue  # noqa: N813
-#except ModuleNotFoundError:  # Python 3
-except Exception:
-    import queue  # Python 3
+import queue
 
 from json import dumps  #, loads
 from re import findall
@@ -35,7 +30,7 @@ from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, get_pilot_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
-    is_python3, show_memory_usage, has_instruction_sets, locate_core_file, get_display_info
+    show_memory_usage, has_instruction_sets, locate_core_file, get_display_info
 from pilot.util.config import config
 from pilot.util.common import should_abort, was_pilot_killed
 from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, PILOT_KILL_SIGNAL, LOG_TRANSFER_NOT_DONE, \
@@ -75,7 +70,7 @@ def control(queues, traces, args):
     targets = {'validate': validate, 'retrieve': retrieve, 'create_data_payload': create_data_payload,
                'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
-                         name=name) for name, target in list(targets.items())]  # Python 2/3
+                         name=name) for name, target in list(targets.items())]
 
     [thread.start() for thread in threads]
 
@@ -132,8 +127,8 @@ def _validate_job(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-    container = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    container = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [user], 0)
 
     # should a container be used for the payload?
     try:
@@ -689,7 +684,7 @@ def process_debug_mode(job):
     # for gdb commands, use the proper gdb version (the system one may be too old)
     if job.debug_command.startswith('gdb '):
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
         user.preprocess_debug_command(job)
 
     stdout = get_debug_stdout(job)
@@ -740,7 +735,7 @@ def get_general_command_stdout(job):
     # for gdb, we might have to process the debug command (e.g. to identify the proper pid to debug)
     if 'gdb ' in job.debug_command and '--pid %' in job.debug_command:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
         job.debug_command = user.process_debug_command(job.debug_command, job.jobid)
 
     if job.debug_command:
@@ -906,7 +901,7 @@ def add_timing_and_extracts(data, job, state, args):
     extracts = ""
     if state == 'failed' or state == 'holding':
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
         extracts = user.get_log_extracts(job, state)
         if extracts != "":
             logger.warning('\nXXXXXXXXXXXXXXXXXXXXX[begin log extracts]\n%s\nXXXXXXXXXXXXXXXXXXXXX[end log extracts]', extracts)
@@ -926,7 +921,7 @@ def add_memory_info(data, workdir, name=""):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         utility_node = utilities.get_memory_monitor_info(workdir, name=name)
         data.update(utility_node)
@@ -1069,7 +1064,7 @@ def validate(queues, traces, args):
 
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
             try:
                 utilities.precleanup()
             except Exception as error:
@@ -1108,8 +1103,7 @@ def verify_ctypes(queues, job):
 
     try:
         import ctypes
-    # except ModuleNotFoundError as error:  # Python 3
-    except Exception as error:
+    except ModuleNotFoundError as error:
         diagnostics = 'ctypes python module could not be imported: %s' % error
         logger.warning(diagnostics)
         #job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOCTYPES, msg=diagnostics)
@@ -1379,13 +1373,13 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     currenttime = time.time()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    common = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    common = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     if not common.allow_timefloor(submitmode):
         timefloor = 0
 
     # should the proxy be verified?
     if verify_proxy:
-        userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # is the proxy still valid?
         exit_code, diagnostics = userproxy.verify_proxy()
@@ -1511,11 +1505,7 @@ def get_job_definition_from_file(path, harvester):
         else:
             # parse response message
             # logger.debug('%s:\n\n%s\n\n', path, response)
-            try:
-                from urlparse import parse_qsl  # Python 2
-            # except ModuleNotFoundError:  # Python 3
-            except Exception:
-                from urllib.parse import parse_qsl  # Python 3
+            from urllib.parse import parse_qsl
             datalist = parse_qsl(response, keep_blank_values=True)
 
             # convert to dictionary
@@ -1767,18 +1757,6 @@ def get_fake_job(input=True):
             res['inFiles'] = ''
             res['outFiles'] = ''
 
-        # convert to unicode for Python 2
-        try:  # in case some later version of Python 3 has problems using u'' (seems ok with 3.7 at least)
-            if not is_python3():
-                _res = {}
-                for entry in res:
-                    if type(res[entry]) is str:
-                        _res[u'%s' % entry] = u'%s' % res[entry]
-                    else:
-                        _res[u'%s' % entry] = res[entry]
-                res = _res
-        except Exception:
-            pass
     return res
 
 
@@ -2271,7 +2249,7 @@ def update_server(job, args):
 
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     metadata = user.get_metadata(job.workdir)
     try:
         user.update_server(job)
@@ -2425,7 +2403,7 @@ def fast_monitor_tasks(job):
     exit_code = 0
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.monitoring' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.monitoring' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         exit_code = user.fast_monitor_tasks(job)
     except Exception as exc:

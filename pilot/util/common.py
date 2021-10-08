@@ -5,10 +5,9 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import os
-import sys
 
 from pilot.util.constants import PILOT_KILL_SIGNAL
 from pilot.util.timing import get_time_since
@@ -57,13 +56,3 @@ def was_pilot_killed(timing):
         if PILOT_KILL_SIGNAL in timing[i]:
             was_killed = True
     return was_killed
-
-
-def is_python3():
-    """
-    Check if we are running on Python 3.
-
-    :return: boolean.
-    """
-
-    return sys.version_info >= (3, 0)
