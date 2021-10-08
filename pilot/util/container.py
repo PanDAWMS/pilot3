@@ -48,14 +48,7 @@ def execute(executable, **kwargs):
             return None if kwargs.get('returnproc', False) else -1, "", diagnostics
 
     if not kwargs.get('mute', False):
-        executable_readable = executable
-        executables = executable_readable.split(";")
-        for sub_cmd in executables:
-            if 'S3_SECRET_KEY=' in sub_cmd:
-                secret_key = sub_cmd.split('S3_SECRET_KEY=')[1]
-                secret_key = 'S3_SECRET_KEY=' + secret_key
-                executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
-        logger.info('executing command: %s', executable_readable)
+        print_executable(executable)
 
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
@@ -88,6 +81,24 @@ def execute(executable, **kwargs):
             stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
+
+
+def print_executable(executable):
+    """
+    Print out the command to be executed, omitting any secrets.
+    Any S3_SECRET_KEY=... parts will be removed.
+
+    :param executable: executable (string).
+    :return:
+    """
+
+    executable_readable = executable
+    for sub_cmd in executable_readable.split(";"):
+        if 'S3_SECRET_KEY=' in sub_cmd:
+            secret_key = sub_cmd.split('S3_SECRET_KEY=')[1]
+            secret_key = 'S3_SECRET_KEY=' + secret_key
+            executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
+    logger.info('executing command: %s', executable_readable)
 
 
 def containerise_executable(executable, **kwargs):
