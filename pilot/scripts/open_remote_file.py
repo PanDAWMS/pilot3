@@ -12,7 +12,6 @@ import logging
 import threading
 import queue
 import ROOT
-from time import sleep
 from collections import namedtuple
 
 from pilot.util.config import config

@@ -15,6 +15,7 @@ from pilot.util.timing import get_time_since
 
 logger = logging.getLogger(__name__)
 
+
 def should_abort(args, limit=30, label=''):
     """
     Abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set).

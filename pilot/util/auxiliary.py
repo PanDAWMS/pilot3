@@ -10,13 +10,11 @@
 import os
 import re
 import sys
+import logging
 
 from collections import Set, Mapping, deque, OrderedDict
 from numbers import Number
 from time import sleep
-
-zero_depth_bases = (str, bytes, Number, range, bytearray)
-iteritems = 'items'
 
 from pilot.util.constants import (
     SUCCESS,
@@ -31,9 +29,9 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.util.container import execute
 from pilot.util.filehandling import dump
 
-import logging
+zero_depth_bases = (str, bytes, Number, range, bytearray)
+iteritems = 'items'
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
