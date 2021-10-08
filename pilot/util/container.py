@@ -8,11 +8,11 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import subprocess
+import logging
 from os import environ, getcwd, setpgrp  #, getpgid  #setsid
 
 from pilot.common.errorcodes import ErrorCodes
 
-import logging
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
@@ -28,18 +28,11 @@ def execute(executable, **kwargs):
     :return: exit code, stdout and stderr (or process if requested via returnproc argument)
     """
 
-    mute = kwargs.get('mute', False)
-    mode = kwargs.get('mode', 'bash')
-    cwd = kwargs.get('cwd', getcwd())
-    stdout_name = kwargs.get('stdout', subprocess.PIPE)
-    stderr_name = kwargs.get('stderr', subprocess.PIPE)
     usecontainer = kwargs.get('usecontainer', False)
-    returnproc = kwargs.get('returnproc', False)
     job = kwargs.get('job')
-    timeout = kwargs.get('timeout', None)
 
     # convert executable to string if it is a list
-    if type(executable) is list:
+    if isinstance(executable, list):
         executable = ' '.join(executable)
 
     # switch off pilot controlled containers for user defined containers
@@ -52,9 +45,9 @@ def execute(executable, **kwargs):
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
-            return None if returnproc else -1, "", diagnostics
+            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
 
-    if not mute:
+    if not kwargs.get('mute', False):
         executable_readable = executable
         executables = executable_readable.split(";")
         for sub_cmd in executables:
@@ -64,25 +57,22 @@ def execute(executable, **kwargs):
                 executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
         logger.info('executing command: %s', executable_readable)
 
-    if mode == 'python':
-        exe = ['/usr/bin/python'] + executable.split()
-    else:
-        exe = ['/bin/bash', '-c', executable]
+    exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
     process = subprocess.Popen(exe,
                                bufsize=-1,
-                               stdout=stdout_name,
-                               stderr=stderr_name,
-                               cwd=cwd,
+                               stdout=kwargs.get('stdout', subprocess.PIPE),
+                               stderr=kwargs.get('stderr', subprocess.PIPE),
+                               cwd=kwargs.get('cwd', getcwd()),
                                preexec_fn=setpgrp,
                                encoding='utf-8',
                                errors='replace')
-    if returnproc:
+    if kwargs.get('returnproc', False):
         return process
     else:
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
+            stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
             _stderr = 'subprocess communicate sent TimeoutExpired: %s' % exc
             logger.warning(_stderr)
