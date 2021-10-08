@@ -235,7 +235,7 @@ def open_remote_files(indata, workdir, nthreads):
                     exitcode = 0
                 elif _exitcode:
                     exitcode = _exitcode
-                elif exitcode == errors.COMMANDTIMEDOUT:
+                if exitcode == errors.COMMANDTIMEDOUT:
                     exitcode = errors.REMOTEFILEOPENTIMEDOUT
             else:
                 exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
