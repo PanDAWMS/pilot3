@@ -7,7 +7,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 import collections
 import subprocess
@@ -84,7 +84,7 @@ def cacert_default_location():
     try:
         return '/tmp/x509up_u%s' % str(os.getuid())
     except AttributeError:
-        logger.warn('No UID available? System not POSIX-compatible... trying to continue')
+        logger.warning('No UID available? System not POSIX-compatible... trying to continue')
         pass
 
     return None
@@ -128,7 +128,7 @@ def https_setup(args=None, version=None):
                                                        sys.version.split()[0],
                                                        platform.system(),
                                                        platform.machine())
-    logger.debug('User-Agent: %s' % _ctx.user_agent)
+    logger.debug('User-Agent: %s', _ctx.user_agent)
 
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
@@ -137,7 +137,7 @@ def https_setup(args=None, version=None):
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
     except Exception as exc:
-        logger.warn('SSL communication is impossible due to SSL error: %s -- falling back to curl', exc)
+        logger.warning('SSL communication is impossible due to SSL error: %s -- falling back to curl', exc)
         _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
@@ -179,7 +179,7 @@ def request(url, data=None, plain=False, secure=True):
 
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
-    logger.debug('server update dictionary = \n%s' % str(data))
+    logger.debug('server update dictionary = \n%s', str(data))
 
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
@@ -193,12 +193,12 @@ def request(url, data=None, plain=False, secure=True):
 
         try:
             status, output = execute_request(req)
-        except Exception as e:
-            logger.warning('exception: %s' % e)
+        except Exception as exc:
+            logger.warning('exception: %s', exc)
             return None
         else:
             if status != 0:
-                logger.warn('request failed (%s): %s' % (status, output))
+                logger.warning('request failed (%s): %s', status, output)
                 return None
 
         # return output if plain otherwise return json.loads(output)
@@ -207,8 +207,8 @@ def request(url, data=None, plain=False, secure=True):
         else:
             try:
                 ret = json.loads(output)
-            except Exception as e:
-                logger.warning('json.loads() failed to parse output=%s: %s' % (output, e))
+            except Exception as exc:
+                logger.warning('json.loads() failed to parse output=%s: %s', output, exc)
                 return None
             else:
                 return ret
@@ -239,7 +239,7 @@ def get_curl_command(plain, dat):
                            pipes.quote('User-Agent: %s' % _ctx.user_agent),
                            "-H " + pipes.quote('Accept: application/json') if not plain else '',
                            dat)
-    logger.info('request: %s' % req)
+    logger.info('request: %s', req)
     return req
 
 
@@ -323,38 +323,15 @@ def get_urlopen_output(req, context):
     :return: ec (int), output (string).
     """
 
-    ec = -1
+    exitcode = -1
     output = ""
     try:
         output = urllib.request.urlopen(req, context=context)
-    except urllib.error.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib.error.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
+    except urllib.error.HTTPError as exc:
+        logger.warning('server error (%s): %s' % (exc.code, exc.read()))
+    except urllib.error.URLError as exc:
+        logger.warning('connection error: %s' % exc.reason)
     else:
-        ec = 0
+        exitcode = 0
 
-    return ec, output
-
-
-def get_urlopen2_output(req, context):
-    """
-    Get the output from the urlopen2 request.
-
-    :param req:
-    :param context:
-    :return: ec (int), output (string).
-    """
-
-    ec = -1
-    output = ""
-    try:
-        output = urllib2.urlopen(req, context=context)
-    except urllib2.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib2.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
-    else:
-        ec = 0
-
-    return ec, output
+    return exitcode, output
