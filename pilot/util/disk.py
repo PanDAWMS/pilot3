@@ -20,7 +20,6 @@ if hasattr(os, 'statvfs'):  # POSIX
         total = stat.f_blocks * stat.f_frsize
         used = (stat.f_blocks - stat.f_bfree) * stat.f_frsize
         return ntuple_diskusage(total, used, free)
-
 else:
     def disk_usage(path):
         return ntuple_diskusage(0, 0, 0)
