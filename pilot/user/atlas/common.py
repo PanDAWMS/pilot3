@@ -215,7 +215,7 @@ def open_remote_files(indata, workdir, nthreads):
 
             show_memory_usage()
 
-            timeout = len(indata) * 120 + 120
+            timeout = len(indata) * 120 + 180
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
@@ -227,36 +227,60 @@ def open_remote_files(indata, workdir, nthreads):
             # error handling
             if exitcode:
                 logger.warning('script %s finished with ec=%d', script, exitcode)
-                if exitcode == errors.COMMANDTIMEDOUT:
+
+                # note: ignore any time-out errors if the remote files could still be opened
+                _exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
+                if not _exitcode:
+                    logger.info('ignoring time-out error since remote file could still be opened')
+                    exitcode = 0
+                elif _exitcode:
+                    exitcode = _exitcode
+                elif exitcode == errors.COMMANDTIMEDOUT:
                     exitcode = errors.REMOTEFILEOPENTIMEDOUT
             else:
-                dictionary_path = os.path.join(
-                    workdir,
-                    config.Pilot.remotefileverification_dictionary
-                )
-                if not dictionary_path:
-                    logger.warning('file does not exist: %s', dictionary_path)
-                else:
-                    file_dictionary = read_json(dictionary_path)
-                    if not file_dictionary:
-                        logger.warning('could not read dictionary from %s', dictionary_path)
-                    else:
-                        not_opened = ""
-                        for turl in file_dictionary:
-                            opened = file_dictionary[turl]
-                            if not opened:
-                                logger.info('turl could not be opened: %s', turl)
-                                not_opened += turl if not not_opened else ",%s" % turl
-                            else:
-                                logger.info('turl could be opened: %s', turl)
-
-                        if not_opened:
-                            exitcode = errors.REMOTEFILECOULDNOTBEOPENED
-                            diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+                exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
 
     return exitcode, diagnostics, not_opened
+
+
+def parse_remotefileverification_dictionary(workdir):
+    """
+    Verify that all files could be remotely opened.
+    Note: currently ignoring if remote file dictionary doesn't exist.
+
+    :param workdir: work directory needed for opening remote file dictionary (string).
+    :return: exit code (int), diagnostics (string).
+    """
+
+    exitcode = 0
+    diagnostics = ""
+    not_opened = ""
+
+    dictionary_path = os.path.join(
+        workdir,
+        config.Pilot.remotefileverification_dictionary
+    )
+
+    file_dictionary = read_json(dictionary_path)
+    if not file_dictionary:
+        diagnostics = 'could not read dictionary from %s' % dictionary_path
+        logger.warning(diagnostics)
+    else:
+        for turl in file_dictionary:
+            opened = file_dictionary[turl]
+            if not opened:
+                logger.info('turl could not be opened: %s', turl)
+                not_opened += turl if not not_opened else ",%s" % turl
+            else:
+                logger.info('turl could be opened: %s', turl)
+
+    if not_opened:
+        exitcode = errors.REMOTEFILECOULDNOTBEOPENED
+        diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+
+    return exitcode, diagnostics
 
 
 def get_file_open_command(script_path, turls, nthreads):
