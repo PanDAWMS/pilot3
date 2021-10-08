@@ -44,8 +44,6 @@ def pilot_version_banner():
     :return:
     """
 
-    logger = logging.getLogger(__name__)
-
     version = '***  PanDA Pilot version %s  ***' % get_pilot_version()
     logger.info('*' * len(version))
     logger.info(version)
@@ -92,7 +90,7 @@ def display_architecture_info():
 
     logger.info("architecture information:")
 
-    exit_code, stdout, stderr = execute("lsb_release -a", mute=True)
+    _, stdout, stderr = execute("lsb_release -a", mute=True)
     if 'Command not found' in stdout or 'Command not found' in stderr:
         # Dump standard architecture info files if available
         dump("/etc/lsb-release")
@@ -160,7 +158,7 @@ def whoami():
     :return: whoami output (string).
     """
 
-    exit_code, who_am_i, stderr = execute('whoami', mute=True)
+    _, who_am_i, _ = execute('whoami', mute=True)
 
     return who_am_i
 
@@ -551,7 +549,7 @@ def get_pid_from_command(cmd, pattern=r'gdb --pid (\d+)'):
         except Exception:
             pid = None
     else:
-        print('no match for pattern \'%s\' in command=\'%s\'' % (pattern, cmd))
+        logger.warning('no match for pattern \'%s\' in command=\'%s\'', pattern, cmd)
 
     return pid
 
