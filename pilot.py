@@ -95,14 +95,14 @@ def main():
     return exit_code
 
 
-def str2bool(v):
+def str2bool(_var):
     """ Helper function to convert string to bool """
 
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if isinstance(_var, bool):
+        return _var
+    if _var.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif _var.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
@@ -365,33 +365,32 @@ def create_main_work_dir():
     :return: exit code (int), main work directory (string).
     """
 
-    exit_code = 0
+    exitcode = 0
 
     if args.workdir != "":
-        mainworkdir = get_pilot_work_dir(args.workdir)
+        _mainworkdir = get_pilot_work_dir(args.workdir)
         try:
             # create the main PanDA Pilot work directory
-            mkdirs(mainworkdir)
+            mkdirs(_mainworkdir)
         except PilotException as error:
             # print to stderr since logging has not been established yet
-            print('failed to create workdir at %s -- aborting: %s' % (mainworkdir, error), file=sys.stderr)
-            exit_code = shell_exit_code(error._errorCode)
+            print('failed to create workdir at %s -- aborting: %s' % (_mainworkdir, error), file=sys.stderr)
+            exitcode = shell_exit_code(error._errorCode)
     else:
-        mainworkdir = getcwd()
+        _mainworkdir = getcwd()
 
-    args.mainworkdir = mainworkdir
+    args.mainworkdir = _mainworkdir
     chdir(mainworkdir)
 
-    return exit_code, mainworkdir
+    return exitcode, _mainworkdir
 
 
-def set_environment_variables(mainworkdir):
+def set_environment_variables():
     """
     Set environment variables. To be replaced with singleton implementation.
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
-    Note: args, used in this function, is defined in outer scope.
+    Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :param mainworkdir: work directory (string).
     :return:
     """
 
@@ -442,21 +441,19 @@ def set_environment_variables(mainworkdir):
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
 
 
-def wrap_up(initdir, mainworkdir):
+def wrap_up():
     """
     Perform cleanup and terminate logging.
-    Note: args, used in this function, is defined in outer scope.
+    Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :param initdir: launch directory (string).
-    :param mainworkdir: main work directory (string).
     :return: exit code (int).
     """
 
-    exit_code = 0
+    exitcode = 0
 
     # cleanup pilot workdir if created
-    if initdir != mainworkdir and args.cleanup:
-        chdir(initdir)
+    if args.sourcedir != mainworkdir and args.cleanup:
+        chdir(args.sourcedir)
         try:
             rmtree(mainworkdir)
         except Exception as exc:
@@ -470,29 +467,29 @@ def wrap_up(initdir, mainworkdir):
         kill_worker()
 
     try:
-        exit_code = trace.pilot['error_code']
+        exitcode = trace.pilot['error_code']
     except Exception:
-        exit_code = trace
+        exitcode = trace
     else:
-        logging.info('traces error code: %d', exit_code)
+        logging.info('traces error code: %d', exitcode)
         if trace.pilot['nr_jobs'] <= 1:
-            if exit_code != 0:
-                logging.info('an exit code was already set: %d (will be converted to a standard shell code)', exit_code)
+            if exitcode != 0:
+                logging.info('an exit code was already set: %d (will be converted to a standard shell code)', exitcode)
         elif trace.pilot['nr_jobs'] > 0:
             if trace.pilot['nr_jobs'] == 1:
                 logging.getLogger(__name__).info('pilot has finished (%d job was processed)', trace.pilot['nr_jobs'])
             else:
                 logging.getLogger(__name__).info('pilot has finished (%d jobs were processed)', trace.pilot['nr_jobs'])
-            exit_code = SUCCESS
+            exitcode = SUCCESS
         elif trace.pilot['state'] == FAILURE:
             logging.critical('pilot workflow failure -- aborting')
         elif trace.pilot['state'] == ERRNO_NOJOBS:
             logging.critical('pilot did not process any events -- aborting')
-            exit_code = ERRNO_NOJOBS
+            exitcode = ERRNO_NOJOBS
     logging.info('pilot has finished')
     logging.shutdown()
 
-    return shell_exit_code(exit_code)
+    return shell_exit_code(exitcode)
 
 
 def get_pilot_source_dir():
@@ -541,7 +538,7 @@ if __name__ == '__main__':
         sys.exit(exit_code)
 
     # set environment variables (to be replaced with singleton implementation)
-    set_environment_variables(mainworkdir)
+    set_environment_variables()
 
     # setup and establish standard logging
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -553,7 +550,7 @@ if __name__ == '__main__':
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)
 
     # perform cleanup and terminate logging
-    exit_code = wrap_up(args.sourcedir, mainworkdir)
+    exit_code = wrap_up()
 
     # the end.
     sys.exit(exit_code)
