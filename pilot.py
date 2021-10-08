@@ -88,18 +88,11 @@ def main():
     # execute workflow
     try:
         exit_code = workflow.run(args)
-    except Exception as e:
-        logger.fatal('main pilot function caught exception: %s', e)
+    except Exception as exc:
+        logger.fatal('main pilot function caught exception: %s', exc)
         exit_code = None
 
     return exit_code
-
-
-class Args:
-    """
-    Dummy namespace class used to contain pilot arguments.
-    """
-    pass
 
 
 def str2bool(v):
@@ -363,12 +356,12 @@ def get_args():
     return arg_parser.parse_args()
 
 
-def create_main_work_dir(args):
+def create_main_work_dir():
     """
     Create and return the pilot's main work directory.
     The function also sets args.mainworkdir and cd's into this directory.
+    Note: args, used in this function, is defined in outer scope.
 
-    :param args: pilot arguments object.
     :return: exit code (int), main work directory (string).
     """
 
@@ -392,12 +385,12 @@ def create_main_work_dir(args):
     return exit_code, mainworkdir
 
 
-def set_environment_variables(args, mainworkdir):
+def set_environment_variables(mainworkdir):
     """
     Set environment variables. To be replaced with singleton implementation.
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
+    Note: args, used in this function, is defined in outer scope.
 
-    :param args: args object.
     :param mainworkdir: work directory (string).
     :return:
     """
@@ -449,13 +442,13 @@ def set_environment_variables(args, mainworkdir):
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
 
 
-def wrap_up(initdir, mainworkdir, args):
+def wrap_up(initdir, mainworkdir):
     """
     Perform cleanup and terminate logging.
+    Note: args, used in this function, is defined in outer scope.
 
     :param initdir: launch directory (string).
     :param mainworkdir: main work directory (string).
-    :param args: pilot arguments object.
     :return: exit code (int).
     """
 
@@ -466,8 +459,8 @@ def wrap_up(initdir, mainworkdir, args):
         chdir(initdir)
         try:
             rmtree(mainworkdir)
-        except Exception as e:
-            logging.warning("failed to remove %s: %s", mainworkdir, e)
+        except Exception as exc:
+            logging.warning("failed to remove %s: %s", mainworkdir, exc)
         else:
             logging.info("removed %s", mainworkdir)
 
@@ -543,12 +536,12 @@ if __name__ == '__main__':
     # if requested by the wrapper via a pilot option, create the main pilot workdir and cd into it
     args.sourcedir = getcwd()  #get_pilot_source_dir()
 
-    exit_code, mainworkdir = create_main_work_dir(args)
+    exit_code, mainworkdir = create_main_work_dir()
     if exit_code != 0:
         sys.exit(exit_code)
 
     # set environment variables (to be replaced with singleton implementation)
-    set_environment_variables(args, mainworkdir)
+    set_environment_variables(mainworkdir)
 
     # setup and establish standard logging
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -560,7 +553,7 @@ if __name__ == '__main__':
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)
 
     # perform cleanup and terminate logging
-    exit_code = wrap_up(args.sourcedir, mainworkdir, args)
+    exit_code = wrap_up(args.sourcedir, mainworkdir)
 
     # the end.
     sys.exit(exit_code)
