@@ -71,8 +71,8 @@ def is_virtual_machine():
     status = False
 
     # look for 'hypervisor' in cpuinfo
-    with open("/proc/cpuinfo", "r") as fd:
-        lines = fd.readlines()
+    with open("/proc/cpuinfo", "r") as _fd:
+        lines = _fd.readlines()
         for line in lines:
             if "hypervisor" in line:
                 status = True
@@ -489,17 +489,17 @@ def has_instruction_sets(instruction_sets):
     """
 
     ret = ''
-    r = ''
+    pattern = ''
 
-    for i in instruction_sets:
-        r += r'\|%s[^ ]*\|%s[^ ]*' % (i.lower(), i.upper()) if r else r'%s[^ ]*\|%s[^ ]*' % (i.lower(), i.upper())
-    cmd = "grep -o \'%s\' /proc/cpuinfo" % r
+    for instr in instruction_sets:
+        pattern += r'\|%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper()) if pattern else r'%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper())
+    cmd = "grep -o \'%s\' /proc/cpuinfo" % pattern
 
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
-        for i in instruction_sets:
-            if i.lower() in stdout.split() or i.upper() in stdout.split():
-                ret += '|%s' % i.upper() if ret else i.upper()
+        for instr in instruction_sets:
+            if instr.lower() in stdout.split() or instr.upper() in stdout.split():
+                ret += '|%s' % instr.upper() if ret else instr.upper()
 
     return ret
 
