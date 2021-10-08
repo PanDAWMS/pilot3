@@ -15,22 +15,21 @@ import re
 import tarfile
 import time
 import uuid
+import sys
+import logging
 from glob import glob
-from json import load
+from json import load, JSONDecodeError
 from json import dump as dumpjson
 from shutil import copy2, rmtree
-import sys
 from zlib import adler32
 from functools import partial
 from mmap import mmap
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
-#from pilot.util.mpi import get_ranks_info
 from .container import execute
 from .math import diff_lists
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -93,10 +92,10 @@ def read_file(filename, mode='r'):
     """
 
     out = ""
-    f = open_file(filename, mode)
-    if f:
-        out = f.read()
-        f.close()
+    _file = open_file(filename, mode)
+    if _file:
+        out = _file.read()
+        _file.close()
 
     return out
 
@@ -120,15 +119,15 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
     if unique:
         path = get_nonexistant_path(path)
 
-    f = open_file(path, mode)
-    if f:
+    _file = open_file(path, mode)
+    if _file:
         try:
-            f.write(contents)
+            _file.write(contents)
         except IOError as exc:
             raise FileHandlingFailure(exc)
         else:
             status = True
-        f.close()
+        _file.close()
 
     if not mute:
         if 'w' in mode:
@@ -150,13 +149,13 @@ def open_file(filename, mode):
     :return: file pointer.
     """
 
-    f = None
+    _file = None
     try:
-        f = open(filename, mode)
+        _file = open(filename, mode)
     except IOError as exc:
         raise FileHandlingFailure(exc)
 
-    return f
+    return _file
 
 
 def find_text_files():
@@ -170,7 +169,7 @@ def find_text_files():
     # -I = ignore binary files
     cmd = r"find . -type f -exec grep -Iq . {} \; -print"
 
-    exit_code, stdout, stderr = execute(cmd)
+    _, stdout, _ = execute(cmd)
     if stdout:
         # remove last \n if present
         if stdout.endswith('\n'):
@@ -191,7 +190,7 @@ def get_files(pattern="*.log"):
     files = []
     cmd = "find . -name %s" % pattern
 
-    exit_code, stdout, stderr = execute(cmd)
+    _, stdout, _ = execute(cmd)
     if stdout:
         # remove last \n if present
         if stdout.endswith('\n'):
@@ -211,9 +210,9 @@ def tail(filename, nlines=10):
     :return: file tail (str).
     """
 
-    exit_code, stdout, stderr = execute('tail -n %d %s' % (nlines, filename))
+    _, stdout, _ = execute('tail -n %d %s' % (nlines, filename))
     # protection
-    if type(stdout) != str:
+    if not isinstance(stdout, str):
         stdout = ""
     return stdout
 
@@ -234,23 +233,23 @@ def grep(patterns, file_name):
     """
 
     matched_lines = []
-    p = []
+    _pats = []
     for pattern in patterns:
-        p.append(re.compile(pattern))
+        _pats.append(re.compile(pattern))
 
-    f = open_file(file_name, 'r')
-    if f:
+    _file = open_file(file_name, 'r')
+    if _file:
         while True:
             # get the next line in the file
-            line = f.readline()
+            line = _file.readline()
             if not line:
                 break
 
             # can the search pattern be found
-            for cp in p:
-                if re.search(cp, line):
+            for _cp in _pats:
+                if re.search(_cp, line):
                     matched_lines.append(line)
-        f.close()
+        _file.close()
 
     return matched_lines
 
@@ -299,8 +298,8 @@ def is_json(input_file):
     """
 
     with open(input_file) as unknown_file:
-        c = unknown_file.read(1)
-        if c == '{':
+        first_char = unknown_file.read(1)
+        if first_char == '{':
             return True
         return False
 
@@ -335,15 +334,15 @@ def read_json(filename):
     """
 
     dictionary = None
-    f = open_file(filename, 'r')
-    if f:
+    _file = open_file(filename, 'r')
+    if _file:
         try:
-            dictionary = load(f)
-        except Exception as exc:
+            dictionary = load(_file)
+        except JSONDecodeError as exc:
             logger.warning('exception caught: %s', exc)
             #raise FileHandlingFailure(str(error))
         else:
-            f.close()
+            _file.close()
 
             # Try to convert the dictionary from unicode to utf-8
             if dictionary != {}:
