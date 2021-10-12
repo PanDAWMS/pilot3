@@ -380,7 +380,7 @@ def create_main_work_dir():
         _mainworkdir = getcwd()
 
     args.mainworkdir = _mainworkdir
-    chdir(mainworkdir)
+    chdir(_mainworkdir)
 
     return exitcode, _mainworkdir
 
