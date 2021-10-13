@@ -279,13 +279,14 @@ def convert(data):
     """
 
     if isinstance(data, str):
-        return str(data)
+        ret = str(data)
     elif isinstance(data, collections.Mapping):
-        return dict(list(map(convert, iter(list(data.items())))))
+        ret = dict(list(map(convert, iter(list(data.items())))))
     elif isinstance(data, collections.Iterable):
-        return type(data)(list(map(convert, data)))
+        ret = type(data)(list(map(convert, data)))
     else:
-        return data
+        ret = data
+    return ret
 
 
 def is_json(input_file):
@@ -370,8 +371,8 @@ def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': '))
     status = False
 
     try:
-        with open(filename, 'w') as fh:
-            dumpjson(data, fh, sort_keys=sort_keys, indent=indent, separators=separators)
+        with open(filename, 'w') as _fh:
+            dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
     except IOError as exc:
         raise FileHandlingFailure(exc)
     else:
@@ -392,8 +393,8 @@ def touch(path):
     try:
         with open(path, 'a'):
             os.utime(path, None)
-    except Exception:
-        exit_code, stdout, stderr = execute('touch %s' % path)
+    except OSError:
+        _ = execute('touch %s' % path)
 
 
 def remove_empty_directories(src_dir):
@@ -405,7 +406,7 @@ def remove_empty_directories(src_dir):
     :return:
     """
 
-    for dirpath, subdirs, files in os.walk(src_dir, topdown=False):
+    for dirpath, _, _ in os.walk(src_dir, topdown=False):
         if dirpath == src_dir:
             break
         try:
@@ -456,17 +457,17 @@ def remove_files(workdir, files):
     :return: exit code (0 if all went well, -1 otherwise)
     """
 
-    ec = 0
-    if type(files) != list:
+    exitcode = 0
+    if not isinstance(files, list):
         logger.warning('files parameter not a list: %s', str(type(list)))
-        ec = -1
+        exitcode = -1
     else:
-        for f in files:
-            _ec = remove(os.path.join(workdir, f))
-            if _ec != 0 and ec == 0:
-                ec = _ec
+        for _file in files:
+            _ec = remove(os.path.join(workdir, _file))
+            if _ec != 0 and exitcode == 0:
+                exitcode = _ec
 
-    return ec
+    return exitcode
 
 
 def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
@@ -482,19 +483,18 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
 
     to_pack = []
     pack_start = time.time()
-    for path, subdir, files in os.walk(wkdir):
-        for file in files:
-            if file not in excludedfiles:
-                rel_dir = os.path.relpath(path, wkdir)
-                file_rel_path = os.path.join(rel_dir, file)
-                file_path = os.path.join(path, file)
+    for path, _, files in os.walk(wkdir):
+        for _file in files:
+            if _file not in excludedfiles:
+                file_rel_path = os.path.join(os.path.relpath(path, wkdir), _file)
+                file_path = os.path.join(path, _file)
                 to_pack.append((file_path, file_rel_path))
     if to_pack:
         try:
             logfile_name = os.path.join(wkdir, logfile_name)
             log_pack = tarfile.open(logfile_name, 'w:gz')
-            for f in to_pack:
-                log_pack.add(f[0], arcname=f[1])
+            for _file in to_pack:
+                log_pack.add(_file[0], arcname=_file[1])
             log_pack.close()
         except IOError:
             if attempt == 0:
@@ -506,12 +506,11 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
                 logger.warning("continues i/o errors during packing of logs - job will fail")
                 return 1
 
-    for f in to_pack:
-        remove(f[0])
+    for _file in to_pack:
+        remove(_file[0])
 
     remove_empty_directories(wkdir)
-    pack_time = time.time() - pack_start
-    logger.debug("packing of logs took {0} seconds".format(pack_time))
+    logger.debug("packing of logs took {0} seconds".format(time.time() - pack_start))
 
     return 0
 
@@ -561,18 +560,6 @@ def copy(path1, path2):
         logger.info("copied %s to %s", path1, path2)
 
 
-def find_executable(name):
-    """
-    Is the command 'name' available locally?
-
-    :param name: command name (string).
-    :return: full path to command if it exists, otherwise empty string.
-    """
-
-    from distutils.spawn import find_executable
-    return find_executable(name)
-
-
 def add_to_total_size(path, total_size):
     """
     Add the size of file in the given path to the total size of all in/output files.
@@ -607,7 +594,7 @@ def get_local_file_size(filename):
     if os.path.exists(filename):
         try:
             file_size = os.path.getsize(filename)
-        except Exception as exc:
+        except OSError as exc:
             logger.warning("failed to get file size: %s", exc)
     else:
         logger.warning("local file does not exist: %s", filename)
@@ -650,12 +637,12 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
     keylist = []  # ordered list of dictionary key names
 
     try:
-        f = open_file(filename, 'r')
-    except Exception as exc:
+        _file = open_file(filename, 'r')
+    except FileHandlingFailure as exc:
         logger.warning("failed to open file: %s, %s", filename, exc)
     else:
         firstline = True
-        for line in f:
+        for line in _file:
             fields = line.split(separator)
             if firstline:
                 firstline = False
@@ -672,12 +659,12 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
                 if convert_to_float:
                     try:
                         field = float(field)
-                    except Exception as exc:
+                    except (TypeError, ValueError) as exc:
                         logger.warning("failed to convert %s to float: %s (aborting)", field, exc)
                         return None
                 tabledict[key].append(field)
                 i += 1
-        f.close()
+        _file.close()
 
     return tabledict
 
@@ -765,8 +752,8 @@ def calculate_adler32_checksum(filename):
 
     try:
         with open(filename, 'r+b') as _file:
-            m = mmap(_file.fileno(), 0)
-            for block in iter(partial(m.read, io.DEFAULT_BUFFER_SIZE), b''):
+            _mm = mmap(_file.fileno(), 0)
+            for block in iter(partial(_mm.read, io.DEFAULT_BUFFER_SIZE), b''):
                 adler = adler32(block, adler)
     except Exception as exc:
         raise Exception('failed to get adler32 checksum for file %s - %s' % (filename, exc))
@@ -791,8 +778,8 @@ def calculate_md5_checksum(filename):
     length = io.DEFAULT_BUFFER_SIZE
     md5 = hashlib.md5()
 
-    with io.open(filename, mode="rb") as fd:
-        for chunk in iter(lambda: fd.read(length), b''):
+    with io.open(filename, mode="rb") as _fd:
+        for chunk in iter(lambda: _fd.read(length), b''):
             md5.update(chunk)
 
     return md5.hexdigest()
@@ -809,13 +796,13 @@ def get_checksum_value(checksum):
     :return: checksum. checksum string.
     """
 
-    if type(checksum) == str:
+    if isinstance(checksum, str):
         return checksum
 
     checksum_value = ''
     checksum_type = get_checksum_type(checksum)
 
-    if type(checksum) == dict:
+    if isinstance(checksum, dict):
         checksum_value = checksum.get(checksum_type)
 
     return checksum_value
@@ -833,12 +820,12 @@ def get_checksum_type(checksum):
     """
 
     checksum_type = 'unknown'
-    if type(checksum) == dict:
+    if isinstance(checksum, dict):
         for key in list(checksum.keys()):
             # the dictionary is assumed to only contain one key-value pair
             checksum_type = key
             break
-    elif type(checksum) == str:
+    elif isinstance(checksum, str):
         if len(checksum) == 8:
             checksum_type = 'ad32'
         elif len(checksum) == 32:
@@ -860,7 +847,7 @@ def scan_file(path, error_messages, warning_message=None):
     found_problem = False
 
     matched_lines = grep(error_messages, path)
-    if len(matched_lines) > 0:
+    if matched_lines:
         if warning_message:
             logger.warning(warning_message)
         for line in matched_lines:
@@ -923,7 +910,7 @@ def dump(path, cmd="cat"):
 
     if os.path.exists(path) or cmd == "echo":
         _cmd = "%s %s" % (cmd, path)
-        exit_code, stdout, stderr = execute(_cmd)
+        _, stdout, stderr = execute(_cmd)
         logger.info("%s:\n%s", _cmd, stdout + stderr)
     else:
         logger.info("path %s does not exist", path)
@@ -1023,7 +1010,7 @@ def update_extension(path='', extension=''):
     :return: file path with new extension (string).
     """
 
-    path, old_extension = os.path.splitext(path)
+    path, _ = os.path.splitext(path)
     if not extension.startswith('.'):
         extension = '.' + extension
     path += extension
@@ -1061,7 +1048,7 @@ def copy_pilot_source(workdir):
     try:
         logger.debug('copy %s to %s', srcdir, workdir)
         cmd = 'cp -r %s/* %s' % (srcdir, workdir)
-        exit_code, stdout, stderr = execute(cmd)
+        exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = 'file copy failed: %d, %s' % (exit_code, stdout)
             logger.warning(diagnostics)
@@ -1082,7 +1069,7 @@ def create_symlink(from_path='', to_path=''):
 
     try:
         os.symlink(from_path, to_path)
-    except Exception as exc:
+    except (OSError, FileNotFoundError) as exc:
         logger.warning('failed to create symlink from %s to %s: %s', from_path, to_path, exc)
     else:
         logger.debug('created symlink from %s to %s', from_path, to_path)
@@ -1117,10 +1104,12 @@ def find_last_line(filename):
     """
 
     last_line = ""
-    with open(filename) as f:
-        for line in f:
+    with open(filename) as _file:
+        line = ""
+        for line in _file:
             pass
-        last_line = line
+        if line:
+            last_line = line
 
     return last_line
 
@@ -1134,13 +1123,13 @@ def get_disk_usage(start_path='.'):
     """
 
     total_size = 0
-    for dirpath, dirnames, filenames in os.walk(start_path):
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
+    for dirpath, _, filenames in os.walk(start_path):
+        for fname in filenames:
+            _fp = os.path.join(dirpath, fname)
             # skip if it is symbolic link
-            if os.path.exists(fp) and not os.path.islink(fp):
+            if os.path.exists(_fp) and not os.path.islink(_fp):
                 try:
-                    total_size += os.path.getsize(fp)
+                    total_size += os.path.getsize(_fp)
                 except FileNotFoundError as exc:
                     logger.warning('caught exception: %s (skipping this file)', exc)
                     continue
