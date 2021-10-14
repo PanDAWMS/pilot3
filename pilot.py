@@ -125,20 +125,20 @@ def get_args():
                             help='Do not write the pilot log to file')
 
     # pilot work directory
-    arg_parser.add_argument('-a',
+    arg_parser.add_argument('-a', '--workdir',
                             dest='workdir',
                             default="",
                             help='Pilot work directory')
 
     # debug option to enable more log messages
-    arg_parser.add_argument('-d',
+    arg_parser.add_argument('-d', '--debug',
                             dest='debug',
                             action='store_true',
                             default=False,
                             help='Enable debug mode for logging messages')
 
     # the choices must match in name the python module in pilot/workflow/
-    arg_parser.add_argument('-w',
+    arg_parser.add_argument('-w', '--workflow',
                             dest='workflow',
                             default='generic',
                             choices=['generic', 'generic_hpc',
@@ -148,7 +148,7 @@ def get_args():
                             help='Pilot workflow (default: generic)')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-l',
+    arg_parser.add_argument('-l', '--lifetime',
                             dest='lifetime',
                             default=324000,
                             required=False,
@@ -156,58 +156,58 @@ def get_args():
                             help='Pilot lifetime seconds (default: 324000 s)')
 
     # set the appropriate site, resource and queue
-    arg_parser.add_argument('-q',
+    arg_parser.add_argument('-q', '--queue',
                             dest='queue',
                             required=True,
                             help='MANDATORY: queue name (e.g., AGLT2_TEST-condor)')
-    arg_parser.add_argument('-r',
+    arg_parser.add_argument('-r', '--resource',
                             dest='resource',
                             required=False,  # From v 2.2.0 the resource name is internally set
                             help='OBSOLETE: resource name (e.g., AGLT2_TEST)')
-    arg_parser.add_argument('-s',
+    arg_parser.add_argument('-s', '--site',
                             dest='site',
                             required=False,  # From v 2.2.1 the site name is internally set
                             help='OBSOLETE: site name (e.g., AGLT2_TEST)')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-j',
+    arg_parser.add_argument('-j', '--joblabel',
                             dest='job_label',
                             default='ptest',
                             help='Job prod/source label (default: ptest)')
 
     # pilot version tag; PR or RC
-    arg_parser.add_argument('-i',
+    arg_parser.add_argument('-i', '--versiontag',
                             dest='version_tag',
                             default='PR',
                             help='Version tag (default: PR, optional: RC)')
 
-    arg_parser.add_argument('-z',
+    arg_parser.add_argument('-z', '--updateserver',
                             dest='update_server',
                             action='store_false',
                             default=True,
                             help='Disable server updates')
 
-    arg_parser.add_argument('-t',
+    arg_parser.add_argument('-t', '--verifyproxy',
                             dest='verify_proxy',
                             action='store_false',
                             default=True,
                             help='Disable proxy verification')
 
-    arg_parser.add_argument('-u',
+    arg_parser.add_argument('-u', '--verifypayloadproxy',
                             dest='verify_payload_proxy',
                             action='store_false',
                             default=True,
                             help='Disable payload proxy verification')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-v',
+    arg_parser.add_argument('-v', '--getjobrequests',
                             dest='getjob_requests',
                             default=2,
                             required=False,
                             type=int,
                             help='Number of getjob requests')
 
-    arg_parser.add_argument('-x',
+    arg_parser.add_argument('-x', '--getjobfailures',
                             dest='getjob_failures',
                             default=5,
                             required=False,
@@ -231,7 +231,7 @@ def get_args():
                             dest='url',
                             default='',  # the proper default is stored in default.cfg
                             help='PanDA server URL')
-    arg_parser.add_argument('-p',
+    arg_parser.add_argument('-p', '--port',
                             dest='port',
                             default=25443,
                             help='PanDA server port')
