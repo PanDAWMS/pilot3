@@ -550,6 +550,9 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
             logger.info('pilot received a command to turn off debug mode from the server')
             job.debug = False
             job.debug_command = 'debugoff'
+        elif 'nocleanup' in cmd:
+            logger.info('pilot received a command to turn off workdir cleanup')
+            args.cleanup = False
         else:
             logger.warning('received unknown server command via backchannel: %s', cmd)
 
