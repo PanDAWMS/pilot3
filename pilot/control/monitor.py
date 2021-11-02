@@ -74,7 +74,7 @@ def control(queues, traces, args):
             time_since_start = get_time_since_start(args)
             grace_time = 10 * 60
             if time_since_start - grace_time > max_running_time:
-                logger.fatal('max running time (%d s) minus grace time (%d s) has been exceeded - must abort pilot', max_running_time, grace_time)
+                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been exceeded - must abort pilot')
                 logger.info('setting REACHED_MAXTIME and graceful stop')
                 environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
                 # do not set graceful stop if pilot has not finished sending the final job update
@@ -84,20 +84,20 @@ def control(queues, traces, args):
                 break
             else:
                 if niter % 60 == 0:
-                    logger.info('%d s have passed since pilot start', time_since_start)
+                    logger.info(f'{time_since_start}s have passed since pilot start')
             time.sleep(1)
 
             # time to check the CPU?
-            if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
+            if int(time.time() - tcpu) > cpuchecktime:  # for testing only
                 processes = get_process_info('python pilot3/pilot.py', pid=getpid())
                 if processes:
                     logger.info('-' * 100)
-                    logger.info('PID=%d has CPU usage=%s%% MEM usage=%s%% CMD=%s', getpid(), processes[0], processes[1], processes[2])
+                    logger.info(f'PID={getpid()} has CPU usage={processes[0]}%% MEM usage={processes[1]}%% CMD={processes[2]}')
                     nproc = processes[3]
                     if nproc > 1:
-                        logger.info('there are %d such processes running', nproc)
+                        logger.info(f'there are {nproc} such processes running')
                     else:
-                        logger.info('there is %d such process running', nproc)
+                        logger.info(f'there is {nproc} such process running')
                     logger.info('-' * 100)
                 tcpu = time.time()
 
@@ -110,13 +110,13 @@ def control(queues, traces, args):
                 for thread in threading.enumerate():
                     # logger.info('thread name: %s', thread.name)
                     if not thread.is_alive():
-                        logger.fatal('thread \'%s\' is not alive', thread.name)
+                        logger.fatal(f'thread \'{thread.name}\' is not alive')
                         # args.graceful_stop.set()
 
             niter += 1
 
     except Exception as error:
-        print(("monitor: exception caught: %s" % error))
+        print((f"monitor: exception caught: {error}"))
         raise PilotException(error)
 
     logger.info('[monitor] control thread has ended')
@@ -151,7 +151,7 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     processes = []
     num = 0
     if not user:
-        user = getuid()
+        user = str(getuid())
     pattern = re.compile(r"\S+|[-+]?\d*\.\d+|\d+")
     arguments = ['ps', '-u', user, args, '--no-headers']
 
