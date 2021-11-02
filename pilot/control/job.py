@@ -83,7 +83,7 @@ def control(queues, traces, args):
             except queue.Empty:
                 pass
             else:
-                exc_type, exc_obj, exc_trace = exc
+                _, exc_obj, _ = exc
                 logger.warning("thread \'%s\' received an exception from bucket: %s", thread.name, exc_obj)
 
                 # deal with the exception
@@ -127,8 +127,8 @@ def _validate_job(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-    container = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+    container = __import__(f'pilot.user.{pilot_user}.container', globals(), locals(), [user], 0)
 
     # should a container be used for the payload?
     try:
@@ -137,7 +137,7 @@ def _validate_job(job):
     except Exception as error:
         logger.warning('exception caught: %s', error)
 
-    return True if user.verify_job(job) else False
+    return user.verify_job(job)
 
 
 def verify_error_code(job):
@@ -179,11 +179,11 @@ def get_proper_state(job, state):
     :return: valid server state (string).
     """
 
-    if job.serverstate == "finished" or job.serverstate == "failed":
+    if job.serverstate in ('finished', 'failed'):
         pass
     elif job.serverstate == "" and state != "finished" and state != "failed":
         job.serverstate = 'starting'
-    elif state == "finished" or state == "failed" or state == "holding":
+    elif state in ('finished', 'failed', 'holding'):
         job.serverstate = state
     else:
         job.serverstate = 'running'
@@ -278,10 +278,10 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('pilot will not update the server (heartbeat message will be written to file)')
     tag = 'sending' if args.update_server else 'writing'
 
-    if state == 'finished' or state == 'failed' or state == 'holding':
+    if state in ('finished', 'failed', 'holding'):
         final = True
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_UPDATING
-        logger.info('job %s has %s - %s final server update', job.jobid, state, tag)
+        logger.info(f'job {job.jobid} has {state} - {tag} final server update')
 
         # make sure that job.state is 'failed' if there's a set error code
         if job.piloterrorcode or job.piloterrorcodes:
@@ -300,7 +300,6 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
     if not args.update_server:
-        logger.debug('is_harvester_mode(args) : {0}'.format(is_harvester_mode(args)))
         # if in harvester mode write to files required by harvester
         if is_harvester_mode(args):
             return publish_harvester_reports(state, args, data, job, final)
@@ -315,19 +314,18 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
             attempt = 0
             done = False
             while attempt < max_attempts and not done:
-                logger.info('job update attempt %d/%d', attempt + 1, max_attempts)
+                logger.info(f'job update attempt {attempt + 1}/{max_attempts}')
 
                 # get the URL for the PanDA server from pilot options or from config
                 pandaserver = get_panda_server(args.url, args.port)
 
-                res = https.request('{pandaserver}/server/panda/updateJob'.format(pandaserver=pandaserver), data=data)
+                res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
                 if res is not None:
                     done = True
                 attempt += 1
 
-            time_after = int(time.time())
-            logger.info('server updateJob request completed in %ds for job %s', time_after - time_before, job.jobid)
-            logger.info("server responded with: res = %s", str(res))
+            logger.info(f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
+            logger.info(f"server responded with: res = {res}")
 
             show_memory_usage()
 
@@ -337,19 +335,17 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
 
                 if final:
                     os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
-                    logger.debug('set SERVER_UPDATE=SERVER_UPDATE_FINAL')
                 return True
         else:
             logger.info('skipping job update for fake test job')
             return True
 
     except Exception as error:
-        logger.warning('exception caught while sending https request: %s', error)
-        logger.warning('possibly offending data: %s', data)
+        logger.warning(f'exception caught while sending https request: {error}')
+        logger.warning(f'possibly offending data: {data}')
 
     if final:
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_TROUBLE
-        logger.debug('set SERVER_UPDATE=SERVER_UPDATE_TROUBLE')
 
     return False
 
