@@ -87,18 +87,14 @@ def control(queues, traces, args):
                     logger.info(f'{time_since_start}s have passed since pilot start')
             time.sleep(1)
 
-            # time to check the CPU?
-            if int(time.time() - tcpu) > cpuchecktime:  # for testing only
-                processes = get_process_info('python pilot3/pilot.py', pid=getpid())
+            # time to check the CPU usage?
+            if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
+                processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
                 if processes:
-                    logger.info('-' * 100)
-                    logger.info(f'PID={getpid()} has CPU usage={processes[0]}%% MEM usage={processes[1]}%% CMD={processes[2]}')
+                    logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
                     nproc = processes[3]
                     if nproc > 1:
-                        logger.info(f'there are {nproc} such processes running')
-                    else:
-                        logger.info(f'there is {nproc} such process running')
-                    logger.info('-' * 100)
+                        logger.info(f'.. there are {nproc} such processes running')
                 tcpu = time.time()
 
             # proceed with running the other checks
@@ -129,7 +125,7 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     """
     Return process info for given command.
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
-    a given command (e.g. python pilot3/pilot.py).
+    a given command (e.g. python3 pilot3/pilot.py).
 
     Example
       get_processes_for_command('sshd:')
@@ -155,7 +151,7 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     pattern = re.compile(r"\S+|[-+]?\d*\.\d+|\d+")
     arguments = ['ps', '-u', user, args, '--no-headers']
 
-    process = Popen(arguments, stdout=PIPE, stderr=PIPE)
+    process = Popen(arguments, stdout=PIPE, stderr=PIPE, encoding='utf-8')
     stdout, _ = process.communicate()
     for line in stdout.splitlines():
         found = re.findall(pattern, line)
@@ -171,7 +167,6 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
 
     if processes:
         processes.append(num)
-
     return processes
 
 

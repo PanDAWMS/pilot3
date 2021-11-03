@@ -313,19 +313,31 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
             max_attempts = 10
             attempt = 0
             done = False
+            res = None
             while attempt < max_attempts and not done:
                 logger.info(f'job update attempt {attempt + 1}/{max_attempts}')
 
                 # get the URL for the PanDA server from pilot options or from config
-                pandaserver = get_panda_server(args.url, args.port)
+                try:
+                    pandaserver = get_panda_server(args.url, args.port)
+                except Exception as exc:
+                    logger.warning(f'exception caught in get_panda_server(): {exc}')
+                    time.sleep(5)
+                    attempt += 1
+                    continue
+                # send the heartbeat
+                try:
+                    res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
+                except Exception as exc:
+                    logger.warning(f'exception caught in https.request(): {exc}')
+                else:
+                    if res is not None:
+                        done = True
+                    logger.info(
+                        f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
+                    logger.info(f"server responded with: res = {res}")
 
-                res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
-                if res is not None:
-                    done = True
                 attempt += 1
-
-            logger.info(f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
-            logger.info(f"server responded with: res = {res}")
 
             show_memory_usage()
 
