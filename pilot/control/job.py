@@ -257,6 +257,36 @@ def write_heartbeat_to_file(data):
         return False
 
 
+def is_final_update(job, state, tag='sending'):
+    """
+    Will it be the final server update?
+
+    :param job: job object.
+    :param state: job state (Boolean).
+    :param tag: optional tag ('sending'/'writing') (string).
+    :return: Boolean.
+    """
+
+    if state in ('finished', 'failed', 'holding'):
+        final = True
+        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_UPDATING
+        logger.info(f'job {job.jobid} has {state} - {tag} final server update')
+
+        # make sure that job.state is 'failed' if there's a set error code
+        if job.piloterrorcode or job.piloterrorcodes:
+            logger.warning('making sure that job.state is set to failed since a pilot error code is set')
+            state = 'failed'
+            job.state = state
+        # make sure an error code is properly set
+        elif state != 'finished':
+            verify_error_code(job)
+    else:
+        final = False
+        logger.info(f'job {job.jobid} has state \'{state}\' - {tag} heartbeat')
+
+    return state
+
+
 def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False):
     """
     Update the server (send heartbeat message).
@@ -276,24 +306,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # should the pilot make any server updates?
     if not args.update_server:
         logger.info('pilot will not update the server (heartbeat message will be written to file)')
-    tag = 'sending' if args.update_server else 'writing'
 
-    if state in ('finished', 'failed', 'holding'):
-        final = True
-        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_UPDATING
-        logger.info(f'job {job.jobid} has {state} - {tag} final server update')
-
-        # make sure that job.state is 'failed' if there's a set error code
-        if job.piloterrorcode or job.piloterrorcodes:
-            logger.warning('making sure that job.state is set to failed since a pilot error code is set')
-            state = 'failed'
-            job.state = state
-        # make sure an error code is properly set
-        elif state != 'finished':
-            verify_error_code(job)
-    else:
-        final = False
-        logger.info(f'job {job.jobid} has state \'{state}\' - {tag} heartbeat')
+    # will it be the final update?
+    final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for getJob, updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
