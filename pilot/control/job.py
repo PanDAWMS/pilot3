@@ -264,7 +264,7 @@ def is_final_update(job, state, tag='sending'):
     :param job: job object.
     :param state: job state (Boolean).
     :param tag: optional tag ('sending'/'writing') (string).
-    :return: Boolean.
+    :return: final state (Boolean).
     """
 
     if state in ('finished', 'failed', 'holding'):
@@ -284,7 +284,7 @@ def is_final_update(job, state, tag='sending'):
         final = False
         logger.info(f'job {job.jobid} has state \'{state}\' - {tag} heartbeat')
 
-    return state
+    return final
 
 
 def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False):
@@ -322,54 +322,49 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
             # store the file in the main workdir
             return write_heartbeat_to_file(data)
 
-    try:
-        if config.Pilot.pandajob == 'real':
-            time_before = int(time.time())
-            max_attempts = 10
-            attempt = 0
-            done = False
-            res = None
-            while attempt < max_attempts and not done:
-                logger.info(f'job update attempt {attempt + 1}/{max_attempts}')
+    if config.Pilot.pandajob != 'real':
+        logger.info('skipping job update for fake test job')
+        return True
 
-                # get the URL for the PanDA server from pilot options or from config
-                try:
-                    pandaserver = get_panda_server(args.url, args.port)
-                except Exception as exc:
-                    logger.warning(f'exception caught in get_panda_server(): {exc}')
-                    time.sleep(5)
-                    attempt += 1
-                    continue
-                # send the heartbeat
-                try:
-                    res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
-                except Exception as exc:
-                    logger.warning(f'exception caught in https.request(): {exc}')
-                else:
-                    if res is not None:
-                        done = True
-                    logger.info(
-                        f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
-                    logger.info(f"server responded with: res = {res}")
+    time_before = int(time.time())
+    max_attempts = 10
+    attempt = 0
+    done = False
+    res = None
+    while attempt < max_attempts and not done:
+        logger.info(f'job update attempt {attempt + 1}/{max_attempts}')
 
-                attempt += 1
-
-            show_memory_usage()
-
-            if res is not None:
-                # does the server update contain any backchannel information? if so, update the job object
-                handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
-
-                if final:
-                    os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
-                return True
+        # get the URL for the PanDA server from pilot options or from config
+        try:
+            pandaserver = get_panda_server(args.url, args.port)
+        except Exception as exc:
+            logger.warning(f'exception caught in get_panda_server(): {exc}')
+            time.sleep(5)
+            attempt += 1
+            continue
+        # send the heartbeat
+        try:
+            res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
+        except Exception as exc:
+            logger.warning(f'exception caught in https.request(): {exc}')
         else:
-            logger.info('skipping job update for fake test job')
-            return True
+            if res is not None:
+                done = True
+            logger.info(
+                f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
+            logger.info(f"server responded with: res = {res}")
 
-    except Exception as error:
-        logger.warning(f'exception caught while sending https request: {error}')
-        logger.warning(f'possibly offending data: {data}')
+        attempt += 1
+
+    show_memory_usage()
+
+    if res is not None:
+        # does the server update contain any backchannel information? if so, update the job object
+        handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
+
+        if final:
+            os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+        return True
 
     if final:
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_TROUBLE
