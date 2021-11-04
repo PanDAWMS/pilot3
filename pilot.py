@@ -312,13 +312,21 @@ def get_args():
                             help='Cleanup work directory after pilot has finished')
     arg_parser.add_argument('--use-realtime-logging',
                             dest='use_realtime_logging',
-                            type=str2bool,
+                            action='store_true',
                             default=False,
-                            help='Use near real-time logging')
+                            help='Use near real-time logging, default=False')
     arg_parser.add_argument('--realtime-logging-server',
                             dest='realtime_logging_server',
-                            default='',
-                            help='Near real-time logging server')
+                            default=None,
+                            help='Realtime logging server, [:host:port]')
+    # arg_parser.add_argument('--realtime-logfiles',
+    #                         dest='realtime_logfiles',
+    #                         default=None,
+    #                         help='The log filenames to be sent to the realtime logging server')
+    arg_parser.add_argument('--realtime-logname',
+                            dest='realtime_logname',
+                            default=None,
+                            help='The log name in the realtime logging server')
 
     # Harvester and Nordugrid specific options
     arg_parser.add_argument('--input-dir',

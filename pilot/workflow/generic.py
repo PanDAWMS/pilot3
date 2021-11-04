@@ -7,7 +7,8 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Shuwei Ye, yesw@bnl.gov, 2021
 
 from __future__ import print_function  # Python 2, 2to3 complains about this
 
@@ -116,7 +117,7 @@ def run(args):
                                    'validated_jobs', 'validated_payloads', 'monitored_payloads',
                                    'finished_jobs', 'finished_payloads', 'finished_data_in', 'finished_data_out',
                                    'failed_jobs', 'failed_payloads', 'failed_data_in', 'failed_data_out',
-                                   'completed_jobs', 'completed_jobids'])  #, 'interceptor_messages'])
+                                   'completed_jobs', 'completed_jobids', 'realtimelog_payloads'])
 
     queues.jobs = queue.Queue()
     queues.payloads = queue.Queue()
@@ -140,6 +141,7 @@ def run(args):
 
     queues.completed_jobs = queue.Queue()
     queues.completed_jobids = queue.Queue()
+    queues.realtimelog_payloads = queue.Queue()
 
     # queues.interceptor_messages = queue.Queue()
 
