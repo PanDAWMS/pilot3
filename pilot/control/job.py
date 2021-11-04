@@ -2448,7 +2448,7 @@ def fast_job_monitor(queues, traces, args):
     #update_time = peeking_time
 
     # end thread immediately, unless fast monitoring is required
-    if not args.use_realtime_logging:
+    if not args.use_realtime_logging or True:
         logger.warning('fast monitoring not required - ending thread')
         return
 

@@ -54,34 +54,53 @@ class RealTimeLogger(Logger):
                 self.logFiles_default = re.split('[:,]', logfiles)
 
         items = logserver.split(':')
-        logtype = items[0].lower()
-        h = None
+        try:
+            logtype = items[0].lower()
+        except IndexError as exc:
+            logger.warning(f'logtype not set: {exc}')
+            logtype = ''
+        try:
+            server = items[1]
+        except IndexError as exc:
+            logger.warning(f'logging server not set: {exc}')
+            server = ''
+        try:
+            port = items[2]
+        except IndexError as exc:
+            logger.warning(f'logging server port not set: {exc}')
+            port = ''
+        _handler = None
 
         try:
             if logtype == "google-cloud-logging":
                 import google.cloud.logging
                 from google.cloud.logging_v2.handlers import CloudLoggingHandler
                 client = google.cloud.logging.Client()
-                h = CloudLoggingHandler(client, name=name)
-                self.addHandler(h)
-
+                _handler = CloudLoggingHandler(client, name=name)
             elif logtype == "fluent":
                 if len(items) < 3:
                     RealTimeLogger.glogger = None
-                fluentserver = items[1]
-                fluentport = items[2]
                 from fluent import handler
-                h = handler.FluentHandler(name, host=fluentserver, port=fluentport)
+                _handler = handler.FluentHandler(name, host=server, port=port)
             elif logtype == "logstash":
-                pass
+                import logstash
+                from logstash_async.handler import AsynchronousLogstashHandler
+                from logstash_async.handler import LogstashFormatter
+                # Create the handler
+                _handler = AsynchronousLogstashHandler(
+                    host=server,
+                    port=port,
+                    ssl_enable=True,
+                    ssl_verify=False,
+                    database_path='')
             else:
                 pass
         except Exception as exc:
             logger.warning(f'exception caught while setting up log handlers: {exc}')
-            h = None
+            _handler = None
 
-        if h is not None:
-            self.addHandler(h)
+        if _handler is not None:
+            self.addHandler(_handler)
         else:
             RealTimeLogger.glogger = None
             del self
@@ -107,7 +126,6 @@ class RealTimeLogger(Logger):
     def add_logfiles(self, job_or_filenames, reset=True):
         self.close_files()
         if reset:
-            self.logFiles = []
         if type(job_or_filenames) == list:
             logfiles = job_or_filenames
             for logfile in logfiles:
@@ -124,7 +142,7 @@ class RealTimeLogger(Logger):
                 # stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
                 # self.logFiles += [stderr]
         if len(self.logFiles) > 0:
-            logger.info('Added log files:%s', self.logFiles)
+            logger.info(f'Added log files: {self.logFiles}')
 
     def close_files(self):
         for openfile in self.openFiles.values():
@@ -141,7 +159,7 @@ class RealTimeLogger(Logger):
                     self.send_with_jobinfo(line.strip())
 
     def sending_logs(self, args, job):
-        logger.info('Starting RealTimeLogger.sending_logs')
+        logger.info('starting RealTimeLogger.sending_logs')
         self.set_jobinfo(job)
         self.add_logfiles(job)
         while not args.graceful_stop.is_set():
@@ -153,7 +171,7 @@ class RealTimeLogger(Logger):
                                 openfile = open(logfile)
                                 openfile.seek(0)
                                 self.openFiles[logfile] = openfile
-                                logger.debug('opened logfile:%s', logfile)
+                                logger.debug(f'opened logfile: {logfile}')
                 self.send_loginfiles()
             else:
                 self.send_loginfiles()  # send the remaining logs after the job completion

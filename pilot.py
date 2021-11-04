@@ -318,7 +318,7 @@ def get_args():
     arg_parser.add_argument('--realtime-logging-server',
                             dest='realtime_logging_server',
                             default=None,
-                            help='Realtime logging server, [:host:port]')
+                            help='Realtime logging server [type:host:port]; e.g. logstash:12.23.34.45:80')
     # arg_parser.add_argument('--realtime-logfiles',
     #                         dest='realtime_logfiles',
     #                         default=None,
@@ -524,6 +524,13 @@ if __name__ == '__main__':
 
     # get the args from the arg parser
     args = get_args()
+
+
+    # testing
+    args.use_realtime_logging = True
+    args.realtime_logging_server = 'logstash:12.23.34.45:80'
+    args.last_heartbeat = time.time()
+
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)
