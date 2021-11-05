@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 ## logServer = "google-cloud-logging"
 
 
-def get_realtime_logger(args=None):
+def get_realtime_logger(args=None, catchall=None):
     if RealTimeLogger.glogger is None:
-        RealTimeLogger(args)
+        RealTimeLogger(args, catchall)
     return RealTimeLogger.glogger
 
 
@@ -34,21 +34,30 @@ class RealTimeLogger(Logger):
 
     glogger = None
 
-    def __init__(self, args):
+    def __init__(self, args, info_dic):
         super(RealTimeLogger, self).__init__(name="realTimeLogger", level=INFO)
         RealTimeLogger.glogger = self
 
+        if not info_dic:
+            logger.warning('info dictionary not set - add \'logging=type:protocol://host:port\' to PQ.catchall)')
+            return
+
         self.jobInfo = {}
-        self.logFiles = []
-        self.logFiles_default = []
-        self.openFiles = {}
+        self.logfiles = []
+        self.logfiles_default = []
+        self.openfiles = {}
 
         if args.use_realtime_logging:
             name = args.realtime_logname
             logserver = args.realtime_logging_server if name else ""
             logfiles = os.environ.get('REALTIME_LOGFILES')
             if logfiles is not None:
-                self.logFiles_default = re.split('[:,]', logfiles)
+                self.logfiles_default = re.split('[:,]', logfiles)
+        elif info_dic:
+            name = info_dic.get('logname')
+            protocol = info_dic.get('protocol')
+            url = info_dic.get('url')
+            url = info_dic.get('url')
 
         items = logserver.split(':')
         try:
@@ -82,7 +91,7 @@ class RealTimeLogger(Logger):
             elif logtype == "logstash":
                 import logstash
                 from logstash_async.handler import AsynchronousLogstashHandler
-                from logstash_async.handler import LogstashFormatter
+                # from logstash_async.handler import LogstashFormatter
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
                     host=server,
@@ -103,10 +112,10 @@ class RealTimeLogger(Logger):
             del self
 
     def set_jobinfo(self, job):
-        self.jobInfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
+        self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
         if 'HARVESTER_WORKER_ID' in os.environ:
-            self.jobInfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
-        logger.debug('set_jobinfo with PandaJobID=%s', self.jobInfo["PandaJobID"])
+            self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
+        logger.debug('set_jobinfo with PandaJobID=%s', self.jobinfo["PandaJobID"])
 
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),
@@ -123,34 +132,33 @@ class RealTimeLogger(Logger):
     def add_logfiles(self, job_or_filenames, reset=True):
         self.close_files()
         if reset:
-            self.logFiles = []
+            self.logfiles = []
         if isinstance(job_or_filenames, list):
-            logfiles = job_or_filenames
-            for logfile in logfiles:
+            for logfile in job_or_filenames:
                 self.logfiles += [logfile]
         else:
             job = job_or_filenames
-            for logfile in self.logFiles_default:
+            for logfile in self.logfiles_default:
                 if not logfile.startswith('/'):
                     logfile = os.path.join(job.workdir, logfile)
-                self.logFiles += [logfile]
-            if len(self.logFiles_default) == 0:
+                self.logfiles += [logfile]
+            if len(self.logfiles_default) == 0:
                 stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
-                self.logFiles += [stdout]
+                self.logfiles += [stdout]
                 # stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
-                # self.logFiles += [stderr]
-        if len(self.logFiles) > 0:
-            logger.info(f'Added log files: {self.logFiles}')
+                # self.logfiles += [stderr]
+        if len(self.logfiles) > 0:
+            logger.info(f'Added log files: {self.logfiles}')
 
     def close_files(self):
-        for openfile in self.openFiles.values():
+        for openfile in self.openfiles.values():
             if openfile is not None:
                 openfile.close()
-        self.openFiles = {}
-        self.logFiles = []
+        self.openfiles = {}
+        self.logfiles = []
 
     def send_loginfiles(self):
-        for openfile in self.openFiles.values():
+        for openfile in self.openfiles.values():
             if openfile is not None:
                 lines = openfile.readlines()
                 for line in lines:
@@ -162,13 +170,13 @@ class RealTimeLogger(Logger):
         self.add_logfiles(job)
         while not args.graceful_stop.is_set():
             if job.state == '' or job.state == 'starting' or job.state == 'running':
-                if len(self.logFiles) > len(self.openFiles):
-                    for logfile in self.logFiles:
-                        if logfile not in self.openFiles:
+                if len(self.logfiles) > len(self.openfiles):
+                    for logfile in self.logfiles:
+                        if logfile not in self.openfiles:
                             if os.path.exists(logfile):
                                 openfile = open(logfile)
                                 openfile.seek(0)
-                                self.openFiles[logfile] = openfile
+                                self.openfiles[logfile] = openfile
                                 logger.debug(f'opened logfile: {logfile}')
                 self.send_loginfiles()
             else:

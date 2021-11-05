@@ -524,13 +524,7 @@ if __name__ == '__main__':
 
     # get the args from the arg parser
     args = get_args()
-
-
-    # testing
-    args.use_realtime_logging = True
-    args.realtime_logging_server = 'logstash:12.23.34.45:80'
     args.last_heartbeat = time.time()
-
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)

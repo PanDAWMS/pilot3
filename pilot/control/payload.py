@@ -14,7 +14,7 @@
 import os
 import time
 import traceback
-
+from re import findall
 try:
     import Queue as queue  # noqa: N813
 except Exception:
@@ -318,6 +318,54 @@ def execute_payloads(queues, traces, args):  # noqa: C901
     logger.info('[payload] execute_payloads thread has finished')
 
 
+def get_transport(catchall):
+    """
+    Extract the transport/protocol from catchall if present.
+
+    :param catchall: PQ.catchall field (string).
+    :return: transport (string).
+    """
+
+    transport = ''
+
+    return transport
+
+def get_logging_info(catchall, realtime_logname, realtime_logging_server):
+    """
+    Extract the logging type/protocol/url/port from catchall if present, or from args fields.
+    Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+
+    :param catchall: PQ.catchall field (string).
+    :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
+    """
+
+    logging_type = None
+    protocol = None
+    url = None
+    port = None
+    info_dic = {}
+
+    info_dic['logname'] = realtime_logname
+    logserver = realtime_logging_server if realtime_logname else ""
+
+    if 'logging=' not in catchall and not logserver:
+        return {}
+
+    pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
+    info = findall(pattern, catchall)
+    if info:
+        try:
+            info_dic['logging_type'] = info[0][0]
+            info_dic['protocol'] = info[0][1]
+            info_dic['url'] = info[0][2]
+            info_dic['port'] = info[0][3]
+        except IndexError as exc:
+            print(f'exception caught: {exc}')
+            info_dic = {}
+
+    return info_dic
+
+
 def run_realtimelog(queues, traces, args):
     """
     Validate finished payloads.
@@ -337,7 +385,8 @@ def run_realtimelog(queues, traces, args):
         except queue.Empty:
             continue
 
-        realtime_logger = get_realtime_logger(args)
+        info_dic = get_logging_info(job.infosys.queuedata.catchall, args.realtime_logname, args.realtime_logging_server)
+        realtime_logger = get_realtime_logger(args, info_dic)
 
         # If no realtime logger is found, do nothing and exit
         if realtime_logger is None:
