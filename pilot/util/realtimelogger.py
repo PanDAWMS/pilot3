@@ -124,7 +124,7 @@ class RealTimeLogger(Logger):
         self.close_files()
         if reset:
             self.logFiles = []
-        if type(job_or_filenames) == list:
+        if isinstance(job_or_filenames, list):
             logfiles = job_or_filenames
             for logfile in logfiles:
                 self.logfiles += [logfile]
