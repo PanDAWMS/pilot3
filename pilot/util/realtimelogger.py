@@ -45,10 +45,7 @@ class RealTimeLogger(Logger):
 
         if args.use_realtime_logging:
             name = args.realtime_logname
-            if name:
-                logserver = args.realtime_logging_server
-            else:
-                logserver = ""
+            logserver = args.realtime_logging_server if name else ""
             logfiles = os.environ.get('REALTIME_LOGFILES')
             if logfiles is not None:
                 self.logFiles_default = re.split('[:,]', logfiles)
@@ -126,6 +123,7 @@ class RealTimeLogger(Logger):
     def add_logfiles(self, job_or_filenames, reset=True):
         self.close_files()
         if reset:
+            self.logFiles = []
         if type(job_or_filenames) == list:
             logfiles = job_or_filenames
             for logfile in logfiles:
