@@ -2447,9 +2447,13 @@ def fast_job_monitor(queues, traces, args):
     #peeking_time = int(time.time())
     #update_time = peeking_time
 
-    # end thread immediately, unless fast monitoring is required
-    if not args.use_realtime_logging or True:
-        logger.warning('fast monitoring not required - ending thread')
+    # end thread immediately if this pilot should never use realtime logging
+    if not args.use_realtime_logging:
+        logger.warning('fast monitoring not required by pilot option - ending thread')
+        return
+
+    if True:
+        logger.info('fast monitoring thread disabled')
         return
 
     while not args.graceful_stop.is_set():
@@ -2479,10 +2483,10 @@ def fast_job_monitor(queues, traces, args):
                         logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                         break
 
-                # perform the monitoring tasks
-                exit_code = fast_monitor_tasks(jobs[i])
-                if exit_code:
-                    logger.debug('fast monitoring reported an error: %d', exit_code)
+                    # perform the monitoring tasks
+                    exit_code = fast_monitor_tasks(jobs[i])
+                    if exit_code:
+                        logger.debug('fast monitoring reported an error: %d', exit_code)
 
     # proceed to set the job_aborted flag?
     if threads_aborted():
