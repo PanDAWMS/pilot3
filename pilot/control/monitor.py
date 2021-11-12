@@ -179,7 +179,17 @@ def run_checks(queues, args):
     :return:
     """
 
-    # check CPU consumption of pilot process and its children
+    # check how long time has passed since last successful heartbeat
+    last_heartbeat = time.time() - args.last_heartbeat
+    if last_heartbeat > config.Pilot.lost_heartbeat and args.update_server:
+        diagnostics = f'too much time has passed since last successful heartbeat ({last_heartbeat} s)'
+        logger.warning(diagnostics)
+        logger.warning('aborting pilot - no need to wait for job to finish - kill everything')
+        args.job_aborted.set()
+        args.abort_job.clear()
+        raise ExceededMaxWaitTime(diagnostics)
+    else:
+        logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
 
     if args.abort_job.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module
@@ -196,9 +206,7 @@ def run_checks(queues, args):
                 return
             time.sleep(1)
 
-        if args.graceful_stop.is_set():
-            logger.info('graceful_stop already set')
-        else:
+        if not args.graceful_stop.is_set():
             logger.warning('setting graceful_stop')
             args.graceful_stop.set()
 

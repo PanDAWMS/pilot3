@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 ## logServer = "google-cloud-logging"
 
 
-def get_realtime_logger(args=None, catchall=None):
+def get_realtime_logger(args=None, info_dic=None):
     if RealTimeLogger.glogger is None:
-        RealTimeLogger(args, catchall)
+        RealTimeLogger(args, info_dic)
     return RealTimeLogger.glogger
 
 
@@ -56,8 +56,10 @@ class RealTimeLogger(Logger):
         elif info_dic:
             name = info_dic.get('logname')
             protocol = info_dic.get('protocol')
-            url = info_dic.get('url')
-            url = info_dic.get('url')
+            logserver = info_dic.get('url')
+        else:
+            logger.warning('not enough setup info for logging')
+            return
 
         items = logserver.split(':')
         try:
