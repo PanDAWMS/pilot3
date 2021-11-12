@@ -188,8 +188,8 @@ def run_checks(queues, args):
         args.job_aborted.set()
         args.abort_job.clear()
         raise ExceededMaxWaitTime(diagnostics)
-    else:
-        logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
+    #else:
+    #    logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
 
     if args.abort_job.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module

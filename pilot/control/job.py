@@ -1997,7 +1997,8 @@ def has_job_completed(queues, args):
         _, stdout, _ = execute(cmd)
         logger.debug(stdout)
 
-        queue_report(queues)
+        queue_report(queues, purge=True)
+        queue_report(queues, purge=False)
         job.reset_errors()
         logger.info(f"job {job.jobid} has completed (purged errors)")
 

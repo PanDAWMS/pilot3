@@ -124,8 +124,9 @@ def get_batchsystem_jobid():
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
         from subprocess import getoutput
-        return "Condor", getoutput(
-            'sed -n "s/^GlobalJobId.*\\"\\(.*\\)\\".*/\\1/p" %s' % os.environ.get("_CONDOR_JOB_AD"))
+        out = getoutput('sed -n "s/^GlobalJobId.*\\"\\(.*\\)\\".*/\\1/p" %s' % os.environ.get("_CONDOR_JOB_AD"))
+        out = out.split('\n')[-1] if '\n' in out else out
+        return "Condor", out
 
     return None, ""
 

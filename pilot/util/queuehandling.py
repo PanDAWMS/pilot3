@@ -120,18 +120,27 @@ def abort_jobs_in_queues(queues, sig):
             logger.warning('failed to declare job as failed: %s' % e)
 
 
-def queue_report(queues):
+def queue_report(queues, purge=False):
     """
+    Report on how many jobs are till in the various queues.
+    This function can also empty the queues (except completed_jobids).
 
-    :param queues:
+    :param queues: queues object.
+    :param purge: clean up queues if True (Boolean).
     :return:
     """
 
-    for q in queues._fields:
-        _q = getattr(queues, q)
-        jobs = list(_q.queue)
-        logger.info('queue %s has %d job(s)' % (q, len(jobs)))
-
+    exceptions_list = ['completed_jobids']
+    for queue in queues._fields:
+        _queue = getattr(queues, queue)
+        jobs = list(_queue.queue)
+        if queue not in exceptions_list:
+            tag = '[purged]' if purge else ''
+            logger.info(f'queue {queue} had {len(jobs)} job(s) {tag}')
+            with _queue.queue.mutex:
+                _queue.queue.clear()
+        else:
+            logger.info(f'queue {queue} has {len(jobs)} job(s)')
 
 def put_in_queue(obj, queue):
     """
