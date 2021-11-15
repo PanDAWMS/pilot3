@@ -137,7 +137,7 @@ def queue_report(queues, purge=False):
         if queue not in exceptions_list:
             tag = '[purged]' if purge else ''
             logger.info(f'queue {queue} had {len(jobs)} job(s) {tag}')
-            with _queue.queue.mutex:
+            with _queue.mutex:
                 _queue.queue.clear()
         else:
             logger.info(f'queue {queue} has {len(jobs)} job(s)')
