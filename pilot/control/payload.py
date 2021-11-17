@@ -351,7 +351,7 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
     info_dic = {}
 
     # args handling ..
-    if args.use_realtime_logging:
+    if realtimelogging:
         pass
 
     info_dic['logname'] = realtime_logname
@@ -414,6 +414,7 @@ def run_realtimelog(queues, traces, args):
             realtime_logger = get_realtime_logger(args, info_dic)
         else:
             logger.debug('real-time logging not needed at this point')
+            realtime_logger = None
 
         # If no realtime logger is found, do nothing and exit
         if realtime_logger is None:
