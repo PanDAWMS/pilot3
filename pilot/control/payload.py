@@ -330,12 +330,17 @@ def get_transport(catchall):
 
     return transport
 
-def get_logging_info(catchall, realtime_logname, realtime_logging_server):
+def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_logging_server):
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
     Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
 
+    Note: the returned dictionary can be built with either args (has priority) or catchall info.
+
+    :param realtimelogging: True if real-time logging was activated by server/job definition (Boolean).
     :param catchall: PQ.catchall field (string).
+    :param realtime_logname from pilot args: (string).
+    :param realtime_logging_server from pilot args: (string).
     :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
     """
 
@@ -344,6 +349,10 @@ def get_logging_info(catchall, realtime_logname, realtime_logging_server):
     url = None
     port = None
     info_dic = {}
+
+    # args handling ..
+    if args.use_realtime_logging:
+        pass
 
     info_dic['logname'] = realtime_logname
     logserver = realtime_logging_server if realtime_logname else ""
@@ -378,6 +387,7 @@ def run_realtimelog(queues, traces, args):
     :return:
     """
 
+    info_dic = None
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
         try:
@@ -385,8 +395,25 @@ def run_realtimelog(queues, traces, args):
         except queue.Empty:
             continue
 
-        info_dic = get_logging_info(job.infosys.queuedata.catchall, args.realtime_logname, args.realtime_logging_server)
-        realtime_logger = get_realtime_logger(args, info_dic)
+        if args.use_realtime_logging:
+            # always do real-time logging
+            job.realtimelogging = True
+
+        # testing
+        job.realtimelogging = True
+        # reset info_dic if real-time logging is not wanted by job
+        if not job.realtimelogging:
+            info_dic = None
+        # only set info_dic once per job (the info will not change)
+        info_dic = get_logging_info(job.realtimelogging,
+                                    job.infosys.queuedata.catchall,
+                                    args.realtime_logname,
+                                    args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
+        if info_dic:
+            args.use_realtime_logging = True
+            realtime_logger = get_realtime_logger(args, info_dic)
+        else:
+            logger.debug('real-time logging not needed at this point')
 
         # If no realtime logger is found, do nothing and exit
         if realtime_logger is None:

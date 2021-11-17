@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -64,6 +64,7 @@ class JobData(BaseData):
     processingtype = ""            # e.g. nightlies
     maxcpucount = 0                # defines what is a looping job (seconds)
     allownooutput = ""             # used to disregard empty files from job report
+    realtimelogging = False        # True for real-time logging (set by server/job definition/args)
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job

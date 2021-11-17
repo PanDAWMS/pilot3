@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 def get_realtime_logger(args=None, info_dic=None):
+    """
+    Helper function for real-time logger.
+
+    The info_dic dictionary has the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+
+    :param args: pilot arguments object.
+    :param info_dic: info dictionary.
+    :return: RealTimeLogger instance (self).
+    """
+
     if RealTimeLogger.glogger is None:
         RealTimeLogger(args, info_dic)
     return RealTimeLogger.glogger
@@ -33,19 +43,28 @@ class RealTimeLogger(Logger):
     """
 
     glogger = None
+    jobinfo = {}
+    logfiles = []
+    logfiles_default = []
+    openfiles = {}
 
     def __init__(self, args, info_dic):
+        """
+        Default init function.
+
+        The info_dic has the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+
+        :param args: pilot arguments object.
+        :param info_dic: info dictionary.
+        :return:
+        """
         super(RealTimeLogger, self).__init__(name="realTimeLogger", level=INFO)
         RealTimeLogger.glogger = self
+        protocol = ''
 
         if not info_dic:
             logger.warning('info dictionary not set - add \'logging=type:protocol://host:port\' to PQ.catchall)')
             return
-
-        self.jobInfo = {}
-        self.logfiles = []
-        self.logfiles_default = []
-        self.openfiles = {}
 
         if args.use_realtime_logging:
             name = args.realtime_logname
@@ -55,7 +74,7 @@ class RealTimeLogger(Logger):
                 self.logfiles_default = re.split('[:,]', logfiles)
         elif info_dic:
             name = info_dic.get('logname')
-            protocol = info_dic.get('protocol')
+            protocol = info_dic.get('protocol')  # needed for at least logstash
             logserver = info_dic.get('url')
         else:
             logger.warning('not enough setup info for logging')
@@ -77,6 +96,11 @@ class RealTimeLogger(Logger):
         except IndexError as exc:
             logger.warning(f'logging server port not set: {exc}')
             port = ''
+
+        if protocol:
+            # ..
+            pass
+
         _handler = None
 
         try:
@@ -123,7 +147,7 @@ class RealTimeLogger(Logger):
     # check if the msg is a dict-based object via isinstance(msg,dict),
     # then decide how to insert the PandaJobInf
     def send_with_jobinfo(self, msg):
-        logobj = self.jobInfo.copy()
+        logobj = self.jobinfo.copy()
         try:
             msg = json.loads(msg)
             logobj.update(msg)
