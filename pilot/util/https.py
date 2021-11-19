@@ -14,12 +14,15 @@ import subprocess
 import json
 import os
 import platform
+import random
+import socket
 import ssl
 import sys
 import urllib.request
 import urllib.error
 import urllib.parse
 import pipes
+from time import sleep, time
 
 from .filehandling import write_file
 from .config import config
@@ -335,3 +338,79 @@ def get_urlopen_output(req, context):
         exitcode = 0
 
     return exitcode, output
+
+
+def send_update(update_function, data, url, port, job=None):
+    """
+    Send the update to the server using the given function and data.
+
+    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (string).
+    :param data: data (dictionary).
+    :param url: url (string).
+    :param port: port (string).
+    :param job: job object.
+    :return: server response (dictionary).
+    """
+
+    time_before = int(time())
+    max_attempts = 10
+    attempt = 0
+    done = False
+    res = None
+    while attempt < max_attempts and not done:
+        logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
+
+        # get the URL for the PanDA server from pilot options or from config
+        try:
+            pandaserver = get_panda_server(url, port)
+        except Exception as exc:
+            logger.warning(f'exception caught in get_panda_server(): {exc}')
+            sleep(5)
+            attempt += 1
+            continue
+        # send the heartbeat
+        try:
+            res = request(f'{pandaserver}/server/panda/{update_function}', data=data)
+        except Exception as exc:
+            logger.warning(f'exception caught in https.request(): {exc}')
+        else:
+            if res is not None:
+                done = True
+            txt = f'server {update_function} request completed in {int(time()) - time_before}s'
+            if job:
+                txt += f' for job {job.jobid}'
+            logger.info(txt)
+            logger.info(f'server responded with: res = {res}')
+
+        attempt += 1
+    return res
+
+
+def get_panda_server(url, port):
+    """
+    Get the URL for the PanDA server.
+
+    :param url: URL string, if set in pilot option (port not included).
+    :param port: port number, if set in pilot option (int).
+    :return: full URL (either from pilot options or from config file)
+    """
+
+    if url.startswith('https://'):
+        url = url.replace('https://', '')
+
+    if url != '' and port != 0:
+        pandaserver = '%s:%s' % (url, port) if ":" not in url else url
+    else:
+        pandaserver = config.Pilot.pandaserver
+
+    if not pandaserver.startswith('http'):
+        pandaserver = 'https://' + pandaserver
+
+    # add randomization for PanDA server
+    default = 'pandaserver.cern.ch'
+    if default in pandaserver:
+        rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
+        pandaserver = pandaserver.replace(default, rnd)
+        logger.debug(f'updated {default} to {pandaserver}')
+
+    return pandaserver

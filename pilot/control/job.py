@@ -15,8 +15,6 @@ from __future__ import print_function  # Python 2
 import os
 import time
 import hashlib
-import random
-import socket
 import logging
 import queue
 
@@ -326,38 +324,8 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('skipping job update for fake test job')
         return True
 
-    time_before = int(time.time())
-    max_attempts = 10
-    attempt = 0
-    done = False
-    res = None
-    while attempt < max_attempts and not done:
-        logger.info(f'job update attempt {attempt + 1}/{max_attempts}')
-
-        # get the URL for the PanDA server from pilot options or from config
-        try:
-            pandaserver = get_panda_server(args.url, args.port)
-        except Exception as exc:
-            logger.warning(f'exception caught in get_panda_server(): {exc}')
-            time.sleep(5)
-            attempt += 1
-            continue
-        # send the heartbeat
-        try:
-            res = https.request(f'{pandaserver}/server/panda/updateJob', data=data)
-        except Exception as exc:
-            logger.warning(f'exception caught in https.request(): {exc}')
-        else:
-            if res is not None:
-                done = True
-            logger.info(
-                f'server updateJob request completed in {int(time.time()) - time_before}s for job {job.jobid}')
-            logger.info(f"server responded with: res = {res}")
-
-        attempt += 1
-
-    show_memory_usage()
-
+    update_function = 'updateJob' if job else 'updateWorkerPilotStatus'
+    res = https.send_update(update_function, data, args.url, args.port, job=job)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()
@@ -401,7 +369,7 @@ def get_job_status_from_server(job_id, url, port):
     data['ids'] = job_id
 
     # get the URL for the PanDA server from pilot options or from config
-    pandaserver = get_panda_server(url, port)
+    pandaserver = https.get_panda_server(url, port)
 
     # ask dispatcher about lost job status
     trial = 1
@@ -456,36 +424,6 @@ def get_job_status_from_server(job_id, url, port):
                 break
 
     return status, attempt_nr, status_code
-
-
-def get_panda_server(url, port):
-    """
-    Get the URL for the PanDA server.
-
-    :param url: URL string, if set in pilot option (port not included).
-    :param port: port number, if set in pilot option (int).
-    :return: full URL (either from pilot options or from config file)
-    """
-
-    if url.startswith('https://'):
-        url = url.replace('https://', '')
-
-    if url != '' and port != 0:
-        pandaserver = '%s:%s' % (url, port) if ":" not in url else url
-    else:
-        pandaserver = config.Pilot.pandaserver
-
-    if not pandaserver.startswith('http'):
-        pandaserver = 'https://' + pandaserver
-
-    # add randomization for PanDA server
-    default = 'pandaserver.cern.ch'
-    if default in pandaserver:
-        rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
-        pandaserver = pandaserver.replace(default, rnd)
-        logger.debug(f'updated {default} to {pandaserver}')
-
-    return pandaserver
 
 
 def get_debug_command(cmd):
