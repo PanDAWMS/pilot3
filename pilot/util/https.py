@@ -346,8 +346,8 @@ def send_update(update_function, data, url, port, job=None):
 
     :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (string).
     :param data: data (dictionary).
-    :param url: url (string).
-    :param port: port (string).
+    :param url: server url (string).
+    :param port: server port (string).
     :param job: job object.
     :return: server response (dictionary).
     """

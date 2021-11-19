@@ -28,7 +28,7 @@ from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, get_pilot_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
-    show_memory_usage, has_instruction_sets, locate_core_file, get_display_info
+    has_instruction_sets, locate_core_file, get_display_info
 from pilot.util.config import config
 from pilot.util.common import should_abort, was_pilot_killed
 from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, PILOT_KILL_SIGNAL, LOG_TRANSFER_NOT_DONE, \
@@ -324,8 +324,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('skipping job update for fake test job')
         return True
 
-    update_function = 'updateJob' if job else 'updateWorkerPilotStatus'
-    res = https.send_update(update_function, data, args.url, args.port, job=job)
+    res = https.send_update('updateJob', data, args.url, args.port, job=job)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()

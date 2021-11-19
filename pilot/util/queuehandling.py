@@ -138,6 +138,7 @@ def queue_report(queues, purge=False):
         else:
             logger.info(f'queue {queue} has {len(jobs)} job(s)')
 
+
 def put_in_queue(obj, queue):
     """
     Put the given object in the given queue.

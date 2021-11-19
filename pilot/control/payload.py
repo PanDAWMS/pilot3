@@ -330,6 +330,7 @@ def get_transport(catchall):
 
     return transport
 
+
 def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_logging_server):
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.

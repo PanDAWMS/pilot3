@@ -14,6 +14,7 @@ from __future__ import absolute_import
 
 import argparse
 import logging
+import os
 import sys
 import threading
 import time
@@ -29,7 +30,7 @@ from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIM
     SERVER_UPDATE_NOT_DONE, PILOT_MULTIJOB_START_TIME
 from pilot.util.filehandling import get_pilot_work_dir, mkdirs, establish_logging
 from pilot.util.harvester import is_harvester_mode
-from pilot.util.https import https_setup
+from pilot.util.https import https_setup, send_update
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()
@@ -64,6 +65,10 @@ def main():
     if args.use_https:
         https_setup(args, get_pilot_version())
 
+    # let the server know that the worker has started
+    if args.update_server:
+        send_worker_status('started', args.queue, args.url, args.port, logger)
+
     # initialize InfoService
     try:
         infosys.init(args.queue)
@@ -91,6 +96,10 @@ def main():
     except Exception as exc:
         logger.fatal('main pilot function caught exception: %s', exc)
         exitcode = None
+
+    # let the server know that the worker has finished
+    if args.update_server:
+        send_worker_status('finished', args.queue, args.url, args.port, logger)
 
     return exitcode
 
@@ -515,6 +524,33 @@ def get_pilot_source_dir():
     else:
         # could throw error here, but logging is not setup yet - fail later
         return cwd
+
+
+def send_worker_status(status, queue, url, port, logger):
+    """
+    Send worker info to the server to let it know that the worker has started
+    Note: the function can fail, but if it does, it will be ignored.
+
+    :param status: 'started' or 'finished' (string).
+    :param queue: PanDA queue name (string).
+    :param url: server url (string).
+    :param port: server port (string).
+    :param logger: logging object.
+    :return:
+    """
+
+    # worker node structure to be sent to the server
+    data = {}
+    data['workerID'] = os.environ.get('HARVESTER_WORKER_ID', None)
+    data['harvesterID'] = os.environ.get('HARVESTER_ID', None)
+    data['status'] = status
+    data['site'] = queue
+
+    # attempt to send the worker info to the server
+    if data['workerID'] and data['harvesterID']:
+        send_update('updateWorkerPilotStatus', data, url, port)
+    else:
+        logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
 if __name__ == '__main__':
