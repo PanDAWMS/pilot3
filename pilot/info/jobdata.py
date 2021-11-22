@@ -104,6 +104,7 @@ class JobData(BaseData):
     actualcorecount = 0            # number of cores actually used by the payload
     corecounts = []                # keep track of all actual core count measurements
     looping_check = True           # perform looping payload check
+    checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -798,26 +799,14 @@ class JobData(BaseData):
         :return:
         """
 
-        # Convert to long if necessary
-        try:
-            if not isinstance(workdir_size, (int, long)):  # Python 2  # noqa: F821
-                try:
-                    workdir_size = long(workdir_size)  # noqa: F821
-                except Exception as e:
-                    logger.warning('failed to convert %s to long: %s' % (workdir_size, e))
-                    return
-        except Exception:
-            if not isinstance(workdir_size, int):  # Python 3, note order
-                try:
-                    workdir_size = int(workdir_size)  # Python 3
-                except Exception as e:
-                    logger.warning('failed to convert %s to int: %s' % (workdir_size, e))
-                    return
-        try:  # Python 2
-            total_size = long(0)  # B, note do not use 0L as it will generate a syntax error in Python 3  # noqa: F821
-        except Exception:
-            total_size = 0  # B, Python 3
+        if not isinstance(workdir_size, int):
+            try:
+                workdir_size = int(workdir_size)
+            except Exception as e:
+                logger.warning('failed to convert %s to int: %s' % (workdir_size, e))
+                return
 
+        total_size = 0  # B
         if os.path.exists(self.workdir):
             # Find out which input and output files have been transferred and add their sizes to the total size
             # (Note: output files should also be removed from the total size since outputfilesize is added in the
@@ -829,7 +818,7 @@ class JobData(BaseData):
             # job.scopeOut)
 
             for fspec in self.indata + self.outdata:
-                if fspec.filetype == 'input' and fspec.status != 'transferred':
+                if fspec.filetype == 'input' and (fspec.status != 'transferred' or not self.checkinputsize):
                     continue
                 pfn = os.path.join(self.workdir, fspec.lfn)
                 if not os.path.isfile(pfn):
@@ -838,8 +827,8 @@ class JobData(BaseData):
                 else:
                     total_size += os.path.getsize(pfn)
 
-            logger.info("total size of present input+output files: %d B (workdir size: %d B)" %
-                        (total_size, workdir_size))
+            _label = 'input+output' if self.checkinputsize else 'output'
+            logger.info(f'total size of present {_label} files: {total_size} B (workdir size: {workdir_size} B)')
             workdir_size -= total_size
 
         self.workdirsizes.append(workdir_size)
