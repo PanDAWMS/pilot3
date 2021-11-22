@@ -756,7 +756,19 @@ def calculate_adler32_checksum(filename):
             for block in iter(partial(_mm.read, io.DEFAULT_BUFFER_SIZE), b''):
                 adler = adler32(block, adler)
     except Exception as exc:
-        raise Exception('failed to get adler32 checksum for file %s - %s' % (filename, exc))
+        logger.warning(f'failed to get adler32 checksum for file {filename} - {exc} (attempting alternative)')
+        try:
+            adler = 1  # default adler32 starting value
+            blocksize = 64 * 1024 * 1024  # read buffer size, 64 Mb
+
+            with open(filename, 'rb') as _file:
+                while True:
+                    data = _file.read(blocksize)
+                    if not data:
+                        break
+                    adler = adler32(data, adler)
+        except Exception as exc:
+            raise Exception(f'failed to get adler32 checksum for file {filename} - {exc} (tried alternative)')
 
     # backflip on 32bit
     if adler < 0:
