@@ -192,7 +192,7 @@ class JobData(BaseData):
 
         # overwrites
         if self.imagename_jobdef and not self.imagename:
-            logger.debug('using imagename_jobdef as imagename (\"%s\")' % self.imagename_jobdef)
+            logger.debug(f'using imagename_jobdef as imagename (\"{self.imagename_jobdef}\")')
             self.imagename = self.imagename_jobdef
         elif self.imagename_jobdef and self.imagename:
             logger.debug('using imagename from jobparams (ignoring imagename_jobdef)')
@@ -230,11 +230,7 @@ class JobData(BaseData):
         # form raw list data from input comma-separated values for further validation by FileSpec
         kmap = self.get_kmap()
 
-        try:
-            ksources = dict([k, self.clean_listdata(data.get(k, ''), list, k, [])] for k in list(kmap.values()))  # Python 3
-        except Exception:
-            ksources = dict([k, self.clean_listdata(data.get(k, ''), list, k, [])] for k in kmap.itervalues())  # Python 2
-
+        ksources = dict([item, self.clean_listdata(data.get(item, ''), list, item, [])] for item in list(kmap.values()))
         ret, lfns = [], set()
         for ind, lfn in enumerate(ksources.get('inFiles', [])):
             if lfn in ['', 'NULL'] or lfn in lfns:  # exclude null data and duplicates
@@ -242,13 +238,8 @@ class JobData(BaseData):
             lfns.add(lfn)
             idat = {}
 
-            try:
-                for attrname, k in list(kmap.items()):  # Python 3
-                    idat[attrname] = ksources[k][ind] if len(ksources[k]) > ind else None
-            except Exception:
-                for attrname, k in kmap.iteritems():  # Python 2
-                    idat[attrname] = ksources[k][ind] if len(ksources[k]) > ind else None
-
+            for attrname, item in list(kmap.items()):
+                idat[attrname] = ksources[item][ind] if len(ksources[item]) > ind else None
             accessmode = 'copy'  ## default settings
 
             # for prod jobs: use remoteio if transferType=direct and prodDBlockToken!=local
@@ -265,7 +256,7 @@ class JobData(BaseData):
                     idat[key] = getattr(self.infosys.queuedata, key)
 
             finfo = FileSpec(filetype='input', **idat)
-            logger.info('added file \'%s\' with accessmode \'%s\'' % (lfn, accessmode))
+            logger.info(f'added file \'{lfn}\' with accessmode \'{accessmode}\'')
             ret.append(finfo)
 
         return ret
@@ -290,12 +281,9 @@ class JobData(BaseData):
         :param access_keys: list of access keys (list).
         :return:
         """
-        dat = dict([k, getattr(FileSpec, k, None)] for k in access_keys)
-        try:
-            msg = ', '.join(["%s=%s" % (k, v) for k, v in sorted(dat.iteritems())])  # Python 2
-        except Exception:
-            msg = ', '.join(["%s=%s" % (k, v) for k, v in sorted(dat.items())])  # Python 3
-        logger.info('job.infosys.queuedata is not initialized: the following access settings will be used by default: %s' % msg)
+        dat = dict([item, getattr(FileSpec, item, None)] for item in access_keys)
+        msg = ', '.join(["%s=%s" % (item, value) for item, value in sorted(dat.items())])
+        logger.info(f'job.infosys.queuedata is not initialized: the following access settings will be used by default: {msg}')
 
     @staticmethod
     def get_kmap():
@@ -338,10 +326,7 @@ class JobData(BaseData):
             'ddmendpoint': 'ddmEndPointOut',
         }
 
-        try:
-            ksources = dict([k, self.clean_listdata(data.get(k, ''), list, k, [])] for k in list(kmap.values()))  # Python 3
-        except Exception:
-            ksources = dict([k, self.clean_listdata(data.get(k, ''), list, k, [])] for k in kmap.itervalues())  # Python 2
+        ksources = dict([item, self.clean_listdata(data.get(item, ''), list, item, [])] for item in list(kmap.values()))
 
         # take the logfile name from the environment first (in case of raythena and aborted pilots)
         pilot_logfile = os.environ.get('PILOT_LOGFILE', None)
@@ -353,7 +338,7 @@ class JobData(BaseData):
             outfiles = ksources.get('outFiles', None)
             if outfiles and old_logfile in outfiles:
                 # search and replace the old logfile name with the new from the environment
-                ksources['outFiles'] = [pilot_logfile if x == old_logfile else x for x in ksources.get('outFiles')]
+                ksources['outFiles'] = [pilot_logfile if item == old_logfile else item for item in ksources.get('outFiles')]
 
         log_lfn = data.get('logFile')
         if log_lfn:
@@ -390,12 +375,8 @@ class JobData(BaseData):
                 continue
             lfns.add(lfn)
             idat = {}
-            try:
-                for attrname, k in list(kmap.items()):  # Python 3
-                    idat[attrname] = ksources[k][ind] if len(ksources[k]) > ind else None
-            except Exception:
-                for attrname, k in kmap.iteritems():  # Python 2
-                    idat[attrname] = ksources[k][ind] if len(ksources[k]) > ind else None
+            for attrname, item in list(kmap.items()):
+                idat[attrname] = ksources[item][ind] if len(ksources[item]) > ind else None
 
             ftype = 'output'
             ret = ret_output
@@ -568,7 +549,7 @@ class JobData(BaseData):
             try:
                 value = int(athena_corecount)
             except Exception:
-                logger.info("ATHENA_PROC_NUMBER is not properly set.. ignored, data=%s" % athena_corecount)
+                logger.info(f"ATHENA_PROC_NUMBER is not properly set.. ignored, data={athena_corecount}")
 
         return value if value else 1
 
@@ -603,16 +584,16 @@ class JobData(BaseData):
         """
 
         #   value += ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" someblah'
-        logger.info('cleaning jobparams: %s' % value)
+        logger.info(f'cleaning jobparams: {value}')
 
         # user specific pre-filtering
         # (return list of strings not to be filtered, which will be put back in the post-filtering below)
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         try:
-            user = __import__('pilot.user.%s.jobdata' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__('pilot.user.%s.jobdata' % pilot_user, globals(), locals(), [pilot_user], 0)
             exclusions, value = user.jobparams_prefiltering(value)
-        except Exception as e:
-            logger.warning('caught exception in user code: %s' % e)
+        except Exception as exc:
+            logger.warning(f'caught exception in user code: {exc}')
             exclusions = {}
 
         ## clean job params from Pilot1 old-formatted options
@@ -643,17 +624,10 @@ class JobData(BaseData):
 
         try:
             ret = user.jobparams_postfiltering(ret, exclusions=exclusions)
-        except Exception as e:
-            logger.warning('caught exception in user code: %s' % e)
+        except Exception as exc:
+            logger.warning(f'caught exception in user code: {exc}')
 
         logger.info('cleaned jobparams: %s' % ret)
-
-#        self.coprocess = {u'args': u'--coprocess -o output.json -j "" -p "bash%20./exec_in_container.sh"
-#        --inSampleFile input.json -a jobO.83699547-623a-4d8c-9b1f-4ff5332bdb77.tar --sourceURL https://aipanda048.cern.ch:25443
-#        --checkPointToSave aaa --writeInputToTxt IN_DATA:input_ds.json -i "[\'v04.trt_sharded_weighted_1M5K.tar.gz\']"
-#        --inMap "{\'IN_DATA\': [\'v04.trt_sharded_weighted_1M5K.tar.gz\']}" --outMetricsFile=23136708.metrics.000006.tgz^metrics.tgz',
-#        u'command': u'http://pandaserver.cern.ch:25080/trf/user/runHPO-00-00-01'}
-#        logger.debug('hardcoding coprocess: %s' % self.coprocess)
 
         return ret
 
@@ -680,16 +654,16 @@ class JobData(BaseData):
             if image and image[0] != "":
                 try:
                     imagename = image[0]  # removed [1]
-                except Exception as e:
-                    logger.warning('failed to extract image name: %s' % e)
+                except Exception as exc:
+                    logger.warning(f'failed to extract image name: {exc}')
                 else:
-                    logger.info("extracted image from jobparams: %s" % imagename)
+                    logger.info(f"extracted image from jobparams: {imagename}")
             else:
                 logger.warning("image could not be extract from %s" % jobparams)
 
             # remove the option from the job parameters
             jobparams = re.sub(_pattern, "", jobparams)
-            logger.info("removed the %s option from job parameters: %s" % (image_option[0], jobparams))
+            logger.info(f"removed the {image_option[0]} option from job parameters: {jobparams}")
 
         return jobparams, imagename
 
@@ -703,7 +677,7 @@ class JobData(BaseData):
             :return: tuple: (dict of extracted options, raw string of final command line options)
         """
 
-        logger.debug('extract options=%s from data=%s' % (list(options.keys()), data))  # Python 2/3
+        logger.debug(f'extract options={list(options.keys())} from data={data}')
 
         if not options:
             return {}, data
@@ -741,8 +715,8 @@ class JobData(BaseData):
 
         try:
             args = shlex.split(data)
-        except ValueError as e:
-            logger.error('Failed to parse input arguments from data=%s, error=%s .. skipped.' % (data, e))
+        except ValueError as exc:
+            logger.error(f'Failed to parse input arguments from data={data}, error={exc} .. skipped.')
             return {}, data
 
         opts, curopt, pargs = {}, None, []
@@ -775,16 +749,12 @@ class JobData(BaseData):
         """
 
         ret = {}
-        try:
-            _items = list(options.items())  # Python 3
-        except Exception:
-            _items = options.iteritems()  # Python 2
-        for opt, fcast in _items:
+        for opt, fcast in list(options.items()):
             val = opts.get(opt)
             try:
                 val = fcast(val) if callable(fcast) else val
-            except Exception as e:
-                logger.error('Failed to extract value for option=%s from data=%s: cast function=%s failed, exception=%s .. skipped' % (opt, val, fcast, e))
+            except Exception as exc:
+                logger.error(f'failed to extract value for option={opt} from data={val}: cast function={fcast} failed, exception={exc}')
                 continue
             ret[opt] = val
 
@@ -802,8 +772,8 @@ class JobData(BaseData):
         if not isinstance(workdir_size, int):
             try:
                 workdir_size = int(workdir_size)
-            except Exception as e:
-                logger.warning('failed to convert %s to int: %s' % (workdir_size, e))
+            except Exception as exc:
+                logger.warning(f'failed to convert {workdir_size} to int: {exc}')
                 return
 
         total_size = 0  # B
@@ -822,7 +792,7 @@ class JobData(BaseData):
                     continue
                 pfn = os.path.join(self.workdir, fspec.lfn)
                 if not os.path.isfile(pfn):
-                    msg = "pfn file=%s does not exist (skip from workdir size calculation)" % pfn
+                    msg = f"pfn file={pfn} does not exist (skip from workdir size calculation)"
                     logger.info(msg)
                 else:
                     total_size += os.path.getsize(pfn)
@@ -840,11 +810,7 @@ class JobData(BaseData):
         :return: workdir size (int).
         """
 
-        try:
-            maxdirsize = long(0)  # Python 2, note do not use 0L as it will generate a syntax error in Python 3  # noqa: F821
-        except Exception:
-            maxdirsize = 0  # Python 3
-
+        maxdirsize = 0
         if self.workdirsizes != []:
             # Get the maximum value from the list
             maxdirsize = max(self.workdirsizes)
@@ -916,7 +882,7 @@ class JobData(BaseData):
                     input_name, input_list = fileinfo.split(":")
                     writetofile_dictionary[input_name] = input_list.split(',')
                 else:
-                    logger.error("writeToFile doesn't have the correct format, expecting a separator \':\' for %s" % fileinfo)
+                    logger.error(f"writeToFile doesn't have the correct format, expecting a separator \':\' for {fileinfo}")
 
         if writetofile_dictionary:
             for input_name in writetofile_dictionary:
@@ -925,19 +891,19 @@ class JobData(BaseData):
                 f = open(input_name_full, 'w')
                 job_option = self.get_job_option_for_input_name(input_name)
                 if not job_option:
-                    logger.error("Unknown job option format, expected job options such as \'--inputHitsFile\' for input file: %s" % input_name)
+                    logger.error("unknown job option format, expected job options such as \'--inputHitsFile\' for input file: {input_name}")
                 else:
-                    f.write("%s\n" % job_option)
+                    f.write(f"{job_option}\n")
                 for input_file in writetofile_dictionary[input_name]:
-                    f.write("%s\n" % input_file)
+                    f.write(f"{input_file}\n")
                 f.close()
-                logger.info("Wrote input file list to file %s: %s" % (input_name_full, writetofile_dictionary[input_name]))
+                logger.info(f"wrote input file list to file {input_name_full}: {writetofile_dictionary[input_name]}")
 
                 self.jobparams = self.jobparams.replace(input_name, input_name_new)
                 if job_option:
                     self.jobparams = self.jobparams.replace('%s=' % job_option, '')
                 self.jobparams = self.jobparams.replace('--autoConfiguration=everything', '')
-                logger.info("jobparams after processing writeToFile: %s" % self.jobparams)
+                logger.info(f"jobparams after processing writeToFile: {self.jobparams}")
 
     def add_size(self, size):
         """
@@ -972,46 +938,46 @@ class JobData(BaseData):
             pass
         return self.currentsize
 
-    def collect_zombies(self, tn=None):
+    def collect_zombies(self, depth=None):
         """
-        Collect zombie child processes, tn is the max number of loops, plus 1,
+        Collect zombie child processes, depth is the max number of loops, plus 1,
         to avoid infinite looping even if some child processes really get wedged;
-        tn=None means it will keep going until all child zombies have been collected.
+        depth=None means it will keep going until all child zombies have been collected.
 
-        :param tn: max depth (int).
+        :param depth: max depth (int).
         :return:
         """
 
         sleep(1)
 
-        if self.zombies and tn > 1:
-            logger.info("--- collectZombieJob: --- %d, %s" % (tn, str(self.zombies)))
-            tn -= 1
-            for x in self.zombies:
+        if self.zombies and depth > 1:
+            logger.info(f"--- collectZombieJob: --- {depth}, {self.zombies}")
+            depth -= 1
+            for zombie in self.zombies:
                 try:
-                    logger.info("zombie collector trying to kill pid %s" % str(x))
-                    _id, rc = os.waitpid(x, os.WNOHANG)
-                except OSError as e:
-                    logger.info("harmless exception when collecting zombies: %s" % e)
-                    self.zombies.remove(x)
+                    logger.info(f"zombie collector trying to kill pid {zombie}")
+                    _id, _ = os.waitpid(zombie, os.WNOHANG)
+                except OSError as exc:
+                    logger.info(f"harmless exception when collecting zombies: {exc}")
+                    self.zombies.remove(zombie)
                 else:
                     if _id:  # finished
-                        self.zombies.remove(x)
-                self.collect_zombies(tn=tn)  # recursion
+                        self.zombies.remove(zombie)
+                self.collect_zombies(depth=depth)  # recursion
 
-        if self.zombies and not tn:
+        if self.zombies and not depth:
             # for the infinite waiting case, we have to use blocked waiting, otherwise it throws
             # RuntimeError: maximum recursion depth exceeded
-            for x in self.zombies:
+            for zombie in self.zombies:
                 try:
-                    _id, rc = os.waitpid(x, 0)
-                except OSError as e:
-                    logger.info("harmless exception when collecting zombie jobs, %s" % str(e))
-                    self.zombies.remove(x)
+                    _id, _ = os.waitpid(zombie, 0)
+                except OSError as exc:
+                    logger.info(f"harmless exception when collecting zombie jobs: {exc}")
+                    self.zombies.remove(zombie)
                 else:
                     if _id:  # finished
-                        self.zombies.remove(x)
-                self.collect_zombies(tn=tn)  # recursion
+                        self.zombies.remove(zombie)
+                self.collect_zombies(depth=depth)  # recursion
 
     def only_copy_to_scratch(self):  ## TO BE DEPRECATED, use `has_remoteio()` instead of
         """
