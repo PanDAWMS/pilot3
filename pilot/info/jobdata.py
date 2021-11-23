@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class JobData(BaseData):
     """
-        High-level object to host Job definition/settings
+    High-level object to host Job definition/settings
     """
 
     # ## put explicit list of all the attributes with comments for better inline-documentation by Sphinx
@@ -65,6 +65,7 @@ class JobData(BaseData):
     maxcpucount = 0                # defines what is a looping job (seconds)
     allownooutput = ""             # used to disregard empty files from job report
     realtimelogging = False        # True for real-time logging (set by server/job definition/args)
+    pandasecrets = ""              # User defined secrets
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job
@@ -161,7 +162,7 @@ class JobData(BaseData):
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput'],
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions'],
@@ -470,7 +471,8 @@ class JobData(BaseData):
             'allownooutput': 'allowNoOutput',
             'imagename_jobdef': 'container_name',
             'containeroptions': 'containerOptions',
-            'looping_check': 'loopingCheck'
+            'looping_check': 'loopingCheck',
+            'pandasecrets': 'secrets'
         } if use_kmap else {}
 
         self._load_data(data, kmap)

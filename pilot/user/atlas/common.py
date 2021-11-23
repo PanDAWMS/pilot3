@@ -1886,11 +1886,12 @@ def get_redundants():
                 "HAHM_*",
                 "Process",
                 "merged_lhef._0.events-new",
-                "singularity/*",  # new
-                "/cores",  # new
-                "/work",  # new
-                "docs/",  # new
-                "/pilot3"]  # new
+                "panda_secrets.json",
+                "singularity/*",
+                "/cores",
+                "/work",
+                "docs/",
+                "/pilot3"]
 
     return dir_list
 
@@ -1989,7 +1990,6 @@ def remove_special_files(workdir, dir_list, outputfiles):
 
     for item in to_delete:
         if item not in exclude_files:
-            logger.debug('removing %s', item)
             if os.path.isfile(item):
                 remove(item)
             else:

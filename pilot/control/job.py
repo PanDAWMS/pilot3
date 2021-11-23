@@ -23,7 +23,7 @@ from re import findall
 from glob import glob
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread, PilotException  #, JobAlreadyRunning
+from pilot.common.exception import ExcThread, PilotException, FileHandlingFailure
 from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, get_pilot_id, \
@@ -997,7 +997,7 @@ def validate(queues, traces, args):
                 os.mkdir(job_dir)
                 os.chmod(job_dir, 0o770)
                 job.workdir = job_dir
-            except Exception as error:
+            except (FileExistsError, OSError, PermissionError, FileNotFoundError) as error:
                 logger.debug(f'cannot create working directory: {error}')
                 traces.pilot['error_code'] = errors.MKDIR
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(traces.pilot['error_code'])
@@ -1020,6 +1020,9 @@ def validate(queues, traces, args):
 #                    _job = JobData(job_dict, use_kmap=False)
 #                except Exception as error:
 #                    logger.warning(f'exception caught: {error}')
+
+            # hide any secrets
+            hide_secrets(job)
 
             create_symlink(from_path='../%s' % config.Pilot.pilotlog, to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
@@ -1051,6 +1054,31 @@ def validate(queues, traces, args):
         logger.debug('will not set job_aborted yet')
 
     logger.debug('[job] validate thread has finished')
+
+
+def hide_secrets(job):
+    """
+    Hide any user secrets.
+
+    The function hides any user secrets arriving with the job definition. It places them in a JSON file (panda_secrets.json)
+    and updates the job.pandasecrets string to 'hidden'. The JSON file is removed before the job log is created. The
+    contents of job.pandasecrets is not dumped to the log.
+
+    :param job: job object.
+    :return:
+    """
+
+    if job.pandasecrets:
+        secrets = {'secrets': job.pandasecrets}
+        try:
+            path = os.path.join(job.workdir, config.Pilot.pandasecrets)
+            _ = write_json(path, secrets)
+        except FileHandlingFailure as exc:
+            logger.warning(f'failed to store user secrets: {exc}')
+        logger.info(f'user secrets saved to file')
+        job.pandasecrets = 'hidden'
+    else:
+        logger.debug('no user secrets for this job')
 
 
 def verify_ctypes(queues, job):
@@ -1776,8 +1804,8 @@ def retrieve(queues, traces, args):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
-        logger.info(f'job definition = {res}')
-
+        # res['secrets'] = 'top secret stuff!'
+        dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
             # do not set graceful stop if pilot has not finished sending the final job update
@@ -1871,6 +1899,24 @@ def retrieve(queues, traces, args):  # noqa: C901
     logger.debug('[job] retrieve thread has finished')
 
 
+def dump_job_definition(res):
+    """
+    Dump the job definition to the log, but hide any sensitive information.
+
+    :param res: raw job definition (dictionary).
+    :return:
+    """
+
+    if 'secrets' in res:
+        _pandasecrets = res['secrets']
+        res['secrets'] = '********'
+    else:
+        _pandasecrets = ''
+    logger.info(f'job definition = {res}')
+    if _pandasecrets:
+        res['secrets'] = _pandasecrets
+
+
 def print_node_info():
     """
     Print information about the local node to the log.
@@ -1904,7 +1950,7 @@ def create_job(dispatcher_response, queue):
     #job.workdir = os.getcwd()
 
     logger.info(f'received job: {job.jobid} (sleep until the job has finished)')
-    logger.info(f'job details: \n{job}')
+    logger.info(f"job details: \n{str(job).replace(job.pandasecrets, '********')}")
 
     # payload environment wants the PANDAID to be set, also used below
     os.environ['PANDAID'] = job.jobid
