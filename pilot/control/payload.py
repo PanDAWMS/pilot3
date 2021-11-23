@@ -14,7 +14,7 @@
 import os
 import time
 import traceback
-from re import findall
+from re import findall, split
 try:
     import Queue as queue  # noqa: N813
 except Exception:
@@ -345,20 +345,16 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
     :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
     """
 
-    logging_type = None
-    protocol = None
-    url = None
-    port = None
     info_dic = {}
 
-    # args handling ..
-    if realtimelogging:
-        pass
+    if 'logging=' not in catchall or not realtimelogging:
+        return {}
 
-    info_dic['logname'] = realtime_logname
-    logserver = realtime_logging_server if realtime_logname else ""
+    # args handling
+    info_dic['logname'] = realtime_logname if realtime_logname else ""
+    logserver = realtime_logging_server if realtime_logging_server else ""
 
-    if 'logging=' not in catchall and not logserver:
+    if not logserver:
         return {}
 
     pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
@@ -372,6 +368,16 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
         except IndexError as exc:
             print(f'exception caught: {exc}')
             info_dic = {}
+        else:
+            # experiment specific, move to relevant code
+
+            # Rubin
+            logfiles = os.environ.get('REALTIME_LOGFILES', None)
+            if logfiles is not None:
+                 info_dic['logfiles'] = split('[:,]', logfiles)
+            else:
+                # ATLAS (testing; get info from debug parameter later)
+                info_dic['logfiles'] = [config.Payload.payloadstdout]
 
     return info_dic
 

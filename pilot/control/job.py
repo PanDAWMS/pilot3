@@ -1804,7 +1804,6 @@ def retrieve(queues, traces, args):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
-        # res['secrets'] = 'top secret stuff!'
         dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
@@ -1940,17 +1939,12 @@ def create_job(dispatcher_response, queue):
     """
 
     # initialize (job specific) InfoService instance
-
     job = JobData(dispatcher_response)
-
     jobinfosys = InfoService()
     jobinfosys.init(queue, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
     job.init(infosys)
 
-    #job.workdir = os.getcwd()
-
     logger.info(f'received job: {job.jobid} (sleep until the job has finished)')
-    logger.info(f"job details: \n{str(job).replace(job.pandasecrets, '********')}")
 
     # payload environment wants the PANDAID to be set, also used below
     os.environ['PANDAID'] = job.jobid

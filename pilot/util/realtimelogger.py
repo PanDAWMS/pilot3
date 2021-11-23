@@ -52,7 +52,12 @@ class RealTimeLogger(Logger):
         """
         Default init function.
 
-        The info_dic has the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+        The info_dic has the format: {'logging_type': ..,
+                                      'protocol': ..,
+                                      'url': ..,
+                                      'port': ..,
+                                      'logname': ..,
+                                      'logfiles': [..]}
 
         :param args: pilot arguments object.
         :param info_dic: info dictionary.
@@ -66,21 +71,18 @@ class RealTimeLogger(Logger):
             logger.warning('info dictionary not set - add \'logging=type:protocol://host:port\' to PQ.catchall)')
             return
 
-        if args.use_realtime_logging:
-            name = args.realtime_logname
-            logserver = args.realtime_logging_server if name else ""
-            logfiles = os.environ.get('REALTIME_LOGFILES')
-            if logfiles is not None:
-                self.logfiles_default = re.split('[:,]', logfiles)
-        elif info_dic:
-            name = info_dic.get('logname')
-            protocol = info_dic.get('protocol')  # needed for at least logstash
-            logserver = info_dic.get('url')
-        else:
-            logger.warning('not enough setup info for logging')
+        name = info_dic.get('logname')
+        protocol = info_dic.get('protocol')  # needed for at least logstash
+        logserver = info_dic.get('url')
+        self.logfiles_default = info_dic.get('logfiles')
+
+        if not name or not protocol or not logserver:
+            logger.warning('not enough information for setting up logging')
             return
 
+        logger.debug(f'name={name}, protocol={protocol}, logserver={logserver}')
         items = logserver.split(':')
+        logger.debug(f'items={items}')
         try:
             logtype = items[0].lower()
         except IndexError as exc:
@@ -97,9 +99,16 @@ class RealTimeLogger(Logger):
             logger.warning(f'logging server port not set: {exc}')
             port = ''
 
+        if not logtype or not server or not port:
+            logger.warning('not enough information for setting up logging')
+            return
+
         if protocol:
             # ..
             pass
+
+        logger.debug(f'got: {name}, {protocol}, {logserver}, {logtype}, {server}, {port}')
+        return
 
         _handler = None
 
