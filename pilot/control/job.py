@@ -35,8 +35,8 @@ from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PI
     LOG_TRANSFER_IN_PROGRESS, LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_TROUBLE, SERVER_UPDATE_FINAL, \
     SERVER_UPDATE_UPDATING, SERVER_UPDATE_NOT_DONE
 from pilot.util.container import execute
-from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, write_json, establish_logging, write_file, \
-    create_symlink
+from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, establish_logging, write_file, \
+    create_symlink, write_json
 from pilot.util.harvester import request_new_jobs, remove_job_request_file, parse_job_definition_file, \
     is_harvester_mode, get_worker_attributes_file, publish_job_report, publish_work_report, get_event_status_file, \
     publish_stageout_files
@@ -1069,10 +1069,9 @@ def hide_secrets(job):
     """
 
     if job.pandasecrets:
-        secrets = {'secrets': job.pandasecrets}
         try:
             path = os.path.join(job.workdir, config.Pilot.pandasecrets)
-            _ = write_json(path, secrets)
+            _ = write_file(path, job.pandasecrets)
         except FileHandlingFailure as exc:
             logger.warning(f'failed to store user secrets: {exc}')
         logger.info(f'user secrets saved to file')
@@ -1092,7 +1091,7 @@ def verify_ctypes(queues, job):
 
     try:
         import ctypes
-    except ModuleNotFoundError as error:
+    except (ModuleNotFoundError, ImportError) as error:
         diagnostics = 'ctypes python module could not be imported: %s' % error
         logger.warning(diagnostics)
         #job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOCTYPES, msg=diagnostics)

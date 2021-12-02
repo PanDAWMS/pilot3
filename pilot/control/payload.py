@@ -348,17 +348,21 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
     info_dic = {}
 
     if 'logging=' not in catchall or not realtimelogging:
+        logger.debug(f'catchall={catchall}')
+        logger.debug(f'realtimelogging={realtimelogging}')
         return {}
 
     # args handling
-    info_dic['logname'] = realtime_logname if realtime_logname else ""
+    info_dic['logname'] = realtime_logname if realtime_logname else "pilot-log"
     logserver = realtime_logging_server if realtime_logging_server else ""
-
-    if not logserver:
-        return {}
 
     pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
     info = findall(pattern, catchall)
+
+    if not logserver and not info:
+        logger.warning('not enough info available for activating real-time logging')
+        return {}
+
     if info:
         try:
             info_dic['logging_type'] = info[0][0]
@@ -378,6 +382,19 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
             else:
                 # ATLAS (testing; get info from debug parameter later)
                 info_dic['logfiles'] = [config.Payload.payloadstdout]
+    else:
+        items = logserver.split(':')
+        info_dic['logging_type'] = items[0].lower()
+        pattern = r'(\S+)\:\/\/(\S+)'
+        _address = findall(pattern, items[1])
+        if _address:
+            info_dic['protocol'] = _address[0][0]
+            info_dic['url'] = _address[0][1]
+        else:
+            logger.warning(f'protocol/url could not be extracted from {items}')
+            info_dic['protocol'] = ''
+            info_dic['url'] = ''
+        info_dic['port'] = items[2]
 
     return info_dic
 
@@ -408,7 +425,7 @@ def run_realtimelog(queues, traces, args):
 
         # testing
         job.realtimelogging = True
-        # reset info_dic if real-time logging is not wanted by job
+        # reset info_dic if real-time logging is not wanted by the job
         if not job.realtimelogging:
             info_dic = None
         # only set info_dic once per job (the info will not change)
@@ -416,6 +433,7 @@ def run_realtimelog(queues, traces, args):
                                     job.infosys.queuedata.catchall,
                                     args.realtime_logname,
                                     args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
+        logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
             realtime_logger = get_realtime_logger(args, info_dic)

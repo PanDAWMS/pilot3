@@ -147,8 +147,12 @@ def https_setup(args=None, version=None):
     ctx.capath = _ctx.capath
     ctx.cacert = _ctx.cacert
     ctx.user_agent = _ctx.user_agent
-    ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
-    ctx.ssl_context.load_cert_chain(ctx.cacert)
+
+    try:
+        ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
+        ctx.ssl_context.load_cert_chain(ctx.cacert)
+    except Exception as exc:
+        logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
 def request(url, data=None, plain=False, secure=True):

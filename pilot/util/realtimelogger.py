@@ -63,52 +63,30 @@ class RealTimeLogger(Logger):
         :param info_dic: info dictionary.
         :return:
         """
+
         super(RealTimeLogger, self).__init__(name="realTimeLogger", level=INFO)
         RealTimeLogger.glogger = self
-        protocol = ''
 
         if not info_dic:
             logger.warning('info dictionary not set - add \'logging=type:protocol://host:port\' to PQ.catchall)')
+            RealTimeLogger.glogger = None
             return
 
         name = info_dic.get('logname')
         protocol = info_dic.get('protocol')  # needed for at least logstash
-        logserver = info_dic.get('url')
+        server = protocol + '://' + info_dic.get('url')
+        port = info_dic.get('port')
+        logtype = info_dic.get('logging_type')
         self.logfiles_default = info_dic.get('logfiles')
 
-        if not name or not protocol or not logserver:
+        if not name or not protocol or not server or not port or not logtype:
             logger.warning('not enough information for setting up logging')
-            return
-
-        logger.debug(f'name={name}, protocol={protocol}, logserver={logserver}')
-        items = logserver.split(':')
-        logger.debug(f'items={items}')
-        try:
-            logtype = items[0].lower()
-        except IndexError as exc:
-            logger.warning(f'logtype not set: {exc}')
-            logtype = ''
-        try:
-            server = items[1]
-        except IndexError as exc:
-            logger.warning(f'logging server not set: {exc}')
-            server = ''
-        try:
-            port = items[2]
-        except IndexError as exc:
-            logger.warning(f'logging server port not set: {exc}')
-            port = ''
-
-        if not logtype or not server or not port:
-            logger.warning('not enough information for setting up logging')
+            RealTimeLogger.glogger = None
             return
 
         if protocol:
             # ..
             pass
-
-        logger.debug(f'got: {name}, {protocol}, {logserver}, {logtype}, {server}, {port}')
-        return
 
         _handler = None
 
@@ -119,12 +97,9 @@ class RealTimeLogger(Logger):
                 client = google.cloud.logging.Client()
                 _handler = CloudLoggingHandler(client, name=name)
             elif logtype == "fluent":
-                if len(items) < 3:
-                    RealTimeLogger.glogger = None
                 from fluent import handler
                 _handler = handler.FluentHandler(name, host=server, port=port)
             elif logtype == "logstash":
-                import logstash
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
                 # Create the handler
@@ -135,7 +110,8 @@ class RealTimeLogger(Logger):
                     ssl_verify=False,
                     database_path='')
             else:
-                pass
+                logger.warning(f'unknown logtype: {logtype}')
+                _handler = None
         except Exception as exc:
             logger.warning(f'exception caught while setting up log handlers: {exc}')
             _handler = None
