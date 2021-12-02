@@ -63,11 +63,7 @@ def get_job_metrics_string(job):
     # get the max disk space used by the payload (at the end of a job)
     if job.state == "finished" or job.state == "failed" or job.state == "holding":
         max_space = job.get_max_workdir_size()
-
-        try:
-            zero = long(0)  # Python 2 # noqa: F821
-        except NameError:
-            zero = 0  # Python 3
+        zero = 0
 
         if max_space > zero:
             job_metrics += get_job_metrics_entry("workDirSize", max_space)
