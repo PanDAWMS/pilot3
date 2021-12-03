@@ -378,7 +378,7 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
             # Rubin
             logfiles = os.environ.get('REALTIME_LOGFILES', None)
             if logfiles is not None:
-                 info_dic['logfiles'] = split('[:,]', logfiles)
+                info_dic['logfiles'] = split('[:,]', logfiles)
             else:
                 # ATLAS (testing; get info from debug parameter later)
                 info_dic['logfiles'] = [config.Payload.payloadstdout]

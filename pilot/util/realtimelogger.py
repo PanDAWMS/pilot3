@@ -11,7 +11,6 @@
 import os
 import time
 import json
-import re
 from pilot.util.config import config
 from logging import Logger, INFO
 import logging
