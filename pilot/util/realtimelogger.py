@@ -100,19 +100,26 @@ class RealTimeLogger(Logger):
                 from fluent import handler
                 _handler = handler.FluentHandler(name, host=server, port=port)
             elif logtype == "logstash":
+                from logstash_async.transport import HttpTransport
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
+                transport = HttpTransport(
+                    server,
+                    port,
+                    timeout=5.0,
+                )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
                     host=server,
                     port=port,
+                    transport=transport,
                     ssl_enable=True,
                     ssl_verify=False,
                     database_path='')
             else:
                 logger.warning(f'unknown logtype: {logtype}')
                 _handler = None
-        except Exception as exc:
+        except (ModuleNotFoundError, ImportError) as exc:
             logger.warning(f'exception caught while setting up log handlers: {exc}')
             _handler = None
 
@@ -181,6 +188,7 @@ class RealTimeLogger(Logger):
         self.add_logfiles(job)
         while not args.graceful_stop.is_set():
             if job.state == '' or job.state == 'starting' or job.state == 'running':
+                logger.info(f'RealTimeLogger: {self.logfiles}, {self.openfiles}')
                 if len(self.logfiles) > len(self.openfiles):
                     for logfile in self.logfiles:
                         if logfile not in self.openfiles:
