@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def looping_job(job, mt):
+def looping_job(job, montime):
     """
     Looping job detection algorithm.
     Identify hanging tasks/processes. Did the stage-in/out finish within allowed time limit, or did the payload update
@@ -32,7 +32,7 @@ def looping_job(job, mt):
     terminated.
 
     :param job: job object.
-    :param mt: `MonitoringTime` object.
+    :param montime: `MonitoringTime` object.
     :return: exit code (int), diagnostics (string).
     """
 
@@ -54,15 +54,15 @@ def looping_job(job, mt):
 
         # get the time when the files in the workdir were last touched. in case no file was touched since the last
         # check, the returned value will be the same as the previous time
-        time_last_touched = get_time_for_last_touch(job, mt, looping_limit)
+        time_last_touched = get_time_for_last_touch(job, montime, looping_limit)
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
-            ct = int(time.time())
-            logger.info('current time: %d', ct)
+            currenttime = int(time.time())
+            logger.info('current time: %d', currenttime)
             logger.info('last time files were touched: %d', time_last_touched)
             logger.info('looping limit: %d s', looping_limit)
-            if ct - time_last_touched > looping_limit:
+            if currenttime - time_last_touched > looping_limit:
                 try:
                     # first produce core dump and copy it
                     create_core_dump(pid=job.pid, workdir=job.workdir)
@@ -102,13 +102,13 @@ def create_core_dump(pid=None, workdir=None):
         logger.warning('failed to execute command: %s, stdout+err=%s', cmd, stdout + stderr)
 
 
-def get_time_for_last_touch(job, mt, looping_limit):
+def get_time_for_last_touch(job, montime, looping_limit):
     """
     Return the time when the files in the workdir were last touched.
     in case no file was touched since the last check, the returned value will be the same as the previous time.
 
     :param job: job object.
-    :param mt: `MonitoringTime` object.
+    :param montime: `MonitoringTime` object.
     :param looping_limit: looping limit in seconds.
     :return: time in seconds since epoch (int) (or None in case of failure).
     """
@@ -137,10 +137,10 @@ def get_time_for_last_touch(job, mt, looping_limit):
                     logger.info("file %s is the most recently updated file (at time=%d)", latest_modified_file, mtime)
                 else:
                     logger.warning('looping job algorithm failed to identify latest updated file')
-                    return mt.ct_looping_last_touched
+                    return montime.ct_looping_last_touched
 
                 # store the time of the last file modification
-                mt.update('ct_looping_last_touched', modtime=mtime)
+                montime.update('ct_looping_last_touched', modtime=mtime)
             else:
                 logger.warning("found no recently updated files!")
         else:
@@ -151,7 +151,7 @@ def get_time_for_last_touch(job, mt, looping_limit):
         stderr = cut_output(stderr)
         logger.warning('find command failed: %d, %s, %s', exit_code, stdout, stderr)
 
-    return mt.ct_looping_last_touched
+    return montime.ct_looping_last_touched
 
 
 def kill_looping_job(job):
@@ -168,19 +168,19 @@ def kill_looping_job(job):
     logger.fatal(diagnostics)
 
     cmd = 'ps -fwu %s' % whoami()
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     logger.info("%s: %s", cmd + '\n', stdout)
 
     cmd = 'ls -ltr %s' % (job.workdir)
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     logger.info("%s: %s", cmd + '\n', stdout)
 
     cmd = 'ps -o pid,ppid,sid,pgid,tpgid,stat,comm -u %s' % whoami()
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     logger.info("%s: %s", cmd + '\n', stdout)
 
     cmd = 'pstree -g -a'
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     logger.info("%s: %s", cmd + '\n', stdout)
 
     # set the relevant error code
@@ -194,10 +194,10 @@ def kill_looping_job(job):
     set_pilot_state(job=job, state="failed")
 
     # remove any lingering input files from the work dir
-    lfns, guids = job.get_lfns_and_guids()
+    lfns, _ = job.get_lfns_and_guids()
     if lfns:
-        ec = remove_files(job.workdir, lfns)
-        if ec != 0:
+        _ec = remove_files(job.workdir, lfns)
+        if _ec != 0:
             logger.warning('failed to remove all files')
 
     kill_processes(job.pid)

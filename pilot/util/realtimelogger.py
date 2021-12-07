@@ -77,15 +77,13 @@ class RealTimeLogger(Logger):
         port = info_dic.get('port')
         logtype = info_dic.get('logging_type')
         self.logfiles_default = info_dic.get('logfiles')
-
+        if 'http://' in server:
+            server = server.replace('http://', '')
+        logger.info(f'name={name}, protocol={protocol}, server={server}, port={port}, logtype={logtype}')
         if not name or not protocol or not server or not port or not logtype:
             logger.warning('not enough information for setting up logging')
             RealTimeLogger.glogger = None
             return
-
-        if protocol:
-            # ..
-            pass
 
         _handler = None
 
@@ -106,15 +104,17 @@ class RealTimeLogger(Logger):
                     server,
                     port,
                     timeout=5.0,
+                    ssl_verify=False,
+                    ssl_enable=False,
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
                     host=server,
                     port=port,
                     transport=transport,
-                    ssl_enable=True,
+                    ssl_enable=False,
                     ssl_verify=False,
-                    database_path='')
+                    database_path='logstash_test.db')
             else:
                 logger.warning(f'unknown logtype: {logtype}')
                 _handler = None
@@ -165,7 +165,7 @@ class RealTimeLogger(Logger):
                 # stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
                 # self.logfiles += [stderr]
         if len(self.logfiles) > 0:
-            logger.info(f'Added log files: {self.logfiles}')
+            logger.info(f'added log files: {self.logfiles}')
 
     def close_files(self):
         for openfile in self.openfiles.values():
@@ -185,9 +185,12 @@ class RealTimeLogger(Logger):
         logger.info('starting RealTimeLogger.sending_logs')
         self.set_jobinfo(job)
         self.add_logfiles(job)
+        i = 0
         while not args.graceful_stop.is_set():
+            i += 1
+            if i % 10 == 0:
+                logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state})')
             if job.state == '' or job.state == 'starting' or job.state == 'running':
-                logger.info(f'RealTimeLogger: {self.logfiles}, {self.openfiles}')
                 if len(self.logfiles) > len(self.openfiles):
                     for logfile in self.logfiles:
                         if logfile not in self.openfiles:
@@ -197,6 +200,8 @@ class RealTimeLogger(Logger):
                                 self.openfiles[logfile] = openfile
                                 logger.debug(f'opened logfile: {logfile}')
                 self.send_loginfiles()
+            elif job.state == 'stagein' or job.state == 'stageout':
+                pass
             else:
                 self.send_loginfiles()  # send the remaining logs after the job completion
                 self.close_files()

@@ -235,7 +235,9 @@ class Executor(object):
             cmd = '%s %s' % (cmd_dictionary.get('command'), cmd_dictionary.get('args'))
             logger.info('utility command (\'%s\') to be executed after the payload has finished: %s', cmd_dictionary.get('label', 'utility'), cmd)
 
-        return cmd, cmd_dictionary.get('label'), cmd_dictionary.get('ignore_failure')
+        label = cmd_dictionary.get('label') if cmd_dictionary else 'unknown'
+        ignore_failure = cmd_dictionary.get('ignore_failure') if cmd_dictionary else False
+        return cmd, label, ignore_failure
 
     def execute_utility_command(self, cmd, job, label):
         """
