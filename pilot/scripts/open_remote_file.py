@@ -104,11 +104,11 @@ def try_open_file(turl, queues):
     """
 
     turl_opened = False
+    _timeout = 120 * 1000  # 120 s
     try:
-        message('opening %s' % turl)
-        _timeout = 120 * 1000  # 120 s
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
-        message("time-out set to %d ms)" % _timeout)
+        message("internal TFile.Open() time-out set to %d ms" % _timeout)
+        message('opening %s' % turl)
         in_file = ROOT.TFile.Open(turl)
     except Exception as exc:
         message('caught exception: %s' % exc)
@@ -187,14 +187,12 @@ if __name__ == '__main__':
             if thread:
                 threads.append(thread)
 
-        timedout = False
         while turls:
 
             try:
-                _ = queues.result.get(block=True, timeout=60)
+                _ = queues.result.get(block=True)
             except queue.Empty:
                 message("reached time-out")
-                timedout = True
                 break
             except Exception as error:
                 message("caught exception: %s" % error)
@@ -221,4 +219,5 @@ if __name__ == '__main__':
     else:
         message('no TURLs to verify')
 
+    message('file remote open script has finished')
     exit(0)

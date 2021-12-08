@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 import collections
 import hashlib
@@ -15,20 +15,21 @@ import re
 import tarfile
 import time
 import uuid
+import sys
+import logging
 from glob import glob
-from json import load
+from json import load, JSONDecodeError
 from json import dump as dumpjson
 from shutil import copy2, rmtree
-import sys
 from zlib import adler32
+from functools import partial
+from mmap import mmap
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
-#from pilot.util.mpi import get_ranks_info
 from .container import execute
 from .math import diff_lists
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -40,10 +41,10 @@ def get_pilot_work_dir(workdir):
     :return: The name of main work directory
     """
 
-    return os.path.join(workdir, "PanDA_Pilot2_%d_%s" % (os.getpid(), str(int(time.time()))))
+    return os.path.join(workdir, "PanDA_Pilot3_%d_%s" % (os.getpid(), str(int(time.time()))))
 
 
-def mkdirs(workdir, chmod=0o770):  # Python 2/3
+def mkdirs(workdir, chmod=0o770):
     """
     Create a directory.
     Perform a chmod if set.
@@ -91,10 +92,10 @@ def read_file(filename, mode='r'):
     """
 
     out = ""
-    f = open_file(filename, mode)
-    if f:
-        out = f.read()
-        f.close()
+    _file = open_file(filename, mode)
+    if _file:
+        out = _file.read()
+        _file.close()
 
     return out
 
@@ -118,15 +119,15 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
     if unique:
         path = get_nonexistant_path(path)
 
-    f = open_file(path, mode)
-    if f:
+    _file = open_file(path, mode)
+    if _file:
         try:
-            f.write(contents)
+            _file.write(contents)
         except IOError as exc:
             raise FileHandlingFailure(exc)
         else:
             status = True
-        f.close()
+        _file.close()
 
     if not mute:
         if 'w' in mode:
@@ -148,13 +149,13 @@ def open_file(filename, mode):
     :return: file pointer.
     """
 
-    f = None
+    _file = None
     try:
-        f = open(filename, mode)
+        _file = open(filename, mode)
     except IOError as exc:
         raise FileHandlingFailure(exc)
 
-    return f
+    return _file
 
 
 def find_text_files():
@@ -168,7 +169,7 @@ def find_text_files():
     # -I = ignore binary files
     cmd = r"find . -type f -exec grep -Iq . {} \; -print"
 
-    exit_code, stdout, stderr = execute(cmd)
+    _, stdout, _ = execute(cmd)
     if stdout:
         # remove last \n if present
         if stdout.endswith('\n'):
@@ -189,7 +190,7 @@ def get_files(pattern="*.log"):
     files = []
     cmd = "find . -name %s" % pattern
 
-    exit_code, stdout, stderr = execute(cmd)
+    _, stdout, _ = execute(cmd)
     if stdout:
         # remove last \n if present
         if stdout.endswith('\n'):
@@ -209,9 +210,9 @@ def tail(filename, nlines=10):
     :return: file tail (str).
     """
 
-    exit_code, stdout, stderr = execute('tail -n %d %s' % (nlines, filename))
+    _, stdout, _ = execute('tail -n %d %s' % (nlines, filename))
     # protection
-    if type(stdout) != str:
+    if not isinstance(stdout, str):
         stdout = ""
     return stdout
 
@@ -232,23 +233,23 @@ def grep(patterns, file_name):
     """
 
     matched_lines = []
-    p = []
+    _pats = []
     for pattern in patterns:
-        p.append(re.compile(pattern))
+        _pats.append(re.compile(pattern))
 
-    f = open_file(file_name, 'r')
-    if f:
+    _file = open_file(file_name, 'r')
+    if _file:
         while True:
             # get the next line in the file
-            line = f.readline()
+            line = _file.readline()
             if not line:
                 break
 
             # can the search pattern be found
-            for cp in p:
-                if re.search(cp, line):
+            for _cp in _pats:
+                if re.search(_cp, line):
                     matched_lines.append(line)
-        f.close()
+        _file.close()
 
     return matched_lines
 
@@ -277,26 +278,15 @@ def convert(data):
     :return: converted data to utf-8
     """
 
-    try:
-        _basestring = basestring  # Python 2  # noqa: F821
-    except Exception:
-        _basestring = str  # Python 3 (note order in try statement)
-    if isinstance(data, _basestring):
-        return str(data)
+    if isinstance(data, str):
+        ret = str(data)
     elif isinstance(data, collections.Mapping):
-        try:
-            ret = dict(list(map(convert, iter(list(data.items())))))  # Python 3
-        except Exception:
-            ret = dict(map(convert, data.iteritems()))  # Python 2
-        return ret
+        ret = dict(list(map(convert, iter(list(data.items())))))
     elif isinstance(data, collections.Iterable):
-        try:
-            ret = type(data)(list(map(convert, data)))  # Python 3
-        except Exception:
-            ret = type(data)(map(convert, data))  # Python 2
-        return ret
+        ret = type(data)(list(map(convert, data)))
     else:
-        return data
+        ret = data
+    return ret
 
 
 def is_json(input_file):
@@ -309,8 +299,8 @@ def is_json(input_file):
     """
 
     with open(input_file) as unknown_file:
-        c = unknown_file.read(1)
-        if c == '{':
+        first_char = unknown_file.read(1)
+        if first_char == '{':
             return True
         return False
 
@@ -345,15 +335,15 @@ def read_json(filename):
     """
 
     dictionary = None
-    f = open_file(filename, 'r')
-    if f:
+    _file = open_file(filename, 'r')
+    if _file:
         try:
-            dictionary = load(f)
-        except Exception as exc:
+            dictionary = load(_file)
+        except JSONDecodeError as exc:
             logger.warning('exception caught: %s', exc)
             #raise FileHandlingFailure(str(error))
         else:
-            f.close()
+            _file.close()
 
             # Try to convert the dictionary from unicode to utf-8
             if dictionary != {}:
@@ -381,8 +371,8 @@ def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': '))
     status = False
 
     try:
-        with open(filename, 'w') as fh:
-            dumpjson(data, fh, sort_keys=sort_keys, indent=indent, separators=separators)
+        with open(filename, 'w') as _fh:
+            dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
     except IOError as exc:
         raise FileHandlingFailure(exc)
     else:
@@ -403,8 +393,8 @@ def touch(path):
     try:
         with open(path, 'a'):
             os.utime(path, None)
-    except Exception:
-        exit_code, stdout, stderr = execute('touch %s' % path)
+    except OSError:
+        _ = execute('touch %s' % path)
 
 
 def remove_empty_directories(src_dir):
@@ -416,7 +406,7 @@ def remove_empty_directories(src_dir):
     :return:
     """
 
-    for dirpath, subdirs, files in os.walk(src_dir, topdown=False):
+    for dirpath, _, _ in os.walk(src_dir, topdown=False):
         if dirpath == src_dir:
             break
         try:
@@ -467,17 +457,17 @@ def remove_files(workdir, files):
     :return: exit code (0 if all went well, -1 otherwise)
     """
 
-    ec = 0
-    if type(files) != list:
+    exitcode = 0
+    if not isinstance(files, list):
         logger.warning('files parameter not a list: %s', str(type(list)))
-        ec = -1
+        exitcode = -1
     else:
-        for f in files:
-            _ec = remove(os.path.join(workdir, f))
-            if _ec != 0 and ec == 0:
-                ec = _ec
+        for _file in files:
+            _ec = remove(os.path.join(workdir, _file))
+            if _ec != 0 and exitcode == 0:
+                exitcode = _ec
 
-    return ec
+    return exitcode
 
 
 def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
@@ -493,19 +483,18 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
 
     to_pack = []
     pack_start = time.time()
-    for path, subdir, files in os.walk(wkdir):
-        for file in files:
-            if file not in excludedfiles:
-                rel_dir = os.path.relpath(path, wkdir)
-                file_rel_path = os.path.join(rel_dir, file)
-                file_path = os.path.join(path, file)
+    for path, _, files in os.walk(wkdir):
+        for _file in files:
+            if _file not in excludedfiles:
+                file_rel_path = os.path.join(os.path.relpath(path, wkdir), _file)
+                file_path = os.path.join(path, _file)
                 to_pack.append((file_path, file_rel_path))
     if to_pack:
         try:
             logfile_name = os.path.join(wkdir, logfile_name)
             log_pack = tarfile.open(logfile_name, 'w:gz')
-            for f in to_pack:
-                log_pack.add(f[0], arcname=f[1])
+            for _file in to_pack:
+                log_pack.add(_file[0], arcname=_file[1])
             log_pack.close()
         except IOError:
             if attempt == 0:
@@ -517,12 +506,11 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
                 logger.warning("continues i/o errors during packing of logs - job will fail")
                 return 1
 
-    for f in to_pack:
-        remove(f[0])
+    for _file in to_pack:
+        remove(_file[0])
 
     remove_empty_directories(wkdir)
-    pack_time = time.time() - pack_start
-    logger.debug("packing of logs took {0} seconds".format(pack_time))
+    logger.debug("packing of logs took {0} seconds".format(time.time() - pack_start))
 
     return 0
 
@@ -572,18 +560,6 @@ def copy(path1, path2):
         logger.info("copied %s to %s", path1, path2)
 
 
-def find_executable(name):
-    """
-    Is the command 'name' available locally?
-
-    :param name: command name (string).
-    :return: full path to command if it exists, otherwise empty string.
-    """
-
-    from distutils.spawn import find_executable
-    return find_executable(name)
-
-
 def add_to_total_size(path, total_size):
     """
     Add the size of file in the given path to the total size of all in/output files.
@@ -598,10 +574,7 @@ def add_to_total_size(path, total_size):
         fsize = get_local_file_size(path)
         if fsize:
             logger.info("size of file %s: %d B", path, fsize)
-            try:
-                total_size += long(fsize)  # Python 2  # noqa: F821
-            except Exception:
-                total_size += int(fsize)  # Python 3 (note order in try statement)
+            total_size += int(fsize)
     else:
         logger.warning("skipping file %s since it is not present", path)
 
@@ -621,7 +594,7 @@ def get_local_file_size(filename):
     if os.path.exists(filename):
         try:
             file_size = os.path.getsize(filename)
-        except Exception as exc:
+        except OSError as exc:
             logger.warning("failed to get file size: %s", exc)
     else:
         logger.warning("local file does not exist: %s", filename)
@@ -664,12 +637,12 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
     keylist = []  # ordered list of dictionary key names
 
     try:
-        f = open_file(filename, 'r')
-    except Exception as exc:
+        _file = open_file(filename, 'r')
+    except FileHandlingFailure as exc:
         logger.warning("failed to open file: %s, %s", filename, exc)
     else:
         firstline = True
-        for line in f:
+        for line in _file:
             fields = line.split(separator)
             if firstline:
                 firstline = False
@@ -686,12 +659,12 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
                 if convert_to_float:
                     try:
                         field = float(field)
-                    except Exception as exc:
+                    except (TypeError, ValueError) as exc:
                         logger.warning("failed to convert %s to float: %s (aborting)", field, exc)
                         return None
                 tabledict[key].append(field)
                 i += 1
-        f.close()
+        _file.close()
 
     return tabledict
 
@@ -742,7 +715,7 @@ def calculate_checksum(filename, algorithm='adler32'):
 
     :param filename: file name (string).
     :param algorithm: optional algorithm string.
-    :raises FileHandlingFailure, NotImplementedError: exception raised when file does not exist or for unknown algorithm.
+    :raises FileHandlingFailure, NotImplementedError, Exception.
     :return: checksum value (string).
     """
 
@@ -750,7 +723,11 @@ def calculate_checksum(filename, algorithm='adler32'):
         raise FileHandlingFailure('file does not exist: %s' % filename)
 
     if algorithm == 'adler32' or algorithm == 'adler' or algorithm == 'ad' or algorithm == 'ad32':
-        return calculate_adler32_checksum(filename)
+        try:
+            checksum = calculate_adler32_checksum(filename)
+        except Exception as exc:
+            raise exc
+        return checksum
     elif algorithm == 'md5' or algorithm == 'md5sum' or algorithm == 'md':
         return calculate_md5_checksum(filename)
     else:
@@ -761,27 +738,44 @@ def calculate_checksum(filename, algorithm='adler32'):
 
 def calculate_adler32_checksum(filename):
     """
-    Calculate the adler32 checksum for the given file.
-    The file is assumed to exist.
+    An Adler-32 checksum is obtained by calculating two 16-bit checksums A and B and concatenating their bits
+    into a 32-bit integer. A is the sum of all bytes in the stream plus one, and B is the sum of the individual values
+    of A from each step.
 
     :param filename: file name (string).
-    :return: checksum value (string).
+    :raises: Exception.
+    :returns: hexadecimal string, padded to 8 values (string).
     """
 
-    asum = 1  # default adler32 starting value
-    blocksize = 64 * 1024 * 1024  # read buffer size, 64 Mb
+    # adler starting value is _not_ 0
+    adler = 1
 
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(blocksize)
-            if not data:
-                break
-            asum = adler32(data, asum)
-            if asum < 0:
-                asum += 2**32
+    try:
+        with open(filename, 'r+b') as _file:
+            _mm = mmap(_file.fileno(), 0)
+            for block in iter(partial(_mm.read, io.DEFAULT_BUFFER_SIZE), b''):
+                adler = adler32(block, adler)
+    except Exception as exc:
+        logger.warning(f'failed to get adler32 checksum for file {filename} - {exc} (attempting alternative)')
+        try:
+            adler = 1  # default adler32 starting value
+            blocksize = 64 * 1024 * 1024  # read buffer size, 64 Mb
+
+            with open(filename, 'rb') as _file:
+                while True:
+                    data = _file.read(blocksize)
+                    if not data:
+                        break
+                    adler = adler32(data, adler)
+        except Exception as exc:
+            raise Exception(f'failed to get adler32 checksum for file {filename} - {exc} (tried alternative)')
+
+    # backflip on 32bit
+    if adler < 0:
+        adler = adler + 2 ** 32
 
     # convert to hex
-    return "{0:08x}".format(asum)
+    return "{0:08x}".format(adler)
 
 
 def calculate_md5_checksum(filename):
@@ -796,8 +790,8 @@ def calculate_md5_checksum(filename):
     length = io.DEFAULT_BUFFER_SIZE
     md5 = hashlib.md5()
 
-    with io.open(filename, mode="rb") as fd:
-        for chunk in iter(lambda: fd.read(length), b''):
+    with io.open(filename, mode="rb") as _fd:
+        for chunk in iter(lambda: _fd.read(length), b''):
             md5.update(chunk)
 
     return md5.hexdigest()
@@ -814,13 +808,13 @@ def get_checksum_value(checksum):
     :return: checksum. checksum string.
     """
 
-    if type(checksum) == str:
+    if isinstance(checksum, str):
         return checksum
 
     checksum_value = ''
     checksum_type = get_checksum_type(checksum)
 
-    if type(checksum) == dict:
+    if isinstance(checksum, dict):
         checksum_value = checksum.get(checksum_type)
 
     return checksum_value
@@ -838,12 +832,12 @@ def get_checksum_type(checksum):
     """
 
     checksum_type = 'unknown'
-    if type(checksum) == dict:
-        for key in list(checksum.keys()):  # Python 2/3
+    if isinstance(checksum, dict):
+        for key in list(checksum.keys()):
             # the dictionary is assumed to only contain one key-value pair
             checksum_type = key
             break
-    elif type(checksum) == str:
+    elif isinstance(checksum, str):
         if len(checksum) == 8:
             checksum_type = 'ad32'
         elif len(checksum) == 32:
@@ -865,7 +859,7 @@ def scan_file(path, error_messages, warning_message=None):
     found_problem = False
 
     matched_lines = grep(error_messages, path)
-    if len(matched_lines) > 0:
+    if matched_lines:
         if warning_message:
             logger.warning(warning_message)
         for line in matched_lines:
@@ -928,7 +922,7 @@ def dump(path, cmd="cat"):
 
     if os.path.exists(path) or cmd == "echo":
         _cmd = "%s %s" % (cmd, path)
-        exit_code, stdout, stderr = execute(_cmd)
+        _, stdout, stderr = execute(_cmd)
         logger.info("%s:\n%s", _cmd, stdout + stderr)
     else:
         logger.info("path %s does not exist", path)
@@ -1028,7 +1022,7 @@ def update_extension(path='', extension=''):
     :return: file path with new extension (string).
     """
 
-    path, old_extension = os.path.splitext(path)
+    path, _ = os.path.splitext(path)
     if not extension.startswith('.'):
         extension = '.' + extension
     path += extension
@@ -1062,16 +1056,16 @@ def copy_pilot_source(workdir):
     """
 
     diagnostics = ""
-    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot2')
+    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     try:
         logger.debug('copy %s to %s', srcdir, workdir)
         cmd = 'cp -r %s/* %s' % (srcdir, workdir)
-        exit_code, stdout, stderr = execute(cmd)
+        exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = 'file copy failed: %d, %s' % (exit_code, stdout)
             logger.warning(diagnostics)
     except Exception as exc:
-        diagnostics = 'exception caught when copying pilot2 source: %s' % exc
+        diagnostics = 'exception caught when copying pilot3 source: %s' % exc
         logger.warning(diagnostics)
 
     return diagnostics
@@ -1087,7 +1081,7 @@ def create_symlink(from_path='', to_path=''):
 
     try:
         os.symlink(from_path, to_path)
-    except Exception as exc:
+    except (OSError, FileNotFoundError) as exc:
         logger.warning('failed to create symlink from %s to %s: %s', from_path, to_path, exc)
     else:
         logger.debug('created symlink from %s to %s', from_path, to_path)
@@ -1122,10 +1116,12 @@ def find_last_line(filename):
     """
 
     last_line = ""
-    with open(filename) as f:
-        for line in f:
+    with open(filename) as _file:
+        line = ""
+        for line in _file:
             pass
-        last_line = line
+        if line:
+            last_line = line
 
     return last_line
 
@@ -1139,13 +1135,13 @@ def get_disk_usage(start_path='.'):
     """
 
     total_size = 0
-    for dirpath, dirnames, filenames in os.walk(start_path):
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
+    for dirpath, _, filenames in os.walk(start_path):
+        for fname in filenames:
+            _fp = os.path.join(dirpath, fname)
             # skip if it is symbolic link
-            if os.path.exists(fp) and not os.path.islink(fp):
+            if os.path.exists(_fp) and not os.path.islink(_fp):
                 try:
-                    total_size += os.path.getsize(fp)
+                    total_size += os.path.getsize(_fp)
                 except FileNotFoundError as exc:
                     logger.warning('caught exception: %s (skipping this file)', exc)
                     continue

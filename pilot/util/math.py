@@ -60,7 +60,7 @@ def sum_dev(x, y):
     Sum (x - x_mean)**(y - y_mean)
 
     :param x: list of ints or floats.
-    :param y:  list of ints or floats.
+    :param y: list of ints or floats.
     :return: sum of deviations (float).
     """
 

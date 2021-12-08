@@ -49,12 +49,11 @@ from .utilities import (
 from pilot.util.auxiliary import (
     get_resource_name,
     show_memory_usage,
-    is_python3,
     get_key_value,
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import TrfDownloadFailure, PilotException
+from pilot.common.exception import TrfDownloadFailure, PilotException, FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -188,7 +187,7 @@ def open_remote_files(indata, workdir, nthreads):
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
-        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot2'), script_path)
+        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
         full_script_path = dir1 if os.path.exists(dir1) else dir2
         if not os.path.exists(full_script_path):
@@ -216,45 +215,72 @@ def open_remote_files(indata, workdir, nthreads):
 
             show_memory_usage()
 
-            logger.info('*** executing file open verification script:\n\n\'%s\'\n\n', cmd)
-            exit_code, stdout, stderr = execute(cmd, usecontainer=False)
+            timeout = len(indata) * 120 + 180
+            logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
+
+            exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
-
-            show_memory_usage()
+            logger.debug('remote file open finished with ec=%d', exitcode)
 
             # error handling
-            if exit_code:
-                logger.warning('script %s finished with ec=%d', script, exit_code)
-            else:
-                dictionary_path = os.path.join(
-                    workdir,
-                    config.Pilot.remotefileverification_dictionary
-                )
-                if not dictionary_path:
-                    logger.warning('file does not exist: %s', dictionary_path)
-                else:
-                    file_dictionary = read_json(dictionary_path)
-                    if not file_dictionary:
-                        logger.warning('could not read dictionary from %s', dictionary_path)
-                    else:
-                        not_opened = ""
-                        for turl in file_dictionary:
-                            opened = file_dictionary[turl]
-                            if not opened:
-                                logger.info('turl could not be opened: %s', turl)
-                                not_opened += turl if not not_opened else ",%s" % turl
-                            else:
-                                logger.info('turl could be opened: %s', turl)
+            if exitcode:
+                logger.warning('script %s finished with ec=%d', script, exitcode)
 
-                        if not_opened:
-                            exitcode = errors.REMOTEFILECOULDNOTBEOPENED
-                            diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+                # note: ignore any time-out errors if the remote files could still be opened
+                _exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
+                if not _exitcode:
+                    logger.info('ignoring time-out error since remote file could still be opened')
+                    exitcode = 0
+                elif _exitcode:
+                    exitcode = _exitcode
+                if exitcode == errors.COMMANDTIMEDOUT:
+                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
+            else:
+                exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
 
     return exitcode, diagnostics, not_opened
+
+
+def parse_remotefileverification_dictionary(workdir):
+    """
+    Verify that all files could be remotely opened.
+    Note: currently ignoring if remote file dictionary doesn't exist.
+
+    :param workdir: work directory needed for opening remote file dictionary (string).
+    :return: exit code (int), diagnostics (string).
+    """
+
+    exitcode = 0
+    diagnostics = ""
+    not_opened = ""
+
+    dictionary_path = os.path.join(
+        workdir,
+        config.Pilot.remotefileverification_dictionary
+    )
+
+    file_dictionary = read_json(dictionary_path)
+    if not file_dictionary:
+        diagnostics = 'could not read dictionary from %s' % dictionary_path
+        logger.warning(diagnostics)
+    else:
+        for turl in file_dictionary:
+            opened = file_dictionary[turl]
+            if not opened:
+                logger.info('turl could not be opened: %s', turl)
+                not_opened += turl if not not_opened else ",%s" % turl
+            else:
+                logger.info('turl could be opened: %s', turl)
+
+    if not_opened:
+        exitcode = errors.REMOTEFILECOULDNOTBEOPENED
+        diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+
+    return exitcode, diagnostics
 
 
 def get_file_open_command(script_path, turls, nthreads):
@@ -1102,17 +1128,25 @@ def discover_new_output(name_pattern, workdir):
             # get file size
             filesize = get_local_file_size(path)
             # get checksum
-            checksum = calculate_checksum(path)
-
-            if filesize and checksum:
-                new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
-            else:
+            try:
+                checksum = calculate_checksum(path)
+            except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                 logger.warning(
-                    'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                    'failed to create file info (filesize=%d) for lfn=%s: %s',
                     filesize,
-                    checksum,
-                    lfn
+                    lfn,
+                    exc
                 )
+            else:
+                if filesize and checksum:
+                    new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
+                else:
+                    logger.warning(
+                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                        filesize,
+                        checksum,
+                        lfn
+                    )
 
     return new_output
 
@@ -1519,13 +1553,8 @@ def parse_jobreport_data(job_report):  # noqa: C901
     work_attributes['outputfiles'] = outputfiles_dict
 
     if work_attributes['inputfiles']:
-        if is_python3():
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
-                                                                         work_attributes['inputfiles']])
-        else:
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, map(lambda inpfiles: len(inpfiles['subFiles']),
-                                                                            work_attributes['inputfiles']))
-
+        work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
+                                                                     work_attributes['inputfiles']])
     if 'resource' in job_report and 'executor' in job_report['resource']:
         j = job_report['resource']['executor']
 
@@ -1857,11 +1886,12 @@ def get_redundants():
                 "HAHM_*",
                 "Process",
                 "merged_lhef._0.events-new",
-                "singularity/*",  # new
-                "/cores",  # new
-                "/work",  # new
-                "docs/",  # new
-                "/pilot2"]  # new
+                "panda_secrets.json",
+                "singularity/*",
+                "/cores",
+                "/work",
+                "docs/",
+                "/pilot3"]
 
     return dir_list
 
@@ -1960,7 +1990,6 @@ def remove_special_files(workdir, dir_list, outputfiles):
 
     for item in to_delete:
         if item not in exclude_files:
-            logger.debug('removing %s', item)
             if os.path.isfile(item):
                 remove(item)
             else:

@@ -43,15 +43,15 @@ def read(config_file):
     Read the settings from file and return a dot notation object
     """
 
-    config = ConfigParser.ConfigParser()
-    config.read(config_file)
+    _config = ConfigParser.ConfigParser()
+    _config.read(config_file)
 
     obj = _ConfigurationSection()
 
-    for section in config.sections():
+    for section in _config.sections():
 
         settings = _ConfigurationSection()
-        for key, value in config.items(section):
+        for key, value in _config.items(section):
             # handle environmental variables
             if value.startswith('$'):
                 tmpmatch = re.search(r'\$\{*([^\}]+)\}*', value)  # Python 3 (added r)

@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import os
 import time
@@ -13,7 +13,6 @@ from re import search
 
 # from pilot.info import infosys
 from .setup import get_asetup
-from pilot.util.auxiliary import is_python3
 from pilot.util.container import execute
 from pilot.util.filehandling import read_json, copy, write_json, remove
 from pilot.util.parameters import convert_to_int
@@ -344,11 +343,11 @@ def get_pid_for_trf(ps, transformation, outdata):
     return pid
 
 
-def get_pid_for_command(ps, command="python pilot2/pilot.py"):
+def get_pid_for_command(ps, command="python pilot3/pilot.py"):
     """
     Return the process id for the given command and user.
     The function returns 0 in case pid could not be found.
-    If no command is specified, the function looks for the "python pilot2/pilot.py" command in the ps output.
+    If no command is specified, the function looks for the "python pilot3/pilot.py" command in the ps output.
 
     :param ps: ps command output (string).
     :param command: command string expected to be in ps output (string).
@@ -696,10 +695,7 @@ def convert_text_file_to_dictionary(path):
                 try:
                     # Remove empty entries from list (caused by multiple \t)
                     _l = line.replace('\n', '')
-                    if is_python3():
-                        _l = [_f for _f in _l.split('\t') if _f]  # Python 3
-                    else:
-                        _l = filter(None, _l.split('\t'))  # Python 2
+                    _l = [_f for _f in _l.split('\t') if _f]
 
                     # define dictionary keys
                     if type(_l[0]) == str and not header_locked:
@@ -765,10 +761,7 @@ def get_average_summary_dictionary(path):
             if line != "":
                 try:
                     # Remove empty entries from list (caused by multiple \t)
-                    if is_python3():
-                        _l = [_f for _f in line.split('\t') if _f]  # Python 3
-                    else:
-                        _l = filter(None, line.split('\t'))  # Python 2
+                    _l = [_f for _f in line.split('\t') if _f]
                     # _time = _l[0]  # 'Time' not user
                     vmem = _l[1]
                     pss = _l[2]

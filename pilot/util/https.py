@@ -7,30 +7,24 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 
 import collections
-import subprocess  # Python 2/3
-try:
-    import commands  # Python 2
-except Exception:
-    pass
+import subprocess
 import json
 import os
 import platform
+import random
+import socket
 import ssl
 import sys
-try:
-    import urllib.request  # Python 3
-    import urllib.error  # Python 3
-    import urllib.parse  # Python 3
-except Exception:
-    import urllib  # Python 2
-    import urllib2  # Python 2
+import urllib.request
+import urllib.error
+import urllib.parse
 import pipes
+from time import sleep, time
 
 from .filehandling import write_file
-from .auxiliary import is_python3
 from .config import config
 from .constants import get_pilot_version
 
@@ -93,7 +87,7 @@ def cacert_default_location():
     try:
         return '/tmp/x509up_u%s' % str(os.getuid())
     except AttributeError:
-        logger.warn('No UID available? System not POSIX-compatible... trying to continue')
+        logger.warning('No UID available? System not POSIX-compatible... trying to continue')
         pass
 
     return None
@@ -137,21 +131,17 @@ def https_setup(args=None, version=None):
                                                        sys.version.split()[0],
                                                        platform.system(),
                                                        platform.machine())
-    logger.debug('User-Agent: %s' % _ctx.user_agent)
+    logger.debug('User-Agent: %s', _ctx.user_agent)
 
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
 
-    if sys.version_info < (2, 7, 9):  # by anisyonk: actually SSL context should work, but prior to 2.7.9 there is no automatic hostname/certificate validation
-        logger.warn('Python version <2.7.9 lacks SSL contexts -- falling back to curl')
+    try:
+        _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
+                                                      cafile=_ctx.cacert)
+    except Exception as exc:
+        logger.warning('SSL communication is impossible due to SSL error: %s -- falling back to curl', exc)
         _ctx.ssl_context = None
-    else:
-        try:
-            _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
-                                                          cafile=_ctx.cacert)
-        except Exception as e:
-            logger.warn('SSL communication is impossible due to SSL error: %s -- falling back to curl' % str(e))
-            _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
     ctx.capath = _ctx.capath
@@ -161,8 +151,8 @@ def https_setup(args=None, version=None):
     try:
         ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
         ctx.ssl_context.load_cert_chain(ctx.cacert)
-    except Exception as e:  # redandant try-catch protection, should work well for both python2 & python3 -- CLEAN ME later (anisyonk)
-        logger.warn('Failed to initialize SSL context .. skipped, error: %s' % str(e))
+    except Exception as exc:
+        logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
 def request(url, data=None, plain=False, secure=True):
@@ -196,7 +186,7 @@ def request(url, data=None, plain=False, secure=True):
 
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
-    logger.debug('server update dictionary = \n%s' % str(data))
+    logger.debug('server update dictionary = \n%s', str(data))
 
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
@@ -210,12 +200,12 @@ def request(url, data=None, plain=False, secure=True):
 
         try:
             status, output = execute_request(req)
-        except Exception as e:
-            logger.warning('exception: %s' % e)
+        except Exception as exc:
+            logger.warning('exception: %s', exc)
             return None
         else:
             if status != 0:
-                logger.warn('request failed (%s): %s' % (status, output))
+                logger.warning('request failed (%s): %s', status, output)
                 return None
 
         # return output if plain otherwise return json.loads(output)
@@ -224,8 +214,8 @@ def request(url, data=None, plain=False, secure=True):
         else:
             try:
                 ret = json.loads(output)
-            except Exception as e:
-                logger.warning('json.loads() failed to parse output=%s: %s' % (output, e))
+            except Exception as exc:
+                logger.warning('json.loads() failed to parse output=%s: %s', output, exc)
                 return None
             else:
                 return ret
@@ -233,14 +223,9 @@ def request(url, data=None, plain=False, secure=True):
         req = execute_urllib(url, data, plain, secure)
         context = _ctx.ssl_context if secure else None
 
-        if is_python3():  # Python 3
-            ec, output = get_urlopen_output(req, context)
-            if ec:
-                return None
-        else:  # Python 2
-            ec, output = get_urlopen2_output(req, context)
-            if ec:
-                return None
+        ec, output = get_urlopen_output(req, context)
+        if ec:
+            return None
 
         return output.read() if plain else json.load(output)
 
@@ -261,7 +246,7 @@ def get_curl_command(plain, dat):
                            pipes.quote('User-Agent: %s' % _ctx.user_agent),
                            "-H " + pipes.quote('Accept: application/json') if not plain else '',
                            dat)
-    logger.info('request: %s' % req)
+    logger.info('request: %s', req)
     return req
 
 
@@ -276,12 +261,9 @@ def get_vars(url, data):
 
     strdata = ""
     for key in data:
-        try:
-            strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})  # Python 3
-        except Exception:
-            strdata += 'data="%s"\n' % urllib.urlencode({key: data[key]})  # Python 2
+        strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})
     jobid = ''
-    if 'jobId' in list(data.keys()):  # Python 2/3
+    if 'jobId' in list(data.keys()):
         jobid = '_%s' % data['jobId']
 
     # write data to temporary config file
@@ -303,10 +285,7 @@ def get_curl_config_option(writestatus, url, data, filename):
 
     if not writestatus:
         logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
-        try:
-            dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')  # Python 3
-        except Exception:
-            dat = pipes.quote(url + '?' + urllib.urlencode(data) if data else '')  # Python 2
+        dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
     else:
         dat = '--config %s %s' % (filename, url)
 
@@ -320,11 +299,8 @@ def execute_request(req):
     :param req: curl request command (string).
     :return: status (int), output (string).
     """
-    try:
-        status, output = subprocess.getstatusoutput(req)  # Python 3
-    except Exception:
-        status, output = commands.getstatusoutput(req)  # Python 2
-    return status, output
+
+    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):
@@ -335,11 +311,8 @@ def execute_urllib(url, data, plain, secure):
     :param data: data structure
     :return: urllib request structure.
     """
-    try:
-        req = urllib.request.Request(url, urllib.parse.urlencode(data))  # Python 3
-    except Exception:
-        req = urllib2.Request(url, urllib.urlencode(data))  # Python 2
 
+    req = urllib.request.Request(url, urllib.parse.urlencode(data))
     if not plain:
         req.add_header('Accept', 'application/json')
     if secure:
@@ -357,38 +330,91 @@ def get_urlopen_output(req, context):
     :return: ec (int), output (string).
     """
 
-    ec = -1
+    exitcode = -1
     output = ""
     try:
         output = urllib.request.urlopen(req, context=context)
-    except urllib.error.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib.error.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
+    except urllib.error.HTTPError as exc:
+        logger.warning('server error (%s): %s' % (exc.code, exc.read()))
+    except urllib.error.URLError as exc:
+        logger.warning('connection error: %s' % exc.reason)
     else:
-        ec = 0
+        exitcode = 0
 
-    return ec, output
+    return exitcode, output
 
 
-def get_urlopen2_output(req, context):
+def send_update(update_function, data, url, port, job=None):
     """
-    Get the output from the urlopen2 request.
+    Send the update to the server using the given function and data.
 
-    :param req:
-    :param context:
-    :return: ec (int), output (string).
+    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (string).
+    :param data: data (dictionary).
+    :param url: server url (string).
+    :param port: server port (string).
+    :param job: job object.
+    :return: server response (dictionary).
     """
 
-    ec = -1
-    output = ""
-    try:
-        output = urllib2.urlopen(req, context=context)
-    except urllib2.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib2.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
+    time_before = int(time())
+    max_attempts = 10
+    attempt = 0
+    done = False
+    res = None
+    while attempt < max_attempts and not done:
+        logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
+
+        # get the URL for the PanDA server from pilot options or from config
+        try:
+            pandaserver = get_panda_server(url, port)
+        except Exception as exc:
+            logger.warning(f'exception caught in get_panda_server(): {exc}')
+            sleep(5)
+            attempt += 1
+            continue
+        # send the heartbeat
+        try:
+            res = request(f'{pandaserver}/server/panda/{update_function}', data=data)
+        except Exception as exc:
+            logger.warning(f'exception caught in https.request(): {exc}')
+        else:
+            if res is not None:
+                done = True
+            txt = f'server {update_function} request completed in {int(time()) - time_before}s'
+            if job:
+                txt += f' for job {job.jobid}'
+            logger.info(txt)
+            logger.info(f'server responded with: res = {res}')
+
+        attempt += 1
+    return res
+
+
+def get_panda_server(url, port):
+    """
+    Get the URL for the PanDA server.
+
+    :param url: URL string, if set in pilot option (port not included).
+    :param port: port number, if set in pilot option (int).
+    :return: full URL (either from pilot options or from config file)
+    """
+
+    if url.startswith('https://'):
+        url = url.replace('https://', '')
+
+    if url != '' and port != 0:
+        pandaserver = '%s:%s' % (url, port) if ":" not in url else url
     else:
-        ec = 0
+        pandaserver = config.Pilot.pandaserver
 
-    return ec, output
+    if not pandaserver.startswith('http'):
+        pandaserver = 'https://' + pandaserver
+
+    # add randomization for PanDA server
+    default = 'pandaserver.cern.ch'
+    if default in pandaserver:
+        rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
+        pandaserver = pandaserver.replace(default, rnd)
+        logger.debug(f'updated {default} to {pandaserver}')
+
+    return pandaserver

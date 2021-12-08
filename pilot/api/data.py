@@ -24,7 +24,7 @@ except Exception:
     pass
 
 from pilot.info import infosys
-from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound
+from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound, FileHandlingFailure
 from pilot.util.auxiliary import show_memory_usage
 from pilot.util.config import config
 from pilot.util.filehandling import calculate_checksum, write_json
@@ -1088,14 +1088,14 @@ class StageOutClient(StagingClient):
             fspec.surl = pfn
             fspec.activity = activity
             if os.path.isfile(pfn) and not fspec.checksum.get('adler32'):
-                fspec.checksum['adler32'] = calculate_checksum(pfn)
+                try:
+                    fspec.checksum['adler32'] = calculate_checksum(pfn)
+                except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+                    raise exc
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_protocols', True) and files:
-            try:
-                output_dir = kwargs['output_dir']
-            except Exception:
-                output_dir = ""
+            output_dir = kwargs.get('output_dir', '')
             self.require_protocols(files, copytool, activity, local_dir=output_dir)
 
         if not copytool.is_valid_for_copy_out(files):

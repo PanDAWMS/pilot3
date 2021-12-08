@@ -14,7 +14,7 @@
 import os
 import time
 import traceback
-
+from re import findall, split
 try:
     import Queue as queue  # noqa: N813
 except Exception:
@@ -30,6 +30,7 @@ from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import ExcThread
+from pilot.util.realtimelogger import get_realtime_logger
 
 import logging
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def control(queues, traces, args):
     """
 
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
-               'failed_post': failed_post}
+               'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]  # Python 3
 
@@ -116,6 +117,7 @@ def validate_pre(queues, traces, args):
 
         if _validate_payload(job):
             #queues.validated_payloads.put(job)
+            put_in_queue(job, queues.realtimelog_payloads)
             put_in_queue(job, queues.validated_payloads)
         else:
             #queues.failed_payloads.put(job)
@@ -314,6 +316,148 @@ def execute_payloads(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] execute_payloads thread has finished')
+
+
+def get_transport(catchall):
+    """
+    Extract the transport/protocol from catchall if present.
+
+    :param catchall: PQ.catchall field (string).
+    :return: transport (string).
+    """
+
+    transport = ''
+
+    return transport
+
+
+def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_logging_server):
+    """
+    Extract the logging type/protocol/url/port from catchall if present, or from args fields.
+    Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+
+    Note: the returned dictionary can be built with either args (has priority) or catchall info.
+
+    :param realtimelogging: True if real-time logging was activated by server/job definition (Boolean).
+    :param catchall: PQ.catchall field (string).
+    :param realtime_logname from pilot args: (string).
+    :param realtime_logging_server from pilot args: (string).
+    :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
+    """
+
+    info_dic = {}
+
+    if 'logging=' not in catchall or not realtimelogging:
+        logger.debug(f'catchall={catchall}')
+        logger.debug(f'realtimelogging={realtimelogging}')
+        return {}
+
+    # args handling
+    info_dic['logname'] = realtime_logname if realtime_logname else "pilot-log"
+    logserver = realtime_logging_server if realtime_logging_server else ""
+
+    pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
+    info = findall(pattern, catchall)
+
+    if not logserver and not info:
+        logger.warning('not enough info available for activating real-time logging')
+        return {}
+
+    if info:
+        try:
+            info_dic['logging_type'] = info[0][0]
+            info_dic['protocol'] = info[0][1]
+            info_dic['url'] = info[0][2]
+            info_dic['port'] = info[0][3]
+        except IndexError as exc:
+            print(f'exception caught: {exc}')
+            info_dic = {}
+        else:
+            # experiment specific, move to relevant code
+
+            # Rubin
+            logfiles = os.environ.get('REALTIME_LOGFILES', None)
+            if logfiles is not None:
+                info_dic['logfiles'] = split('[:,]', logfiles)
+            else:
+                # ATLAS (testing; get info from debug parameter later)
+                info_dic['logfiles'] = [config.Payload.payloadstdout]
+    else:
+        items = logserver.split(':')
+        info_dic['logging_type'] = items[0].lower()
+        pattern = r'(\S+)\:\/\/(\S+)'
+        _address = findall(pattern, items[1])
+        if _address:
+            info_dic['protocol'] = _address[0][0]
+            info_dic['url'] = _address[0][1]
+        else:
+            logger.warning(f'protocol/url could not be extracted from {items}')
+            info_dic['protocol'] = ''
+            info_dic['url'] = ''
+        info_dic['port'] = items[2]
+
+    return info_dic
+
+
+def run_realtimelog(queues, traces, args):
+    """
+    Validate finished payloads.
+    If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
+    well but only for log stage-out (in failed_post() below).
+
+    :param queues: internal queues for job handling.
+    :param traces: tuple containing internal pilot states.
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :return:
+    """
+
+    info_dic = None
+    while not args.graceful_stop.is_set():
+        time.sleep(0.5)
+        try:
+            job = queues.realtimelog_payloads.get(block=True, timeout=1)
+        except queue.Empty:
+            continue
+
+        if args.use_realtime_logging:
+            # always do real-time logging
+            job.realtimelogging = True
+
+        # testing
+        job.realtimelogging = True
+        # reset info_dic if real-time logging is not wanted by the job
+        if not job.realtimelogging:
+            info_dic = None
+        # only set info_dic once per job (the info will not change)
+        info_dic = get_logging_info(job.realtimelogging,
+                                    job.infosys.queuedata.catchall,
+                                    args.realtime_logname,
+                                    args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
+        logger.debug(f'info_dic={info_dic}')
+        if info_dic:
+            args.use_realtime_logging = True
+            realtime_logger = get_realtime_logger(args, info_dic)
+        else:
+            logger.debug('real-time logging not needed at this point')
+            realtime_logger = None
+
+        # If no realtime logger is found, do nothing and exit
+        if realtime_logger is None:
+            logger.debug('realtime logger was not found, exiting')
+            break
+        else:
+            logger.debug('realtime logger was found')
+
+        realtime_logger.sending_logs(args, job)
+
+    # proceed to set the job_aborted flag?
+    if threads_aborted():
+        logger.debug('will proceed to set job_aborted')
+        args.job_aborted.set()
+    else:
+        logger.debug('will not set job_aborted yet')
+
+    logger.info('[payload] run_realtimelog thread has finished')
 
 
 def set_cpu_consumption_time(job):

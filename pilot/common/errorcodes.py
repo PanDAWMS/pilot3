@@ -148,6 +148,9 @@ class ErrorCodes:
     KILLPAYLOAD = 1363  # note, not a failure but a kill instruction from Raythena
     MISSINGCREDENTIALS = 1364
     NOCTYPES = 1365
+    CHECKSUMCALCFAILURE = 1366
+    COMMANDTIMEDOUT = 1367
+    REMOTEFILEOPENTIMEDOUT = 1368
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -274,7 +277,10 @@ class ErrorCodes:
         XRDCPERROR: "Xrdcp was unable to open file",
         KILLPAYLOAD: "Raythena has decided to kill payload",
         MISSINGCREDENTIALS: "Unable to locate credentials for S3 transfer",
-        NOCTYPES: "Python module ctypes not available on worker node"
+        NOCTYPES: "Python module ctypes not available on worker node",
+        CHECKSUMCALCFAILURE: "Failure during checksum calculation",
+        COMMANDTIMEDOUT: "Command timed out",
+        REMOTEFILEOPENTIMEDOUT: "Remote file open timed out"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -305,10 +311,7 @@ class ErrorCodes:
         :return: errormessage (string)
         """
 
-        if errorcode in self._error_messages:
-            return self._error_messages[errorcode]
-        else:
-            return "Unknown error code: %d" % errorcode
+        return self._error_messages.get(errorcode, "Unknown error code: %d" % errorcode)
 
     def add_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[], priority=False, msg=None):
         """

@@ -214,7 +214,7 @@ def _stage_in(args, job):
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
-                          input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall)
+                          input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall, checkinputsize=True)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
@@ -225,6 +225,9 @@ def _stage_in(args, job):
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=msg)
         except Exception as error:
             logger.error('failed to stage-in: error=%s', error)
+        else:
+            # only the data API will know if the input file sizes should be included in size checks
+            job.checkinputsize = kwargs.get('checkinputsize')
 
     logger.info('summary of transferred files:')
     for infile in job.indata:
