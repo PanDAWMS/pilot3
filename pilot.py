@@ -14,6 +14,7 @@ from __future__ import absolute_import
 
 import argparse
 import logging
+import os
 import sys
 import threading
 import time
@@ -29,7 +30,7 @@ from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIM
     SERVER_UPDATE_NOT_DONE, PILOT_MULTIJOB_START_TIME
 from pilot.util.filehandling import get_pilot_work_dir, mkdirs, establish_logging
 from pilot.util.harvester import is_harvester_mode
-from pilot.util.https import https_setup
+from pilot.util.https import https_setup, send_update
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()
@@ -64,6 +65,10 @@ def main():
     if args.use_https:
         https_setup(args, get_pilot_version())
 
+    # let the server know that the worker has started
+    if args.update_server:
+        send_worker_status('started', args.queue, args.url, args.port, logger)
+
     # initialize InfoService
     try:
         infosys.init(args.queue)
@@ -83,33 +88,30 @@ def main():
 
     # set requested workflow
     logger.info('pilot arguments: %s', str(args))
-    workflow = __import__('pilot.workflow.%s' % args.workflow, globals(), locals(), [args.workflow], 0)  # Python 3, -1 -> 0
+    workflow = __import__('pilot.workflow.%s' % args.workflow, globals(), locals(), [args.workflow], 0)
 
     # execute workflow
     try:
-        exit_code = workflow.run(args)
-    except Exception as e:
-        logger.fatal('main pilot function caught exception: %s', e)
-        exit_code = None
+        exitcode = workflow.run(args)
+    except Exception as exc:
+        logger.fatal('main pilot function caught exception: %s', exc)
+        exitcode = None
 
-    return exit_code
+    # let the server know that the worker has finished
+    if args.update_server:
+        send_worker_status('finished', args.queue, args.url, args.port, logger)
 
-
-class Args:
-    """
-    Dummy namespace class used to contain pilot arguments.
-    """
-    pass
+    return exitcode
 
 
-def str2bool(v):
+def str2bool(_var):
     """ Helper function to convert string to bool """
 
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if isinstance(_var, bool):
+        return _var
+    if _var.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif _var.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
@@ -132,20 +134,20 @@ def get_args():
                             help='Do not write the pilot log to file')
 
     # pilot work directory
-    arg_parser.add_argument('-a',
+    arg_parser.add_argument('-a', '--workdir',
                             dest='workdir',
                             default="",
                             help='Pilot work directory')
 
     # debug option to enable more log messages
-    arg_parser.add_argument('-d',
+    arg_parser.add_argument('-d', '--debug',
                             dest='debug',
                             action='store_true',
                             default=False,
                             help='Enable debug mode for logging messages')
 
     # the choices must match in name the python module in pilot/workflow/
-    arg_parser.add_argument('-w',
+    arg_parser.add_argument('-w', '--workflow',
                             dest='workflow',
                             default='generic',
                             choices=['generic', 'generic_hpc',
@@ -155,7 +157,7 @@ def get_args():
                             help='Pilot workflow (default: generic)')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-l',
+    arg_parser.add_argument('-l', '--lifetime',
                             dest='lifetime',
                             default=324000,
                             required=False,
@@ -163,58 +165,58 @@ def get_args():
                             help='Pilot lifetime seconds (default: 324000 s)')
 
     # set the appropriate site, resource and queue
-    arg_parser.add_argument('-q',
+    arg_parser.add_argument('-q', '--queue',
                             dest='queue',
                             required=True,
                             help='MANDATORY: queue name (e.g., AGLT2_TEST-condor)')
-    arg_parser.add_argument('-r',
+    arg_parser.add_argument('-r', '--resource',
                             dest='resource',
                             required=False,  # From v 2.2.0 the resource name is internally set
                             help='OBSOLETE: resource name (e.g., AGLT2_TEST)')
-    arg_parser.add_argument('-s',
+    arg_parser.add_argument('-s', '--site',
                             dest='site',
                             required=False,  # From v 2.2.1 the site name is internally set
                             help='OBSOLETE: site name (e.g., AGLT2_TEST)')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-j',
+    arg_parser.add_argument('-j', '--joblabel',
                             dest='job_label',
                             default='ptest',
                             help='Job prod/source label (default: ptest)')
 
     # pilot version tag; PR or RC
-    arg_parser.add_argument('-i',
+    arg_parser.add_argument('-i', '--versiontag',
                             dest='version_tag',
                             default='PR',
                             help='Version tag (default: PR, optional: RC)')
 
-    arg_parser.add_argument('-z',
+    arg_parser.add_argument('-z', '--updateserver',
                             dest='update_server',
                             action='store_false',
                             default=True,
                             help='Disable server updates')
 
-    arg_parser.add_argument('-t',
+    arg_parser.add_argument('-t', '--verifyproxy',
                             dest='verify_proxy',
                             action='store_false',
                             default=True,
                             help='Disable proxy verification')
 
-    arg_parser.add_argument('-u',
+    arg_parser.add_argument('-u', '--verifypayloadproxy',
                             dest='verify_payload_proxy',
                             action='store_false',
                             default=True,
                             help='Disable payload proxy verification')
 
     # graciously stop pilot process after hard limit
-    arg_parser.add_argument('-v',
+    arg_parser.add_argument('-v', '--getjobrequests',
                             dest='getjob_requests',
                             default=2,
                             required=False,
                             type=int,
                             help='Number of getjob requests')
 
-    arg_parser.add_argument('-x',
+    arg_parser.add_argument('-x', '--getjobfailures',
                             dest='getjob_failures',
                             default=5,
                             required=False,
@@ -238,7 +240,7 @@ def get_args():
                             dest='url',
                             default='',  # the proper default is stored in default.cfg
                             help='PanDA server URL')
-    arg_parser.add_argument('-p',
+    arg_parser.add_argument('-p', '--port',
                             dest='port',
                             default=25443,
                             help='PanDA server port')
@@ -319,13 +321,21 @@ def get_args():
                             help='Cleanup work directory after pilot has finished')
     arg_parser.add_argument('--use-realtime-logging',
                             dest='use_realtime_logging',
-                            type=str2bool,
+                            action='store_true',
                             default=False,
-                            help='Use near real-time logging')
+                            help='Use near real-time logging, default=False')
     arg_parser.add_argument('--realtime-logging-server',
                             dest='realtime_logging_server',
-                            default='',
-                            help='Near real-time logging server')
+                            default=None,
+                            help='Realtime logging server [type:host:port]; e.g. logstash:12.23.34.45:80')
+    # arg_parser.add_argument('--realtime-logfiles',
+    #                         dest='realtime_logfiles',
+    #                         default=None,
+    #                         help='The log filenames to be sent to the realtime logging server')
+    arg_parser.add_argument('--realtime-logname',
+                            dest='realtime_logname',
+                            default=None,
+                            help='The log name in the realtime logging server')
 
     # Harvester and Nordugrid specific options
     arg_parser.add_argument('--input-dir',
@@ -363,42 +373,41 @@ def get_args():
     return arg_parser.parse_args()
 
 
-def create_main_work_dir(args):
+def create_main_work_dir():
     """
     Create and return the pilot's main work directory.
     The function also sets args.mainworkdir and cd's into this directory.
+    Note: args, used in this function, is defined in outer scope.
 
-    :param args: pilot arguments object.
     :return: exit code (int), main work directory (string).
     """
 
-    exit_code = 0
+    exitcode = 0
 
     if args.workdir != "":
-        mainworkdir = get_pilot_work_dir(args.workdir)
+        _mainworkdir = get_pilot_work_dir(args.workdir)
         try:
             # create the main PanDA Pilot work directory
-            mkdirs(mainworkdir)
+            mkdirs(_mainworkdir)
         except PilotException as error:
             # print to stderr since logging has not been established yet
-            print('failed to create workdir at %s -- aborting: %s' % (mainworkdir, error), file=sys.stderr)
-            exit_code = shell_exit_code(error._errorCode)
+            print('failed to create workdir at %s -- aborting: %s' % (_mainworkdir, error), file=sys.stderr)
+            exitcode = shell_exit_code(error._errorCode)
     else:
-        mainworkdir = getcwd()
+        _mainworkdir = getcwd()
 
-    args.mainworkdir = mainworkdir
-    chdir(mainworkdir)
+    args.mainworkdir = _mainworkdir
+    chdir(_mainworkdir)
 
-    return exit_code, mainworkdir
+    return exitcode, _mainworkdir
 
 
-def set_environment_variables(args, mainworkdir):
+def set_environment_variables():
     """
     Set environment variables. To be replaced with singleton implementation.
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
+    Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :param args: args object.
-    :param mainworkdir: work directory (string).
     :return:
     """
 
@@ -449,25 +458,23 @@ def set_environment_variables(args, mainworkdir):
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
 
 
-def wrap_up(initdir, mainworkdir, args):
+def wrap_up():
     """
     Perform cleanup and terminate logging.
+    Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :param initdir: launch directory (string).
-    :param mainworkdir: main work directory (string).
-    :param args: pilot arguments object.
     :return: exit code (int).
     """
 
-    exit_code = 0
+    exitcode = 0
 
     # cleanup pilot workdir if created
-    if initdir != mainworkdir and args.cleanup:
-        chdir(initdir)
+    if args.sourcedir != mainworkdir and args.cleanup:
+        chdir(args.sourcedir)
         try:
             rmtree(mainworkdir)
-        except Exception as e:
-            logging.warning("failed to remove %s: %s", mainworkdir, e)
+        except Exception as exc:
+            logging.warning("failed to remove %s: %s", mainworkdir, exc)
         else:
             logging.info("removed %s", mainworkdir)
 
@@ -477,29 +484,29 @@ def wrap_up(initdir, mainworkdir, args):
         kill_worker()
 
     try:
-        exit_code = trace.pilot['error_code']
+        exitcode = trace.pilot['error_code']
     except Exception:
-        exit_code = trace
+        exitcode = trace
     else:
-        logging.info('traces error code: %d', exit_code)
+        logging.info('traces error code: %d', exitcode)
         if trace.pilot['nr_jobs'] <= 1:
-            if exit_code != 0:
-                logging.info('an exit code was already set: %d (will be converted to a standard shell code)', exit_code)
+            if exitcode != 0:
+                logging.info('an exit code was already set: %d (will be converted to a standard shell code)', exitcode)
         elif trace.pilot['nr_jobs'] > 0:
             if trace.pilot['nr_jobs'] == 1:
                 logging.getLogger(__name__).info('pilot has finished (%d job was processed)', trace.pilot['nr_jobs'])
             else:
                 logging.getLogger(__name__).info('pilot has finished (%d jobs were processed)', trace.pilot['nr_jobs'])
-            exit_code = SUCCESS
+            exitcode = SUCCESS
         elif trace.pilot['state'] == FAILURE:
             logging.critical('pilot workflow failure -- aborting')
         elif trace.pilot['state'] == ERRNO_NOJOBS:
             logging.critical('pilot did not process any events -- aborting')
-            exit_code = ERRNO_NOJOBS
+            exitcode = ERRNO_NOJOBS
     logging.info('pilot has finished')
     logging.shutdown()
 
-    return shell_exit_code(exit_code)
+    return shell_exit_code(exitcode)
 
 
 def get_pilot_source_dir():
@@ -519,6 +526,33 @@ def get_pilot_source_dir():
         return cwd
 
 
+def send_worker_status(status, queue, url, port, logger):
+    """
+    Send worker info to the server to let it know that the worker has started
+    Note: the function can fail, but if it does, it will be ignored.
+
+    :param status: 'started' or 'finished' (string).
+    :param queue: PanDA queue name (string).
+    :param url: server url (string).
+    :param port: server port (string).
+    :param logger: logging object.
+    :return:
+    """
+
+    # worker node structure to be sent to the server
+    data = {}
+    data['workerID'] = os.environ.get('HARVESTER_WORKER_ID', None)
+    data['harvesterID'] = os.environ.get('HARVESTER_ID', None)
+    data['status'] = status
+    data['site'] = queue
+
+    # attempt to send the worker info to the server
+    if data['workerID'] and data['harvesterID']:
+        send_update('updateWorkerPilotStatus', data, url, port)
+    else:
+        logger.warning('workerID/harvesterID not known, will not send worker status to server')
+
+
 if __name__ == '__main__':
     """
     Main function of pilot module.
@@ -526,6 +560,7 @@ if __name__ == '__main__':
 
     # get the args from the arg parser
     args = get_args()
+    args.last_heartbeat = time.time()
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)
@@ -543,12 +578,12 @@ if __name__ == '__main__':
     # if requested by the wrapper via a pilot option, create the main pilot workdir and cd into it
     args.sourcedir = getcwd()  #get_pilot_source_dir()
 
-    exit_code, mainworkdir = create_main_work_dir(args)
+    exit_code, mainworkdir = create_main_work_dir()
     if exit_code != 0:
         sys.exit(exit_code)
 
     # set environment variables (to be replaced with singleton implementation)
-    set_environment_variables(args, mainworkdir)
+    set_environment_variables()
 
     # setup and establish standard logging
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -560,7 +595,7 @@ if __name__ == '__main__':
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)
 
     # perform cleanup and terminate logging
-    exit_code = wrap_up(args.sourcedir, mainworkdir, args)
+    exit_code = wrap_up()
 
     # the end.
     sys.exit(exit_code)

@@ -13,7 +13,6 @@ from re import search
 
 # from pilot.info import infosys
 from .setup import get_asetup
-from pilot.util.auxiliary import is_python3
 from pilot.util.container import execute
 from pilot.util.filehandling import read_json, copy, write_json, remove
 from pilot.util.parameters import convert_to_int
@@ -696,10 +695,7 @@ def convert_text_file_to_dictionary(path):
                 try:
                     # Remove empty entries from list (caused by multiple \t)
                     _l = line.replace('\n', '')
-                    if is_python3():
-                        _l = [_f for _f in _l.split('\t') if _f]  # Python 3
-                    else:
-                        _l = filter(None, _l.split('\t'))  # Python 2
+                    _l = [_f for _f in _l.split('\t') if _f]
 
                     # define dictionary keys
                     if type(_l[0]) == str and not header_locked:
@@ -765,10 +761,7 @@ def get_average_summary_dictionary(path):
             if line != "":
                 try:
                     # Remove empty entries from list (caused by multiple \t)
-                    if is_python3():
-                        _l = [_f for _f in line.split('\t') if _f]  # Python 3
-                    else:
-                        _l = filter(None, line.split('\t'))  # Python 2
+                    _l = [_f for _f in line.split('\t') if _f]
                     # _time = _l[0]  # 'Time' not user
                     vmem = _l[1]
                     pss = _l[2]

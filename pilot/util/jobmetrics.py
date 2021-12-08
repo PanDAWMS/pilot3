@@ -25,7 +25,7 @@ def get_job_metrics_entry(name, value):
 
     job_metrics_entry = ""
     if value != "":
-        job_metrics_entry += "%s=%s " % (name, value)
+        job_metrics_entry += f"{name}={value} "
 
     return job_metrics_entry
 
@@ -48,10 +48,10 @@ def get_job_metrics(job):
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     try:
-        job_metrics_module = __import__('pilot.user.%s.jobmetrics' % user, globals(), locals(), [user], 0)  # Python 2/3
-    except AttributeError as e:
+        job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)  # Python 2/3
+    except AttributeError as exc:
         job_metrics = None
-        logger.warning('function not implemented in jobmetrics module: %s' % e)
+        logger.warning(f'function not implemented in jobmetrics module: {exc}')
     else:
         job_metrics = job_metrics_module.get_job_metrics(job)
 

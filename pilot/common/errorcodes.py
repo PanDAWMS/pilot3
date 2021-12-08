@@ -311,10 +311,7 @@ class ErrorCodes:
         :return: errormessage (string)
         """
 
-        if errorcode in self._error_messages:
-            return self._error_messages[errorcode]
-        else:
-            return "Unknown error code: %d" % errorcode
+        return self._error_messages.get(errorcode, "Unknown error code: %d" % errorcode)
 
     def add_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[], priority=False, msg=None):
         """

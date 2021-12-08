@@ -13,7 +13,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, StageInFailure, StageOutFailure
 from pilot.util.config import config
 from pilot.util.container import execute
-from pilot.util.filehandling import copy, read_json, write_json, write_file, copy_pilot_source  #, find_executable
+from pilot.util.filehandling import copy, read_json, write_json, write_file, copy_pilot_source
 
 import logging
 logger = logging.getLogger(__name__)

@@ -37,7 +37,7 @@ def get_local_disk_space(path):
         try:
             disk = float(disks.splitlines()[1].split()[3])
         except ValueError as error:
-            logger.warning('exception caught while trying to convert disk info: %s', error)
+            logger.warning(f'exception caught while trying to convert disk info: {error}')
 
     return disk
 
@@ -50,16 +50,16 @@ def get_meminfo():
     """
 
     mem = 0.0
-    with open("/proc/meminfo", "r") as fd:
-        mems = fd.readline()
+    with open("/proc/meminfo", "r") as _fd:
+        mems = _fd.readline()
         while mems:
             if mems.upper().find("MEMTOTAL") != -1:
                 try:
                     mem = float(mems.split()[1]) / 1024  # value listed by command as kB, convert to MB
                 except ValueError as error:
-                    logger.warning('exception caught while trying to convert meminfo: %s', error)
+                    logger.warning(f'exception caught while trying to convert meminfo: {error}')
                 break
-            mems = fd.readline()
+            mems = _fd.readline()
 
     return mem
 
@@ -72,14 +72,14 @@ def get_cpuinfo():
     """
 
     cpu = 0.0
-    with open("/proc/cpuinfo", "r") as fd:
-        lines = fd.readlines()
+    with open("/proc/cpuinfo", "r") as _fd:
+        lines = _fd.readlines()
         for line in lines:
             if line.find("cpu MHz") != -1:  # Python 2/3
                 try:
                     cpu = float(line.split(":")[1])
                 except ValueError as error:
-                    logger.warning('exception caught while trying to convert cpuinfo: %s', error)
+                    logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
                 break  # command info is the same for all cores, so break here
 
     return cpu
@@ -114,21 +114,21 @@ def get_disk_space(queuedata):
     # --- non Job related queue data
     # jobinfo provider is required to consider overwriteAGIS data coming from Job
     _maxinputsize = infosys.queuedata.maxwdir
-    logger.debug("resolved value from global infosys.queuedata instance: infosys.queuedata.maxwdir=%s B", _maxinputsize)
+    logger.debug(f'resolved value from global infosys.queuedata instance: infosys.queuedata.maxwdir={_maxinputsize} B')
     _maxinputsize = queuedata.maxwdir
-    logger.debug("resolved value: queuedata.maxwdir=%s B", _maxinputsize)
+    logger.debug(f'resolved value: queuedata.maxwdir={_maxinputsize} B')
 
     try:
-        du = disk_usage(os.path.abspath("."))
-        _diskspace = int(du[2] / (1024 * 1024))  # need to convert from B to MB
+        _du = disk_usage(os.path.abspath("."))
+        _diskspace = int(_du[2] / (1024 * 1024))  # need to convert from B to MB
     except ValueError as error:
-        logger.warning("failed to extract disk space: %s (will use schedconfig default)", error)
+        logger.warning(f"failed to extract disk space: {error} (will use schedconfig default)")
         _diskspace = _maxinputsize
     else:
-        logger.info("available WN disk space: %d MB", _diskspace)
+        logger.info(f'available WN disk space: {_diskspace} MB')
 
     _diskspace = min(_diskspace, _maxinputsize)
-    logger.info("sending disk space %d MB to dispatcher", _diskspace)
+    logger.info(f'sending disk space {_diskspace} MB to dispatcher')
 
     return _diskspace
 
@@ -184,10 +184,10 @@ def get_cpu_model():
     re_model = re.compile(r'^model name\s+:\s+(\w.+)')  # Python 3 (added r)
     re_cache = re.compile(r'^cache size\s+:\s+(\d+ KB)')  # Python 3 (added r)
 
-    with open("/proc/cpuinfo", "r") as f:
+    with open("/proc/cpuinfo", "r") as _fp:
 
         # loop over all lines in cpuinfo
-        for line in f.readlines():
+        for line in _fp.readlines():
             # try to grab cpumodel from current line
             model = re_model.search(line)
             if model:

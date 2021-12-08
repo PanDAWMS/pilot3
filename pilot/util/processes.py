@@ -595,7 +595,7 @@ def cleanup(job, args):
         logger.info('workdir not removed %s', job.workdir)
 
     # collect any zombie processes
-    job.collect_zombies(tn=10)
+    job.collect_zombies(depth=10)
     logger.info("collected zombie processes")
 
     if job.pid:

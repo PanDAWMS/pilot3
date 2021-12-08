@@ -74,7 +74,7 @@ def control(queues, traces, args):
             time_since_start = get_time_since_start(args)
             grace_time = 10 * 60
             if time_since_start - grace_time > max_running_time:
-                logger.fatal('max running time (%d s) minus grace time (%d s) has been exceeded - must abort pilot', max_running_time, grace_time)
+                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been exceeded - must abort pilot')
                 logger.info('setting REACHED_MAXTIME and graceful stop')
                 environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
                 # do not set graceful stop if pilot has not finished sending the final job update
@@ -84,21 +84,17 @@ def control(queues, traces, args):
                 break
             else:
                 if niter % 60 == 0:
-                    logger.info('%d s have passed since pilot start', time_since_start)
+                    logger.info(f'{time_since_start}s have passed since pilot start')
             time.sleep(1)
 
-            # time to check the CPU?
+            # time to check the CPU usage?
             if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
-                processes = get_process_info('python pilot3/pilot.py', pid=getpid())
+                processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
                 if processes:
-                    logger.info('-' * 100)
-                    logger.info('PID=%d has CPU usage=%s%% MEM usage=%s%% CMD=%s', getpid(), processes[0], processes[1], processes[2])
+                    logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
                     nproc = processes[3]
                     if nproc > 1:
-                        logger.info('there are %d such processes running', nproc)
-                    else:
-                        logger.info('there is %d such process running', nproc)
-                    logger.info('-' * 100)
+                        logger.info(f'.. there are {nproc} such processes running')
                 tcpu = time.time()
 
             # proceed with running the other checks
@@ -110,13 +106,13 @@ def control(queues, traces, args):
                 for thread in threading.enumerate():
                     # logger.info('thread name: %s', thread.name)
                     if not thread.is_alive():
-                        logger.fatal('thread \'%s\' is not alive', thread.name)
+                        logger.fatal(f'thread \'{thread.name}\' is not alive')
                         # args.graceful_stop.set()
 
             niter += 1
 
     except Exception as error:
-        print(("monitor: exception caught: %s" % error))
+        print((f"monitor: exception caught: {error}"))
         raise PilotException(error)
 
     logger.info('[monitor] control thread has ended')
@@ -129,7 +125,7 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     """
     Return process info for given command.
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
-    a given command (e.g. python pilot3/pilot.py).
+    a given command (e.g. python3 pilot3/pilot.py).
 
     Example
       get_processes_for_command('sshd:')
@@ -151,11 +147,11 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     processes = []
     num = 0
     if not user:
-        user = getuid()
+        user = str(getuid())
     pattern = re.compile(r"\S+|[-+]?\d*\.\d+|\d+")
     arguments = ['ps', '-u', user, args, '--no-headers']
 
-    process = Popen(arguments, stdout=PIPE, stderr=PIPE)
+    process = Popen(arguments, stdout=PIPE, stderr=PIPE, encoding='utf-8')
     stdout, _ = process.communicate()
     for line in stdout.splitlines():
         found = re.findall(pattern, line)
@@ -171,7 +167,6 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
 
     if processes:
         processes.append(num)
-
     return processes
 
 
@@ -184,7 +179,17 @@ def run_checks(queues, args):
     :return:
     """
 
-    # check CPU consumption of pilot process and its children
+    # check how long time has passed since last successful heartbeat
+    last_heartbeat = time.time() - args.last_heartbeat
+    if last_heartbeat > config.Pilot.lost_heartbeat and args.update_server:
+        diagnostics = f'too much time has passed since last successful heartbeat ({last_heartbeat} s)'
+        logger.warning(diagnostics)
+        logger.warning('aborting pilot - no need to wait for job to finish - kill everything')
+        args.job_aborted.set()
+        args.abort_job.clear()
+        raise ExceededMaxWaitTime(diagnostics)
+    #else:
+    #    logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
 
     if args.abort_job.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module
@@ -201,9 +206,7 @@ def run_checks(queues, args):
                 return
             time.sleep(1)
 
-        if args.graceful_stop.is_set():
-            logger.info('graceful_stop already set')
-        else:
+        if not args.graceful_stop.is_set():
             logger.warning('setting graceful_stop')
             args.graceful_stop.set()
 
