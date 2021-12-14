@@ -18,7 +18,7 @@ import hashlib
 import logging
 import queue
 
-from json import dumps  #, loads
+from json import dumps
 from re import findall
 from glob import glob
 
@@ -2595,7 +2595,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.warning('job state is \'failed\' - order log transfer and abort job_monitor() (2)')
                         _job.stageout = 'log'  # only stage-out log file
                         put_in_queue(_job, queues.data_out)
-                        abort = True
+                        #abort = True
                         break
 
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
