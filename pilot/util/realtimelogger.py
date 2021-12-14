@@ -107,8 +107,8 @@ class RealTimeLogger(Logger):
                     server,
                     port,
                     timeout=5.0,
-                    ssl_enable=True,
-                    ssl_verify=True,
+                    ssl_enable=False,
+                    ssl_verify=False,
                     user='pilot',
                     password='XXX'
                 )
@@ -117,8 +117,8 @@ class RealTimeLogger(Logger):
                     host=server,
                     port=port,
                     transport=transport,
-                    ssl_enable=True,
-                    ssl_verify=True,
+                    ssl_enable=False,
+                    ssl_verify=False,
                     database_path='logstash_test.db')
             else:
                 logger.warning(f'unknown logtype: {logtype}')
