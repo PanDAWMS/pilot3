@@ -47,7 +47,7 @@ class RealTimeLogger(Logger):
     logfiles_default = []
     openfiles = {}
 
-    def __init__(self, args, info_dic):
+    def __init__(self, args, info_dic, level=INFO):
         """
         Default init function.
 
@@ -60,10 +60,11 @@ class RealTimeLogger(Logger):
 
         :param args: pilot arguments object.
         :param info_dic: info dictionary.
+        :param level: logging level (constant).
         :return:
         """
 
-        super(RealTimeLogger, self).__init__(name="realTimeLogger", level=INFO)
+        super(RealTimeLogger, self).__init__(name="realTimeLogger", level=level)
         RealTimeLogger.glogger = self
 
         if not info_dic:
@@ -88,6 +89,8 @@ class RealTimeLogger(Logger):
         _handler = None
 
         try:
+            server = 'aipanda020.cern.ch'
+            port = 8443
             if logtype == "google-cloud-logging":
                 import google.cloud.logging
                 from google.cloud.logging_v2.handlers import CloudLoggingHandler
@@ -104,16 +107,18 @@ class RealTimeLogger(Logger):
                     server,
                     port,
                     timeout=5.0,
-                    ssl_verify=False,
-                    ssl_enable=False,
+                    ssl_enable=True,
+                    ssl_verify=True,
+                    user='pilot',
+                    password='XXX'
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
                     host=server,
                     port=port,
                     transport=transport,
-                    ssl_enable=False,
-                    ssl_verify=False,
+                    ssl_enable=True,
+                    ssl_verify=True,
                     database_path='logstash_test.db')
             else:
                 logger.warning(f'unknown logtype: {logtype}')
