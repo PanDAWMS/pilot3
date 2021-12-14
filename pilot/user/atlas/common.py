@@ -444,12 +444,9 @@ def get_payload_command(job):
     if not cmd.endswith(';'):
         cmd += '; '
 
-    # only if not using a user container
-    if not job.imagename:
-        site = os.environ.get('PILOT_SITENAME', '')
-        variables = get_payload_environment_variables(
-            cmd, job.jobid, job.taskid, job.attemptnr, job.processingtype, site, userjob)
-        cmd = ''.join(variables) + cmd
+    site = os.environ.get('PILOT_SITENAME', '')
+    variables = get_payload_environment_variables(cmd, job.jobid, job.taskid, job.attemptnr, job.processingtype, site, userjob)
+    cmd = ''.join(variables) + cmd
 
     # prepend PanDA job id in case it is not there already (e.g. runcontainer jobs)
     if 'export PandaID' not in cmd:
