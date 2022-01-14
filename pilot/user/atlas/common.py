@@ -1887,6 +1887,7 @@ def get_redundants():
                 "singularity/*",
                 "/cores",
                 "/work",
+                "*.part*",
                 "docs/",
                 "/pilot3"]
 
