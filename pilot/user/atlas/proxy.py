@@ -44,7 +44,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     else:
         envsetup = ''
 
-    envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
+    # envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
     if os.environ.get('ALRB_noGridMW', '').lower() != "yes":
         envsetup += "lsetup emi;"
     else:
