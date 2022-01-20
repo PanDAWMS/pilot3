@@ -138,6 +138,13 @@ class Analytics(Services):
             # remove tails if desired
             # this is useful e.g. for memory monitor data where the first and last values
             # represent allocation and de-allocation, ie not interesting
+
+            itmet = False
+            if len(x) >= 100:
+                logger.debug('tails will not be removed for large data sample - iterative method will be used instead')
+                tails = True
+                itmet = True
+
             if not tails and len(x) > 7 and len(y) > 7:
                 logger.debug('removing tails from data to be fitted')
                 x = x[5:]
@@ -145,23 +152,94 @@ class Analytics(Services):
                 y = y[5:]
                 y = y[:-2]
 
-            if (len(x) > 7 and len(y) > 7) and len(x) == len(y):
+            if not (len(x) > 7 and len(y) > 7) and len(x) == len(y):
+                logger.warning('wrong length of table data, x=%s, y=%s (must be same and length>=4)', str(x), str(y))
+            else:
                 logger.info('fitting %s vs %s', y_name, x_name)
+
+                if itmet:
+                    norg = len(x)
+                    fit = self.fit(x, y)
+                    _slope = self.slope()
+                    _chi2_org = fit.chi2()
+
+                    # determine the removable right region ("right side limit")
+                    _x = x
+                    _y = y
+                    right_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="right")
+
+                    # determine the removable left region ("left side limit")
+                    _x = x
+                    _y = y
+                    left_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="left")
+
+                    # final fit adjusted for removable regions
+                    x = x[left_limit:right_limit]
+                    y = y[left_limit:right_limit]
+
                 try:
                     fit = self.fit(x, y)
                     _slope = self.slope()
-                except Exception as e:
-                    logger.warning('failed to fit data, x=%s, y=%s: %s', str(x), str(y), e)
+                except Exception as exc:
+                    logger.warning('failed to fit data, x=%s, y=%s: %s', str(x), str(y), exc)
                 else:
                     if _slope:
                         slope = float_to_rounded_string(fit.slope(), precision=precision)
                         chi2 = float_to_rounded_string(fit.chi2(), precision=precision)
                         if slope != "":
                             logger.info('current memory leak: %s B/s (using %d data points, chi2=%s)', slope, len(x), chi2)
-            else:
-                logger.warning('wrong length of table data, x=%s, y=%s (must be same and length>=4)', str(x), str(y))
 
         return {"slope": slope, "chi2": chi2}
+
+    def find_limit(self, _x, _y, _chi2_org, norg, change_limit=0.25, edge="right", steps=5):
+        """
+        Use an iterative approach to find the limits of the distributions that can be used for the final fit.
+        """
+
+        limit = 0
+        _chi2_prev = _chi2_org
+        found = False
+        iterations = 0
+        while len(_x) > norg / 2:
+            iterations += 1
+            if edge == "right":
+                _x = _x[:-steps]
+                _y = _y[:-steps]
+            else:  # left edge
+                _x = _x[steps:]
+                _y = _y[steps:]
+            try:
+                fit = self.fit(_x, _y)
+                _slope = self.slope()
+            except Exception as exc:
+                logger.warning(f'caught exception: {exc}')
+                break
+
+            _chi2 = fit.chi2()
+            change = (_chi2_prev - _chi2) / _chi2_prev
+            logger.info(f'current chi2={_chi2} (change={change * 100} %)')
+            if change < change_limit:
+                found = True
+                break
+            else:
+                _chi2_prev = _chi2
+
+        if edge == "right":
+            if not found:
+                limit = norg - 1
+                logger.warning('right removable region not found')
+            else:
+                limit = len(_x) - 1
+                logger.info(f'right removable region: {limit}')
+        else:
+            if not found:
+                limit = 0
+                logger.info('left removable region not found')
+            else:
+                limit = iterations * 10
+                logger.info(f'left removable region: {limit}')
+
+        return limit
 
     def extract_from_table(self, table, x_name, y_name):
         """
