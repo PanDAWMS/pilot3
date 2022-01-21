@@ -200,7 +200,7 @@ class Analytics(Services):
         _chi2_prev = _chi2_org
         found = False
         iterations = 0
-        while len(_x) > norg / 2:
+        while len(_x) > 2 * norg / 3:
             iterations += 1
             if edge == "right":
                 _x = _x[:-steps]
