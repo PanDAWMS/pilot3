@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 from .services import Services
 from pilot.common.exception import NotDefined, NotSameLength, UnknownException
@@ -210,7 +210,6 @@ class Analytics(Services):
                 _y = _y[steps:]
             try:
                 fit = self.fit(_x, _y)
-                _slope = self.slope()
             except Exception as exc:
                 logger.warning(f'caught exception: {exc}')
                 break

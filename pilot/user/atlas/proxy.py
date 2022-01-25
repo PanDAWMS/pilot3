@@ -13,7 +13,7 @@
 import os
 import logging
 
-from pilot.user.atlas.setup import get_file_system_root_path
+# from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.util.container import execute
 from pilot.common.errorcodes import ErrorCodes
 from time import time
