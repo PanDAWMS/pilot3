@@ -348,8 +348,8 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
     info_dic = {}
 
     if 'logging=' not in catchall or not realtimelogging:
-        logger.debug(f'catchall={catchall}')
-        logger.debug(f'realtimelogging={realtimelogging}')
+        #logger.debug(f'catchall={catchall}')
+        #logger.debug(f'realtimelogging={realtimelogging}')
         return {}
 
     # args handling
@@ -424,7 +424,7 @@ def run_realtimelog(queues, traces, args):
             job.realtimelogging = True
 
         # testing
-        job.realtimelogging = True
+        # job.realtimelogging = True
         # reset info_dic if real-time logging is not wanted by the job
         if not job.realtimelogging:
             info_dic = None
@@ -433,7 +433,7 @@ def run_realtimelog(queues, traces, args):
                                     job.infosys.queuedata.catchall,
                                     args.realtime_logname,
                                     args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
-        logger.debug(f'info_dic={info_dic}')
+        # logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
             realtime_logger = get_realtime_logger(args, info_dic)
