@@ -669,7 +669,7 @@ def get_debug_stdout(job):
     """
 
     if job.debug_command == 'debug':
-        return get_payload_log_tail(job.workdir)
+        return get_payload_log_tail(job.workdir, job.jobid)
     elif 'tail ' in job.debug_command:
         return get_requested_log_tail(job.debug_command, job.workdir)
     elif 'ls ' in job.debug_command:
@@ -890,11 +890,12 @@ def add_memory_info(data, workdir, name=""):
         logger.info(f'memory information not available: {error}')
 
 
-def remove_pilot_logs_from_list(list_of_files):
+def remove_pilot_logs_from_list(list_of_files, jobid):
     """
     Remove any pilot logs from the list of last updated files.
 
     :param list_of_files: list of last updated files (list).
+    :param jobid: PanDA job id (string).
     :return: list of files (list).
     """
 
@@ -907,7 +908,8 @@ def remove_pilot_logs_from_list(list_of_files):
                          config.Pilot.remotefileverification_log, config.Pilot.base_trace_report,
                          config.Container.container_script, config.Container.release_setup,
                          config.Container.stagein_status_dictionary, config.Container.stagein_replica_dictionary,
-                         'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot']
+                         'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot',
+                         f'curl_updateJob_{jobid}.config']
     except Exception as error:
         logger.warning(f'exception caught: {error}')
         to_be_removed = []
@@ -920,11 +922,12 @@ def remove_pilot_logs_from_list(list_of_files):
     return new_list_of_files
 
 
-def get_payload_log_tail(workdir):
+def get_payload_log_tail(workdir, jobid):
     """
     Return the tail of the payload stdout or its latest updated log file.
 
     :param workdir: job work directory (string).
+    :param jobid: PanDA job id (string).
     :return: tail of stdout (string).
     """
 
@@ -932,7 +935,7 @@ def get_payload_log_tail(workdir):
     # list_of_files = get_list_of_log_files()
     # find the latest updated text file
     list_of_files = find_text_files()
-    list_of_files = remove_pilot_logs_from_list(list_of_files)
+    list_of_files = remove_pilot_logs_from_list(list_of_files, jobid)
 
     if not list_of_files:
         logger.info(f'no log files were found (will use default {config.Payload.payloadstdout})')
