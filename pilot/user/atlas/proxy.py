@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2020
 
 # from pilot.util.container import execute
@@ -13,7 +13,7 @@
 import os
 import logging
 
-from pilot.user.atlas.setup import get_file_system_root_path
+# from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.util.container import execute
 from pilot.common.errorcodes import ErrorCodes
 from time import time
@@ -44,11 +44,11 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     else:
         envsetup = ''
 
-    envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
-    if os.environ.get('ALRB_noGridMW', '').lower() != "yes":
-        envsetup += "lsetup emi;"
-    else:
-        logger.warning('Skipping "lsetup emi" as ALRB_noGridMW=YES')
+    # envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
+    #if os.environ.get('ALRB_noGridMW', '').lower() != "yes":
+    #    envsetup += "lsetup emi;"
+    #else:
+    #    logger.warning('Skipping "lsetup emi" as ALRB_noGridMW=YES')
 
     # first try to use arcproxy since voms-proxy-info is not working properly on SL6
     #  (memory issues on queues with limited memory)

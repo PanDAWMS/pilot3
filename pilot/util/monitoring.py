@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 # This module contains implementations of job monitoring tasks
 
@@ -631,7 +631,7 @@ def get_max_allowed_work_dir_size():
         # grace margin, as discussed in https://its.cern.ch/jira/browse/ATLASPANDA-482
         margin = 10.0  # percent, read later from somewhere
         maxwdirsize = int(maxwdirsize * (1 + margin / 100.0))
-        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (10%% grace limit added)")
+        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (10% grace limit added)")
 
     return maxwdirsize
 
@@ -692,6 +692,10 @@ def check_output_file_sizes(job):
             max_fsize = human2bytes(config.Pilot.maximum_output_file_size)
             if fsize and fsize < max_fsize:
                 logger.info(f'output file {path} is within allowed size limit ({fsize} B < {max_fsize} B)')
+            elif fsize == 0:
+                exit_code = errors.EMPTYOUTPUTFILE
+                diagnostics = f'zero size output file detected: {path}'
+                logger.warning(diagnostics)
             else:
                 exit_code = errors.OUTPUTFILETOOLARGE
                 diagnostics = f'output file {path} is not within allowed size limit ({fsize} B > {max_fsize} B)'

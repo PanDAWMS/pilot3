@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 import os
 import time
@@ -523,9 +523,12 @@ def get_instant_cpu_consumption_time(pid):
     if pid and hz and hz > 0:
         path = "/proc/%d/stat" % pid
         if os.path.exists(path):
-            with open(path) as fp:
-                fields = fp.read().split(' ')[13:17]
-                utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
+            try:
+                with open(path) as fp:
+                    fields = fp.read().split(' ')[13:17]
+                    utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
+            except (FileNotFoundError, IOError) as exc:
+                logger.warning(f'exception caught: {exc} (ignored)')
 
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes

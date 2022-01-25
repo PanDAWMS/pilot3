@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 from __future__ import print_function  # Python 2 (2to3 complains about this)
 from __future__ import absolute_import
@@ -196,7 +196,7 @@ def get_args():
                             default=True,
                             help='Disable server updates')
 
-    arg_parser.add_argument('-t', '--verifyproxy',
+    arg_parser.add_argument('-t', '--noproxyverification',
                             dest='verify_proxy',
                             action='store_false',
                             default=True,
