@@ -5,7 +5,9 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+
+from os.path import join
 
 
 def allow_loopingjob_detection():
@@ -34,6 +36,7 @@ def remove_unwanted_files(workdir, files):
     _files = []
     for _file in files:
         if not (workdir == _file or
+                _file == join(workdir, 'workDir') or
                 "prmon" in _file or
                 "/pilot" in _file or
                 "/pandawnutil" in _file or
