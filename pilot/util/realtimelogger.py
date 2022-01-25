@@ -107,18 +107,16 @@ class RealTimeLogger(Logger):
                     server,
                     port,
                     timeout=5.0,
-                    ssl_enable=False,
+                    ssl_enable=True,
                     ssl_verify=False,
-                    user='pilot',
+                    username='pilot',
                     password='XXX'
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
-                    host=server,
-                    port=port,
+                    server,
+                    port,
                     transport=transport,
-                    ssl_enable=False,
-                    ssl_verify=False,
                     database_path='logstash_test.db')
             else:
                 logger.warning(f'unknown logtype: {logtype}')
@@ -137,7 +135,8 @@ class RealTimeLogger(Logger):
         self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
         if 'HARVESTER_WORKER_ID' in os.environ:
             self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
-        logger.debug('set_jobinfo with PandaJobID=%s', self.jobinfo["PandaJobID"])
+        if 'HARVESTER_ID' in os.environ:
+            self.jobinfo["Harvester_ID"] = os.environ.get('HARVESTER_ID')
 
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),
