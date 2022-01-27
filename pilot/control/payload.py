@@ -8,17 +8,14 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
 import os
 import time
 import traceback
+import queue
 from re import findall, split
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
 
 from pilot.control.payloads import generic, eventservice, eventservicemerge
 from pilot.control.job import send_state
@@ -51,7 +48,7 @@ def control(queues, traces, args):
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
                'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
-                         name=name) for name, target in list(targets.items())]  # Python 3
+                         name=name) for name, target in list(targets.items())]
 
     [thread.start() for thread in threads]
 
@@ -205,7 +202,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             peek = [s_job for s_job in q_snapshot if job.jobid == s_job.jobid]
             if len(peek) == 0:
                 put_in_queue(job, queues.validated_payloads)
-                for _ in range(10):  # Python 3
+                for _ in range(10):
                     if args.graceful_stop.is_set():
                         break
                     time.sleep(1)

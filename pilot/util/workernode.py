@@ -34,9 +34,10 @@ def get_local_disk_space(path):
     cmd = f"df -mP {path}"
     disks = getoutput(cmd)
     if disks:
+        logger.debug(f'disks={disks}')
         try:
             disk = float(disks.splitlines()[1].split()[3])
-        except (ValueError, TypeError, AttributeError) as error:
+        except (IndexError, ValueError, TypeError, AttributeError) as error:
             msg = f'exception caught while trying to convert disk info: {error}'
             logger.warning(msg)
             raise PilotException(msg, code=ErrorCodes.UNKNOWNEXCEPTION)
@@ -107,6 +108,7 @@ def collect_workernode_info(path=None):
     except PilotException as exc:
         diagnostics = exc.get_detail()
         logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        disk = None
 
     return mem, cpu, disk
 
