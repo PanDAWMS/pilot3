@@ -1286,7 +1286,7 @@ def get_dispatcher_dictionary(args):
 
     _diskspace = get_disk_space(infosys.queuedata)
 
-    _mem, _cpu, _disk = collect_workernode_info()
+    _mem, _cpu, _ = collect_workernode_info()
 
     _nodename = get_node_name()
 

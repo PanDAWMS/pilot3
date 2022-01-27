@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
@@ -17,11 +17,7 @@ import hashlib
 import logging
 import time
 
-try:
-    from functools import reduce  # Python 3
-#except ModuleNotFoundError:  # Python 3
-except Exception:
-    pass
+from functools import reduce
 
 from pilot.info import infosys
 from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound, FileHandlingFailure
@@ -928,15 +924,23 @@ class StageInClient(StagingClient):
         self.logger.info("total input file size=%s B within allowed limit=%s B (zero value means unlimited)", totalsize, maxinputsize)
 
         # get available space
-        available_space = convert_mb_to_b(get_local_disk_space(os.getcwd()))
-        self.logger.info("locally available space: %d B", available_space)
+        try:
+            disk_space = get_local_disk_space(os.getcwd())
+        except PilotException as exc:
+            diagnostics = exc.get_detail()
+            self.logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        else:
+            if disk_space:
+                available_space = convert_mb_to_b(disk_space)
+                self.logger.info("locally available space: %d B", available_space)
 
-        # are we within the limit?
-        if totalsize > available_space:
-            error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
-                    (totalsize, available_space)
-            raise NoLocalSpace(error)
-
+                # are we within the limit?
+                if totalsize > available_space:
+                    error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
+                            (totalsize, available_space)
+                    raise NoLocalSpace(error)
+            else:
+                self.logger.warning('get_local_disk_space() returned None')
 
 class StageOutClient(StagingClient):
 

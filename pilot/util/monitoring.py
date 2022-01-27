@@ -15,6 +15,7 @@ from subprocess import PIPE
 from glob import glob
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import PilotException
 from pilot.util.auxiliary import set_pilot_state, show_memory_usage
 from pilot.util.config import config
 from pilot.util.container import execute
@@ -543,15 +544,26 @@ def check_local_space(initial=True):
     # is there enough local space to run a job?
     cwd = os.getcwd()
     logger.debug(f'checking local space on {cwd}')
-    spaceleft = convert_mb_to_b(get_local_disk_space(cwd))  # B (diskspace is in MB)
-    free_space_limit = human2bytes(config.Pilot.free_space_limit) if initial else human2bytes(config.Pilot.free_space_limit_running)
+    try:
+        local_space = get_local_disk_space(cwd)
+    except PilotException as exc:
+        diagnostics = exc.get_detail()
+        logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        return ec, diagnostics
 
-    if spaceleft <= free_space_limit:
-        diagnostics = f'too little space left on local disk to run job: {spaceleft} B (need > {free_space_limit} B)'
-        ec = errors.NOLOCALSPACE
-        logger.warning(diagnostics)
+    if local_space:
+        spaceleft = convert_mb_to_b(local_space)  # B (diskspace is in MB)
+        free_space_limit = human2bytes(config.Pilot.free_space_limit) if initial else human2bytes(config.Pilot.free_space_limit_running)
+
+        if spaceleft <= free_space_limit:
+            diagnostics = f'too little space left on local disk to run job: {spaceleft} B (need > {free_space_limit} B)'
+            ec = errors.NOLOCALSPACE
+            logger.warning(diagnostics)
+        else:
+            logger.info(f'sufficient remaining disk space ({spaceleft} B)')
     else:
-        logger.info(f'sufficient remaining disk space ({spaceleft} B)')
+        diagnostics = 'get_local_disk_space() returned None'
+        logger.warning(diagnostics)
 
     return ec, diagnostics
 
