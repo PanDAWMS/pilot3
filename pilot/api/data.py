@@ -942,6 +942,7 @@ class StageInClient(StagingClient):
             else:
                 self.logger.warning('get_local_disk_space() returned None')
 
+
 class StageOutClient(StagingClient):
 
     mode = "stage-out"
