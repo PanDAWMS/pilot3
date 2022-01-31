@@ -419,6 +419,14 @@ def run_realtimelog(queues, traces, args):
         if args.use_realtime_logging:
             # always do real-time logging
             job.realtimelogging = True
+            job.debug = True
+
+        logger.debug(f'debug={job.debug}')
+        logger.debug(f'debug_command={job.debug_command}')
+        logger.debug(f'args.use_realtime_logging={args.use_realtime_logging}')
+        if job.debug and not job.debug_command and not args.use_realtime_logging:
+            logger.info('turning on real-time logging since debug flag is true and debug_command is not set')
+            job.realtimelogging = True
 
         # testing
         # job.realtimelogging = True

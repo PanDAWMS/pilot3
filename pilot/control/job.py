@@ -589,7 +589,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
         data['metaData'] = metadata
 
     # in debug mode, also send a tail of the latest log file touched by the payload
-    if job.debug:
+    if job.debug and job.debug_command:
         data['stdout'] = process_debug_mode(job)
 
     # add the core count
@@ -648,14 +648,17 @@ def process_debug_mode(job):
         user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
         user.preprocess_debug_command(job)
 
-    stdout = get_debug_stdout(job)
-    if stdout:
-        # in case gdb was successfully used, the payload can now be killed
-        if job.debug_command.startswith('gdb ') and job.pid:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL,
-                                                                             msg='payload was killed after gdb produced requested core file')
-            logger.debug('will proceed to kill payload processes')
-            kill_processes(job.pid)
+    if job.debug_command:
+        stdout = get_debug_stdout(job)
+        if stdout:
+            # in case gdb was successfully used, the payload can now be killed
+            if job.debug_command.startswith('gdb ') and job.pid:
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL,
+                                                                                 msg='payload was killed after gdb produced requested core file')
+                logger.debug('will proceed to kill payload processes')
+                kill_processes(job.pid)
+    else:
+        stdout = ''
 
     return stdout
 
@@ -1806,6 +1809,7 @@ def retrieve(queues, traces, args):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
+        #res['debug'] = True
         dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
@@ -2632,7 +2636,7 @@ def send_heartbeat_if_time(job, args, update_time):
     :return: possibly updated update_time (from time.time()).
     """
 
-    if int(time.time()) - update_time >= get_heartbeat_period(job.debug):
+    if int(time.time()) - update_time >= get_heartbeat_period(job.debug and job.debug_command):
         if job.serverstate != 'finished' and job.serverstate != 'failed':
             send_state(job, args, 'running')
             update_time = int(time.time())
