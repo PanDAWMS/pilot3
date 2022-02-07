@@ -24,6 +24,7 @@ from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
 from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes
+from pilot.util.timing import get_time_since_start
 from pilot.util.workernode import get_local_disk_space, check_hz
 
 import logging
@@ -93,7 +94,7 @@ def job_monitor_tasks(job, mt, args):
             return exit_code, diagnostics
 
     # is it time to check for looping jobs?
-    exit_code, diagnostics = verify_looping_job(current_time, mt, job)
+    exit_code, diagnostics = verify_looping_job(current_time, mt, job, args)
     if exit_code != 0:
         return exit_code, diagnostics
 
@@ -272,13 +273,14 @@ def verify_user_proxy(current_time, mt):
     return 0, ""
 
 
-def verify_looping_job(current_time, mt, job):
+def verify_looping_job(current_time, mt, job, args):
     """
     Verify that the job is not looping.
 
     :param current_time: current time at the start of the monitoring loop (int).
     :param mt: measured time object.
     :param job: job object.
+    :param args: pilot args object.
     :return: exit code (int), error diagnostics (string).
     """
 
@@ -290,7 +292,13 @@ def verify_looping_job(current_time, mt, job):
         logger.debug('looping check not desired')
         return 0, ""
 
+    time_since_start = int(get_time_since_start(args))
     looping_verification_time = convert_to_int(config.Pilot.looping_verification_time, default=600)
+    if time_since_start < looping_verification_time:
+        logger.debug(f'no point in running looping job algorithm since time_since_start={time_since_start} s < '
+                     f'looping_verification_time={looping_verification_time} s')
+        return 0, ""
+
     if current_time - mt.get('ct_looping') > looping_verification_time:
         # is the job looping?
         try:
