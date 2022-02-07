@@ -282,8 +282,11 @@ def verify_looping_job(current_time, mt, job):
     :return: exit code (int), error diagnostics (string).
     """
 
-    # only perform looping job check if desired
-    if not job.looping_check:
+    # only perform looping job check if desired and enough time has passed since start
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    loopingjob_definitions = __import__('pilot.user.%s.loopingjob_definitions' % pilot_user, globals(), locals(), [pilot_user], 0)
+    runcheck = loopingjob_definitions.allow_loopingjob_detection()
+    if not job.looping_check and runcheck:
         logger.debug('looping check not desired')
         return 0, ""
 
