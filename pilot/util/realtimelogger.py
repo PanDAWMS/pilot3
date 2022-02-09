@@ -132,7 +132,7 @@ class RealTimeLogger(Logger):
             del self
 
     def set_jobinfo(self, job):
-        self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
+        self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}  #, "PilotTimeStamp": time.time()}
         if 'HARVESTER_WORKER_ID' in os.environ:
             self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
         if 'HARVESTER_ID' in os.environ:
