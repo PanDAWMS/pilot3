@@ -366,7 +366,7 @@ def stage_out_auto(files):
 
         tmp_executable = objectcopy.deepcopy(executable)
 
-        tmp_executable += ['--rse', _file['rse']]
+        tmp_executable += ['--rses', _file['rse']]
 
         if 'no_register' in list(_file.keys()) and _file['no_register']:  # Python 2/3
             tmp_executable += ['--no-register']
