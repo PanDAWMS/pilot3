@@ -41,6 +41,8 @@ class GenericExecutor(BaseExecutor):
         self.setName("GenericExecutor")
 
         self.__queued_out_messages = []
+        self.__stageout_failures = 0
+        self.__max_allowed_stageout_failures = 20
         self.__last_stageout_time = None
         self.__all_out_messages = []
 
@@ -158,6 +160,7 @@ class GenericExecutor(BaseExecutor):
         except Exception as exc:
             logger.error(f"failed to tar/zip event ranges: {exc}")
             self.__queued_out_messages += out_messages
+            self.__stageout_failures += 1
             return None, None
 
         return ret_messages, output_file
@@ -170,7 +173,7 @@ class GenericExecutor(BaseExecutor):
         """
 
         job = self.get_job()
-        logger.info('prepare to stage-out eventservice files')
+        logger.info('prepare to stage-out event service files')
 
         error = None
         file_data = {'scope': 'transient',
@@ -193,15 +196,15 @@ class GenericExecutor(BaseExecutor):
             logger.error(error.get_detail())
         except Exception as exc:
             logger.error(traceback.format_exc())
-            error = StageOutFailure(f"stageOut failed with error={exc}")
+            error = StageOutFailure(f"stage-out failed with error={exc}")
 
         logger.info('summary of transferred files:')
         logger.info(f" -- lfn={file_spec.lfn}, status_code={file_spec.status_code}, status={file_spec.status}")
 
         if error:
-            logger.error(f'failed to stage-out eventservice file({output_file}): error={error.get_detail()}' % (, ))
+            logger.error(f'failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
         elif file_spec.status != 'transferred':
-            msg = f'failed to stage-out ES file({output_file}): logic corrupted: unknown internal error, fspec={file_spec}'
+            msg = f'failed to stage-out ES file({output_file}): unknown internal error, fspec={file_spec}'
             logger.error(msg)
             raise StageOutFailure(msg)
 
@@ -214,20 +217,20 @@ class GenericExecutor(BaseExecutor):
             try:
                 client.prepare_destinations(xdata2, failover_storage_activity)
                 if xdata2[0].ddmendpoint != xdata[0].ddmendpoint:  ## skip transfer to same output storage
-                    msg = f'will try to fail over ES transfer to astorage with activity={failover_storage_activity}, rse={xdata2[0].ddmendpoint}'
+                    msg = f'will try to failover ES transfer to astorage with activity={failover_storage_activity}, rse={xdata2[0].ddmendpoint}'
                     logger.info(msg)
                     client.transfer(xdata2, activity=activity, **kwargs)
 
-                    logger.info('summary of transferred files (fail over transfer):')
+                    logger.info('summary of transferred files (failover transfer):')
                     logger.info(f" -- lfn={xdata2[0].lfn}, status_code={xdata2[0].status_code}, status={xdata2[0].status}")
 
             except PilotException as exc:
                 if exc.get_error_code() == ErrorCodes.NOSTORAGE:
-                    logger.info(f'fail over ES storage is not defined for activity={failover_storage_activity} .. skipped')
+                    logger.info(f'failover ES storage is not defined for activity={failover_storage_activity} .. skipped')
                 else:
-                    logger.error(f'transfer to fail over storage={xdata2[0].ddmendpoint} failed .. skipped, error={exc.get_detail()}')
+                    logger.error(f'transfer to failover storage={xdata2[0].ddmendpoint} failed .. skipped, error={exc.get_detail()}')
             except Exception:
-                logger.error('fail over ES stage-out failed .. skipped')
+                logger.error('failover ES stage-out failed .. skipped')
                 logger.error(traceback.format_exc())
 
             if xdata2[0].status == 'transferred':
@@ -244,7 +247,7 @@ class GenericExecutor(BaseExecutor):
     def stageout_es(self, force=False):
         """
         Stage out event service outputs.
-
+        When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
         """
 
         job = self.get_job()
@@ -270,6 +273,7 @@ class GenericExecutor(BaseExecutor):
                         else:
                             logger.info("failed to stage out, adding messages back to the queued messages")
                             self.__queued_out_messages += out_messagess
+                            self.__stageout_failures += 1
 
     def clean(self):
         """
@@ -286,6 +290,7 @@ class GenericExecutor(BaseExecutor):
                 except Exception as exc:
                     logger.error(f"failed to remove file({msg['output']}): {exc}")
         self.__queued_out_messages = []
+        self.__stageout_failures = 0
         self.__last_stageout_time = None
         self.__all_out_messages = []
 
@@ -333,6 +338,13 @@ class GenericExecutor(BaseExecutor):
                     proc.stop()
                     break
                 self.stageout_es()
+
+                # have we passed the threshold for failed stage-outs?
+                if self.__stageout_failures >= self.__max_allowed_stageout_failures:
+                    logger.warning(f'too many stage-out failures ({self.__max_allowed_stageout_failures})')
+                    logger.info(f'stopping process pid={proc.pid}')
+                    proc.stop()
+                    break
 
                 exit_code = proc.poll()
                 if iteration % 60 == 0:
