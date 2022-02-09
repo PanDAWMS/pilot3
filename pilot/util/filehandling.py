@@ -5,9 +5,8 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-import collections
 import hashlib
 import io
 import os
@@ -17,6 +16,7 @@ import time
 import uuid
 import sys
 import logging
+from collections.abc import Iterable, Mapping
 from glob import glob
 from json import load, JSONDecodeError
 from json import dump as dumpjson
@@ -280,9 +280,9 @@ def convert(data):
 
     if isinstance(data, str):
         ret = str(data)
-    elif isinstance(data, collections.Mapping):
+    elif isinstance(data, Mapping):
         ret = dict(list(map(convert, iter(list(data.items())))))
-    elif isinstance(data, collections.Iterable):
+    elif isinstance(data, Iterable):
         ret = type(data)(list(map(convert, data)))
     else:
         ret = data

@@ -6,12 +6,12 @@
 # Authors:
 # - Giampaolo Rodola, g.rodola@gmail.com, 2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, Paul.Nilsson@cern.ch, 2021
+# - Paul Nilsson, Paul.Nilsson@cern.ch, 2021-2022
 
 import os
-import collections
+from collections import namedtuple
 
-ntuple_diskusage = collections.namedtuple('usage', 'total used free')
+ntuple_diskusage = namedtuple('usage', 'total used free')
 
 if hasattr(os, 'statvfs'):  # POSIX
     def disk_usage(path):

@@ -7,9 +7,8 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-import collections
 import subprocess
 import json
 import os
@@ -22,6 +21,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import pipes
+from collections import namedtuple
 from time import sleep, time
 
 from .filehandling import write_file
@@ -31,7 +31,7 @@ from .constants import get_pilot_version
 import logging
 logger = logging.getLogger(__name__)
 
-_ctx = collections.namedtuple('_ctx', 'ssl_context user_agent capath cacert')
+_ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
 
 # anisyonk: public copy of `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
 # anisyonk: public instance, should be properly initialized by `https_setup()`

@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 # - Danila Oleynik danila.oleynik@cern.ch, 2018
 
 import functools

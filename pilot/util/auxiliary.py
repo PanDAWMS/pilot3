@@ -12,7 +12,8 @@ import re
 import sys
 import logging
 
-from collections import Set, Mapping, deque, OrderedDict
+from collections.abc import Set, Mapping
+from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
 
