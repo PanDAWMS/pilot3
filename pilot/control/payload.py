@@ -344,7 +344,7 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
 
     info_dic = {}
 
-    if 'logging=' not in catchall or not realtimelogging:
+    if 'logging=' not in catchall and not realtimelogging:
         #logger.debug(f'catchall={catchall}')
         #logger.debug(f'realtimelogging={realtimelogging}')
         return {}
@@ -372,18 +372,18 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
         else:
             # experiment specific, move to relevant code
 
-            # Rubin
-            logfiles = os.environ.get('REALTIME_LOGFILES', None)
-            if logfiles is not None:
-                info_dic['logfiles'] = split('[:,]', logfiles)
-            else:
-                # ATLAS (testing; get info from debug parameter later)
-                info_dic['logfiles'] = [config.Payload.payloadstdout]
+            # ATLAS (testing; get info from debug parameter later)
+            info_dic['logfiles'] = [config.Payload.payloadstdout]
     else:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
         pattern = r'(\S+)\:\/\/(\S+)'
-        _address = findall(pattern, items[1])
+        if len(items) > 2:
+            _address = findall(pattern, items[1])
+            info_dic['port'] = items[2]
+        else:
+            _address = None
+            info_dic['port'] = 24224
         if _address:
             info_dic['protocol'] = _address[0][0]
             info_dic['url'] = _address[0][1]
@@ -391,7 +391,12 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
             logger.warning(f'protocol/url could not be extracted from {items}')
             info_dic['protocol'] = ''
             info_dic['url'] = ''
-        info_dic['port'] = items[2]
+
+    if 'logfiles' not in info_dic:
+        # Rubin
+        logfiles = os.environ.get('REALTIME_LOGFILES', None)
+        if logfiles is not None:
+            info_dic['logfiles'] = split('[:,]', logfiles)
 
     return info_dic
 

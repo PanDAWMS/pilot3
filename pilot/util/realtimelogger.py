@@ -82,9 +82,10 @@ class RealTimeLogger(Logger):
             server = server.replace('http://', '')
         logger.info(f'name={name}, protocol={protocol}, server={server}, port={port}, logtype={logtype}')
         if not name or not protocol or not server or not port or not logtype:
-            logger.warning('not enough information for setting up logging')
-            RealTimeLogger.glogger = None
-            return
+            if logtype != "google-cloud-logging":
+                logger.warning('not enough information for setting up logging')
+                RealTimeLogger.glogger = None
+                return
 
         _handler = None
 
