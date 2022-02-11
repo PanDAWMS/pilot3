@@ -38,7 +38,8 @@ def remove_unwanted_files(workdir, files):
         if not (workdir == _file or
                 _file == join(workdir, 'workDir') or
                 "prmon" in _file or
-                "/pilot" in _file or
+                "/pilot/" in _file or
+                _file.endswith('/pilot') or
                 "/pandawnutil" in _file or
                 "pilotlog" in _file or
                 ".lib.tgz" in _file or

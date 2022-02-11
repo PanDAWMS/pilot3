@@ -175,7 +175,7 @@ class GenericExecutor(BaseExecutor):
         job = self.get_job()
         logger.info('prepare to stage-out event service files')
 
-        error = None
+        _error = None
         file_data = {'scope': 'transient',
                      'lfn': os.path.basename(output_file),
                      }
@@ -194,15 +194,23 @@ class GenericExecutor(BaseExecutor):
             client.transfer(xdata, activity=activity, **kwargs)
         except PilotException as error:
             logger.error(error.get_detail())
+            _error = error
         except Exception as exc:
             logger.error(traceback.format_exc())
-            error = StageOutFailure(f"stage-out failed with error={exc}")
+            _error = StageOutFailure(f"stage-out failed with error={exc}")
+
+        try:
+            if _error:
+                pass
+        except Exception as exc:
+            logger.error(f'found no error object - stage-out must have failed: {exc}')
+            _error = StageOutFailure(f"stage-out failed")
 
         logger.info('summary of transferred files:')
         logger.info(f" -- lfn={file_spec.lfn}, status_code={file_spec.status_code}, status={file_spec.status}")
 
-        if error:
-            logger.error(f'failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
+        if _error:
+            logger.error(f'failed to stage-out eventservice file({output_file}): error={_error.get_detail()}')
         elif file_spec.status != 'transferred':
             msg = f'failed to stage-out ES file({output_file}): unknown internal error, fspec={file_spec}'
             logger.error(msg)
@@ -210,7 +218,7 @@ class GenericExecutor(BaseExecutor):
 
         failover_storage_activity = ['es_failover', 'pw']
 
-        if try_failover and error and error.get_error_code() not in [ErrorCodes.MISSINGOUTPUTFILE]:  ## try to failover to other storage
+        if try_failover and _error and _error.get_error_code() not in [ErrorCodes.MISSINGOUTPUTFILE]:  ## try to failover to other storage
 
             xdata2 = [FileSpec(filetype='output', **file_data)]
 
@@ -234,11 +242,11 @@ class GenericExecutor(BaseExecutor):
                 logger.error(traceback.format_exc())
 
             if xdata2[0].status == 'transferred':
-                error = None
+                _error = None
                 file_spec = xdata2[0]
 
-        if error:
-            raise error
+        if _error:
+            raise _error
 
         storage_id = infosys.get_storage_id(file_spec.ddmendpoint)
 

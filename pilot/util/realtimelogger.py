@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Shuwei Ye, yesw@bnl.gov, 2021
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2022
 
 import os
 import time
@@ -133,7 +133,7 @@ class RealTimeLogger(Logger):
             del self
 
     def set_jobinfo(self, job):
-        self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}  #, "PilotTimeStamp": time.time()}
+        self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
         if 'HARVESTER_WORKER_ID' in os.environ:
             self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
         if 'HARVESTER_ID' in os.environ:
@@ -144,6 +144,7 @@ class RealTimeLogger(Logger):
     # then decide how to insert the PandaJobInf
     def send_with_jobinfo(self, msg):
         logobj = self.jobinfo.copy()
+        logobj['PilotTimeStamp'] = time.time()
         try:
             msg = json.loads(msg)
             logobj.update(msg)
