@@ -104,14 +104,20 @@ class RealTimeLogger(Logger):
                 from logstash_async.transport import HttpTransport
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
+                certdir = os.environ.get('SSL_CERT_DIR', '')
+                path = os.path.join(certdir, "CERN-GridCA.pem")
+                if os.path.exists(path):
+                    logger.debug(f'path={path} exists')
+                else:
+                    logger.debug(f'path={path} does not exist')
                 transport = HttpTransport(
                     server,
                     port,
                     timeout=5.0,
                     ssl_enable=True,
-                    ssl_verify=False,
-                    username='pilot',
-                    password='XXX'
+                    ssl_verify=path
+#                    username='pilot',
+#                    password='XXX'
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(

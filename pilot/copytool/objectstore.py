@@ -182,7 +182,7 @@ def copy_out(files, **kwargs):
                     cmd = [ddm_special_setup]
 
         cmd += ['/usr/bin/env', 'rucio', '-v', 'upload']
-        cmd += ['--rses', fspec.ddmendpoint]
+        cmd += ['--rse', fspec.ddmendpoint]
 
         if fspec.scope:
             cmd.extend(['--scope', fspec.scope])
