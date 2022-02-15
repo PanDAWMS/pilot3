@@ -12,6 +12,7 @@ import os
 import time
 import json
 from pilot.util.config import config
+from pilot.util.https import cacert
 from logging import Logger, INFO
 import logging
 
@@ -72,6 +73,7 @@ class RealTimeLogger(Logger):
             RealTimeLogger.glogger = None
             return
 
+        _cacert = cacert(args)
         name = info_dic.get('logname')
         protocol = info_dic.get('protocol')  # needed for at least logstash
         server = protocol + '://' + info_dic.get('url')
@@ -104,18 +106,15 @@ class RealTimeLogger(Logger):
                 from logstash_async.transport import HttpTransport
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
-                certdir = os.environ.get('SSL_CERT_DIR', '')
-                path = os.path.join(certdir, "CERN-GridCA.pem")
-                if os.path.exists(path):
-                    logger.debug(f'path={path} exists')
-                else:
-                    logger.debug(f'path={path} does not exist')
+                #certdir = os.environ.get('SSL_CERT_DIR', '')
+                #path = os.path.join(certdir, "CERN-GridCA.pem")
+                logger.debug(f'using cacert={self._cacert}')
                 transport = HttpTransport(
                     server,
                     port,
                     timeout=5.0,
                     ssl_enable=True,
-                    ssl_verify=path
+                    ssl_verify=self._cacert
 #                    username='pilot',
 #                    password='XXX'
                 )

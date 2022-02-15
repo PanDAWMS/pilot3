@@ -22,7 +22,7 @@ from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
-from pilot.util.filehandling import read_file, remove_core_dumps, get_guid
+from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
@@ -498,12 +498,28 @@ def perform_initial_payload_error_analysis(job, exit_code):
         logger.warning('main payload execution returned non-zero exit code: %d', exit_code)
 
     # look for singularity errors (the exit code can be zero in this case)
-    stderr = read_file(os.path.join(job.workdir, config.Payload.payloadstderr))
-    exit_code = errors.resolve_transform_error(exit_code, stderr)
+    path = os.path.join(job.workdir, config.Payload.payloadstderr)
+    if os.path.exists(path):
+        stderr = read_file(path)
+        exit_code = errors.resolve_transform_error(exit_code, stderr)
+    else:
+        stderr = ''
+        logger.info(f'file does not exist: {path}')
 
     if exit_code != 0:
         msg = ""
-        if stderr != "":
+
+        # are there any critical errors in the stdout?
+        path = os.path.join(job.workdir, config.Payload.payloadstdout)
+        if os.path.exists(path):
+            lines = extract_lines_from_file('CRITICAL', path)
+            if lines:
+                logger.warning(f'found CRITICAL errors in {config.Payload.payloadstdout}:\n{lines}')
+                msg = lines.split('\n')[0]
+        else:
+            logger.warning('found no payload stdout')
+
+        if stderr != "" and not msg:
             msg = errors.extract_stderr_error(stderr)
             if msg == "":
                 # look for warning messages instead (might not be fatal so do not set UNRECOGNIZEDTRFSTDERR)
@@ -515,6 +531,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
             #    logger.warning("extracted message from stderr:\n%s", msg)
             #    exit_code = set_error_code_from_stderr(msg, fatal)
 
+        # note: msg should be constructed either from stderr or stdout
         if msg:
             msg = errors.format_diagnostics(exit_code, msg)
 

@@ -1147,3 +1147,25 @@ def get_disk_usage(start_path='.'):
                     continue
 
     return total_size
+
+
+def extract_lines_from_file(pattern, filename):
+    """
+    Extract all lines containing 'pattern' from given file.
+
+    :param pattern: text (string).
+    :param filename: file name (string).
+    :return: text (string).
+    """
+
+    _lines = ''
+    try:
+        with open(filename, 'r') as _file:
+            lines = _file.readlines()
+            for line in lines:
+                if pattern in line:
+                    _lines += line
+    except EnvironmentError as exc:
+        logger.warning(f'exception caught opening file: {exc}')
+
+    return _lines
