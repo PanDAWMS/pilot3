@@ -47,6 +47,7 @@ class RealTimeLogger(Logger):
     logfiles = []
     logfiles_default = []
     openfiles = {}
+    _cacert = ""
 
     def __init__(self, args, info_dic, level=INFO):
         """
@@ -73,7 +74,7 @@ class RealTimeLogger(Logger):
             RealTimeLogger.glogger = None
             return
 
-        _cacert = cacert(args)
+        self._cacert = cacert(args)
         name = info_dic.get('logname')
         protocol = info_dic.get('protocol')  # needed for at least logstash
         server = protocol + '://' + info_dic.get('url')
