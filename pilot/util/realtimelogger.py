@@ -6,12 +6,13 @@
 #
 # Authors:
 # - Shuwei Ye, yesw@bnl.gov, 2021
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2022
 
 import os
 import time
 import json
 from pilot.util.config import config
+from pilot.util.https import cacert
 from logging import Logger, INFO
 import logging
 
@@ -46,6 +47,7 @@ class RealTimeLogger(Logger):
     logfiles = []
     logfiles_default = []
     openfiles = {}
+    _cacert = ""
 
     def __init__(self, args, info_dic, level=INFO):
         """
@@ -72,6 +74,7 @@ class RealTimeLogger(Logger):
             RealTimeLogger.glogger = None
             return
 
+        self._cacert = cacert(args)
         name = info_dic.get('logname')
         protocol = info_dic.get('protocol')  # needed for at least logstash
         server = protocol + '://' + info_dic.get('url')
@@ -82,9 +85,10 @@ class RealTimeLogger(Logger):
             server = server.replace('http://', '')
         logger.info(f'name={name}, protocol={protocol}, server={server}, port={port}, logtype={logtype}')
         if not name or not protocol or not server or not port or not logtype:
-            logger.warning('not enough information for setting up logging')
-            RealTimeLogger.glogger = None
-            return
+            if logtype != "google-cloud-logging":
+                logger.warning('not enough information for setting up logging')
+                RealTimeLogger.glogger = None
+                return
 
         _handler = None
 
@@ -103,14 +107,15 @@ class RealTimeLogger(Logger):
                 from logstash_async.transport import HttpTransport
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
+                #certdir = os.environ.get('SSL_CERT_DIR', '')
+                #path = os.path.join(certdir, "CERN-GridCA.pem")
+                logger.debug(f'using cacert={self._cacert}')
                 transport = HttpTransport(
                     server,
                     port,
                     timeout=5.0,
                     ssl_enable=True,
-                    ssl_verify=False,
-                    username='pilot',
-                    password='XXX'
+                    ssl_verify=self._cacert
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(
@@ -143,6 +148,7 @@ class RealTimeLogger(Logger):
     # then decide how to insert the PandaJobInf
     def send_with_jobinfo(self, msg):
         logobj = self.jobinfo.copy()
+        logobj['PilotTimeStamp'] = time.time()
         try:
             msg = json.loads(msg)
             logobj.update(msg)

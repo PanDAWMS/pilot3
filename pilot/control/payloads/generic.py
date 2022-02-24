@@ -86,7 +86,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should we run any additional commands? (e.g. special monitoring commands)
         cmd_dictionary = user.get_utility_commands(order=UTILITY_BEFORE_PAYLOAD, job=job)
@@ -108,7 +108,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be prepended to the payload execution string?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_WITH_PAYLOAD, job=job)
@@ -132,7 +132,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=order, job=self.__job)
@@ -150,7 +150,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_AFTER_PAYLOAD_STARTED, job=job)
@@ -185,7 +185,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_AFTER_PAYLOAD_STARTED, job=job)
@@ -227,7 +227,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be prepended to the payload execution string?
         cmd_dictionary = user.get_utility_commands(order=order, job=job)
@@ -455,15 +455,12 @@ class Executor(object):
 
         breaker = False
         exit_code = None
-        try:
-            iteration = long(0)  # Python 2, do not use 0L since it will create a syntax error in spite of the try # noqa: F821
-        except Exception:
-            iteration = 0  # Python 3, long doesn't exist
+        iteration = 0
         while True:
             time.sleep(0.1)
 
             iteration += 1
-            for _ in range(60):  # Python 2/3
+            for _ in range(60):
                 if args.graceful_stop.is_set():
                     breaker = True
                     logger.info('breaking -- sending SIGTERM pid=%s', proc.pid)
@@ -502,8 +499,7 @@ class Executor(object):
         # for testing looping job: cmd = user.get_payload_command(job) + ';sleep 240'
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user],
-                              0)  # Python 2/3
+            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
             cmd = user.get_payload_command(job)  #+ 'sleep 1000'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
@@ -727,10 +723,10 @@ class Executor(object):
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
 
-        for utcmd in list(self.__job.utilities.keys()):  # Python 2/3
+        for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
                 sig = user.get_utility_command_kill_signal(utcmd)
                 logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
                 try:

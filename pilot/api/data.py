@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
@@ -17,11 +17,7 @@ import hashlib
 import logging
 import time
 
-try:
-    from functools import reduce  # Python 3
-#except ModuleNotFoundError:  # Python 3
-except Exception:
-    pass
+from functools import reduce
 
 from pilot.info import infosys
 from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound, FileHandlingFailure
@@ -76,12 +72,8 @@ class StagingClient(object):
         self.logger = logger
         self.infosys = infosys_instance or infosys
 
-        try:
-            if isinstance(acopytools, basestring):  # Python 2  # noqa: F821
-                acopytools = {'default': [acopytools]} if acopytools else {}
-        except Exception:
-            if isinstance(acopytools, str):  # Python 3
-                acopytools = {'default': [acopytools]} if acopytools else {}
+        if isinstance(acopytools, str):
+            acopytools = {'default': [acopytools]} if acopytools else {}
 
         if isinstance(acopytools, (list, tuple)):
             acopytools = {'default': acopytools} if acopytools else {}
@@ -114,8 +106,7 @@ class StagingClient(object):
         if not self.acopytools:  # resolve from queuedata.acopytools using infosys
             self.acopytools = (self.infosys.queuedata.acopytools or {}).copy()
         if not self.acopytools:  # resolve from queuedata.copytools using infosys
-            self.acopytools = dict(default=list((self.infosys.queuedata.copytools or {}).keys()))  # Python 2/3
-            #self.acopytools = dict(default=(self.infosys.queuedata.copytools or {}).keys())  # Python 2
+            self.acopytools = dict(default=list((self.infosys.queuedata.copytools or {}).keys()))
 
     @staticmethod
     def get_default_copytools(default_copytools):
@@ -125,12 +116,8 @@ class StagingClient(object):
         :param default_copytools:
         :return: default copytools (string).
         """
-        try:
-            if isinstance(default_copytools, basestring):  # Python 2 # noqa: F821
-                default_copytools = [default_copytools] if default_copytools else []
-        except Exception:
-            if isinstance(default_copytools, str):  # Python 3
-                default_copytools = [default_copytools] if default_copytools else []
+        if isinstance(default_copytools, str):
+            default_copytools = [default_copytools] if default_copytools else []
         return default_copytools
 
     @classmethod
@@ -166,12 +153,8 @@ class StagingClient(object):
         """
 
         activities = activities or 'read_lan'
-        try:
-            if isinstance(activities, basestring):  # Python 2  # noqa: F821
-                activities = [activities]
-        except Exception:
-            if isinstance(activities, str):  # Python 3
-                activities = [activities]
+        if isinstance(activities, str):
+            activities = [activities]
 
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
 
@@ -336,11 +319,7 @@ class StagingClient(object):
         fdat.replicas = []  # reset replicas list
 
         # sort replicas by priority value
-        try:
-            sorted_replicas = sorted(replica.get('pfns', {}).iteritems(), key=lambda x: x[1]['priority'])  # Python 2
-        except Exception:
-            sorted_replicas = sorted(iter(list(replica.get('pfns', {}).items())),
-                                     key=lambda x: x[1]['priority'])  # Python 3
+        sorted_replicas = sorted(iter(list(replica.get('pfns', {}).items())), key=lambda x: x[1]['priority'])
 
         # prefer replicas from inputddms first
         xreplicas = self.sort_replicas(sorted_replicas, fdat.inputddms)
@@ -431,12 +410,8 @@ class StagingClient(object):
 
         self.trace_report.update(relativeStart=time.time(), transferStart=time.time())
 
-        try:
-            if isinstance(activity, basestring):  # Python 2 # noqa: F821
-                activity = [activity]
-        except Exception:
-            if isinstance(activity, str):  # Python 3
-                activity = [activity]
+        if isinstance(activity, str):
+            activity = [activity]
         if 'default' not in activity:
             activity.append('default')
 
@@ -461,19 +436,11 @@ class StagingClient(object):
                 if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena':
                     fspec.status = 'no_transfer'
 
-                try:
-                    fspec.ddm_activity = filter(None, ['read_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'read_wan'])  # Python 2
-                except Exception:
-                    fspec.ddm_activity = [_f for _f in
-                                          ['read_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'read_wan'] if
-                                          _f]  # Python 3
+                fspec.ddm_activity = [_f for _f in
+                                      ['read_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'read_wan'] if _f]
             else:
-                try:
-                    fspec.ddm_activity = filter(None, ['write_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'write_wan'])  # Python 2
-                except Exception:
-                    fspec.ddm_activity = [_f for _f in
-                                          ['write_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'write_wan']
-                                          if _f]  # Python 3
+                fspec.ddm_activity = [_f for _f in
+                                      ['write_lan' if fspec.ddmendpoint in fspec.inputddms else None, 'write_wan'] if _f]
         caught_errors = []
 
         for name in copytools:
@@ -491,7 +458,7 @@ class StagingClient(object):
 
                 module = self.copytool_modules[name]['module_name']
                 self.logger.info('trying to use copytool=%s for activity=%s', name, activity)
-                copytool = __import__('pilot.copytool.%s' % module, globals(), locals(), [module], 0)  # Python 2/3
+                copytool = __import__('pilot.copytool.%s' % module, globals(), locals(), [module], 0)
                 #self.trace_report.update(protocol=name)
 
             except PilotException as exc:
@@ -928,14 +895,23 @@ class StageInClient(StagingClient):
         self.logger.info("total input file size=%s B within allowed limit=%s B (zero value means unlimited)", totalsize, maxinputsize)
 
         # get available space
-        available_space = convert_mb_to_b(get_local_disk_space(os.getcwd()))
-        self.logger.info("locally available space: %d B", available_space)
+        try:
+            disk_space = get_local_disk_space(os.getcwd())
+        except PilotException as exc:
+            diagnostics = exc.get_detail()
+            self.logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        else:
+            if disk_space:
+                available_space = convert_mb_to_b(disk_space)
+                self.logger.info("locally available space: %d B", available_space)
 
-        # are we within the limit?
-        if totalsize > available_space:
-            error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
-                    (totalsize, available_space)
-            raise NoLocalSpace(error)
+                # are we within the limit?
+                if totalsize > available_space:
+                    error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
+                            (totalsize, available_space)
+                    raise NoLocalSpace(error)
+            else:
+                self.logger.warning('get_local_disk_space() returned None')
 
 
 class StageOutClient(StagingClient):
@@ -954,12 +930,8 @@ class StageOutClient(StagingClient):
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
 
-        try:
-            if isinstance(activities, (str, unicode)):  # Python 2 # noqa: F821
-                activities = [activities]
-        except Exception:
-            if isinstance(activities, str):  # Python 3
-                activities = [activities]
+        if isinstance(activities, str):
+            activities = [activities]
 
         if not activities:
             raise PilotException("Failed to resolve destination: passed empty activity list. Internal error.",
@@ -1009,15 +981,12 @@ class StageOutClient(StagingClient):
         # <prefix=rucio>/<scope>/md5(<scope>:<lfn>)[0:2]/md5(<scope:lfn>)[2:4]/<lfn>
 
         s = '%s:%s' % (scope, lfn)
-        hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()  # Python 2/3
+        hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
 
         #paths = [prefix] + scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
         # exclude prefix from the path: this should be properly considered in protocol/AGIS for today
         paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
-        try:
-            paths = filter(None, paths)  # remove empty parts to avoid double /-chars, Python 2
-        except Exception:
-            paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars, Python 3
+        paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
 
         return '/'.join(paths)
 

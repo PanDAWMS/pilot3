@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
@@ -15,11 +15,7 @@ import copy as objectcopy
 import os
 import subprocess
 import time
-
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
+import queue
 
 from pilot.api.data import StageInClient, StageOutClient
 from pilot.api.es_data import StageInESClient
@@ -370,7 +366,7 @@ def stage_out_auto(files):
 
         tmp_executable = objectcopy.deepcopy(executable)
 
-        tmp_executable += ['--rse', _file['rse']]
+        tmp_executable += ['--rses', _file['rse']]
 
         if 'no_register' in list(_file.keys()) and _file['no_register']:  # Python 2/3
             tmp_executable += ['--no-register']

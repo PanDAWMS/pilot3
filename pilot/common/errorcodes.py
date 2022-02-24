@@ -393,6 +393,8 @@ class ErrorCodes:
 
         if exit_code == 251 and "Not mounting requested bind point" in stderr:
             exit_code = self.SINGULARITYBINDPOINTFAILURE
+        elif exit_code == 251:
+            exit_code = self.UNKNOWNTRFFAILURE
         elif exit_code == 255 and "No more available loop devices" in stderr:
             exit_code = self.SINGULARITYNOLOOPDEVICES
         elif exit_code == 255 and "Failed to mount image" in stderr:

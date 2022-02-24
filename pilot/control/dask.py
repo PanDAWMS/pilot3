@@ -5,13 +5,12 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2022
 
 #try:
 #    # import dask
 #    import dask_kubernetes
-##except ModuleNotFoundError:  # Python 3
-#except Exception:
+#except ModuleNotFoundError:
 #    pass
 
 # from pilot.util.container import execute

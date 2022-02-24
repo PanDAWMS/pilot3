@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
 
 from os import environ, path, getcwd  #, chmod
 
@@ -40,8 +40,8 @@ def containerise_general_command(job, container_options, label='command', contai
         user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
         try:
             cmd = user.create_middleware_container_command(job.workdir, job.debug_command, container_options, label=label, proxy=False)
-        except PilotException as e:
-            raise e
+        except PilotException as exc:
+            raise exc
     else:
         logger.warning('not yet implemented')
         raise PilotException
@@ -92,8 +92,8 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
 
     try:
         cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label, container_type=container_type)
-    except PilotException as e:
-        raise e
+    except PilotException as exc:
+        raise exc
 
     if container_type == 'container':
         # add bits and pieces needed to run the cmd in a container
@@ -101,8 +101,8 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
         user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
         try:
             cmd = user.create_middleware_container_command(job.workdir, cmd, container_options, label=label)
-        except PilotException as e:
-            raise e
+        except PilotException as exc:
+            raise exc
     else:
         logger.warning('%s will not be done in a container (but it will be done by a script)', label)
 

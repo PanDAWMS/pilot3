@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 import json
 import os
@@ -105,8 +105,17 @@ def interpret_payload_exit_info(job):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOLOCALSPACE, priority=True)
 
         # double check local space
-        spaceleft = convert_mb_to_b(get_local_disk_space(os.getcwd()))  # B (diskspace is in MB)
-        logger.info('verifying local space: %d B', spaceleft)
+        try:
+            disk_space = get_local_disk_space(os.getcwd())
+        except PilotException as exc:
+            diagnostics = exc.get_detail()
+            logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        else:
+            if disk_space:
+                spaceleft = convert_mb_to_b(disk_space)  # B (diskspace is in MB)
+                logger.info('remaining local space: %d B', spaceleft)
+            else:
+                logger.warning('get_local_disk_space() returned None')
         return
 
     # look for specific errors in the stdout (full)

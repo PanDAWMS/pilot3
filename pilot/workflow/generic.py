@@ -16,16 +16,12 @@ import functools
 import signal
 import threading
 import traceback
+import queue
 
 from time import time, sleep
 from sys import stderr
 from os import getpid
 from shutil import rmtree
-
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
 
 from collections import namedtuple
 
@@ -75,7 +71,7 @@ def interrupt(args, signum, frame):
 
     add_to_pilot_timing('0', PILOT_KILL_SIGNAL, time(), args)
     add_to_pilot_timing('1', PILOT_KILL_SIGNAL, time(), args)
-    logger.warning('caught signal: %s in FRAME=\n%s' % (sig, '\n'.join(traceback.format_stack(frame))))
+    logger.warning('caught signal: %s in FRAME=\n%s', sig, '\n'.join(traceback.format_stack(frame)))
 
     args.signal = sig
     logger.warning('will instruct threads to abort and update the server')
@@ -157,8 +153,8 @@ def run(args):
         user = __import__('pilot.user.%s.common' % args.pilot_user.lower(), globals(), locals(),
                           [args.pilot_user.lower()], 0)  # Python 2/3
         exit_code = user.sanity_check()
-    except Exception as e:
-        logger.info('skipping sanity check since: %s' % e)
+    except Exception as exc:
+        logger.info(f'skipping sanity check since: {exc}')
     else:
         if exit_code != 0:
             logger.info('aborting workflow since sanity check failed')
@@ -188,8 +184,7 @@ def run(args):
             else:
                 exc_type, exc_obj, exc_trace = exc
                 # deal with the exception
-                print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
-                # logger.fatal('caught exception: %s' % exc_obj)
+                print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
 
             thread.join(0.1)
 
@@ -202,6 +197,6 @@ def run(args):
 
         sleep(1)
 
-    logger.info('end of generic workflow (traces error code: %d)' % traces.pilot['error_code'])
+    logger.info(f'end of generic workflow (traces error code: {traces.pilot["error_code"]})')
 
     return traces

@@ -8,24 +8,21 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
 import os
 import time
 import traceback
+import queue
 from re import findall, split
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
 
 from pilot.control.payloads import generic, eventservice, eventservicemerge
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
-from pilot.util.filehandling import read_file, remove_core_dumps, get_guid
+from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
@@ -51,7 +48,7 @@ def control(queues, traces, args):
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
                'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
-                         name=name) for name, target in list(targets.items())]  # Python 3
+                         name=name) for name, target in list(targets.items())]
 
     [thread.start() for thread in threads]
 
@@ -116,11 +113,9 @@ def validate_pre(queues, traces, args):
             continue
 
         if _validate_payload(job):
-            #queues.validated_payloads.put(job)
             put_in_queue(job, queues.realtimelog_payloads)
             put_in_queue(job, queues.validated_payloads)
         else:
-            #queues.failed_payloads.put(job)
             put_in_queue(job, queues.failed_payloads)
 
     # proceed to set the job_aborted flag?
@@ -196,23 +191,17 @@ def execute_payloads(queues, traces, args):  # noqa: C901
         time.sleep(0.5)
         try:
             job = queues.validated_payloads.get(block=True, timeout=1)
-
-            #q_snapshot = list(queues.finished_data_in.queue) if queues.finished_data_in else []
-            #peek = [s_job for s_job in q_snapshot if job.jobid == s_job.jobid]
-            #if job.jobid not in q_snapshot:
-
             q_snapshot = list(queues.finished_data_in.queue)
             peek = [s_job for s_job in q_snapshot if job.jobid == s_job.jobid]
             if len(peek) == 0:
                 put_in_queue(job, queues.validated_payloads)
-                for _ in range(10):  # Python 3
+                for _ in range(10):
                     if args.graceful_stop.is_set():
                         break
                     time.sleep(1)
                 continue
 
             # this job is now to be monitored, so add it to the monitored_payloads queue
-            #queues.monitored_payloads.put(job)
             put_in_queue(job, queues.monitored_payloads)
 
             logger.info('job %s added to monitored payloads queue', job.jobid)
@@ -229,7 +218,8 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # note: when sending a state change to the server, the server might respond with 'tobekilled'
             if job.state == 'failed':
                 logger.warning('job state is \'failed\' - abort execute_payloads()')
-                break
+                set_pilot_state(job=job, state="failed")
+                continue
 
             payload_executor = get_payload_executor(args, job, out, err, traces)
             logger.info("will use payload executor: %s", payload_executor)
@@ -347,7 +337,7 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
 
     info_dic = {}
 
-    if 'logging=' not in catchall or not realtimelogging:
+    if 'logging=' not in catchall and not realtimelogging:
         #logger.debug(f'catchall={catchall}')
         #logger.debug(f'realtimelogging={realtimelogging}')
         return {}
@@ -375,18 +365,18 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
         else:
             # experiment specific, move to relevant code
 
-            # Rubin
-            logfiles = os.environ.get('REALTIME_LOGFILES', None)
-            if logfiles is not None:
-                info_dic['logfiles'] = split('[:,]', logfiles)
-            else:
-                # ATLAS (testing; get info from debug parameter later)
-                info_dic['logfiles'] = [config.Payload.payloadstdout]
+            # ATLAS (testing; get info from debug parameter later)
+            info_dic['logfiles'] = [config.Payload.payloadstdout]
     else:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
         pattern = r'(\S+)\:\/\/(\S+)'
-        _address = findall(pattern, items[1])
+        if len(items) > 2:
+            _address = findall(pattern, items[1])
+            info_dic['port'] = items[2]
+        else:
+            _address = None
+            info_dic['port'] = 24224
         if _address:
             info_dic['protocol'] = _address[0][0]
             info_dic['url'] = _address[0][1]
@@ -394,7 +384,12 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
             logger.warning(f'protocol/url could not be extracted from {items}')
             info_dic['protocol'] = ''
             info_dic['url'] = ''
-        info_dic['port'] = items[2]
+
+    if 'logfiles' not in info_dic:
+        # Rubin
+        logfiles = os.environ.get('REALTIME_LOGFILES', None)
+        if logfiles is not None:
+            info_dic['logfiles'] = split('[:,]', logfiles)
 
     return info_dic
 
@@ -421,6 +416,14 @@ def run_realtimelog(queues, traces, args):
 
         if args.use_realtime_logging:
             # always do real-time logging
+            job.realtimelogging = True
+            job.debug = True
+
+        logger.debug(f'debug={job.debug}')
+        logger.debug(f'debug_command={job.debug_command}')
+        logger.debug(f'args.use_realtime_logging={args.use_realtime_logging}')
+        if job.debug and not job.debug_command and not args.use_realtime_logging:
+            logger.info('turning on real-time logging since debug flag is true and debug_command is not set')
             job.realtimelogging = True
 
         # testing
@@ -488,12 +491,28 @@ def perform_initial_payload_error_analysis(job, exit_code):
         logger.warning('main payload execution returned non-zero exit code: %d', exit_code)
 
     # look for singularity errors (the exit code can be zero in this case)
-    stderr = read_file(os.path.join(job.workdir, config.Payload.payloadstderr))
-    exit_code = errors.resolve_transform_error(exit_code, stderr)
+    path = os.path.join(job.workdir, config.Payload.payloadstderr)
+    if os.path.exists(path):
+        stderr = read_file(path)
+        exit_code = errors.resolve_transform_error(exit_code, stderr)
+    else:
+        stderr = ''
+        logger.info(f'file does not exist: {path}')
 
     if exit_code != 0:
         msg = ""
-        if stderr != "":
+
+        # are there any critical errors in the stdout?
+        path = os.path.join(job.workdir, config.Payload.payloadstdout)
+        if os.path.exists(path):
+            lines = extract_lines_from_file('CRITICAL', path)
+            if lines:
+                logger.warning(f'found CRITICAL errors in {config.Payload.payloadstdout}:\n{lines}')
+                msg = lines.split('\n')[0]
+        else:
+            logger.warning('found no payload stdout')
+
+        if stderr != "" and not msg:
             msg = errors.extract_stderr_error(stderr)
             if msg == "":
                 # look for warning messages instead (might not be fatal so do not set UNRECOGNIZEDTRFSTDERR)
@@ -505,6 +524,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
             #    logger.warning("extracted message from stderr:\n%s", msg)
             #    exit_code = set_error_code_from_stderr(msg, fatal)
 
+        # note: msg should be constructed either from stderr or stdout
         if msg:
             msg = errors.format_diagnostics(exit_code, msg)
 

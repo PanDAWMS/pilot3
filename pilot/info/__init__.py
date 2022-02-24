@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 """
 Pilot Information component
@@ -28,8 +28,7 @@ from .filespec import FileSpec        # noqa
 #from .queuedata import QueueData
 
 from pilot.common.exception import PilotException
-
-import collections
+from collections import namedtuple
 
 import logging
 logger = logging.getLogger(__name__)
@@ -50,11 +49,11 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     # ## initialize info service
     infosys.init(args.queue)
 
-    args.info = collections.namedtuple('info', ['queue', 'infoservice',
-                                                # queuedata,
-                                                'site', 'storages',
-                                                # 'site_info',
-                                                'storages_info'])
+    args.info = namedtuple('info', ['queue', 'infoservice',
+                                    # queuedata,
+                                    'site', 'storages',
+                                    # 'site_info',
+                                    'storages_info'])
     args.info.queue = args.queue
     args.info.infoservice = infosys  # ## THIS is actually for tests and redundant - the pilot.info.infosys should be used
     # args.infoservice = infosys  # ??
