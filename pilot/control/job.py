@@ -26,7 +26,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import ExcThread, PilotException, FileHandlingFailure
 from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
-from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, get_pilot_id, \
+from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
     has_instruction_sets, locate_core_file, get_display_info
 from pilot.util.config import config
@@ -537,7 +537,10 @@ def add_data_structure_ids(data, version_tag):
     if schedulerid:
         data['schedulerID'] = schedulerid
 
-    pilotid = get_pilot_id()
+    # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
 

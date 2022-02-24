@@ -141,16 +141,6 @@ def get_job_scheduler_id():
     return os.environ.get("PANDA_JSID", "unknown")
 
 
-def get_pilot_id():
-    """
-    Get the pilot id from the environment variable GTAG
-
-    :return: pilot id (string)
-    """
-
-    return os.environ.get("GTAG", "unknown")
-
-
 def whoami():
     """
     Return the name of the pilot user.

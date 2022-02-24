@@ -2767,3 +2767,15 @@ def allow_timefloor(submitmode):
     """
 
     return True
+
+
+def get_pilot_id(jobid):
+    """
+    Get the pilot id from the environment variable GTAG.
+    Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
+
+    :param jobid: PanDA job id - UNUSED (int).
+    :return: pilot id (string).
+    """
+
+    return os.environ.get("GTAG", "unknown")

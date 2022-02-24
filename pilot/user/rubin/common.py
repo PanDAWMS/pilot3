@@ -5,9 +5,10 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
+from re import findall
 from signal import SIGTERM
 
 from pilot.common.exception import TrfDownloadFailure
@@ -300,3 +301,21 @@ def allow_timefloor(submitmode):
         allow = False
 
     return allow
+
+
+def get_pilot_id(jobid):
+    """
+    Get the pilot id from the environment variable GTAG.
+    Update for each job to get a unique pilot id per job.
+
+    :param jobid: PanDA job id (int).
+    :return: pilot id (string).
+    """
+
+    pilotid = os.environ.get("GTAG", "unknown")
+    regex = r'PandaJob\_(\d+)+'
+    _id = findall(regex, pilotid)
+    if _id:
+        pilotid = pilotid.replace(_id[0], str(jobid))
+
+    return pilotid
