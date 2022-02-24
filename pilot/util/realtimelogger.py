@@ -116,8 +116,6 @@ class RealTimeLogger(Logger):
                     timeout=5.0,
                     ssl_enable=True,
                     ssl_verify=self._cacert
-#                    username='pilot',
-#                    password='XXX'
                 )
                 # Create the handler
                 _handler = AsynchronousLogstashHandler(

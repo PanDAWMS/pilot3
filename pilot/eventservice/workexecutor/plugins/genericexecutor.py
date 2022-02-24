@@ -165,7 +165,7 @@ class GenericExecutor(BaseExecutor):
 
         return ret_messages, output_file
 
-    def stageout_es_real(self, output_file):
+    def stageout_es_real(self, output_file):  # noqa: C901
         """
         Stage out event service output file.
 
@@ -204,7 +204,7 @@ class GenericExecutor(BaseExecutor):
                 pass
         except Exception as exc:
             logger.error(f'found no error object - stage-out must have failed: {exc}')
-            _error = StageOutFailure(f"stage-out failed")
+            _error = StageOutFailure("stage-out failed")
 
         logger.info('summary of transferred files:')
         logger.info(f" -- lfn={file_spec.lfn}, status_code={file_spec.status_code}, status={file_spec.status}")
