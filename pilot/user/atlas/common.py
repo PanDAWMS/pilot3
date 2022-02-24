@@ -502,8 +502,8 @@ def prepend_env_vars(environ, cmd):
 
     exports = get_exports(environ)
     exports_to_add = ''
-    for cmd in exports:
-        exports_to_add += cmd
+    for _cmd in exports:
+        exports_to_add += _cmd
     if exports_to_add:
         cmd = exports_to_add + cmd
         logger.debug(f'prepended exports to payload command: {exports_to_add}')
