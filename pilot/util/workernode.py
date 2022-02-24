@@ -5,12 +5,15 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 import re
 import logging
 
+from subprocess import getoutput
+
+from pilot.common.exception import PilotException, ErrorCodes
 from pilot.info import infosys
 from pilot.util.disk import disk_usage
 
@@ -19,25 +22,29 @@ logger = logging.getLogger(__name__)
 
 def get_local_disk_space(path):
     """
-    Return remaning disk space for the disk in the given path.
+    Return remaining disk space for the disk in the given path.
     Unit is MB.
 
     :param path: path to disk (string). Can be None, if call to collect_workernode_info() doesn't specify it.
     :return: disk space (float).
+    :raises: PilotException in case of failure to convert df output to float, or if getoutput() returns an empty string.
     """
 
-    if not path:
-        return None
-
-    disk = 0.0
     # -mP = blocks of 1024*1024 (MB) and POSIX format
-    diskpipe = os.popen("df -mP %s" % path)
-    disks = diskpipe.read()
-    if not diskpipe.close():
+    cmd = f"df -mP {path}"
+    disks = getoutput(cmd)
+    if disks:
+        logger.debug(f'disks={disks}')
         try:
             disk = float(disks.splitlines()[1].split()[3])
-        except ValueError as error:
-            logger.warning(f'exception caught while trying to convert disk info: {error}')
+        except (IndexError, ValueError, TypeError, AttributeError) as error:
+            msg = f'exception caught while trying to convert disk info: {error}'
+            logger.warning(msg)
+            raise PilotException(msg, code=ErrorCodes.UNKNOWNEXCEPTION)
+    else:
+        msg = f'no stdout+stderr from command: {cmd}'
+        logger.warning(msg)
+        raise PilotException(msg, code=ErrorCodes.UNKNOWNEXCEPTION)
 
     return disk
 
@@ -96,7 +103,12 @@ def collect_workernode_info(path=None):
 
     mem = get_meminfo()
     cpu = get_cpuinfo()
-    disk = get_local_disk_space(path)
+    try:
+        disk = get_local_disk_space(path)
+    except PilotException as exc:
+        diagnostics = exc.get_detail()
+        logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        disk = None
 
     return mem, cpu, disk
 

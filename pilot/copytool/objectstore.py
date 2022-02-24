@@ -131,14 +131,14 @@ def copy_in(files, **kwargs):
         dst = fspec.workdir or kwargs.get('workdir') or '.'
         cmd += ['/usr/bin/env', 'rucio', '-v', 'download', '--no-subdir', '--dir', dst]
         if require_replicas:
-            cmd += ['--rse', fspec.replicas[0]['ddmendpoint']]
+            cmd += ['--rses', fspec.replicas[0]['ddmendpoint']]
 
         # a copytool module should consider fspec.turl for transfers, and could failback to fspec.surl,
         # but normally fspec.turl (transfer url) is mandatory and already populated by the top workflow
         turl = fspec.turl or fspec.surl
         if turl:
             if fspec.ddmendpoint:
-                cmd.extend(['--rse', fspec.ddmendpoint])
+                cmd.extend(['--rses', fspec.ddmendpoint])
             cmd.extend(['--pfn', turl])
         cmd += ['%s:%s' % (fspec.scope, fspec.lfn)]
 

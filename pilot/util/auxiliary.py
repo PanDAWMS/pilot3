@@ -12,7 +12,8 @@ import re
 import sys
 import logging
 
-from collections import Set, Mapping, deque, OrderedDict
+from collections.abc import Set, Mapping
+from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
 
@@ -138,16 +139,6 @@ def get_job_scheduler_id():
     :return: job scheduler id (string)
     """
     return os.environ.get("PANDA_JSID", "unknown")
-
-
-def get_pilot_id():
-    """
-    Get the pilot id from the environment variable GTAG
-
-    :return: pilot id (string)
-    """
-
-    return os.environ.get("GTAG", "unknown")
 
 
 def whoami():

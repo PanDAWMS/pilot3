@@ -45,7 +45,8 @@ class QueueData(BaseData):
     name = ""       # Name of Panda Queue
     resource = ""   # Name of Panda Resource
     appdir = ""     #
-    catchall = ""   #
+    catchall = ""   # General catchall field
+    environ = ""    # Special field for key=value pairs to be added as exports to payload command
 
     platform = ""     # cmtconfig value
     container_options = ""  # singularity only options? to be reviewed and forced to be a dict (support options for other containers?)
@@ -94,7 +95,7 @@ class QueueData(BaseData):
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
                    'corecount', 'maxrss', 'maxtime', 'maxinputsize'],
              str: ['name', 'type', 'appdir', 'catchall', 'platform', 'container_options', 'container_type',
-                   'resource', 'state', 'status', 'site'],
+                   'resource', 'state', 'status', 'site', 'environ'],
              dict: ['copytools', 'acopytools', 'astorages', 'aprotocols', 'acopytools_schemas'],
              bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'is_cvmfs', 'use_pcache']
              }

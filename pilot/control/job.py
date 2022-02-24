@@ -26,7 +26,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import ExcThread, PilotException, FileHandlingFailure
 from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
-from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, get_pilot_id, \
+from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
     has_instruction_sets, locate_core_file, get_display_info
 from pilot.util.config import config
@@ -537,7 +537,10 @@ def add_data_structure_ids(data, version_tag):
     if schedulerid:
         data['schedulerID'] = schedulerid
 
-    pilotid = get_pilot_id()
+    # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
 
@@ -589,7 +592,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
         data['metaData'] = metadata
 
     # in debug mode, also send a tail of the latest log file touched by the payload
-    if job.debug:
+    if job.debug and job.debug_command:
         data['stdout'] = process_debug_mode(job)
 
     # add the core count
@@ -648,14 +651,17 @@ def process_debug_mode(job):
         user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
         user.preprocess_debug_command(job)
 
-    stdout = get_debug_stdout(job)
-    if stdout:
-        # in case gdb was successfully used, the payload can now be killed
-        if job.debug_command.startswith('gdb ') and job.pid:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL,
-                                                                             msg='payload was killed after gdb produced requested core file')
-            logger.debug('will proceed to kill payload processes')
-            kill_processes(job.pid)
+    if job.debug_command:
+        stdout = get_debug_stdout(job)
+        if stdout:
+            # in case gdb was successfully used, the payload can now be killed
+            if job.debug_command.startswith('gdb ') and job.pid:
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL,
+                                                                                 msg='payload was killed after gdb produced requested core file')
+                logger.debug('will proceed to kill payload processes')
+                kill_processes(job.pid)
+    else:
+        stdout = ''
 
     return stdout
 
@@ -669,7 +675,7 @@ def get_debug_stdout(job):
     """
 
     if job.debug_command == 'debug':
-        return get_payload_log_tail(job.workdir)
+        return get_payload_log_tail(job.workdir, job.jobid)
     elif 'tail ' in job.debug_command:
         return get_requested_log_tail(job.debug_command, job.workdir)
     elif 'ls ' in job.debug_command:
@@ -890,11 +896,12 @@ def add_memory_info(data, workdir, name=""):
         logger.info(f'memory information not available: {error}')
 
 
-def remove_pilot_logs_from_list(list_of_files):
+def remove_pilot_logs_from_list(list_of_files, jobid):
     """
     Remove any pilot logs from the list of last updated files.
 
     :param list_of_files: list of last updated files (list).
+    :param jobid: PanDA job id (string).
     :return: list of files (list).
     """
 
@@ -907,7 +914,8 @@ def remove_pilot_logs_from_list(list_of_files):
                          config.Pilot.remotefileverification_log, config.Pilot.base_trace_report,
                          config.Container.container_script, config.Container.release_setup,
                          config.Container.stagein_status_dictionary, config.Container.stagein_replica_dictionary,
-                         'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot']
+                         'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot',
+                         f'curl_updateJob_{jobid}.config']
     except Exception as error:
         logger.warning(f'exception caught: {error}')
         to_be_removed = []
@@ -920,11 +928,12 @@ def remove_pilot_logs_from_list(list_of_files):
     return new_list_of_files
 
 
-def get_payload_log_tail(workdir):
+def get_payload_log_tail(workdir, jobid):
     """
     Return the tail of the payload stdout or its latest updated log file.
 
     :param workdir: job work directory (string).
+    :param jobid: PanDA job id (string).
     :return: tail of stdout (string).
     """
 
@@ -932,7 +941,7 @@ def get_payload_log_tail(workdir):
     # list_of_files = get_list_of_log_files()
     # find the latest updated text file
     list_of_files = find_text_files()
-    list_of_files = remove_pilot_logs_from_list(list_of_files)
+    list_of_files = remove_pilot_logs_from_list(list_of_files, jobid)
 
     if not list_of_files:
         logger.info(f'no log files were found (will use default {config.Payload.payloadstdout})')
@@ -1283,7 +1292,7 @@ def get_dispatcher_dictionary(args):
 
     _diskspace = get_disk_space(infosys.queuedata)
 
-    _mem, _cpu, _disk = collect_workernode_info()
+    _mem, _cpu, _ = collect_workernode_info(os.getcwd())
 
     _nodename = get_node_name()
 
@@ -1803,6 +1812,7 @@ def retrieve(queues, traces, args):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
+        #res['debug'] = True
         dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
@@ -1870,6 +1880,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                 while not args.graceful_stop.is_set():
                     if has_job_completed(queues, args):
                         # purge queue(s) that retains job object
+                        set_pilot_state(state='')
                         purge_queue(queues.finished_data_in)
 
                         args.job_aborted.clear()
@@ -2629,7 +2640,7 @@ def send_heartbeat_if_time(job, args, update_time):
     :return: possibly updated update_time (from time.time()).
     """
 
-    if int(time.time()) - update_time >= get_heartbeat_period(job.debug):
+    if int(time.time()) - update_time >= get_heartbeat_period(job.debug and job.debug_command):
         if job.serverstate != 'finished' and job.serverstate != 'failed':
             send_state(job, args, 'running')
             update_time = int(time.time())

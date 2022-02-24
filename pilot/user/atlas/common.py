@@ -448,6 +448,9 @@ def get_payload_command(job):
     variables = get_payload_environment_variables(cmd, job.jobid, job.taskid, job.attemptnr, job.processingtype, site, userjob)
     cmd = ''.join(variables) + cmd
 
+    # prepend payload command with environment variables from PQ.environ if set
+    cmd = prepend_env_vars(job.infosys.queuedata.environ, cmd)
+
     # prepend PanDA job id in case it is not there already (e.g. runcontainer jobs)
     if 'export PandaID' not in cmd:
         cmd = "export PandaID=%s;" % job.jobid + cmd
@@ -486,6 +489,64 @@ def get_payload_command(job):
     logger.info('payload run command: %s', cmd)
 
     return cmd
+
+
+def prepend_env_vars(environ, cmd):
+    """
+    Prepend the payload command with environmental variables from PQ.environ if set.
+
+    :param environ: PQ.environ (string).
+    :param cmd: payload command (string).
+    :return: updated payload command (string).
+    """
+
+    exports = get_exports(environ)
+    exports_to_add = ''
+    for _cmd in exports:
+        exports_to_add += _cmd
+    if exports_to_add:
+        cmd = exports_to_add + cmd
+        logger.debug(f'prepended exports to payload command: {exports_to_add}')
+
+    return cmd
+
+
+def get_key_values(from_string):
+    """
+    Return a list of key value tuples from given string.
+    Example: from_string = 'KEY1=VALUE1 KEY2=VALUE2' -> [('KEY1','VALUEE1'), ('KEY2', 'VALUE2')]
+
+    :param from_string: string containing key-value pairs (string).
+    :return: list of key-pair tuples (list).
+    """
+
+    return re.findall(re.compile(r"\b(\w+)=(.*?)(?=\s\w+=\s*|$)"), from_string)
+
+
+def get_exports(from_string):
+    """
+    Return list of exports from given string.
+
+    :param from_string: string containing key-value pairs (string).
+    :return: list of export commands (list).
+    """
+
+    exports = []
+    key_values = get_key_values(from_string)
+    logger.debug(f'extracted key-values: {key_values}')
+    if key_values:
+        for number in range(len(key_values)):
+            raw_val = key_values[number]
+            _key = raw_val[0]
+            _value = raw_val[1]
+            key_value = ''
+            if not _key.startswith('export '):
+                key_value = 'export ' + _key + '=' + _value
+            if not _value.endswith(';'):
+                key_value += ';'
+            exports.append(key_value)
+
+    return exports
 
 
 def get_normal_payload_command(cmd, job, preparesetup, userjob):
@@ -2767,3 +2828,15 @@ def allow_timefloor(submitmode):
     """
 
     return True
+
+
+def get_pilot_id(jobid):
+    """
+    Get the pilot id from the environment variable GTAG.
+    Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
+
+    :param jobid: PanDA job id - UNUSED (int).
+    :return: pilot id (string).
+    """
+
+    return os.environ.get("GTAG", "unknown")
