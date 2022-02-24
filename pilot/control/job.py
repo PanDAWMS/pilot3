@@ -1877,6 +1877,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                 while not args.graceful_stop.is_set():
                     if has_job_completed(queues, args):
                         # purge queue(s) that retains job object
+                        set_pilot_state(state='')
                         purge_queue(queues.finished_data_in)
 
                         args.job_aborted.clear()

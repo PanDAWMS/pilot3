@@ -113,11 +113,9 @@ def validate_pre(queues, traces, args):
             continue
 
         if _validate_payload(job):
-            #queues.validated_payloads.put(job)
             put_in_queue(job, queues.realtimelog_payloads)
             put_in_queue(job, queues.validated_payloads)
         else:
-            #queues.failed_payloads.put(job)
             put_in_queue(job, queues.failed_payloads)
 
     # proceed to set the job_aborted flag?
@@ -193,11 +191,6 @@ def execute_payloads(queues, traces, args):  # noqa: C901
         time.sleep(0.5)
         try:
             job = queues.validated_payloads.get(block=True, timeout=1)
-
-            #q_snapshot = list(queues.finished_data_in.queue) if queues.finished_data_in else []
-            #peek = [s_job for s_job in q_snapshot if job.jobid == s_job.jobid]
-            #if job.jobid not in q_snapshot:
-
             q_snapshot = list(queues.finished_data_in.queue)
             peek = [s_job for s_job in q_snapshot if job.jobid == s_job.jobid]
             if len(peek) == 0:
@@ -209,7 +202,6 @@ def execute_payloads(queues, traces, args):  # noqa: C901
                 continue
 
             # this job is now to be monitored, so add it to the monitored_payloads queue
-            #queues.monitored_payloads.put(job)
             put_in_queue(job, queues.monitored_payloads)
 
             logger.info('job %s added to monitored payloads queue', job.jobid)
@@ -226,7 +218,8 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # note: when sending a state change to the server, the server might respond with 'tobekilled'
             if job.state == 'failed':
                 logger.warning('job state is \'failed\' - abort execute_payloads()')
-                break
+                set_pilot_state(job=job, state="failed")
+                continue
 
             payload_executor = get_payload_executor(args, job, out, err, traces)
             logger.info("will use payload executor: %s", payload_executor)

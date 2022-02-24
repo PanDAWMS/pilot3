@@ -39,7 +39,7 @@ def looping_job(job, montime):
     exit_code = 0
     diagnostics = ""
 
-    logger.info('checking for looping job')
+    logger.info(f'checking for looping job (in state={job.state})')
 
     looping_limit = get_looping_job_limit()
 
@@ -49,9 +49,7 @@ def looping_job(job, montime):
     elif job.state == 'stageout':
         # set job.state to stageout during stage-out before implementing this algorithm
         pass
-    else:
-        # most likely in the 'running' state, but use the catch-all 'else'
-
+    elif job.state == 'running':
         # get the time when the files in the workdir were last touched. in case no file was touched since the last
         # check, the returned value will be the same as the previous time
         time_last_touched = get_time_for_last_touch(job, montime, looping_limit)
