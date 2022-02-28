@@ -5,21 +5,16 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 from __future__ import print_function  # Python 2, 2to3 complains about this
 
 import functools
 import signal
 import threading
+import queue
 from time import time
 from sys import stderr
-
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
-
 from collections import namedtuple
 
 from pilot.common.exception import ExcThread
@@ -43,13 +38,10 @@ def interrupt(args, signum, frame):
     :return:
     """
 
-    try:
-        sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]  # Python 2
-    except Exception:
-        sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]  # Python 3
+    sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
     add_to_pilot_timing('0', PILOT_KILL_SIGNAL, time(), args)
     add_to_pilot_timing('1', PILOT_KILL_SIGNAL, time(), args)
-    logger.warning('caught signal: %s' % sig)
+    logger.warning(f'caught signal: {sig}')
     args.signal = sig
     logger.warning('will instruct threads to abort and update the server')
     args.abort_job.set()
@@ -80,7 +72,7 @@ def run(args):
 
     logger.info('setting up queues')
     queues = namedtuple('queues', ['jobs', 'data_in', 'data_out', 'current_data_in', 'validated_jobs',
-                                   'finished_jobs', 'finished_data_in', 'finished_data_out',
+                                   'finished_jobs', 'finished_data_in', 'finished_data_out', 'completed_jobids',
                                    'failed_jobs', 'failed_data_in', 'failed_data_out', 'completed_jobs'])
 
     queues.jobs = queue.Queue()
@@ -99,6 +91,7 @@ def run(args):
     queues.failed_data_out = queue.Queue()
 
     queues.completed_jobs = queue.Queue()
+    queues.completed_jobids = queue.Queue()
 
     logger.info('setting up tracing')
     traces = namedtuple('traces', ['pilot'])
@@ -128,10 +121,9 @@ def run(args):
                 exc_type, exc_obj, exc_trace = exc
                 # deal with the exception
                 print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
-                # logger.fatal('caught exception: %s' % exc_obj)
 
             thread.join(0.1)
 
-    logger.info('end of stage-in workflow (traces error code: %d)' % traces.pilot['error_code'])
+    logger.info(f"end of stage-in workflow (traces error code: {traces.pilot['error_code']})")
 
     return traces
