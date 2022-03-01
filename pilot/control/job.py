@@ -2223,18 +2223,17 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             # we can now stop monitoring this job, so remove it from the monitored_payloads queue and add it to the
             # completed_jobs queue which will tell retrieve() that it can download another job
             try:
-                _job = queues.monitored_payloads.get(block=True, timeout=1)
+                _job = queues.monitored_payloads.get(block=True, timeout=1) if args.workflow != 'stager' else None
             except queue.Empty:
                 logger.warning('failed to dequeue job: queue is empty (did job fail before job monitor started?)')
                 make_job_report(job)
             else:
-                logger.debug('job %s was dequeued from the monitored payloads queue', _job.jobid)
                 # now ready for the next job (or quit)
                 put_in_queue(job.jobid, queues.completed_jobids)
 
                 put_in_queue(job, queues.completed_jobs)
-                del _job
-                logger.debug('tmp job object deleted')
+                if _job:
+                    del _job
 
         if abort_thread:
             break
