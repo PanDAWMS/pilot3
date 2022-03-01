@@ -235,6 +235,7 @@ def _stage_in(args, job):
 
     remain_files = [infile for infile in job.indata if infile.status not in ['remote_io', 'transferred', 'no_transfer']]
     logger.info("stage-in finished") if not remain_files else logger.info("stage-in failed")
+    os.environ['PILOT_JOB_STATE'] = 'stageincompleted'
 
     return not remain_files
 
