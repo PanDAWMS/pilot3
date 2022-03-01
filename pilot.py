@@ -153,7 +153,7 @@ def get_args():
                             choices=['generic', 'generic_hpc',
                                      'production', 'production_hpc',
                                      'analysis', 'analysis_hpc',
-                                     'eventservice_hpc', 'stagein', 'payload_stageout'],
+                                     'eventservice_hpc', 'stager', 'payload_stageout'],
                             help='Pilot workflow (default: generic)')
 
     # graciously stop pilot process after hard limit
