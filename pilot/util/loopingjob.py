@@ -118,14 +118,12 @@ def get_time_for_last_touch(job, montime, looping_limit):
     # locate all files that were modified the last N minutes
     cmd = "find %s -mmin -%d" % (job.workdir, int(looping_limit / 60))
     exit_code, stdout, stderr = execute(cmd)
-    logger.debug(f'stdout=\n{stdout}')
     if exit_code == 0:
         if stdout != "":
             files = stdout.split("\n")  # find might add a \n even for single entries
-            logger.debug(f'files={files}')
+
             # remove unwanted list items (*.py, *.pyc, workdir, ...)
             files = loopingjob_definitions.remove_unwanted_files(job.workdir, files)
-            logger.debug(f'filtered files={files}')
             if files:
                 logger.info('found %d files that were recently updated', len(files))
                 #logger.debug('recent files:\n%s', files)
