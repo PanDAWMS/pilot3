@@ -124,6 +124,6 @@ def run(args):
 
             thread.join(0.1)
 
-    logger.info(f"end of stage-in workflow (traces error code: {traces.pilot['error_code']})")
+    logger.info(f"end of stager workflow (traces error code: {traces.pilot['error_code']})")
 
     return traces
