@@ -2614,7 +2614,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
             logger.info('job monitoring is waiting for stage-in to finish')
         else:
             # check the waiting time in the job monitor. set global graceful_stop if necessary
-            check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
+            if args.workflow != 'stager':
+                check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
 
         n += 1
 
