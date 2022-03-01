@@ -1210,7 +1210,9 @@ def create_data_payload(queues, traces, args):
             # in the finished_data_in queue
             put_in_queue(job, queues.finished_data_in)
 
-        put_in_queue(job, queues.payloads)
+        # only in normal workflow; in the stager workflow there is no payloads queue
+        if not args.workflow == 'stager':
+            put_in_queue(job, queues.payloads)
 
     # proceed to set the job_aborted flag?
     if threads_aborted():
