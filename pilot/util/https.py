@@ -32,6 +32,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 _ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
+_ctx.ssl_context = None
+_ctx.user_agent = None
+_ctx.capath = None
+_ctx.cacert = None
 
 # anisyonk: public copy of `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
 # anisyonk: public instance, should be properly initialized by `https_setup()`
@@ -399,16 +403,31 @@ def get_panda_server(url, port):
     :return: full URL (either from pilot options or from config file)
     """
 
-    if url.startswith('https://'):
-        url = url.replace('https://', '')
+    if url != '':
+        parsedurl = url.split('://')
+        scheme = None
+        loc = None
+        if len(parsedurl) == 2:
+            scheme = parsedurl[0]
+            loc = parsedurl[1]
+        else:
+            loc = parsedurl[0]
 
-    if url != '' and port != 0:
-        pandaserver = '%s:%s' % (url, port) if ":" not in url else url
+        parsedloc = loc.split(':')
+        loc = parsedloc[0]
+
+        # use port in url only if port argument is not provided
+        if len(parsedloc) == 2:
+            port = parsedloc[1]
+        # default scheme to https
+        if not scheme:
+            scheme = "https"
+        portstr = f":{port}" if port else ""
+        pandaserver = f"{scheme}://{loc}{portstr}"
     else:
         pandaserver = config.Pilot.pandaserver
-
-    if not pandaserver.startswith('http'):
-        pandaserver = 'https://' + pandaserver
+        if not pandaserver.startswith('http'):
+            pandaserver = 'https://' + pandaserver
 
     # add randomization for PanDA server
     default = 'pandaserver.cern.ch'
