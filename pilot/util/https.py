@@ -416,7 +416,7 @@ def get_panda_server(url, port):
         parsedloc = loc.split(':')
         loc = parsedloc[0]
 
-        # use port in url only if port argument is not provided
+        # if a port is provided in the url, then override the port argument
         if len(parsedloc) == 2:
             port = parsedloc[1]
         # default scheme to https
