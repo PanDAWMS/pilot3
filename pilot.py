@@ -342,6 +342,10 @@ def get_args():
                             dest='input_dir',
                             default='',
                             help='Input directory')
+    arg_parser.add_argument('--input-destination-dir',
+                            dest='input_destination_dir',
+                            default='',
+                            help='Input destination directory')
     arg_parser.add_argument('--output-dir',
                             dest='output_dir',
                             default='',
