@@ -30,7 +30,7 @@ from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIM
     SERVER_UPDATE_NOT_DONE, PILOT_MULTIJOB_START_TIME
 from pilot.util.filehandling import get_pilot_work_dir, mkdirs, establish_logging
 from pilot.util.harvester import is_harvester_mode
-from pilot.util.https import https_setup, send_update
+from pilot.util.https import get_panda_server, https_setup, send_update
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()
@@ -452,9 +452,7 @@ def set_environment_variables():
         environ['PILOT_OUTPUT_DIR'] = args.output_dir
 
     # keep track of the server urls
-    _port = ":%s" % args.port
-    url = args.url if _port in args.url else args.url + _port
-    environ['PANDA_SERVER_URL'] = url
+    environ['PANDA_SERVER_URL'] = get_panda_server(args.url, args.port)
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
 
 
@@ -582,11 +580,11 @@ if __name__ == '__main__':
     if exit_code != 0:
         sys.exit(exit_code)
 
-    # set environment variables (to be replaced with singleton implementation)
-    set_environment_variables()
-
     # setup and establish standard logging
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
+
+    # set environment variables (to be replaced with singleton implementation)
+    set_environment_variables()
 
     # execute main function
     trace = main()
