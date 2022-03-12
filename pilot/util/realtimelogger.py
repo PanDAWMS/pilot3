@@ -13,14 +13,15 @@ import time
 import json
 from pilot.util.config import config
 from pilot.util.https import cacert
+from pilot.util.proxy import create_cert_files
+from pilot.util.transport import HttpTransport
 from logging import Logger, INFO
 import logging
 
 logger = logging.getLogger(__name__)
-## logServer = "google-cloud-logging"
 
 
-def get_realtime_logger(args=None, info_dic=None):
+def get_realtime_logger(args=None, info_dic=None, workdir=None):
     """
     Helper function for real-time logger.
 
@@ -28,11 +29,12 @@ def get_realtime_logger(args=None, info_dic=None):
 
     :param args: pilot arguments object.
     :param info_dic: info dictionary.
+    :param workdir: job working directory (string).
     :return: RealTimeLogger instance (self).
     """
 
     if RealTimeLogger.glogger is None:
-        RealTimeLogger(args, info_dic)
+        RealTimeLogger(args, info_dic, workdir)
     return RealTimeLogger.glogger
 
 
@@ -49,7 +51,7 @@ class RealTimeLogger(Logger):
     openfiles = {}
     _cacert = ""
 
-    def __init__(self, args, info_dic, level=INFO):
+    def __init__(self, args, info_dic, workdir, level=INFO):
         """
         Default init function.
 
@@ -62,6 +64,7 @@ class RealTimeLogger(Logger):
 
         :param args: pilot arguments object.
         :param info_dic: info dictionary.
+        :param workdir: job working directory (string).
         :param level: logging level (constant).
         :return:
         """
@@ -104,25 +107,46 @@ class RealTimeLogger(Logger):
                 from fluent import handler
                 _handler = handler.FluentHandler(name, host=server, port=port)
             elif logtype == "logstash":
-                from logstash_async.transport import HttpTransport
+                # from logstash_async.transport import HttpTransport
                 from logstash_async.handler import AsynchronousLogstashHandler
                 # from logstash_async.handler import LogstashFormatter
+
+                # certificate method (still in development):
+
                 #certdir = os.environ.get('SSL_CERT_DIR', '')
                 #path = os.path.join(certdir, "CERN-GridCA.pem")
-                logger.debug(f'using cacert={self._cacert}')
+                #crt, key = create_cert_files(workdir)
+                #if not crt or not key:
+                #    logger.warning('failed to create crt/key')
+                #    _handler = None
+                #    return
+                #transport = HttpTransport(
+                #    server,
+                #    port,
+                #    timeout=5.0,
+                #    ssl_enable=True,
+                #    ssl_verify=path,
+                #    cert=(crt, key)
+                #)
+
+                # login+password method:
                 transport = HttpTransport(
                     server,
                     port,
+                    ssl_verify=False,
                     timeout=5.0,
-                    ssl_enable=True,
-                    ssl_verify=self._cacert
+                    username="pilot",
+                    password="***"
                 )
-                # Create the handler
+
+                # create the handler
                 _handler = AsynchronousLogstashHandler(
                     server,
                     port,
                     transport=transport,
-                    database_path='logstash_test.db')
+                    database_path='logstash_test.db'
+                )
+
             else:
                 logger.warning(f'unknown logtype: {logtype}')
                 _handler = None

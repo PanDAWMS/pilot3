@@ -734,7 +734,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     :return:
     """
 
-    logger.debug('preparing to create log file (debug mode=%s)', str(debugmode))
+    logger.debug(f'preparing to create log file (debug mode={debugmode})')
 
     # PILOT_HOME is the launch directory of the pilot (or the one specified in pilot options as pilot workdir)
     pilot_home = os.environ.get('PILOT_HOME', os.getcwd())
@@ -765,7 +765,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     os.rename(workdir, newworkdir)
     workdir = newworkdir
 
-    fullpath = os.path.join(workdir, logfile_name)  # /some/path/to/dirname/log.tgz
+    fullpath = os.path.join(current_dir, logfile_name)  # /some/path/to/dirname/log.tgz
     logger.info('will create archive %s', fullpath)
     try:
         cmd = "pwd;tar cvfz %s %s --dereference --one-file-system; echo $?" % (fullpath, tarball_name)

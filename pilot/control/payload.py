@@ -439,7 +439,7 @@ def run_realtimelog(queues, traces, args):
         # logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
-            realtime_logger = get_realtime_logger(args, info_dic)
+            realtime_logger = get_realtime_logger(args, info_dic, job.workdir)
         else:
             logger.debug('real-time logging not needed at this point')
             realtime_logger = None
