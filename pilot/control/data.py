@@ -209,7 +209,9 @@ def _stage_in(args, job):
                 client = StageInClient(job.infosys, logger=logger, trace_report=trace_report)
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
-            kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
+            # get the proper input file destination (normally job.workdir unless stager workflow)
+            workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
+            kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
                           input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall, checkinputsize=True)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
@@ -238,6 +240,32 @@ def _stage_in(args, job):
     os.environ['PILOT_JOB_STATE'] = 'stageincompleted'
 
     return not remain_files
+
+
+def get_proper_input_destination(workdir, input_destination_dir):
+    """
+    Return the proper input file destination.
+
+    Normally this would be the job.workdir, unless an input file destination has been set with pilot
+    option --input-file-destination (which should be set for stager workflow).
+
+    :param workdir: job work directory (string).
+    :param input_destination_dir: optional input file destination (string).
+    :return: input file destination (string).
+    """
+
+    if input_destination_dir:
+        if not os.path.exists(input_destination_dir):
+            logger.warning(f'input file destination does not exist: {input_destination_dir} (defaulting to {workdir})')
+            destination = workdir
+        else:
+            destination = input_destination_dir
+    else:
+        destination = workdir
+
+    logger.info(f'will use input file destination: {destination}')
+
+    return destination
 
 
 def get_rse(data, lfn=""):
