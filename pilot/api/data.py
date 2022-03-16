@@ -1039,8 +1039,7 @@ class StageOutClient(StagingClient):
                     self.logger.error(msg)
                     raise PilotException(msg, code=ErrorCodes.NOSTORAGE, state='NO_OUTPUTSTORAGE_DEFINED')
 
-            pfn = fspec.surl or getattr(fspec, 'pfn', None) or os.path.join(kwargs.get('workdir', ''), fspec.lfn) or \
-                  os.path.join(os.path.join(kwargs.get('workdir', ''), '..'), fspec.lfn)  # for job log
+            pfn = fspec.surl or getattr(fspec, 'pfn', None) or os.path.join(kwargs.get('workdir', ''), fspec.lfn) or os.path.join(os.path.join(kwargs.get('workdir', ''), '..'), fspec.lfn)
             if not os.path.exists(pfn) or not os.access(pfn, os.R_OK):
                 msg = "output pfn file/directory does not exist: %s" % pfn
                 self.logger.error(msg)
