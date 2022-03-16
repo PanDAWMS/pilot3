@@ -178,6 +178,7 @@ class RealTimeLogger(Logger):
             logobj.update(msg)
         except Exception:
             logobj["message"] = msg
+        # logger.debug(f'message: {msg}')
         self.info(logobj)
 
     def add_logfiles(self, job_or_filenames, reset=True):
@@ -233,10 +234,14 @@ class RealTimeLogger(Logger):
                                 openfile.seek(0)
                                 self.openfiles[logfile] = openfile
                                 logger.debug(f'opened logfile: {logfile}')
+
+                # logger.debug(f'real-time logging: sending logs for state={job.state} [1]')
                 self.send_loginfiles()
             elif job.state == 'stagein' or job.state == 'stageout':
+                logger.debug('no real-time logging during stage-in/out')
                 pass
             else:
+                # logger.debug(f'real-time logging: sending logs for state={job.state} [2]')
                 self.send_loginfiles()  # send the remaining logs after the job completion
                 self.close_files()
                 break
