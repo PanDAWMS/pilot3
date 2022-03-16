@@ -657,8 +657,8 @@ def get_more_details(job_report_dictionary):
                             message = dic[item]
                             if re.findall(patterns.get(pattern_name), message):
                                 errmsg = message
-            if errmsg:
-                break
+        if errmsg:
+            break
     try:
         msg = re.split(r'INFO\ |WARNING\ ', errmsg)[1]
     except (IndexError, TypeError):
