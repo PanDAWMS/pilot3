@@ -609,6 +609,14 @@ def process_job_report(job):
                     job.piloterrorcode = errors.PAYLOADSIGSEGV
                     job.piloterrordiag = diagnostics
                 else:
+                    # extract Frontier errors
+                    errmsg = get_more_details(job.metadata)
+                    if errmsg:
+                        msg = f'Frontier error: {errmsg}'
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.FRONTIER, msg=msg)
+                        job.piloterrorcode = errors.FRONTIER
+                        job.piloterrordiag = msg
+
                     logger.info('extracted exit message from job report: %s', job.exitmsg)
                     if job.exitmsg != 'OK':
                         job.exeerrordiag = job.exitmsg
@@ -624,6 +632,39 @@ def process_job_report(job):
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADALLOC)
                     job.piloterrorcode = errors.BADALLOC
                     job.piloterrordiag = diagnostics
+
+
+def get_more_details(job_report_dictionary):
+    """
+    Extract special Frontier related errors from the job report.
+
+    :param job_report_dictionary: job report (dictionary).
+    :return: extracted error message (string).
+    """
+
+    error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
+    patterns = {'abnormalLines': 'Cannot\sfind\sa\svalid\sfrontier\sconnection(.*)',
+                'lastNormalLine': 'Using\sfrontier\sconnection\sfrontier(.*)'}
+    errmsg = ''
+
+    for pattern_name in patterns:
+        for level, entries in error_details.items():  # _=level='FATAL','ERROR'
+            for entry in entries:
+                if 'moreDetails' in entry:
+                    dic = entry['moreDetails'].get(pattern_name, None)
+                    for item in dic:
+                        if 'message' in item:
+                            message = dic[item]
+                            if re.findall(patterns.get(pattern_name), message):
+                                errmsg = message
+            if errmsg:
+                break
+    try:
+        msg = re.split(r'INFO\ |WARNING\ ', errmsg)[1]
+    except (IndexError, TypeError):
+        msg = errmsg
+
+    return msg
 
 
 def get_job_report_errors(job_report_dictionary):
