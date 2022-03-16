@@ -1923,9 +1923,16 @@ def dump_job_definition(res):
         res['secrets'] = '********'
     else:
         _pandasecrets = ''
+    if 'pilotSecrets' in res:
+        _pilotsecrets = res['pilotSecrets']
+        res['pilotSecrets'] = '********'
+    else:
+        _pilotsecrets = ''
     logger.info(f'job definition = {res}')
     if _pandasecrets:
         res['secrets'] = _pandasecrets
+    if _pilotsecrets:
+        res['pilotSecrets'] = _pilotsecrets
 
 
 def print_node_info():

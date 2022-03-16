@@ -27,6 +27,7 @@ import ast
 import shlex
 import pipes
 from time import sleep
+from json import loads
 
 from .basedata import BaseData
 from .filespec import FileSpec
@@ -66,6 +67,7 @@ class JobData(BaseData):
     allownooutput = ""             # used to disregard empty files from job report
     realtimelogging = False        # True for real-time logging (set by server/job definition/args)
     pandasecrets = ""              # User defined secrets
+    pilotsecrets = {}              # Real-time logging secrets
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job
@@ -165,7 +167,7 @@ class JobData(BaseData):
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
-                    'postprocess', 'coprocess', 'containeroptions'],
+                    'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
                     'use_vp', 'looping_check']
              }
@@ -472,7 +474,8 @@ class JobData(BaseData):
             'imagename_jobdef': 'container_name',
             'containeroptions': 'containerOptions',
             'looping_check': 'loopingCheck',
-            'pandasecrets': 'secrets'
+            'pandasecrets': 'secrets',
+            'pilotsecrets': 'pilotSecrets'
         } if use_kmap else {}
 
         self._load_data(data, kmap)

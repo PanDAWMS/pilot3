@@ -21,7 +21,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_realtime_logger(args=None, info_dic=None, workdir=None):
+def get_realtime_logger(args=None, info_dic=None, workdir=None, secrets=""):
     """
     Helper function for real-time logger.
 
@@ -34,7 +34,7 @@ def get_realtime_logger(args=None, info_dic=None, workdir=None):
     """
 
     if RealTimeLogger.glogger is None:
-        RealTimeLogger(args, info_dic, workdir)
+        RealTimeLogger(args, info_dic, workdir, secrets)
     return RealTimeLogger.glogger
 
 
@@ -51,7 +51,7 @@ class RealTimeLogger(Logger):
     openfiles = {}
     _cacert = ""
 
-    def __init__(self, args, info_dic, workdir, level=INFO):
+    def __init__(self, args, info_dic, workdir, secrets, level=INFO):
         """
         Default init function.
 
@@ -135,8 +135,8 @@ class RealTimeLogger(Logger):
                     port,
                     ssl_verify=False,
                     timeout=5.0,
-                    username="pilot",
-                    password="***"
+                    username=secrets.get('logstash_login', 'unknown_login'),
+                    password=secrets.get('logstash_password', 'unknown_password')
                 )
 
                 # create the handler
