@@ -13,7 +13,7 @@ import time
 import json
 from pilot.util.config import config
 from pilot.util.https import cacert
-from pilot.util.proxy import create_cert_files
+# from pilot.util.proxy import create_cert_files
 from pilot.util.transport import HttpTransport
 from logging import Logger, INFO
 import logging

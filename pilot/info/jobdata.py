@@ -27,7 +27,6 @@ import ast
 import shlex
 import pipes
 from time import sleep
-from json import loads
 
 from .basedata import BaseData
 from .filespec import FileSpec
