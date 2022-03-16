@@ -643,8 +643,8 @@ def get_more_details(job_report_dictionary):
     """
 
     error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
-    patterns = {'abnormalLines': 'Cannot\sfind\sa\svalid\sfrontier\sconnection(.*)',
-                'lastNormalLine': 'Using\sfrontier\sconnection\sfrontier(.*)'}
+    patterns = {'abnormalLines': r'Cannot\sfind\sa\svalid\sfrontier\sconnection(.*)',
+                'lastNormalLine': r'Using\sfrontier\sconnection\sfrontier(.*)'}
     errmsg = ''
 
     for pattern_name in patterns:
