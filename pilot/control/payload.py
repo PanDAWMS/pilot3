@@ -414,6 +414,17 @@ def run_realtimelog(queues, traces, args):
         except queue.Empty:
             continue
 
+        # wait with proceeding until the job is running, or max 60 s
+        counter = 0
+        while counter < 6:
+            if job.state == 'running':
+                logger.debug('job is running, time to start real-time logger [if needed]')
+                break
+            else:
+                logger.debug('waiting for job to start running (before starting real-time logger)')
+            time.sleep(10)
+            counter += 1
+
         if args.use_realtime_logging:
             # always do real-time logging
             job.realtimelogging = True
