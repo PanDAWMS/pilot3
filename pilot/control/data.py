@@ -21,14 +21,14 @@ from pilot.api.data import StageInClient, StageOutClient
 from pilot.api.es_data import StageInESClient
 from pilot.control.job import send_state
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread, PilotException, LogFileCreationFailure
+from pilot.common.exception import ExcThread, PilotException, LogFileCreationFailure, NoSuchFile, FileHandlingFailure
 #from pilot.util.config import config
 from pilot.util.auxiliary import set_pilot_state, check_for_final_server_update  #, abort_jobs_in_queues
 from pilot.util.common import should_abort
 from pilot.util.constants import PILOT_PRE_STAGEIN, PILOT_POST_STAGEIN, PILOT_PRE_STAGEOUT, PILOT_POST_STAGEOUT, LOG_TRANSFER_IN_PROGRESS,\
     LOG_TRANSFER_DONE, LOG_TRANSFER_NOT_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_RUNNING, MAX_KILL_WAIT_TIME, UTILITY_BEFORE_STAGEIN
 from pilot.util.container import execute
-from pilot.util.filehandling import remove, write_file
+from pilot.util.filehandling import remove, write_file, copy
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import declare_failed_by_kill, put_in_queue
 from pilot.util.timing import add_to_pilot_timing
@@ -209,7 +209,9 @@ def _stage_in(args, job):
                 client = StageInClient(job.infosys, logger=logger, trace_report=trace_report)
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
-            kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
+            # get the proper input file destination (normally job.workdir unless stager workflow)
+            workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
+            kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
                           input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall, checkinputsize=True)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
@@ -235,8 +237,35 @@ def _stage_in(args, job):
 
     remain_files = [infile for infile in job.indata if infile.status not in ['remote_io', 'transferred', 'no_transfer']]
     logger.info("stage-in finished") if not remain_files else logger.info("stage-in failed")
+    os.environ['PILOT_JOB_STATE'] = 'stageincompleted'
 
     return not remain_files
+
+
+def get_proper_input_destination(workdir, input_destination_dir):
+    """
+    Return the proper input file destination.
+
+    Normally this would be the job.workdir, unless an input file destination has been set with pilot
+    option --input-file-destination (which should be set for stager workflow).
+
+    :param workdir: job work directory (string).
+    :param input_destination_dir: optional input file destination (string).
+    :return: input file destination (string).
+    """
+
+    if input_destination_dir:
+        if not os.path.exists(input_destination_dir):
+            logger.warning(f'input file destination does not exist: {input_destination_dir} (defaulting to {workdir})')
+            destination = workdir
+        else:
+            destination = input_destination_dir
+    else:
+        destination = workdir
+
+    logger.info(f'will use input file destination: {destination}')
+
+    return destination
 
 
 def get_rse(data, lfn=""):
@@ -366,7 +395,7 @@ def stage_out_auto(files):
 
         tmp_executable = objectcopy.deepcopy(executable)
 
-        tmp_executable += ['--rses', _file['rse']]
+        tmp_executable += ['--rse', _file['rse']]
 
         if 'no_register' in list(_file.keys()) and _file['no_register']:  # Python 2/3
             tmp_executable += ['--no-register']
@@ -733,7 +762,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     :return:
     """
 
-    logger.debug('preparing to create log file (debug mode=%s)', str(debugmode))
+    logger.debug(f'preparing to create log file (debug mode={debugmode})')
 
     # PILOT_HOME is the launch directory of the pilot (or the one specified in pilot options as pilot workdir)
     pilot_home = os.environ.get('PILOT_HOME', os.getcwd())
@@ -764,7 +793,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     os.rename(workdir, newworkdir)
     workdir = newworkdir
 
-    fullpath = os.path.join(workdir, logfile_name)  # /some/path/to/dirname/log.tgz
+    fullpath = os.path.join(current_dir, logfile_name)  # /some/path/to/dirname/log.tgz
     logger.info('will create archive %s', fullpath)
     try:
         cmd = "pwd;tar cvfz %s %s --dereference --one-file-system; echo $?" % (fullpath, tarball_name)
@@ -778,7 +807,13 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     try:
         os.rename(workdir, orgworkdir)
     except Exception as error:
-        logger.debug('exception caught: %s', error)
+        logger.debug('exception caught when renaming workdir: %s', error)
+
+    # final step, copy the log file into the workdir - otherwise containerized stage-out won't work
+    try:
+        copy(fullpath, orgworkdir)
+    except (NoSuchFile, FileHandlingFailure) as exc:
+        logger.warning(f'caught exception when copying tarball: {exc}')
 
 
 def _do_stageout(job, xdata, activity, queue, title, output_dir=''):

@@ -153,7 +153,7 @@ def get_args():
                             choices=['generic', 'generic_hpc',
                                      'production', 'production_hpc',
                                      'analysis', 'analysis_hpc',
-                                     'eventservice_hpc', 'stagein', 'payload_stageout'],
+                                     'eventservice_hpc', 'stager', 'payload_stageout'],
                             help='Pilot workflow (default: generic)')
 
     # graciously stop pilot process after hard limit
@@ -342,6 +342,10 @@ def get_args():
                             dest='input_dir',
                             default='',
                             help='Input directory')
+    arg_parser.add_argument('--input-destination-dir',
+                            dest='input_destination_dir',
+                            default='',
+                            help='Input destination directory')
     arg_parser.add_argument('--output-dir',
                             dest='output_dir',
                             default='',

@@ -12,14 +12,18 @@ from __future__ import print_function  # Python 2, 2to3 complains about this
 import functools
 import signal
 import threading
+import traceback
 import queue
+from os import getpid
 from time import time
 from sys import stderr
 from collections import namedtuple
+from shutil import rmtree
 
 from pilot.common.exception import ExcThread
 from pilot.control import job, data, monitor
-from pilot.util.constants import SUCCESS, PILOT_KILL_SIGNAL
+from pilot.util.constants import SUCCESS, PILOT_KILL_SIGNAL, MAX_KILL_WAIT_TIME
+from pilot.util.processes import kill_processes, threads_aborted
 from pilot.util.timing import add_to_pilot_timing
 
 import logging
@@ -39,16 +43,34 @@ def interrupt(args, signum, frame):
     """
 
     sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
+    args.signal_counter += 1
+
+    # keep track of when first kill signal arrived, any stuck loops should abort at a defined cut off time
+    if args.kill_time == 0:
+        args.kill_time = int(time())
+
+    max_kill_wait_time = MAX_KILL_WAIT_TIME + 60  # add another minute of grace to let threads finish
+    current_time = int(time())
+    if args.kill_time and current_time - args.kill_time > max_kill_wait_time:
+        logger.warning('passed maximum waiting time after first kill signal - will commit suicide - farewell')
+        try:
+            rmtree(args.sourcedir)
+        except Exception as e:
+            logger.warning(e)
+        logging.shutdown()
+        kill_processes(getpid())
+
     add_to_pilot_timing('0', PILOT_KILL_SIGNAL, time(), args)
     add_to_pilot_timing('1', PILOT_KILL_SIGNAL, time(), args)
-    logger.warning(f'caught signal: {sig}')
+    logger.warning('caught signal: %s in FRAME=\n%s', sig, '\n'.join(traceback.format_stack(frame)))
+
     args.signal = sig
     logger.warning('will instruct threads to abort and update the server')
     args.abort_job.set()
+    logger.warning('setting graceful stop (in case it was not set already)')
+    args.graceful_stop.set()
     logger.warning('waiting for threads to finish')
     args.job_aborted.wait()
-    logger.warning('setting graceful stop (in case it was not set already), pilot will abort')
-    args.graceful_stop.set()
 
 
 def run(args):
@@ -110,6 +132,7 @@ def run(args):
 
     logger.info('waiting for interrupts')
 
+    thread_count = threading.activeCount()
     while threading.activeCount() > 1:
         for thread in threads:
             bucket = thread.get_bucket()
@@ -124,6 +147,13 @@ def run(args):
 
             thread.join(0.1)
 
-    logger.info(f"end of stage-in workflow (traces error code: {traces.pilot['error_code']})")
+        abort = False
+        if thread_count != threading.activeCount():
+            # has all threads finished?
+            abort = threads_aborted(abort_at=1)
+            if abort:
+                break
+
+    logger.info(f"end of stager workflow (traces error code: {traces.pilot['error_code']})")
 
     return traces

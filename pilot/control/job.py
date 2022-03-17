@@ -1923,9 +1923,16 @@ def dump_job_definition(res):
         res['secrets'] = '********'
     else:
         _pandasecrets = ''
+    if 'pilotSecrets' in res:
+        _pilotsecrets = res['pilotSecrets']
+        res['pilotSecrets'] = '********'
+    else:
+        _pilotsecrets = ''
     logger.info(f'job definition = {res}')
     if _pandasecrets:
         res['secrets'] = _pandasecrets
+    if _pilotsecrets:
+        res['pilotSecrets'] = _pilotsecrets
 
 
 def print_node_info():
@@ -2223,18 +2230,17 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             # we can now stop monitoring this job, so remove it from the monitored_payloads queue and add it to the
             # completed_jobs queue which will tell retrieve() that it can download another job
             try:
-                _job = queues.monitored_payloads.get(block=True, timeout=1)
+                _job = queues.monitored_payloads.get(block=True, timeout=1) if args.workflow != 'stager' else None
             except queue.Empty:
                 logger.warning('failed to dequeue job: queue is empty (did job fail before job monitor started?)')
                 make_job_report(job)
             else:
-                logger.debug('job %s was dequeued from the monitored payloads queue', _job.jobid)
                 # now ready for the next job (or quit)
                 put_in_queue(job.jobid, queues.completed_jobids)
 
                 put_in_queue(job, queues.completed_jobs)
-                del _job
-                logger.debug('tmp job object deleted')
+                if _job:
+                    del _job
 
         if abort_thread:
             break
@@ -2559,7 +2565,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
             time.sleep(60)
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
-        jobs = queues.monitored_payloads.queue
+        jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
         if jobs:
             # update the peeking time
             peeking_time = int(time.time())
@@ -2615,7 +2621,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
             logger.info('job monitoring is waiting for stage-in to finish')
         else:
             # check the waiting time in the job monitor. set global graceful_stop if necessary
-            check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
+            if args.workflow != 'stager':
+                check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
 
         n += 1
 
