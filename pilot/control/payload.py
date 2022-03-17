@@ -414,6 +414,15 @@ def run_realtimelog(queues, traces, args):
         except queue.Empty:
             continue
 
+        # wait with proceeding until the job is running, or max 5 * 60 s
+        counter = 0
+        while counter < 5 * 60 and not args.graceful_stop.is_set():
+            if job.state == 'running':
+                logger.debug('job is running, time to start real-time logger [if needed]')
+                break
+            time.sleep(1)
+            counter += 1
+
         if args.use_realtime_logging:
             # always do real-time logging
             job.realtimelogging = True
@@ -422,7 +431,7 @@ def run_realtimelog(queues, traces, args):
         logger.debug(f'debug={job.debug}')
         logger.debug(f'debug_command={job.debug_command}')
         logger.debug(f'args.use_realtime_logging={args.use_realtime_logging}')
-        if job.debug and not job.debug_command and not args.use_realtime_logging:
+        if job.debug and (not job.debug_command or job.debug_command == 'debug') and not args.use_realtime_logging:
             logger.info('turning on real-time logging since debug flag is true and debug_command is not set')
             job.realtimelogging = True
 
@@ -436,10 +445,10 @@ def run_realtimelog(queues, traces, args):
                                     job.infosys.queuedata.catchall,
                                     args.realtime_logname,
                                     args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
-        # logger.debug(f'info_dic={info_dic}')
+        logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
-            realtime_logger = get_realtime_logger(args, info_dic)
+            realtime_logger = get_realtime_logger(args, info_dic, job.workdir, job.pilotsecrets)
         else:
             logger.debug('real-time logging not needed at this point')
             realtime_logger = None

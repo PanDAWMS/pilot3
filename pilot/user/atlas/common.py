@@ -171,7 +171,7 @@ def open_remote_files(indata, workdir, nthreads):
 
     exitcode = 0
     diagnostics = ""
-    not_opened = ""
+    not_opened = []
 
     # extract direct i/o files from indata (string of comma-separated turls)
     turls = extract_turls(indata)
@@ -222,14 +222,14 @@ def open_remote_files(indata, workdir, nthreads):
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
-            logger.debug('remote file open finished with ec=%d', exitcode)
+            logger.info('remote file open finished with ec=%d', exitcode)
 
             # error handling
             if exitcode:
                 logger.warning('script %s finished with ec=%d', script, exitcode)
 
                 # note: ignore any time-out errors if the remote files could still be opened
-                _exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
+                _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
                 if not _exitcode:
                     logger.info('ignoring time-out error since remote file could still be opened')
                     exitcode = 0
@@ -238,7 +238,7 @@ def open_remote_files(indata, workdir, nthreads):
                 if exitcode == errors.COMMANDTIMEDOUT:
                     exitcode = errors.REMOTEFILEOPENTIMEDOUT
             else:
-                exitcode, diagnostics = parse_remotefileverification_dictionary(workdir)
+                exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
 
@@ -256,7 +256,7 @@ def parse_remotefileverification_dictionary(workdir):
 
     exitcode = 0
     diagnostics = ""
-    not_opened = ""
+    not_opened = []
 
     dictionary_path = os.path.join(
         workdir,
@@ -272,15 +272,15 @@ def parse_remotefileverification_dictionary(workdir):
             opened = file_dictionary[turl]
             if not opened:
                 logger.info('turl could not be opened: %s', turl)
-                not_opened += turl if not not_opened else ",%s" % turl
+                not_opened.append(turl)
             else:
                 logger.info('turl could be opened: %s', turl)
 
     if not_opened:
         exitcode = errors.REMOTEFILECOULDNOTBEOPENED
-        diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+        diagnostics = f"Remote file(s) could not be opened: {not_opened}"
 
-    return exitcode, diagnostics
+    return exitcode, diagnostics, not_opened
 
 
 def get_file_open_command(script_path, turls, nthreads):
@@ -408,7 +408,7 @@ def get_payload_command(job):
     if config.Pilot.remotefileverification_log and 'remoteio_test=false' not in catchall:
         exitcode = 0
         diagnostics = ""
-        not_opened_turls = ""
+
         try:
             logger.debug('executing open_remote_files()')
             exitcode, diagnostics, not_opened_turls = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))

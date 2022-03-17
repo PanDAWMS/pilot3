@@ -128,17 +128,20 @@ def copy_in(files, **kwargs):
         #    if ddm_special_setup:
         #        cmd += [ddm_special_setup]
 
+        # temporary hack
+        rses_option = '--rses' if is_new_rucio_version() else '--rse'
+
         dst = fspec.workdir or kwargs.get('workdir') or '.'
         cmd += ['/usr/bin/env', 'rucio', '-v', 'download', '--no-subdir', '--dir', dst]
         if require_replicas:
-            cmd += ['--rses', fspec.replicas[0]['ddmendpoint']]
+            cmd += [rses_option, fspec.replicas[0]['ddmendpoint']]
 
         # a copytool module should consider fspec.turl for transfers, and could failback to fspec.surl,
         # but normally fspec.turl (transfer url) is mandatory and already populated by the top workflow
         turl = fspec.turl or fspec.surl
         if turl:
             if fspec.ddmendpoint:
-                cmd.extend(['--rses', fspec.ddmendpoint])
+                cmd.extend([rses_option, fspec.ddmendpoint])
             cmd.extend(['--pfn', turl])
         cmd += ['%s:%s' % (fspec.scope, fspec.lfn)]
 
@@ -154,6 +157,15 @@ def copy_in(files, **kwargs):
         fspec.status = 'transferred'
 
     return files
+
+
+def is_new_rucio_version():
+    """
+
+    """
+
+    _, stdout, _ = execute('rucio download -h')
+    return True if '--rses RSES' in stdout else False
 
 
 def copy_out(files, **kwargs):
