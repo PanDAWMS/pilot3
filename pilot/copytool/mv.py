@@ -7,7 +7,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - David Cameron, david.cameron@cern.ch, 2018-2019
+# - David Cameron, david.cameron@cern.ch, 2018-2022
 
 import os
 import re
@@ -22,15 +22,10 @@ require_replicas = False  # indicate if given copytool requires input replicas t
 check_availablespace = False  # indicate whether space check should be applied before stage-in transfers using given copytool
 
 
-def create_output_list(files, init_dir, ddmconf):
+def create_output_list(files, init_dir):
     """
     Add files to the output list which tells ARC CE which files to upload
     """
-
-    if not ddmconf:
-        raise PilotException("copy_out() failed to resolve ddmconf from function arguments",
-                             code=ErrorCodes.STAGEOUTFAILED,
-                             state='COPY_ERROR')
 
     for fspec in files:
         arcturl = fspec.turl
@@ -45,12 +40,6 @@ def create_output_list(files, init_dir, ddmconf):
         else:
             # Add ARC options to TURL
             checksumtype, checksum = list(fspec.checksum.items())[0]  # Python 2/3
-            # resolve token value from fspec.ddmendpoint
-            token = ddmconf.get(fspec.ddmendpoint).token
-            if not token:
-                logger.info('No space token info for %s', fspec.ddmendpoint)
-            else:
-                arcturl = re.sub(r'((:\d+)/)', r'\2;autodir=no;spacetoken=%s/' % token, arcturl)
             arcturl += ':checksumtype=%s:checksumvalue=%s' % (checksumtype, checksum)
 
         logger.info('Adding to output.list: %s %s', fspec.lfn, arcturl)
@@ -127,7 +116,7 @@ def copy_out(files, copy_type="mv", **kwargs):
     logger.debug('init_dir for output.list=%s', os.path.dirname(kwargs.get('workdir')))
     output_dir = kwargs.get('output_dir', '')
     if not output_dir:
-        create_output_list(files, os.path.dirname(kwargs.get('workdir')), kwargs.get('ddmconf', None))
+        create_output_list(files, os.path.dirname(kwargs.get('workdir')))
 
     return files
 
