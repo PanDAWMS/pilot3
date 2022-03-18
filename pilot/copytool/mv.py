@@ -12,7 +12,7 @@
 import os
 import re
 
-from pilot.common.exception import StageInFailure, StageOutFailure, ErrorCodes, PilotException
+from pilot.common.exception import StageInFailure, StageOutFailure, ErrorCodes
 from pilot.util.container import execute
 
 import logging
