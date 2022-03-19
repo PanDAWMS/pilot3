@@ -18,13 +18,14 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.util.auxiliary import set_pilot_state, show_memory_usage
 from pilot.util.config import config
+from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
 from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
 from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes
-from pilot.util.timing import get_time_since_start
+from pilot.util.timing import get_time_since_start, get_time_since
 from pilot.util.workernode import get_local_disk_space, check_hz
 
 import logging
@@ -292,11 +293,11 @@ def verify_looping_job(current_time, mt, job, args):
         logger.debug('looping check not desired')
         return 0, ""
 
-    time_since_start = int(get_time_since_start(args))
+    time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
     looping_verification_time = convert_to_int(config.Pilot.looping_verification_time, default=600)
     if time_since_start < looping_verification_time:
-        logger.debug(f'no point in running looping job algorithm since time_since_start={time_since_start} s < '
-                     f'looping_verification_time={looping_verification_time} s')
+        logger.debug(f'no point in running looping job algorithm since time since last payload start={time_since_start} s < '
+                     f'looping verification time={looping_verification_time} s')
         return 0, ""
 
     if current_time - mt.get('ct_looping') > looping_verification_time:
