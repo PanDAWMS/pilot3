@@ -36,15 +36,16 @@ def add_core_count(corecount, core_counts=[]):
     return core_counts.append(corecount)
 
 
-def set_core_counts(job):
+def set_core_counts(**kwargs):
     """
     Set the number of used cores.
 
-    :param job: job object.
+    :param kwargs: kwargs (dictionary).
     :return:
     """
 
-    if job.pgrp:
+    job = kwargs.get('job', None)
+    if job and job.pgrp:
         cmd = "ps axo pgid,psr | sort | grep %d | uniq | awk '{print $1}' | grep -x %d | wc -l" % (job.pgrp, job.pgrp)
         exit_code, stdout, stderr = execute(cmd, mute=True)
         logger.debug('%s: %s' % (cmd, stdout))

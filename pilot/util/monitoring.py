@@ -68,7 +68,8 @@ def job_monitor_tasks(job, mt, args):
             logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
 
         # check how many cores the payload is using
-        set_number_used_cores(job)
+        time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
+        set_number_used_cores(job, time_since_start)
 
         # check memory usage (optional) for jobs in running state
         exit_code, diagnostics = verify_memory_usage(current_time, mt, job)
@@ -171,18 +172,24 @@ def get_exception_error_code(diagnostics):
     return exit_code
 
 
-def set_number_used_cores(job):
+def set_number_used_cores(job, walltime):
     """
     Set the number of cores used by the payload.
     The number of actual used cores is reported with job metrics (if set).
+    The walltime can be used to estimate the number of used cores in combination with memory monitor output,
+    (utime+stime)/walltime. If memory momitor information is not available, a ps command is used (not reliable for
+    multi-core jobs).
 
     :param job: job object.
+    :param walltime: wall time for payload in seconds (int).
     :return:
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     cpu = __import__('pilot.user.%s.cpu' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-    cpu.set_core_counts(job)
+
+    kwargs = {'job': job, 'walltime': walltime}
+    cpu.set_core_counts(**kwargs)
 
 
 def verify_memory_usage(current_time, mt, job):
