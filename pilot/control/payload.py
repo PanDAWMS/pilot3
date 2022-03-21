@@ -22,7 +22,7 @@ from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
-from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file
+from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file, find_file
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
@@ -321,14 +321,19 @@ def get_transport(catchall):
     return transport
 
 
-def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_logging_server):
+def get_logging_info(realtimelogging, debug_command, workdir, catchall, realtime_logname, realtime_logging_server):
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
     Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
 
+    If the provided debug_command contains a tail instruction ('tail log_file_name'), the pilot will locate
+    the log file and use that for RT logging (full path).
+
     Note: the returned dictionary can be built with either args (has priority) or catchall info.
 
     :param realtimelogging: True if real-time logging was activated by server/job definition (Boolean).
+    :param debug_command: debug command (string).
+    :param workdir: working directory for file searches (string).
     :param catchall: PQ.catchall field (string).
     :param realtime_logname from pilot args: (string).
     :param realtime_logging_server from pilot args: (string).
@@ -363,10 +368,12 @@ def get_logging_info(realtimelogging, catchall, realtime_logname, realtime_loggi
             print(f'exception caught: {exc}')
             info_dic = {}
         else:
-            # experiment specific, move to relevant code
-
-            # ATLAS (testing; get info from debug parameter later)
-            info_dic['logfiles'] = [config.Payload.payloadstdout]
+            path = None
+            if 'tail' in debug_command:
+                filename = debug_command.split(' ')[-1]
+                path = find_file(filename, workdir)
+            logf = path if path else config.Payload.payloadstdout
+            info_dic['logfiles'] = [logf]
     else:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
@@ -431,8 +438,8 @@ def run_realtimelog(queues, traces, args):
         logger.debug(f'debug={job.debug}')
         logger.debug(f'debug_command={job.debug_command}')
         logger.debug(f'args.use_realtime_logging={args.use_realtime_logging}')
-        if job.debug and (not job.debug_command or job.debug_command == 'debug') and not args.use_realtime_logging:
-            logger.info('turning on real-time logging since debug flag is true and debug_command is not set')
+        if job.debug and (not job.debug_command or job.debug_command == 'debug' or 'tail' in job.debug_command) and not args.use_realtime_logging:
+            logger.info('turning on real-time logging')
             job.realtimelogging = True
 
         # testing
@@ -442,6 +449,8 @@ def run_realtimelog(queues, traces, args):
             info_dic = None
         # only set info_dic once per job (the info will not change)
         info_dic = get_logging_info(job.realtimelogging,
+                                    job.debug_command,
+                                    job.workdir,
                                     job.infosys.queuedata.catchall,
                                     args.realtime_logname,
                                     args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
