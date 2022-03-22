@@ -1463,6 +1463,8 @@ def getjob_server_command(url, port):
         url = 'https://' + url
         logger.warning('detected missing protocol in server url (added)')
 
+    # randomize server name
+    url = https.get_panda_server(url, port)
     return '{pandaserver}/server/panda/getJob'.format(pandaserver=url)
 
 

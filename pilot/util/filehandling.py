@@ -1181,8 +1181,11 @@ def find_file(filename, startdir):
     :return: full path (string).
     """
 
+    logger.debug(f'looking for {filename} in start dir {startdir}')
+    _path = None
     for path in Path(startdir).rglob(filename):
         logger.debug(f'located file at: {path}')
+        _path = path
         break
 
-    return path
+    return _path

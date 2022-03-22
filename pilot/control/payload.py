@@ -371,7 +371,9 @@ def get_logging_info(realtimelogging, debug_command, workdir, catchall, realtime
             path = None
             if 'tail' in debug_command:
                 filename = debug_command.split(' ')[-1]
+                logger.debug(f'filename={filename}')
                 path = find_file(filename, workdir)
+                logger.debug(f'path={path}')
             logf = path if path else config.Payload.payloadstdout
             info_dic['logfiles'] = [logf]
     else:
