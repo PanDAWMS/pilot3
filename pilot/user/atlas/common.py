@@ -1905,7 +1905,7 @@ def get_redundants():
                 "home",
                 "o..pacman..o",
                 "pacman-*",
-                "python",
+                "python*",
                 "runAthena*",
                 "share",
                 "sources.*",
@@ -1946,10 +1946,15 @@ def get_redundants():
                 "merged_lhef._0.events-new",
                 "panda_secrets.json",
                 "singularity/*",
+                "apptainer/*",
                 "/cores",
+                "/panda_pilot*",
                 "/work",
+                "README*",
+                "MANIFEST*",
                 "*.part*",
                 "docs/",
+                "/venv/",
                 "/pilot3"]
 
     return dir_list
