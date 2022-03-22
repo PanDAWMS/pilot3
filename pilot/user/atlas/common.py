@@ -1940,6 +1940,7 @@ def get_redundants():
                 "pandawnutil/*",
                 "src/*",
                 "singularity_cachedir",
+                "apptainer_cachedir",
                 "_joproxy15",
                 "HAHM_*",
                 "Process",
