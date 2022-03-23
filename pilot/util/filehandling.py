@@ -1185,7 +1185,7 @@ def find_file(filename, startdir):
     _path = None
     for path in Path(startdir).rglob(filename):
         logger.debug(f'located file at: {path}')
-        _path = path
+        _path = path.as_posix()
         break
 
     return _path

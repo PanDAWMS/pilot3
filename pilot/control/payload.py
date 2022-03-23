@@ -321,7 +321,7 @@ def get_transport(catchall):
     return transport
 
 
-def get_logging_info(realtimelogging, debug_command, workdir, catchall, realtime_logname, realtime_logging_server):
+def get_logging_info(job, args):
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
     Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
@@ -331,28 +331,22 @@ def get_logging_info(realtimelogging, debug_command, workdir, catchall, realtime
 
     Note: the returned dictionary can be built with either args (has priority) or catchall info.
 
-    :param realtimelogging: True if real-time logging was activated by server/job definition (Boolean).
-    :param debug_command: debug command (string).
-    :param workdir: working directory for file searches (string).
-    :param catchall: PQ.catchall field (string).
-    :param realtime_logname from pilot args: (string).
-    :param realtime_logging_server from pilot args: (string).
+    :param job: job object.
+    :param args: args object.
     :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
     """
 
     info_dic = {}
 
-    if 'logging=' not in catchall and not realtimelogging:
-        #logger.debug(f'catchall={catchall}')
-        #logger.debug(f'realtimelogging={realtimelogging}')
+    if 'logging=' not in job.infosys.queuedata.catchall and not job.realtimelogging:
         return {}
 
     # args handling
-    info_dic['logname'] = realtime_logname if realtime_logname else "pilot-log"
-    logserver = realtime_logging_server if realtime_logging_server else ""
+    info_dic['logname'] = args.realtime_logname if args.realtime_logname else "pilot-log"
+    logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
     pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
-    info = findall(pattern, catchall)
+    info = findall(pattern, job.infosys.queuedata.catchall)
 
     if not logserver and not info:
         logger.warning('not enough info available for activating real-time logging')
@@ -369,12 +363,24 @@ def get_logging_info(realtimelogging, debug_command, workdir, catchall, realtime
             info_dic = {}
         else:
             path = None
-            if 'tail' in debug_command:
-                filename = debug_command.split(' ')[-1]
+            if 'tail' in job.debug_command:
+                filename = job.debug_command.split(' ')[-1]
                 logger.debug(f'filename={filename}')
-                path = find_file(filename, workdir)
-                logger.debug(f'path={path}')
+                counter = 0
+                path = None
+                maxwait = 5 * 60
+                while counter < maxwait and not args.graceful_stop.is_set():
+                    path = find_file(filename, job.workdir)
+                    if not path:
+                        logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
+                        time.sleep(10)
+                    else:
+                        break
+                    counter += 10
+                if not path:
+                    logger.warning(f'file {filename} was not found for {maxwait} s, using default')
             logf = path if path else config.Payload.payloadstdout
+            logger.info(f'using {logf} for real-time logging')
             info_dic['logfiles'] = [logf]
     else:
         items = logserver.split(':')
@@ -423,14 +429,15 @@ def run_realtimelog(queues, traces, args):
         except queue.Empty:
             continue
 
-        # wait with proceeding until the job is running, or max 5 * 60 s
-        counter = 0
-        while counter < 5 * 60 and not args.graceful_stop.is_set():
+        # wait with proceeding until the job is running
+        while not args.graceful_stop.is_set():
             if job.state == 'running':
                 logger.debug('job is running, time to start real-time logger [if needed]')
                 break
+            if job.state == 'stageout' or job.state == 'failed':
+                logger.debug(f'job is in state {job.state}, continue to next job')
+                continue
             time.sleep(1)
-            counter += 1
 
         if args.use_realtime_logging:
             # always do real-time logging
@@ -450,12 +457,7 @@ def run_realtimelog(queues, traces, args):
         if not job.realtimelogging:
             info_dic = None
         # only set info_dic once per job (the info will not change)
-        info_dic = get_logging_info(job.realtimelogging,
-                                    job.debug_command,
-                                    job.workdir,
-                                    job.infosys.queuedata.catchall,
-                                    args.realtime_logname,
-                                    args.realtime_logging_server) if not info_dic and job.realtimelogging else info_dic
+        info_dic = get_logging_info(job, args) if not info_dic and job.realtimelogging else info_dic
         logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
