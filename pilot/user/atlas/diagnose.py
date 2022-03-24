@@ -610,7 +610,7 @@ def process_job_report(job):
                     job.piloterrordiag = diagnostics
                 else:
                     # extract Frontier errors
-                    errmsg = get_more_details(job.metadata)
+                    errmsg = get_frontier_details(job.metadata)
                     if errmsg:
                         msg = f'Frontier error: {errmsg}'
                         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.FRONTIER, msg=msg)
@@ -634,7 +634,7 @@ def process_job_report(job):
                     job.piloterrordiag = diagnostics
 
 
-def get_more_details(job_report_dictionary):
+def get_frontier_details(job_report_dictionary):
     """
     Extract special Frontier related errors from the job report.
 
@@ -642,7 +642,12 @@ def get_more_details(job_report_dictionary):
     :return: extracted error message (string).
     """
 
-    error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
+    try:
+        error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
+    except KeyError as exc:
+        logger.warning(f'key error: {exc} (ignore detailed Frontier analysis)')
+        return ""
+
     patterns = {'abnormalLines': r'Cannot\sfind\sa\svalid\sfrontier\sconnection(.*)',
                 'lastNormalLine': r'Using\sfrontier\sconnection\sfrontier(.*)'}
     errmsg = ''

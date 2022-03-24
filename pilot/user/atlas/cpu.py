@@ -12,7 +12,7 @@ import logging
 
 # from .utilities import get_memory_values
 from pilot.util.container import execute
-
+from .utilities import get_memory_values
 logger = logging.getLogger(__name__)
 
 
@@ -60,11 +60,11 @@ def add_core_count(corecount, core_counts=[]):
     return core_counts
 
 
-def set_core_counts(job):
+def set_core_counts(**kwargs):
     """
     Set the number of used cores.
 
-    :param job: job object.
+    :param kwargs: kwargs (dictionary).
     :return:
     """
 
@@ -86,12 +86,32 @@ def set_core_counts(job):
     #else:
     #    logger.debug('no summary_dictionary')
 
-    if job.pgrp:
-        # for debugging
-        #cmd = "ps axo pgid,psr,comm,args | grep %d" % job.pgrp
-        #exit_code, stdout, stderr = execute(cmd, mute=True)
-        #logger.debug('%s:\n%s\n', cmd, stdout)
+    job = kwargs.get('job', None)
+    walltime = kwargs.get('walltime', None)
 
+    if job and walltime:
+        summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+        if summary_dictionary:
+            time_dictionary = summary_dictionary.get('Time', None)
+            if time_dictionary:
+                stime = time_dictionary.get('stime', None)
+                utime = time_dictionary.get('utime', None)
+                if stime and utime:
+                    logger.debug(f'stime={stime}')
+                    logger.debug(f'utime={utime}')
+                    logger.debug(f'walltime={walltime}')
+                    cores = float(stime + utime) / float(walltime)
+                    logger.debug(f'number of cores={cores}')
+                else:
+                    logger.debug('no stime/utime')
+            else:
+                logger.debug('no time dictionary')
+        else:
+            logger.debug('no summary dictionary')
+    else:
+        logger.debug(f'failed to calculate number of cores (walltime={walltime})')
+
+    if job and job.pgrp:
         # ps axo pgid,psr -> 154628   8 \n 154628   9 \n 1546280 1 ..
         # sort is redundant; uniq removes any duplicate lines; wc -l gives the final count
         # awk is added to get the pgrp list only and then grep -x makes sure that false positives are removed, e.g. 1546280

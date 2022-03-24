@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping
 from glob import glob
 from json import load, JSONDecodeError
 from json import dump as dumpjson
+from pathlib import Path
 from shutil import copy2, rmtree
 from zlib import adler32
 from functools import partial
@@ -1169,3 +1170,22 @@ def extract_lines_from_file(pattern, filename):
         logger.warning(f'exception caught opening file: {exc}')
 
     return _lines
+
+
+def find_file(filename, startdir):
+    """
+    Locate a file in a subdirectory to the given start directory.
+
+    :param filename: file name (string).
+    :param startdir: start directory for search (string).
+    :return: full path (string).
+    """
+
+    logger.debug(f'looking for {filename} in start dir {startdir}')
+    _path = None
+    for path in Path(startdir).rglob(filename):
+        logger.debug(f'located file at: {path}')
+        _path = path.as_posix()
+        break
+
+    return _path

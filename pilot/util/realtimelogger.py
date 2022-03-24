@@ -129,7 +129,11 @@ class RealTimeLogger(Logger):
                 #    cert=(crt, key)
                 #)
 
+                #logger.debug("{secrets.get('logstash_login', 'unknown_login')}:{secrets.get('logstash_password', 'unknown_password'}")
                 # login+password method:
+                if isinstance(secrets, str):
+                    secrets = json.loads(secrets)
+
                 transport = HttpTransport(
                     server,
                     port,
@@ -178,7 +182,7 @@ class RealTimeLogger(Logger):
             logobj.update(msg)
         except Exception:
             logobj["message"] = msg
-        # logger.debug(f'message: {msg}')
+
         self.info(logobj)
 
     def add_logfiles(self, job_or_filenames, reset=True):
@@ -235,7 +239,7 @@ class RealTimeLogger(Logger):
                                 self.openfiles[logfile] = openfile
                                 logger.debug(f'opened logfile: {logfile}')
 
-                # logger.debug(f'real-time logging: sending logs for state={job.state} [1]')
+                logger.debug(f'real-time logging: sending logs for state={job.state} [1]')
                 self.send_loginfiles()
             elif job.state == 'stagein' or job.state == 'stageout':
                 logger.debug('no real-time logging during stage-in/out')

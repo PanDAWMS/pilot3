@@ -477,6 +477,12 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
         logger.info('faking a \'tobekilled\' command')
         res['command'] = 'tobekilled'
 
+    if 'pilotSecrets' in res:
+        try:
+            job.pilotsecrets = res.get('pilotSecrets')
+        except Exception as exc:
+            logger.warning(f'failed to parse pilotSecrets: {exc}')
+
     if 'command' in res and res.get('command') != 'NULL':
         # warning: server might return comma-separated string, 'debug,tobekilled'
         cmd = res.get('command')
@@ -1463,6 +1469,8 @@ def getjob_server_command(url, port):
         url = 'https://' + url
         logger.warning('detected missing protocol in server url (added)')
 
+    # randomize server name
+    url = https.get_panda_server(url, port)
     return '{pandaserver}/server/panda/getJob'.format(pandaserver=url)
 
 
