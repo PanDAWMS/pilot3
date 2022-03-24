@@ -12,9 +12,9 @@ import logging
 import socket
 import ssl
 
-from requests.auth import HTTPBasicAuth
-import requests
 try:
+    from requests.auth import HTTPBasicAuth
+    import requests
     import pylogbeat
     from logstash_async.utils import ichunked
 except ImportError:
@@ -365,7 +365,12 @@ class HttpTransport(Transport):
         :param events: A list of events
         :type events: list
         """
-        self.__session = requests.Session()
+        try:
+            self.__session = requests.Session()
+        except Exception:
+            logger.warning('no requests module')
+            return
+
         #print(self._cert)
         for batch in self.__batches(events):
             if self._use_logging:

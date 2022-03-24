@@ -18,13 +18,14 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.util.auxiliary import set_pilot_state, show_memory_usage
 from pilot.util.config import config
+from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
 from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
 from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes
-from pilot.util.timing import get_time_since_start
+from pilot.util.timing import get_time_since
 from pilot.util.workernode import get_local_disk_space, check_hz
 
 import logging
@@ -67,7 +68,8 @@ def job_monitor_tasks(job, mt, args):
             logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
 
         # check how many cores the payload is using
-        set_number_used_cores(job)
+        time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
+        set_number_used_cores(job, time_since_start)
 
         # check memory usage (optional) for jobs in running state
         exit_code, diagnostics = verify_memory_usage(current_time, mt, job)
@@ -170,18 +172,24 @@ def get_exception_error_code(diagnostics):
     return exit_code
 
 
-def set_number_used_cores(job):
+def set_number_used_cores(job, walltime):
     """
     Set the number of cores used by the payload.
     The number of actual used cores is reported with job metrics (if set).
+    The walltime can be used to estimate the number of used cores in combination with memory monitor output,
+    (utime+stime)/walltime. If memory momitor information is not available, a ps command is used (not reliable for
+    multi-core jobs).
 
     :param job: job object.
+    :param walltime: wall time for payload in seconds (int).
     :return:
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     cpu = __import__('pilot.user.%s.cpu' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-    cpu.set_core_counts(job)
+
+    kwargs = {'job': job, 'walltime': walltime}
+    cpu.set_core_counts(**kwargs)
 
 
 def verify_memory_usage(current_time, mt, job):
@@ -292,11 +300,11 @@ def verify_looping_job(current_time, mt, job, args):
         logger.debug('looping check not desired')
         return 0, ""
 
-    time_since_start = int(get_time_since_start(args))
+    time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
     looping_verification_time = convert_to_int(config.Pilot.looping_verification_time, default=600)
     if time_since_start < looping_verification_time:
-        logger.debug(f'no point in running looping job algorithm since time_since_start={time_since_start} s < '
-                     f'looping_verification_time={looping_verification_time} s')
+        logger.debug(f'no point in running looping job algorithm since time since last payload start={time_since_start} s < '
+                     f'looping verification time={looping_verification_time} s')
         return 0, ""
 
     if current_time - mt.get('ct_looping') > looping_verification_time:
