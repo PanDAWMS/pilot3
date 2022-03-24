@@ -390,7 +390,7 @@ def send_update(update_function, data, url, port, job=None):
             logger.info(txt)
             # hide sensitive info
             pilotsecrets = ''
-            if 'pilotSecrets' in res:
+            if res and 'pilotSecrets' in res:
                 pilotsecrets = res['pilotSecrets']
                 res['pilotSecrets'] = '********'
             logger.info(f'server responded with: res = {res}')
