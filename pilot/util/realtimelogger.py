@@ -131,6 +131,9 @@ class RealTimeLogger(Logger):
 
                 #logger.debug("{secrets.get('logstash_login', 'unknown_login')}:{secrets.get('logstash_password', 'unknown_password'}")
                 # login+password method:
+                if isinstance(secrets, str):
+                    secrets = json.loads(secrets)
+
                 transport = HttpTransport(
                     server,
                     port,
@@ -179,7 +182,7 @@ class RealTimeLogger(Logger):
             logobj.update(msg)
         except Exception:
             logobj["message"] = msg
-        logger.debug(f'message: {msg}')
+
         self.info(logobj)
 
     def add_logfiles(self, job_or_filenames, reset=True):

@@ -389,10 +389,13 @@ def send_update(update_function, data, url, port, job=None):
                 txt += f' for job {job.jobid}'
             logger.info(txt)
             # hide sensitive info
-            _res = res
+            pilotsecrets = ''
             if 'pilotSecrets' in res:
-                _res['pilotSecrets'] = '********'
-            logger.info(f'server responded with: res = {_res}')
+                pilotsecrets = res['pilotSecrets']
+                res['pilotSecrets'] = '********'
+            logger.info(f'server responded with: res = {res}')
+            if pilotsecrets:
+                res['pilotSecrets'] = pilotsecrets
 
         attempt += 1
     return res
