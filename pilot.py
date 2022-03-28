@@ -252,6 +252,10 @@ def get_args():
                             dest='storagedata_url',
                             default='',
                             help='URL for downloading DDM end points data')
+    arg_parser.add_argument('--rucio-host',
+                            dest='rucio_host',
+                            default='',
+                            help='URL for the Rucio host (optional)')
 
     # Country group
     arg_parser.add_argument('--country-group',
@@ -568,6 +572,7 @@ if __name__ == '__main__':
     # get the args from the arg parser
     args = get_args()
     args.last_heartbeat = time.time()
+    # args.rucio_host = 'https://voatlasrucio-server-prod.cern.ch:443'
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)

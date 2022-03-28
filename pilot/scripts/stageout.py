@@ -136,6 +136,11 @@ def get_args():
                             required=False,
                             default='',
                             help='PQ catchall field')
+    arg_parser.add_argument('--rucio_host',
+                            dest='rucio_host',
+                            required=False,
+                            default='',
+                            help='Optional rucio host')
 
     return arg_parser.parse_args()
 
@@ -323,10 +328,14 @@ if __name__ == '__main__':
 
     client = StageOutClient(infoservice, logger=logger, trace_report=trace_report)
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, job=job, output_dir=args.outputdir,
-                  catchall=args.catchall)  # , mode='stage-out')
+                  catchall=args.catchall, rucio_host=args.rucio_host)  # , mode='stage-out')
 
     xfiles = []
     for lfn, scope, dataset, ddmendpoint, guid in list(zip(lfns, scopes, datasets, ddmendpoints, guids)):
+
+        if 'job.log' in lfn:
+            kwargs['rucio_host'] = ''
+
         files = [{'scope': scope, 'lfn': lfn, 'workdir': args.workdir, 'dataset': dataset, 'ddmendpoint': ddmendpoint,
                   'ddmendpoint_alt': None}]
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects

@@ -183,12 +183,13 @@ def _stage_in(args, job):
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
     if use_container:
-        logger.info('stage-in will be done by a script')
+        logger.info('stage-in will be done in a container')
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
             pilot.util.middleware.containerise_middleware(job, job.indata, args.queue, eventtype, localsite, remotesite,
                                                           job.infosys.queuedata.container_options, args.input_dir,
-                                                          label=label, container_type=job.infosys.queuedata.container_type.get("middleware"))
+                                                          label=label, container_type=job.infosys.queuedata.container_type.get("middleware"),
+                                                          rucio_host=args.rucio_host)
         except PilotException as error:
             logger.warning('stage-in containerisation threw a pilot exception: %s', error)
         except Exception as error:
@@ -212,7 +213,8 @@ def _stage_in(args, job):
             # get the proper input file destination (normally job.workdir unless stager workflow)
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
             kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
-                          input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall, checkinputsize=True)
+                          input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall,
+                          checkinputsize=True, rucio_host=args.rucio_host)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
@@ -816,15 +818,20 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         logger.warning(f'caught exception when copying tarball: {exc}')
 
 
-def _do_stageout(job, xdata, activity, queue, title, output_dir=''):
+def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host=''):
     """
     Use the `StageOutClient` in the Data API to perform stage-out.
+
+    The rucio host is internally set by Rucio via the client config file. This can be set directly as a pilot option
+    --rucio-host.
 
     :param job: job object.
     :param xdata: list of FileSpec objects.
     :param activity: copytool activity or preferred list of activities to resolve copytools
-    :param title: type of stage-out (output, log) (string).
     :param queue: PanDA queue (string).
+    :param title: type of stage-out (output, log) (string).
+    :param output_dir: optional output directory (string).
+    :param rucio_host: optional rucio host (string).
     :return: True in case of success transfers
     """
 
@@ -834,12 +841,14 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir=''):
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
     if use_container:
-        logger.info('stage-out will be done by a script')
+        logger.info('stage-out will be done in a container')
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
             pilot.util.middleware.containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
                                                           job.infosys.queuedata.container_options, output_dir,
-                                                          label=label, container_type=job.infosys.queuedata.container_type.get("middleware"))
+                                                          label=label,
+                                                          container_type=job.infosys.queuedata.container_type.get("middleware"),
+                                                          rucio_host=rucio_host)
         except PilotException as error:
             logger.warning('stage-out containerisation threw a pilot exception: %s', error)
         except Exception as error:
@@ -853,7 +862,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir=''):
 
             client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report)
             kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job, output_dir=output_dir,
-                          catchall=job.infosys.queuedata.catchall)  #, mode='stage-out')
+                          catchall=job.infosys.queuedata.catchall, rucio_host=rucio_host)  #, mode='stage-out')
             # prod analy unification: use destination preferences from PanDA server for unified queues
             if job.infosys.queuedata.type != 'unified':
                 client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
@@ -909,7 +918,7 @@ def _stage_out_new(job, args):
         job.stageout = 'log'
 
     if job.stageout != 'log':  ## do stage-out output files
-        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir):
+        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir, rucio_host=args.rucio_host):
             is_success = False
             logger.warning('transfer of output file(s) failed')
 
@@ -936,7 +945,7 @@ def _stage_out_new(job, args):
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOGFILECREATIONFAILURE)
             return False
 
-        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir):
+        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir, rucio_host=args.rucio_host):
             is_success = False
             logger.warning('log transfer failed')
             job.status['LOG_TRANSFER'] = LOG_TRANSFER_FAILED
