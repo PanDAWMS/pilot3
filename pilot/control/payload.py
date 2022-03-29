@@ -430,34 +430,38 @@ def run_realtimelog(queues, traces, args):
             continue
 
         # wait with proceeding until the job is running
+        abort_loops = False
         while not args.graceful_stop.is_set():
-            if job.state == 'running':
-                logger.debug('job is running, time to start real-time logger [if needed]')
+
+            # note: in multi-job mode, the real-time logging will be switched off at the end of the job
+            while not args.graceful_stop.is_set():
+                if job.state == 'running':
+                    logger.debug('job is running, check if real-time logger is needed')
+                    break
+                if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
+                    logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
+                    time.sleep(10)
+                    continue
+                time.sleep(1)
+
+            if args.use_realtime_logging:
+                # always do real-time logging
+                job.realtimelogging = True
+                job.debug = True
+                abort_loops = True
+            elif job.debug and \
+                    (not job.debug_command or job.debug_command == 'debug' or 'tail' in job.debug_command) and \
+                    not args.use_realtime_logging:
+                job.realtimelogging = True
+                abort_loops = True
+
+            if abort_loops:
+                logger.info('time to start real-time logger')
                 break
-            if job.state == 'stageout' or job.state == 'failed':
-                logger.debug(f'job is in state {job.state}, continue to next job')
-                continue
-            time.sleep(1)
+            time.sleep(10)
 
-        if args.use_realtime_logging:
-            # always do real-time logging
-            job.realtimelogging = True
-            job.debug = True
-
-        logger.debug(f'debug={job.debug}')
-        logger.debug(f'debug_command={job.debug_command}')
-        logger.debug(f'args.use_realtime_logging={args.use_realtime_logging}')
-        if job.debug and (not job.debug_command or job.debug_command == 'debug' or 'tail' in job.debug_command) and not args.use_realtime_logging:
-            logger.info('turning on real-time logging')
-            job.realtimelogging = True
-
-        # testing
-        # job.realtimelogging = True
-        # reset info_dic if real-time logging is not wanted by the job
-        if not job.realtimelogging:
-            info_dic = None
         # only set info_dic once per job (the info will not change)
-        info_dic = get_logging_info(job, args) if not info_dic and job.realtimelogging else info_dic
+        info_dic = get_logging_info(job, args)
         logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
@@ -468,8 +472,8 @@ def run_realtimelog(queues, traces, args):
 
         # If no realtime logger is found, do nothing and exit
         if realtime_logger is None:
-            logger.debug('realtime logger was not found, exiting')
-            break
+            logger.debug('realtime logger was not found, waiting ..')
+            continue
         else:
             logger.debug('realtime logger was found')
 

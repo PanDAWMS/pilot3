@@ -37,6 +37,15 @@ def get_realtime_logger(args=None, info_dic=None, workdir=None, secrets=""):
         RealTimeLogger(args, info_dic, workdir, secrets)
     return RealTimeLogger.glogger
 
+def cleanup():
+    """
+    Clean-up function for external use.
+    """
+
+    logger.debug('attempting real-time logger cleanup')
+    if RealTimeLogger.glogger:
+        RealTimeLogger.glogger.cleanup()
+        logger.debug('real-time logger has been cleaned up')
 
 # RealTimeLogger is called if args.realtimelogger is on
 class RealTimeLogger(Logger):
@@ -50,6 +59,7 @@ class RealTimeLogger(Logger):
     logfiles_default = []
     openfiles = {}
     _cacert = ""
+    current_handler = None  # needed for removing logger object from outside function
 
     def __init__(self, args, info_dic, workdir, secrets, level=INFO):
         """
@@ -129,7 +139,6 @@ class RealTimeLogger(Logger):
                 #    cert=(crt, key)
                 #)
 
-                #logger.debug("{secrets.get('logstash_login', 'unknown_login')}:{secrets.get('logstash_password', 'unknown_password'}")
                 # login+password method:
                 if isinstance(secrets, str):
                     secrets = json.loads(secrets)
@@ -160,9 +169,23 @@ class RealTimeLogger(Logger):
 
         if _handler is not None:
             self.addHandler(_handler)
+            self.current_handler = _handler
         else:
             RealTimeLogger.glogger = None
             del self
+
+    def cleanup(self):
+        """
+        Clean-up.
+        """
+
+        # close open files, if anything is still open
+        self.close_files()
+
+        # remove handler
+        if self.current_handler:
+            logger.debug(f'removing current handler: {self.current_handler}')
+            self.removeHandler(self.current_handler)
 
     def set_jobinfo(self, job):
         self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
@@ -253,7 +276,3 @@ class RealTimeLogger(Logger):
         else:
             self.send_loginfiles()  # send the remaining logs after the job completion
             self.close_files()
-
-# in pilot/control/payload.py
-# define a new function run_realTimeLog(queues, traces, args)
-# add add it into the thread list "targets"
