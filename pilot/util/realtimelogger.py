@@ -187,6 +187,10 @@ class RealTimeLogger(Logger):
             logger.debug(f'removing current handler: {self.current_handler}')
             self.removeHandler(self.current_handler)
 
+        # commit suicide
+        RealTimeLogger.glogger = None
+        del self
+
     def set_jobinfo(self, job):
         self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
         if 'HARVESTER_WORKER_ID' in os.environ:
