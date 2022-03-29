@@ -177,16 +177,24 @@ class ExtInfoProvider(DataLoader):
             cache_dir = os.environ.get('PILOT_HOME', '.')
 
         # list of sources to fetch ddmconf data from
-        _storagedata_url = os.environ.get('QUEUEDATA_SERVER_URL', '')
+        _storagedata_url = os.environ.get('STORAGEDATA_SERVER_URL', '')
         storagedata_url = _storagedata_url if _storagedata_url else getattr(config.Information, 'storages_url', None)
         cvmfs_path = self.get_cvmfs_path(config.Information.storages_cvmfs, 'cric_ddmendpoints.json')
-        sources = {'CVMFS': {'url': cvmfs_path,
-                             'nretry': 1,
-                             'fname': os.path.join(cache_dir, getattr(config.Information, 'storages_cache', None) or 'agis_ddmendpoints.json')},
-                   'CRIC': {'url': storagedata_url,
+        sources = {'USER': {'url': storagedata_url,
                             'nretry': 3,
                             'sleep_time': lambda: 15 + random.randint(0, 30),  ## max sleep time 45 seconds between retries
                             'cache_time': 3 * 60 * 60,  # 3 hours
+                            'fname': os.path.join(cache_dir, 'agis_ddmendpoints.agis.%s.json' %
+                                                  ('_'.join(ddmendpoints) or 'ALL'))},
+                   'CVMFS': {'url': cvmfs_path,
+                             'nretry': 1,
+                             'fname': os.path.join(cache_dir, getattr(config.Information, 'storages_cache', None) or 'agis_ddmendpoints.json')},
+                   'CRIC': {'url': (getattr(config.Information, 'storages_url', None) or 'https://atlas-cric.cern.ch/cache/ddmendpoints.json'),
+                            'nretry': 3,
+                            'sleep_time': lambda: 15 + random.randint(0, 30),
+                            ## max sleep time 45 seconds between retries
+                            'cache_time': 3 * 60 * 60,
+                            # 3 hours
                             'fname': os.path.join(cache_dir, 'agis_ddmendpoints.agis.%s.json' %
                                                   ('_'.join(ddmendpoints) or 'ALL'))},
                    'LOCAL': {'url': None,
@@ -196,7 +204,7 @@ class ExtInfoProvider(DataLoader):
                    'PANDA': None  ## NOT implemented, FIX ME LATER if need
                    }
 
-        priority = priority or ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+        priority = priority or ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
         return self.load_data(sources, priority, cache_time)
 
