@@ -338,15 +338,15 @@ def get_logging_info(job, args):
 
     info_dic = {}
 
-    if 'logging=' not in job.infosys.queuedata.catchall and not job.realtimelogging:
+    if not job.realtimelogging:
         return {}
 
     # args handling
     info_dic['logname'] = args.realtime_logname if args.realtime_logname else "pilot-log"
     logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
-    pattern = r'logging\=(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
-    info = findall(pattern, job.infosys.queuedata.catchall)
+    pattern = r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
+    info = findall(pattern, config.Pilot.rtlogging)
 
     if not logserver and not info:
         logger.warning('not enough info available for activating real-time logging')

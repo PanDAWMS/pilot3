@@ -106,8 +106,6 @@ class RealTimeLogger(Logger):
         _handler = None
 
         try:
-            server = 'aipanda020.cern.ch'
-            port = 8443
             if logtype == "google-cloud-logging":
                 import google.cloud.logging
                 from google.cloud.logging_v2.handlers import CloudLoggingHandler
