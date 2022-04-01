@@ -37,6 +37,7 @@ def get_realtime_logger(args=None, info_dic=None, workdir=None, secrets=""):
         RealTimeLogger(args, info_dic, workdir, secrets)
     return RealTimeLogger.glogger
 
+
 def cleanup():
     """
     Clean-up function for external use.
@@ -46,6 +47,7 @@ def cleanup():
     if RealTimeLogger.glogger:
         RealTimeLogger.glogger.cleanup()
         logger.debug('real-time logger has been cleaned up')
+
 
 # RealTimeLogger is called if args.realtimelogger is on
 class RealTimeLogger(Logger):
