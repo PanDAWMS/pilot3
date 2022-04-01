@@ -434,12 +434,15 @@ def run_realtimelog(queues, traces, args):
         while not args.graceful_stop.is_set():
 
             # note: in multi-job mode, the real-time logging will be switched off at the end of the job
+            first = True
             while not args.graceful_stop.is_set():
                 if job.state == 'running':
                     logger.debug('job is running, check if real-time logger is needed')
                     break
                 if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
-                    logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
+                    if first:
+                        logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
+                        first = False
                     time.sleep(10)
                     continue
                 time.sleep(1)
