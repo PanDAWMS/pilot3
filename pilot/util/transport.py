@@ -14,6 +14,9 @@ import ssl
 
 try:
     from requests.auth import HTTPBasicAuth
+except ImportError:
+    HTTPBasicAuth = None
+try:
     import requests
     import pylogbeat
     from logstash_async.utils import ichunked
@@ -227,7 +230,11 @@ class BeatsTransport:
 
     # ----------------------------------------------------------------------
     def send(self, events, use_logging=False):
-        client = pylogbeat.PyLogBeatClient(use_logging=use_logging, **self._client_arguments)
+        try:
+            client = pylogbeat.PyLogBeatClient(use_logging=use_logging, **self._client_arguments)
+        except Exception as exc:
+            logger.warning(f'caught exception in send(): {exc}')
+            return
         with client:
             for events_subset in ichunked(events, self._batch_size):
                 try:
@@ -343,7 +350,11 @@ class HttpTransport(Transport):
         """
         if self._username is None or self._password is None:
             return None
-        return HTTPBasicAuth(self._username, self._password)
+        try:
+            return HTTPBasicAuth(self._username, self._password)
+        except TypeError as exc:
+            logger.warning(f'failed to execute HTTPBasicAuth: {exc}')
+            return None
 
     def close(self) -> None:
         """Close the HTTP session.

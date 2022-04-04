@@ -169,6 +169,11 @@ def get_args():
                             required=False,
                             default='',
                             help='PQ catchall field')
+    arg_parser.add_argument('--rucio_host',
+                            dest='rucio_host',
+                            required=False,
+                            default='',
+                            help='Optional rucio host')
 
     return arg_parser.parse_args()
 
@@ -413,7 +418,7 @@ if __name__ == '__main__':
         client = StageInClient(infoservice, logger=logger, trace_report=trace_report)
         activity = 'pr'
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, use_pcache=args.usepcache, use_bulk=False,
-                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall)
+                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall, rucio_host=args.rucio_host)
     xfiles = []
     for lfn in replica_dictionary:
         files = [{'scope': replica_dictionary[lfn]['scope'],

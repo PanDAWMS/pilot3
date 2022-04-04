@@ -61,7 +61,7 @@ def containerise_general_command(job, container_options, label='command', contai
 
 
 def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite, container_options, external_dir,
-                            label='stage-in', container_type='container'):
+                            label='stage-in', container_type='container', rucio_host=''):
     """
     Containerise the middleware by performing stage-in/out steps in a script that in turn can be run in a container.
 
@@ -78,8 +78,9 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
     :param remotesite:
     :param container_options: container options from queuedata (string).
     :param external_dir: input or output files directory (string).
-    :param label: optional 'stage-in/out' (String).
-    :param container_type: optional 'container/bash'
+    :param label: optional 'stage-in/out' (string).
+    :param container_type: optional 'container/bash' (string).
+    :param rucio_host: optiona rucio host (string).
     :raises StageInFailure: for stage-in failures
     :raises StageOutFailure: for stage-out failures
     :return:
@@ -91,7 +92,8 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
     script = config.Container.middleware_container_stagein_script if label == 'stage-in' else config.Container.middleware_container_stageout_script
 
     try:
-        cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label, container_type=container_type)
+        cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label,
+                          container_type=container_type, rucio_host=rucio_host)
     except PilotException as exc:
         raise exc
 
@@ -160,7 +162,8 @@ def get_script_path(script):
     return _path
 
 
-def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label='stage-in', container_type='container'):
+def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label='stage-in',
+                container_type='container', rucio_host=''):
     """
     Get the middleware container execution command.
 
@@ -176,6 +179,7 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
     :param external_dir: input or output files directory (string).
     :param label: optional 'stage-[in|out]' (string).
     :param container_type: optional 'container/bash' (string).
+    :param rucio_host: optional rucio host (string).
     :return: stage-in/out command (string).
     :raises PilotException: for stage-in/out related failures
     """
@@ -240,7 +244,8 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
 
     cmd += ' --taskid=%s' % job.taskid
     cmd += ' --jobdefinitionid=%s' % job.jobdefinitionid
-    cmd += ' --catchall=%s' % job.infosys.queuedata.catchall
+    cmd += ' --catchall=\'%s\'' % job.infosys.queuedata.catchall
+    cmd += ' --rucio_host=\'%s\'' % rucio_host
 
     if container_type == 'bash':
         cmd += '\nexit $?'
