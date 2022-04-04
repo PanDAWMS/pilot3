@@ -136,6 +136,11 @@ def get_args():
                             required=False,
                             default='',
                             help='PQ catchall field')
+    arg_parser.add_argument('--rucio_host',
+                            dest='rucio_host',
+                            required=False,
+                            default='',
+                            help='Optional rucio host')
 
     return arg_parser.parse_args()
 
@@ -279,7 +284,7 @@ def extract_error_info(err):
     return error_code, error_message
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # noqa: C901
     """
     Main function of the stage-in script.
     """
@@ -291,10 +296,6 @@ if __name__ == '__main__':
 
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=config.Pilot.stageoutlog)
     logger = logging.getLogger(__name__)
-
-    #ret = verify_args()
-    #if ret:
-    #    exit(ret)
 
     # get the file info
     lfns, scopes, ddmendpoints, datasets, guids = get_file_lists(args.lfns, args.scopes, args.ddmendpoints, args.datasets, args.guids)
@@ -323,10 +324,14 @@ if __name__ == '__main__':
 
     client = StageOutClient(infoservice, logger=logger, trace_report=trace_report)
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, job=job, output_dir=args.outputdir,
-                  catchall=args.catchall)  # , mode='stage-out')
+                  catchall=args.catchall, rucio_host=args.rucio_host)  # , mode='stage-out')
 
     xfiles = []
     for lfn, scope, dataset, ddmendpoint, guid in list(zip(lfns, scopes, datasets, ddmendpoints, guids)):
+
+        if 'job.log' in lfn:
+            kwargs['rucio_host'] = ''
+
         files = [{'scope': scope, 'lfn': lfn, 'workdir': args.workdir, 'dataset': dataset, 'ddmendpoint': ddmendpoint,
                   'ddmendpoint_alt': None}]
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
@@ -335,8 +340,7 @@ if __name__ == '__main__':
 
         # prod analy unification: use destination preferences from PanDA server for unified queues
         if infoservice.queuedata.type != 'unified':
-            client.prepare_destinations(xfiles,
-                                        activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
+            client.prepare_destinations(xfiles, activity)
 
     try:
         r = client.transfer(xfiles, activity=activity, **kwargs)
@@ -349,27 +353,6 @@ if __name__ == '__main__':
         err = str(error)
         errcode = -1
         message(err)
-
-#    for lfn, scope, dataset, ddmendpoint, guid in list(zip(lfns, scopes, datasets, ddmendpoints, guids)):
-#        try:
-#            files = [{'scope': scope, 'lfn': lfn, 'workdir': args.workdir, 'dataset': dataset, 'ddmendpoint': ddmendpoint, 'ddmendpoint_alt': None}]
-#            xfiles = [FileSpec(type='output', **f) for f in files]
-#
-#            # prod analy unification: use destination preferences from PanDA server for unified queues
-#            if infoservice.queuedata.type != 'unified':
-#                client.prepare_destinations(xfiles,
-#                                            activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
-#
-#            r = client.transfer(xfiles, activity=activity, **kwargs)
-#        except PilotException as error:
-#            import traceback
-#            error_msg = traceback.format_exc()
-#            logger.error(error_msg)
-#            err = errors.format_diagnostics(error.get_error_code(), error_msg)
-#        except Exception as error:
-#            err = str(error)
-#            errcode = -1
-#            message(err)
 
     # put file statuses in a dictionary to be written to file
     file_dictionary = {}  # { 'error': [error_diag, -1], 'lfn1': [status, status_code], 'lfn2':.., .. }

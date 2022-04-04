@@ -121,8 +121,6 @@ def wrapper(executable, **kwargs):
     pilot_home = os.environ.get('PILOT_HOME', '')
     job = kwargs.get('job', None)
 
-    logger.info('container wrapper called')
-
     if workdir == '.' and pilot_home != '':
         workdir = pilot_home
 

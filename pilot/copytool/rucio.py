@@ -65,7 +65,7 @@ def copy_in(files, **kwargs):
     ignore_errors = kwargs.get('ignore_errors')
     trace_report = kwargs.get('trace_report')
     use_pcache = kwargs.get('use_pcache')
-    #job = kwargs.get('job')
+    rucio_host = kwargs.get('rucio_host', '')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -95,8 +95,9 @@ def copy_in(files, **kwargs):
         error_msg = ""
         ec = 0
         try:
-            ec, trace_report_out = timeout(ctimeout, timer=TimedThread)(_stage_in_api)(dst, fspec, trace_report, trace_report_out, transfer_timeout, use_pcache)
-            #_stage_in_api(dst, fspec, trace_report, trace_report_out)
+            ec, trace_report_out = timeout(ctimeout, timer=TimedThread)(_stage_in_api)(dst, fspec, trace_report,
+                                                                                       trace_report_out, transfer_timeout,
+                                                                                       use_pcache, rucio_host)
         except Exception as error:
             error_msg = str(error)
             error_details = handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=True)
@@ -213,6 +214,7 @@ def copy_in_bulk(files, **kwargs):
     #allow_direct_access = kwargs.get('allow_direct_access')
     ignore_errors = kwargs.get('ignore_errors')
     trace_common_fields = kwargs.get('trace_report')
+    rucio_host = kwargs.get('rucio_host', '')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -224,7 +226,7 @@ def copy_in_bulk(files, **kwargs):
     try:
         # transfer_timeout = get_timeout(fspec.filesize, add=10)  # give the API a chance to do the time-out first
         # timeout(transfer_timeout)(_stage_in_api)(dst, fspec, trace_report, trace_report_out)
-        _stage_in_bulk(dst, files, trace_report_out, trace_common_fields)
+        _stage_in_bulk(dst, files, trace_report_out, trace_common_fields, rucio_host)
     except Exception as error:
         error_msg = str(error)
         # Fill and sned the traces, if they are not received from Rucio, abortion of the download process
@@ -339,6 +341,7 @@ def copy_out(files, **kwargs):  # noqa: C901
     summary = kwargs.pop('summary', True)
     ignore_errors = kwargs.pop('ignore_errors', False)
     trace_report = kwargs.get('trace_report')
+    rucio_host = kwargs.get('rucio_host', '')
 
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', None)
     for fspec in files:
@@ -363,7 +366,9 @@ def copy_out(files, **kwargs):  # noqa: C901
         error_msg = ""
         ec = 0
         try:
-            ec, trace_report_out = timeout(ctimeout, TimedThread)(_stage_out_api)(fspec, summary_file_path, trace_report, trace_report_out, transfer_timeout)
+            ec, trace_report_out = timeout(ctimeout, TimedThread)(_stage_out_api)(fspec, summary_file_path, trace_report,
+                                                                                  trace_report_out, transfer_timeout,
+                                                                                  rucio_host)
             #_stage_out_api(fspec, summary_file_path, trace_report, trace_report_out)
         except PilotException as error:
             error_msg = str(error)
@@ -439,14 +444,22 @@ def copy_out(files, **kwargs):  # noqa: C901
     return files
 
 
-# stageIn using rucio api.
-def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, use_pcache):
-
+def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, use_pcache, rucio_host):
+    """
+    Stage-in files using the Rucio API.
+    """
     ec = 0
 
     # init. download client
+    from rucio.client import Client
     from rucio.client.downloadclient import DownloadClient
-    download_client = DownloadClient(logger=logger)
+    # for ATLAS: rucio_host = 'https://voatlasrucio-server-prod.cern.ch:443'
+    if rucio_host:
+        logger.debug(f'using rucio_host={rucio_host}')
+        rucio_client = Client(rucio_host=rucio_host)
+        download_client = DownloadClient(client=rucio_client, logger=logger)
+    else:
+        download_client = DownloadClient(logger=logger)
     if use_pcache:
         download_client.check_pcache = True
 
@@ -501,19 +514,27 @@ def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, 
     return ec, trace_report_out
 
 
-def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None):
+def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, rucio_host=''):
     """
     Stage-in files in bulk using the Rucio API.
 
     :param dst: destination (string).
     :param files: list of fspec objects.
-    :param trace_report:
     :param trace_report_out:
+    :param trace_common_fields:
+    :param rucio_host: optional rucio host (string).
     :return:
     """
     # init. download client
+    from rucio.client import Client
     from rucio.client.downloadclient import DownloadClient
-    download_client = DownloadClient(logger=logger)
+    # for ATLAS: rucio_host = 'https://voatlasrucio-server-prod.cern.ch:443'
+    if rucio_host:
+        logger.debug(f'using rucio_host={rucio_host}')
+        rucio_client = Client(rucio_host=rucio_host)
+        download_client = DownloadClient(client=rucio_client, logger=logger)
+    else:
+        download_client = DownloadClient(logger=logger)
 
     # traces are switched off
     if hasattr(download_client, 'tracing'):
@@ -567,13 +588,23 @@ def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None):
         logger.debug('client returned %s', result)
 
 
-def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, transfer_timeout):
+def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, transfer_timeout, rucio_host):
+    """
+    Stage-out files using the Rucio API.
+    """
 
     ec = 0
 
     # init. download client
+    from rucio.client import Client
     from rucio.client.uploadclient import UploadClient
-    upload_client = UploadClient(logger=logger)
+    # for ATLAS: rucio_host = 'https://voatlasrucio-server-prod.cern.ch:443'
+    if rucio_host:
+        logger.debug(f'using rucio_host={rucio_host}')
+        rucio_client = Client(rucio_host=rucio_host)
+        upload_client = UploadClient(client=rucio_client, logger=logger)
+    else:
+        upload_client = UploadClient(logger=logger)
 
     # traces are turned off
     if hasattr(upload_client, 'tracing'):
