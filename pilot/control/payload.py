@@ -362,26 +362,10 @@ def get_logging_info(job, args):
             print(f'exception caught: {exc}')
             info_dic = {}
         else:
-            path = None
-            if 'tail' in job.debug_command:
-                filename = job.debug_command.split(' ')[-1]
-                logger.debug(f'filename={filename}')
-                counter = 0
-                path = None
-                maxwait = 5 * 60
-                while counter < maxwait and not args.graceful_stop.is_set():
-                    path = find_file(filename, job.workdir)
-                    if not path:
-                        logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
-                        time.sleep(10)
-                    else:
-                        break
-                    counter += 10
-                if not path:
-                    logger.warning(f'file {filename} was not found for {maxwait} s, using default')
-            logf = path if path else config.Payload.payloadstdout
-            logger.info(f'using {logf} for real-time logging')
-            info_dic['logfiles'] = [logf]
+            # find the log file to tail
+            path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
+            logger.info(f'using {path} for real-time logging')
+            info_dic['logfiles'] = [path]
     else:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
@@ -407,6 +391,43 @@ def get_logging_info(job, args):
             info_dic['logfiles'] = split('[:,]', logfiles)
 
     return info_dic
+
+
+def find_log_to_tail(debug_command, workdir, args, is_analysis):
+    """
+    Find the log file to tail in the RT logging.
+
+    :param debug_command: requested debug command (string).
+    :param workdir: job working directory (string).
+    :param args: pilot args object.
+    :param is_analysis: True for user jobs (Bool).
+    :return: path to log file (string).
+    """
+
+    path = ""
+    if 'tail' in debug_command:
+        filename = debug_command.split(' ')[-1]
+    elif is_analysis:
+        filename = 'tmp.stdout*'
+
+    logger.debug(f'filename={filename}')
+    counter = 0
+    maxwait = 5 * 60
+    while counter < maxwait and not args.graceful_stop.is_set():
+        path = find_file(filename, workdir)
+        if not path:
+            logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
+            time.sleep(10)
+        else:
+            break
+        counter += 10
+
+    # fallback to known log file if no other file could be found
+    if not path:
+        logger.warning(f'file {filename} was not found for {maxwait} s, using default')
+    logf = path if path else config.Payload.payloadstdout
+
+    return logf
 
 
 def run_realtimelog(queues, traces, args):
