@@ -292,7 +292,7 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=%s -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
 
 
 def extract_turls(indata):

@@ -840,6 +840,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
 
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
+
     if use_container:
         logger.info('stage-out will be done in a container')
         try:
