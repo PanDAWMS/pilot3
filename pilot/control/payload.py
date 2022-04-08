@@ -405,22 +405,24 @@ def find_log_to_tail(debug_command, workdir, args, is_analysis):
     """
 
     path = ""
+    filename = ""
+    counter = 0
+    maxwait = 5 * 60
+
     if 'tail' in debug_command:
         filename = debug_command.split(' ')[-1]
     elif is_analysis:
         filename = 'tmp.stdout*'
-
-    logger.debug(f'filename={filename}')
-    counter = 0
-    maxwait = 5 * 60
-    while counter < maxwait and not args.graceful_stop.is_set():
-        path = find_file(filename, workdir)
-        if not path:
-            logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
-            time.sleep(10)
-        else:
-            break
-        counter += 10
+    if filename:
+        logger.debug(f'filename={filename}')
+        while counter < maxwait and not args.graceful_stop.is_set():
+            path = find_file(filename, workdir)
+            if not path:
+                logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
+                time.sleep(10)
+            else:
+                break
+            counter += 10
 
     # fallback to known log file if no other file could be found
     if not path:
