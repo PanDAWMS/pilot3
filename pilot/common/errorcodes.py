@@ -152,6 +152,7 @@ class ErrorCodes:
     COMMANDTIMEDOUT = 1367
     REMOTEFILEOPENTIMEDOUT = 1368
     FRONTIER = 1369
+    VOMSPROXYABOUTTOEXPIRE = 1370  # note, not a failure but an internal 'error' code used to download a new proxy
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -282,7 +283,8 @@ class ErrorCodes:
         CHECKSUMCALCFAILURE: "Failure during checksum calculation",
         COMMANDTIMEDOUT: "Command timed out",
         REMOTEFILEOPENTIMEDOUT: "Remote file open timed out",
-        FRONTIER: "Frontier error"
+        FRONTIER: "Frontier error",
+        VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

@@ -2591,9 +2591,13 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 if exit_code != 0:
-                    if exit_code == errors.NOVOMSPROXY:
-                        logger.warning('VOMS proxy has expired - keep monitoring job')
-                    elif exit_code == errors.KILLPAYLOAD:
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        #logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
+
+                        # if download fails, replace exit_code with errors.NOVOMSPROXY (otherwise continue monitoring)
+                        exit_code == errors.NOVOMSPROXY
+
+                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
