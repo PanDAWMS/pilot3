@@ -7,10 +7,16 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-from pilot.util.container import execute
-
-import os
 import logging
+import os
+import traceback
+
+from pilot.common.exception import FileHandlingFailure
+from pilot.util import https
+from pilot.util.config import config
+from pilot.util.container import execute
+from pilot.util.filehandling import write_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,15 +55,42 @@ def get_distinguished_name():
     return dn
 
 
-def get_proxy(server, path):
+def get_proxy(proxy_outfile_name, voms_role):
     """
-    Download proxy from given server and store it in given path.
-
-    :param server: server URL (string).
-    :return:
+    :param proxy_outfile_name: specify the file to store proxy (string).
+    :param voms_role: what proxy (role) to request, e.g. 'atlas' (string).
+    :return: True on success (Boolean).
     """
+    try:
+        # it assumes that https_setup() was done already
+        url = os.environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
+        res = https.request('{pandaserver}/server/panda/getProxy'.format(pandaserver=url), data={'role': voms_role})
 
-    pass
+        if res is None:
+            logger.error(f"unable to get proxy with role '{voms_role}' from panda server")
+            return False
+
+        if res['StatusCode'] != 0:
+            logger.error(f"panda server returned: \'{res['errorDialog']}\' for proxy role \'{voms_role}\'")
+            return False
+
+        proxy_contents = res['userProxy']
+
+    except Exception as exc:
+        logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
+        return False
+
+    res = False
+    try:
+        # pre-create empty proxy file with secure permissions. Prepare it for write_file() which can not
+        # set file permission mode, it will writes to the existing file with correct permissions.
+        _file = os.open(proxy_outfile_name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(_file)
+        res = write_file(proxy_outfile_name, proxy_contents, mute=False)  # returns True on success
+    except (IOError, OSError, FileHandlingFailure) as exc:
+        logger.error(f"exception caught:\n{exc},\ntraceback: {traceback.format_exc()}")
+
+    return res
 
 
 def create_cert_files(from_proxy, workdir):
@@ -69,9 +102,6 @@ def create_cert_files(from_proxy, workdir):
     :param workdir: work directory (string).
     :return: path to crt.pem (string), path to key.pem (string).
     """
-
-#    return os.path.join(workdir, os.environ.get("X509_USER_PROXY")),\
-#           os.path.join(workdir, os.environ.get("X509_USER_PROXY"))
 
     _files = [os.path.join(workdir, 'crt.pem'), os.path.join(workdir, 'key.pem')]
     if os.path.exists(_files[0]) and os.path.exists(_files[1]):
