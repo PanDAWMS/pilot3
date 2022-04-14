@@ -140,11 +140,11 @@ def _validate_payload(job):
 
     # perform user specific validation
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         status = user.validate(job)
     except Exception as error:
-        logger.fatal('failed to execute user validate() function: %s', error)
+        logger.fatal(f'failed to execute user validate() function: {error}')
         status = False
 
     return status

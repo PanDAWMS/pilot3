@@ -18,11 +18,10 @@ import logging
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
-from pilot.user.atlas.proxy import verify_proxy
+from pilot.user.atlas.proxy import get_and_verify_proxy
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
 from pilot.util.filehandling import write_file
-from pilot.util.proxy import get_proxy
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -284,7 +283,7 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
         # download and verify payload proxy from the server if desired
         proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
         if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis:
-            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, 'atlas')
+            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role='atlas', proxy_type='payload')
             if exit_code != 0:  # do not return non-zero exit code if only download fails
                 logger.warning('payload proxy verification failed')
 
@@ -292,40 +291,6 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
         _cmd = "export X509_USER_PROXY=%s;" % x509 + _cmd
 
     return exit_code, diagnostics, _cmd, cmd
-
-
-def get_and_verify_proxy(x509, voms_role):
-    """
-    Download a payload proxy from the server and verify it.
-
-    :param x509: X509_USER_PROXY (string).
-    :param voms_role: role, e.g. 'atlas' (string).
-    :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
-    """
-
-    exit_code = 0
-    diagnostics = ""
-
-    # try to receive payload proxy and update x509
-    x509_payload = re.sub('.proxy$', '', x509) + '-payload.proxy'  # compose new name to store payload proxy
-
-    logger.info("download payload proxy from server")
-    if get_proxy(x509_payload, voms_role):
-        logger.info("server returned payload proxy (verifying)")
-        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None)
-        # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
-        if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
-            logger.warning(diagnostics)
-            logger.info("payload proxy verification failed")
-        else:
-            logger.info("payload proxy verified")
-            # is commented: no user proxy should be in the command the container will execute
-            # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
-            x509 = x509_payload
-    else:
-        logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
-
-    return exit_code, diagnostics, x509
 
 
 def set_platform(job, alrb_setup):

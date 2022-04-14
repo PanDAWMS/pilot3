@@ -2592,10 +2592,9 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 if exit_code != 0:
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
-                        #logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
-
-                        # if download fails, replace exit_code with errors.NOVOMSPROXY (otherwise continue monitoring)
-                        exit_code == errors.NOVOMSPROXY
+                        # attempt to download a new proxy since it is about to expire
+                        ec = download_new_proxy()
+                        exit_code = ec if ec != 0 else 0  # reset the exit_code if success
 
                     if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
@@ -2653,6 +2652,30 @@ def job_monitor(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.debug('[job] job monitor thread has finished')
+
+
+def download_new_proxy():
+    """
+    The production proxy has expired, try to download a new one.
+
+    If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
+
+    :return: exit code (int).
+    """
+
+    exit_code = 0
+    x509 = os.environ.get('X509_USER_PROXY', '')
+    logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+
+    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role='atlas:/atlas/Role=production')
+    if ec != 0:  # do not return non-zero exit code if only download fails
+        logger.warning('failed to download/verify new proxy')
+        exit_code == errors.NOVOMSPROXY
+
+    return exit_code
 
 
 def send_heartbeat_if_time(job, args, update_time):
