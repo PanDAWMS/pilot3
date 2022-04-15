@@ -1387,7 +1387,7 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
         userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # is the proxy still valid?
-        exit_code, diagnostics = userproxy.verify_proxy()
+        exit_code, diagnostics = userproxy.verify_proxy(test=False)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
         if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY:
@@ -2600,6 +2600,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
+                        break
+                    elif exit_code == 0:
+                        # ie if download of new proxy was successful
+                        diagnostics = ""
                         break
                     else:
                         try:

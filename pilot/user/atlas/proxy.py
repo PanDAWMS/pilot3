@@ -45,7 +45,7 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     logger.info(f"download proxy from server (type=\'{proxy_type}\')")
     if get_proxy(x509_payload, voms_role):
         logger.debug("server returned proxy (verifying)")
-        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None)
+        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
         # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
         if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
             logger.warning(diagnostics)
@@ -122,7 +122,8 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
     diagnostics = ""
 
     if test:
-        return errors.NOVOMSPROXY, 'dummy test'
+        return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
+        #return errors.NOVOMSPROXY, 'dummy test'
 
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
