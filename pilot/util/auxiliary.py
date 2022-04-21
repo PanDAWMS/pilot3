@@ -124,10 +124,14 @@ def get_batchsystem_jobid():
 
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
-        from subprocess import getoutput
-        out = getoutput('sed -n "s/^GlobalJobId.*\\"\\(.*\\)\\".*/\\1/p" %s' % os.environ.get("_CONDOR_JOB_AD"))
-        out = out.split('\n')[-1] if '\n' in out else out
-        return "Condor", out
+        try:
+            with open(os.environ.get("_CONDOR_JOB_AD"), 'r') as _fp:
+                for line in _fp:
+                    res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
+                    if res == None: continue
+                    return "Condor", res.group(1)
+        except OSError as exc:
+            logger.warning("failed to read HTCondor job classAd: %s", exc)
 
     return None, ""
 
