@@ -466,8 +466,8 @@ def set_environment_variables():
     # keep track of the server urls
     environ['PANDA_SERVER_URL'] = get_panda_server(args.url, args.port, update_server=args.update_server)
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
-    environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
-
+    if args.storagedata_url:
+        environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
 
 def wrap_up():
     """
