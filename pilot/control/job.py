@@ -309,7 +309,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # will it be the final update?
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
-    # build the data structure needed for getJob, updateJob
+    # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -532,12 +532,14 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
     # job.debug_command = 'gdb --pid % -ex \'generate-core-file\''
 
 
-def add_data_structure_ids(data, version_tag):
+def add_data_structure_ids(data, version_tag, job):
     """
     Add pilot, batch and scheduler ids to the data structure for getJob, updateJob.
 
     :param data: data structure (dict).
-    :return: updated data structure (dict).
+    :param version_tag: Pilot version tag (string).
+    :param job: job object.
+    :return: updated data structure (dict), batchsystem_id (string|None).
     """
 
     schedulerid = get_job_scheduler_id()
@@ -550,26 +552,27 @@ def add_data_structure_ids(data, version_tag):
     pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
-
         # report the batch system job id, if available
-        batchsystem_type, batchsystem_id = get_batchsystem_jobid()
-
-        if batchsystem_type:
-            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, batchsystem_type, version_tag, pilotversion)
-            data['batchID'] = batchsystem_id
+        if not job.batchid:
+            job.batchtype, job.batchid = get_batchsystem_jobid()
+        if job.batchtype and job.batchid:
+            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, job.batchtype, version_tag, pilotversion)
+            data['batchID'] = job.batchid
         else:
             data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
+    else:
+        logger.debug('no pilotid')
 
     return data
 
 
 def get_data_structure(job, state, args, xml=None, metadata=None):
     """
-    Build the data structure needed for getJob, updateJob.
+    Build the data structure needed for updateJob.
 
     :param job: job object.
     :param state: state of the job (string).
-    :param args:
+    :param args: Pilot args object.
     :param xml: optional XML string.
     :param metadata: job report metadata read as a string.
     :return: data structure (dictionary).
@@ -583,7 +586,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
             'attemptNr': job.attemptnr}
 
     # add pilot, batch and scheduler ids to the data structure
-    data = add_data_structure_ids(data, args.version_tag)
+    data = add_data_structure_ids(data, args.version_tag, job)
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
@@ -1824,7 +1827,8 @@ def retrieve(queues, traces, args):  # noqa: C901
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
         #res['debug'] = True
-        dump_job_definition(res)
+        if res:
+            dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
             # do not set graceful stop if pilot has not finished sending the final job update

@@ -432,7 +432,7 @@ def find_log_to_tail(debug_command, workdir, args, is_analysis):
     return logf
 
 
-def run_realtimelog(queues, traces, args):
+def run_realtimelog(queues, traces, args):  # noqa: C901
     """
     Validate finished payloads.
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
@@ -491,7 +491,6 @@ def run_realtimelog(queues, traces, args):
 
         # only set info_dic once per job (the info will not change)
         info_dic = get_logging_info(job, args)
-        logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
             realtime_logger = get_realtime_logger(args, info_dic, job.workdir, job.pilotsecrets)

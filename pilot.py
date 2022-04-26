@@ -469,6 +469,7 @@ def set_environment_variables():
     if args.storagedata_url:
         environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
 
+
 def wrap_up():
     """
     Perform cleanup and terminate logging.
