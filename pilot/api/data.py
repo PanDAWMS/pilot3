@@ -51,9 +51,9 @@ class StagingClient(object):
     # list of allowed schemas to be used for direct acccess mode from REMOTE replicas
     direct_remoteinput_allowed_schemas = ['root', 'https']
     # list of schemas to be used for direct acccess mode from LOCAL replicas
-    direct_localinput_allowed_schemas = ['root', 'dcache', 'dcap', 'file', 'https', 'davs']
+    direct_localinput_allowed_schemas = ['root', 'dcache', 'dcap', 'file', 'https']
     # list of allowed schemas to be used for transfers from REMOTE sites
-    remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'davs', 'srm', 'storm', 'https']
+    remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
     def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None):
         """
