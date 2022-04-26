@@ -562,10 +562,13 @@ def copytool_in(queues, traces, args):
                 # now create input file metadata if required by the payload
                 if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'generic':
                     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-                    user = __import__('pilot.user.%s.metadata' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-                    file_dictionary = get_input_file_dictionary(job.indata)
-                    xml = user.create_input_file_metadata(file_dictionary, job.workdir)
-                    logger.info('created input file metadata:\n%s', xml)
+                    try:
+                        user = __import__('pilot.user.%s.metadata' % pilot_user, globals(), locals(), [pilot_user], 0)
+                        file_dictionary = get_input_file_dictionary(job.indata)
+                        xml = user.create_input_file_metadata(file_dictionary, job.workdir)
+                        logger.info('created input file metadata:\n%s', xml)
+                    except ModuleNotFoundError as exc:
+                        logger.warning(f'no such module: {exc} (will not create input file metadata)')
             else:
                 # remove the job from the current stage-in queue
                 _job = queues.current_data_in.get(block=True, timeout=1)
