@@ -431,6 +431,7 @@ def get_payload_command(job):
     else:
         logger.debug('no remote file open verification')
 
+    os.environ['INDS'] = 'unknown'  # reset in case set by earlier job
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")

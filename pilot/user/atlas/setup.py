@@ -200,7 +200,7 @@ def set_inds(dataset):
         os.environ['INDS'] = inds
     else:
         logger.warning("INDS unknown")
-
+        os.environ['INDS'] = 'unknown'
 
 def get_analysis_trf(transform, workdir):
     """
