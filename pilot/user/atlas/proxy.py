@@ -297,6 +297,11 @@ def interpret_proxy_info(ec, stdout, stderr, limit):
             validity_end, stdout = extract_time_left(stdout)
             if validity_end:
                 return exitcode, diagnostics, validity_end
+            else:
+                diagnostics = "arcproxy failed: %s" % stdout
+                logger.warning(diagnostics)
+                exitcode = errors.GENERALERROR
+                return exitcode, diagnostics, validity_end
 
         # test for command errors
         if "arcproxy:" in stdout:
@@ -332,6 +337,8 @@ def extract_time_left(stdout):
     :param stdout: stdout (string).
     :return: validity_end, stdout (int, string))
     """
+
+    validity_end = None
 
     # remove the last \n in case there is one
     if stdout[-1] == '\n':

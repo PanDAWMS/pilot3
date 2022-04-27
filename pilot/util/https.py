@@ -9,7 +9,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-import subprocess
+#import subprocess
 import json
 import os
 import platform
@@ -27,6 +27,7 @@ from time import sleep, time
 from .filehandling import write_file
 from .config import config
 from .constants import get_pilot_version
+from .container import execute
 
 import logging
 logger = logging.getLogger(__name__)
@@ -304,7 +305,9 @@ def execute_request(req):
     :return: status (int), output (string).
     """
 
-    return subprocess.getstatusoutput(req)
+    exit_code, stdout, _ = execute(req)
+    return exit_code, stdout
+#    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):

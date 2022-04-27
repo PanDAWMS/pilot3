@@ -477,7 +477,7 @@ def write_utility_output(workdir, step, stdout, stderr):
     write_output(os.path.join(workdir, step + '_stderr.txt'), stderr)
 
 
-def copytool_in(queues, traces, args):
+def copytool_in(queues, traces, args):  # noqa: C901
     """
     Call the stage-in function and put the job object in the proper queue.
 
@@ -504,19 +504,9 @@ def copytool_in(queues, traces, args):
             user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
             cmd = user.get_utility_commands(job=job, order=UTILITY_BEFORE_STAGEIN)
             if cmd:
-                # xcache debug
-                #_, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[before xcache start] stdout=%s', _stdout)
-                #logger.debug('[before xcache start] stderr=%s', _stderr)
-
                 _, stdout, stderr = execute(cmd.get('command'))
                 logger.debug('stdout=%s', stdout)
                 logger.debug('stderr=%s', stderr)
-
-                # xcache debug
-                #_, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[after xcache start] stdout=%s', _stdout)
-                #logger.debug('[after xcache start] stderr=%s', _stderr)
 
                 # perform any action necessary after command execution (e.g. stdout processing)
                 kwargs = {'label': cmd.get('label', 'utility'), 'output': stdout}
@@ -562,10 +552,13 @@ def copytool_in(queues, traces, args):
                 # now create input file metadata if required by the payload
                 if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'generic':
                     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-                    user = __import__('pilot.user.%s.metadata' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-                    file_dictionary = get_input_file_dictionary(job.indata)
-                    xml = user.create_input_file_metadata(file_dictionary, job.workdir)
-                    logger.info('created input file metadata:\n%s', xml)
+                    try:
+                        user = __import__('pilot.user.%s.metadata' % pilot_user, globals(), locals(), [pilot_user], 0)
+                        file_dictionary = get_input_file_dictionary(job.indata)
+                        xml = user.create_input_file_metadata(file_dictionary, job.workdir)
+                        logger.info('created input file metadata:\n%s', xml)
+                    except ModuleNotFoundError as exc:
+                        logger.warning(f'no such module: {exc} (will not create input file metadata)')
             else:
                 # remove the job from the current stage-in queue
                 _job = queues.current_data_in.get(block=True, timeout=1)
