@@ -90,7 +90,12 @@ def set_core_counts(**kwargs):
     walltime = kwargs.get('walltime', None)
 
     if job and walltime:
-        summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+        try:
+            summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+        except ValueError as exc:
+            logger.warning(f'failed to parse memory monitor output: {exc}')
+        else:
+            summary_dictionary = None
         if summary_dictionary:
             time_dictionary = summary_dictionary.get('Time', None)
             if time_dictionary:
