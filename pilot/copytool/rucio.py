@@ -49,7 +49,7 @@ def verify_stage_out(fspec):
     rse_settings = rsemgr.get_rse_info(fspec.ddmendpoint)
     uploaded_file = {'name': fspec.lfn, 'scope': fspec.scope}
     logger.info('Checking file: %s', str(fspec.lfn))
-    return rsemgr.exists(rse_settings, [uploaded_file])
+    return rsemgr.exists(rse_settings, [uploaded_file], domain='lan')
 
 
 #@timeout(seconds=10800)
