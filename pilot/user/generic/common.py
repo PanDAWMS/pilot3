@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 from signal import SIGTERM
@@ -109,13 +109,13 @@ def update_job_data(job):
     pass
 
 
-def remove_redundant_files(workdir, outputfiles=[], islooping=False, debugmode=False):
+def remove_redundant_files(workdir, outputfiles=[], piloterrors=[], debugmode=False):
     """
     Remove redundant files and directories prior to creating the log file.
 
     :param workdir: working directory (string).
     :param outputfiles: list of output files.
-    :param islooping: looping job variable to make sure workDir is not removed in case of looping (boolean).
+    :param piloterrors: list of Pilot assigned error codes (list).
     :return:
     """
 

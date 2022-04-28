@@ -741,7 +741,7 @@ def filter_files_for_log(directory):
     return filtered_files
 
 
-def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], output_files=[], is_looping=False, debugmode=False):
+def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], output_files=[], piloterrors=[], debugmode=False):
     """
     Create the tarball for the job.
 
@@ -751,7 +751,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     :param cleanup: perform cleanup (Boolean).
     :param input_files: list of input files to remove (list).
     :param output_files: list of output files to remove (list).
-    :param is_looping: True for looping jobs, False by default (Boolean).
+    :param piloterrors: list of Pilot assigned error codes (list).
     :param debugmode: True if debug mode has been switched on (Boolean).
     :raises LogFileCreationFailure: in case of log file creation problem.
     :return:
@@ -769,7 +769,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     if cleanup:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
-        user.remove_redundant_files(workdir, islooping=is_looping, debugmode=debugmode)
+        user.remove_redundant_files(workdir, piloterrors=piloterrors, debugmode=debugmode)
 
     # remove any present input/output files before tarring up workdir
     for fname in input_files + output_files:
@@ -932,7 +932,7 @@ def _stage_out_new(job, args):
             output_files = [fspec.lfn for fspec in job.outdata]
             create_log(job.workdir, logfile.lfn, tarball_name, args.cleanup,
                        input_files=input_files, output_files=output_files,
-                       is_looping=errors.LOOPINGJOB in job.piloterrorcodes, debugmode=job.debug)
+                       piloterrors=job.piloterrorcodes, debugmode=job.debug)
         except LogFileCreationFailure as error:
             logger.warning('failed to create tar file: %s', error)
             set_pilot_state(job=job, state="failed")
