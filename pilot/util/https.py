@@ -9,7 +9,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-import subprocess
+#import subprocess
 import json
 import os
 import platform
@@ -27,6 +27,7 @@ from time import sleep, time
 from .filehandling import write_file
 from .config import config
 from .constants import get_pilot_version
+from .container import execute
 
 import logging
 logger = logging.getLogger(__name__)
@@ -304,7 +305,9 @@ def execute_request(req):
     :return: status (int), output (string).
     """
 
-    return subprocess.getstatusoutput(req)
+    exit_code, stdout, _ = execute(req)
+    return exit_code, stdout
+#    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):
@@ -401,19 +404,20 @@ def send_update(update_function, data, url, port, job=None):
     return res
 
 
-def get_panda_server(url, port):
+def get_panda_server(url, port, update_server=True):
     """
     Get the URL for the PanDA server.
+    The URL will be randomized if the server can be contacted (otherwise fixed).
 
     :param url: URL string, if set in pilot option (port not included).
     :param port: port number, if set in pilot option (int).
-    :return: full URL (either from pilot options or from config file)
+    :param update_server: True if the server can be contacted (Boolean).
+    :return: full URL (either from pilot options or from config file).
     """
 
     if url != '':
         parsedurl = url.split('://')
         scheme = None
-        loc = None
         if len(parsedurl) == 2:
             scheme = parsedurl[0]
             loc = parsedurl[1]
@@ -435,6 +439,9 @@ def get_panda_server(url, port):
         pandaserver = config.Pilot.pandaserver
         if not pandaserver.startswith('http'):
             pandaserver = 'https://' + pandaserver
+
+    if not update_server:
+        return pandaserver
 
     # add randomization for PanDA server
     default = 'pandaserver.cern.ch'

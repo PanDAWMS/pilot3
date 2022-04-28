@@ -12,14 +12,53 @@
 
 import os
 import logging
+import re
+from time import time
 
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.util.container import execute
 from pilot.common.errorcodes import ErrorCodes
-from time import time
+from pilot.util.proxy import get_proxy
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+
+def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
+    """
+    Download a payload proxy from the server and verify it.
+
+    :param x509: X509_USER_PROXY (string).
+    :param voms_role: role, e.g. 'atlas' (string).
+    :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (string).
+    :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
+    """
+
+    exit_code = 0
+    diagnostics = ""
+
+    # try to receive payload proxy and update x509
+    if proxy_type:
+        x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy'  # compose new name to store payload proxy
+    else:
+        x509_payload = x509
+    logger.info(f"download proxy from server (type=\'{proxy_type}\')")
+    if get_proxy(x509_payload, voms_role):
+        logger.debug("server returned proxy (verifying)")
+        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
+        # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
+        if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
+            logger.warning(diagnostics)
+            logger.info(f"proxy verification failed (type=\'{proxy_type}\')")
+        else:
+            logger.info(f"proxy verified (type=\'{proxy_type}\')")
+            # is commented: no user proxy should be in the command the container will execute
+            # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
+            x509 = x509_payload
+    else:
+        logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
+
+    return exit_code, diagnostics, x509
 
 
 def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
@@ -83,7 +122,8 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
     diagnostics = ""
 
     if test:
-        return errors.NOVOMSPROXY, 'dummy test'
+        return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
+        #return errors.NOVOMSPROXY, 'dummy test'
 
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
@@ -99,10 +139,14 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                 seconds_left = validity_end - tnow
                 logger.info("cache: check %s proxy validity: wanted=%dh left=%.2fh (now=%d validity_end=%d left=%d)",
                             proxy_id, limit, float(seconds_left) / 3600, tnow, validity_end, seconds_left)
-                if seconds_left < limit * 3600:
-                    diagnostics = "%s proxy validity time is too short: %.2fh" % (proxy_id, float(seconds_left) / 3600)
+                if seconds_left < limit * 3600:  # REMOVE THIS, FAVOUR THE NEXT
+                    diagnostics = f"{proxy_id} proxy validity time is too short: %.2fh" % (float(seconds_left) / 3600)
                     logger.warning(diagnostics)
                     exit_code = errors.NOVOMSPROXY
+                elif seconds_left < limit * 3600 - 20 * 60:  # FAVOUR THIS, IE NEVER SET THE PREVIOUS
+                    diagnostics = f'{proxy_id} proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
+                    logger.warning(diagnostics)
+                    exit_code = errors.VOMSPROXYABOUTTOEXPIRE
                 else:
                     logger.info("%s proxy validity time is verified", proxy_id)
             return exit_code, diagnostics
@@ -253,6 +297,11 @@ def interpret_proxy_info(ec, stdout, stderr, limit):
             validity_end, stdout = extract_time_left(stdout)
             if validity_end:
                 return exitcode, diagnostics, validity_end
+            else:
+                diagnostics = "arcproxy failed: %s" % stdout
+                logger.warning(diagnostics)
+                exitcode = errors.GENERALERROR
+                return exitcode, diagnostics, validity_end
 
         # test for command errors
         if "arcproxy:" in stdout:
@@ -288,6 +337,8 @@ def extract_time_left(stdout):
     :param stdout: stdout (string).
     :return: validity_end, stdout (int, string))
     """
+
+    validity_end = None
 
     # remove the last \n in case there is one
     if stdout[-1] == '\n':

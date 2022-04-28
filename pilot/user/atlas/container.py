@@ -5,67 +5,26 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-2020
 
 import os
 import pipes
 import re
 import logging
-import traceback
 
 # for user container test: import urllib
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
-from pilot.user.atlas.proxy import verify_proxy
+from pilot.user.atlas.proxy import get_and_verify_proxy
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
 from pilot.util.filehandling import write_file
-from pilot.util import https
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
-
-
-def get_payload_proxy(proxy_outfile_name, voms_role='atlas'):
-    """
-    :param proxy_outfile_name: specify the file to store proxy
-    :param voms_role: what proxy (role) to request. It should exist on Panda node
-    :return: True on success
-    """
-    try:
-        # it assumes that https_setup() was done already
-        url = os.environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-        res = https.request('{pandaserver}/server/panda/getProxy'.format(pandaserver=url), data={'role': voms_role})
-
-        if res is None:
-            logger.error("Unable to get proxy with role '%s' from panda server", voms_role)
-            return False
-
-        if res['StatusCode'] != 0:
-            logger.error("When get proxy with role '%s' panda server returned: %s", voms_role, res['errorDialog'])
-            return False
-
-        proxy_contents = res['userProxy']
-
-    except Exception as exc:
-        logger.error("Get proxy from panda server failed: %s, %s", exc, traceback.format_exc())
-        return False
-
-    res = False
-    try:
-        # pre-create empty proxy file with secure permissions. Prepare it for write_file() which can not
-        # set file permission mode, it will writes to the existing file with correct permissions.
-        _file = os.open(proxy_outfile_name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.close(_file)
-        res = write_file(proxy_outfile_name, proxy_contents, mute=False)  # returns True on success
-    except (IOError, OSError, FileHandlingFailure) as exc:
-        logger.error("Exception when try to save proxy to the file '%s': %s, %s",
-                     proxy_outfile_name, exc, traceback.format_exc())
-
-    return res
 
 
 def do_use_container(**kwargs):
@@ -324,7 +283,7 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
         # download and verify payload proxy from the server if desired
         proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
         if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis:
-            exit_code, diagnostics, x509 = get_and_verify_payload_proxy_from_server(x509)
+            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role='atlas', proxy_type='payload')
             if exit_code != 0:  # do not return non-zero exit code if only download fails
                 logger.warning('payload proxy verification failed')
 
@@ -332,40 +291,6 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
         _cmd = "export X509_USER_PROXY=%s;" % x509 + _cmd
 
     return exit_code, diagnostics, _cmd, cmd
-
-
-def get_and_verify_payload_proxy_from_server(x509):
-    """
-    Download a payload proxy from the server and verify it.
-
-    :param x509: X509_USER_PROXY (string).
-    :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
-    """
-
-    exit_code = 0
-    diagnostics = ""
-
-    # try to receive payload proxy and update x509
-    x509_payload = re.sub('.proxy$', '', x509) + '-payload.proxy'  # compose new name to store payload proxy
-    #x509_payload = re.sub('.proxy$', '', x509) + 'p.proxy'  # compose new name to store payload proxy
-
-    logger.info("download payload proxy from server")
-    if get_payload_proxy(x509_payload):
-        logger.info("server returned payload proxy (verifying)")
-        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None)
-        # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
-        if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
-            logger.warning(diagnostics)
-            logger.info("payload proxy verification failed")
-        else:
-            logger.info("payload proxy verified")
-            # is commented: no user proxy should be in the command the container will execute
-            # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
-            x509 = x509_payload
-    else:
-        logger.warning("get_payload_proxy() failed")
-
-    return exit_code, diagnostics, x509
 
 
 def set_platform(job, alrb_setup):
@@ -851,7 +776,11 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
 
     sitename = 'export PILOT_RUCIO_SITENAME=%s; ' % os.environ.get('PILOT_RUCIO_SITENAME')
     if 'rucio' in middleware_container:
-        content = sitename + 'python3 %s ' % cmd  # only works with python 3
+        content = sitename
+        content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
+        content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
+        content += "setupATLAS -3; "
+        content = 'lsetup \"python pilot-default\";python3 %s ' % cmd  # only works with python 3
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;

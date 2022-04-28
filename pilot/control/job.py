@@ -309,7 +309,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # will it be the final update?
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
-    # build the data structure needed for getJob, updateJob
+    # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -532,12 +532,14 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
     # job.debug_command = 'gdb --pid % -ex \'generate-core-file\''
 
 
-def add_data_structure_ids(data, version_tag):
+def add_data_structure_ids(data, version_tag, job):
     """
     Add pilot, batch and scheduler ids to the data structure for getJob, updateJob.
 
     :param data: data structure (dict).
-    :return: updated data structure (dict).
+    :param version_tag: Pilot version tag (string).
+    :param job: job object.
+    :return: updated data structure (dict), batchsystem_id (string|None).
     """
 
     schedulerid = get_job_scheduler_id()
@@ -550,26 +552,27 @@ def add_data_structure_ids(data, version_tag):
     pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
-
         # report the batch system job id, if available
-        batchsystem_type, batchsystem_id = get_batchsystem_jobid()
-
-        if batchsystem_type:
-            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, batchsystem_type, version_tag, pilotversion)
-            data['batchID'] = batchsystem_id
+        if not job.batchid:
+            job.batchtype, job.batchid = get_batchsystem_jobid()
+        if job.batchtype and job.batchid:
+            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, job.batchtype, version_tag, pilotversion)
+            data['batchID'] = job.batchid
         else:
             data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
+    else:
+        logger.debug('no pilotid')
 
     return data
 
 
 def get_data_structure(job, state, args, xml=None, metadata=None):
     """
-    Build the data structure needed for getJob, updateJob.
+    Build the data structure needed for updateJob.
 
     :param job: job object.
     :param state: state of the job (string).
-    :param args:
+    :param args: Pilot args object.
     :param xml: optional XML string.
     :param metadata: job report metadata read as a string.
     :return: data structure (dictionary).
@@ -583,7 +586,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
             'attemptNr': job.attemptnr}
 
     # add pilot, batch and scheduler ids to the data structure
-    data = add_data_structure_ids(data, args.version_tag)
+    data = add_data_structure_ids(data, args.version_tag, job)
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
@@ -1387,7 +1390,7 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
         userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # is the proxy still valid?
-        exit_code, diagnostics = userproxy.verify_proxy()
+        exit_code, diagnostics = userproxy.verify_proxy(test=False)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
         if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY:
@@ -1824,7 +1827,8 @@ def retrieve(queues, traces, args):  # noqa: C901
         # get a job definition from a source (file or server)
         res = get_job_definition(args)
         #res['debug'] = True
-        dump_job_definition(res)
+        if res:
+            dump_job_definition(res)
         if res is None:
             logger.fatal('fatal error in job download loop - cannot continue')
             # do not set graceful stop if pilot has not finished sending the final job update
@@ -2591,12 +2595,19 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 if exit_code != 0:
-                    if exit_code == errors.NOVOMSPROXY:
-                        logger.warning('VOMS proxy has expired - keep monitoring job')
-                    elif exit_code == errors.KILLPAYLOAD:
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        # attempt to download a new proxy since it is about to expire
+                        ec = download_new_proxy()
+                        exit_code = ec if ec != 0 else 0  # reset the exit_code if success
+
+                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
+                        break
+                    elif exit_code == 0:
+                        # ie if download of new proxy was successful
+                        diagnostics = ""
                         break
                     else:
                         try:
@@ -2649,6 +2660,30 @@ def job_monitor(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.debug('[job] job monitor thread has finished')
+
+
+def download_new_proxy():
+    """
+    The production proxy has expired, try to download a new one.
+
+    If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
+
+    :return: exit code (int).
+    """
+
+    exit_code = 0
+    x509 = os.environ.get('X509_USER_PROXY', '')
+    logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+
+    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role='atlas:/atlas/Role=production')
+    if ec != 0:  # do not return non-zero exit code if only download fails
+        logger.warning('failed to download/verify new proxy')
+        exit_code == errors.NOVOMSPROXY
+
+    return exit_code
 
 
 def send_heartbeat_if_time(job, args, update_time):

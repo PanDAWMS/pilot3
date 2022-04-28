@@ -50,6 +50,8 @@ class JobData(BaseData):
 
     jobid = None                   # unique Job identifier (forced to be a string)
     taskid = None                  # unique Task identifier, the task that this job belongs to (forced to be a string)
+    batchid = None                 # batch system job id (should be removed from here)
+    batchtype = None               # batch system type (should be removed from here)
     jobparams = ""                 # job parameters defining the execution of the job
     transformation = ""            # script execution name
     # current job status; format = {key: value, ..} e.g. key='LOG_TRANSFER', value='DONE'
@@ -107,6 +109,7 @@ class JobData(BaseData):
     corecounts = []                # keep track of all actual core count measurements
     looping_check = True           # perform looping payload check
     checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
+    subprocesses = []              # list of PIDs for payload subprocesses
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -164,7 +167,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets'],
-             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts'],
+             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
@@ -1013,6 +1016,7 @@ class JobData(BaseData):
         self.exitcode = 0
         self.exitmsg = ""
         self.corecounts = []
+        self.subprocesses = []
 
     def to_json(self):
         from json import dumps

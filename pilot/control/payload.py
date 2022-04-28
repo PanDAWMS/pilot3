@@ -140,11 +140,11 @@ def _validate_payload(job):
 
     # perform user specific validation
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         status = user.validate(job)
     except Exception as error:
-        logger.fatal('failed to execute user validate() function: %s', error)
+        logger.fatal(f'failed to execute user validate() function: {error}')
         status = False
 
     return status
@@ -362,26 +362,10 @@ def get_logging_info(job, args):
             print(f'exception caught: {exc}')
             info_dic = {}
         else:
-            path = None
-            if 'tail' in job.debug_command:
-                filename = job.debug_command.split(' ')[-1]
-                logger.debug(f'filename={filename}')
-                counter = 0
-                path = None
-                maxwait = 5 * 60
-                while counter < maxwait and not args.graceful_stop.is_set():
-                    path = find_file(filename, job.workdir)
-                    if not path:
-                        logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
-                        time.sleep(10)
-                    else:
-                        break
-                    counter += 10
-                if not path:
-                    logger.warning(f'file {filename} was not found for {maxwait} s, using default')
-            logf = path if path else config.Payload.payloadstdout
-            logger.info(f'using {logf} for real-time logging')
-            info_dic['logfiles'] = [logf]
+            # find the log file to tail
+            path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
+            logger.info(f'using {path} for real-time logging')
+            info_dic['logfiles'] = [path]
     else:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
@@ -409,7 +393,46 @@ def get_logging_info(job, args):
     return info_dic
 
 
-def run_realtimelog(queues, traces, args):
+def find_log_to_tail(debug_command, workdir, args, is_analysis):
+    """
+    Find the log file to tail in the RT logging.
+
+    :param debug_command: requested debug command (string).
+    :param workdir: job working directory (string).
+    :param args: pilot args object.
+    :param is_analysis: True for user jobs (Bool).
+    :return: path to log file (string).
+    """
+
+    path = ""
+    filename = ""
+    counter = 0
+    maxwait = 5 * 60
+
+    if 'tail' in debug_command:
+        filename = debug_command.split(' ')[-1]
+    elif is_analysis:
+        filename = 'tmp.stdout*'
+    if filename:
+        logger.debug(f'filename={filename}')
+        while counter < maxwait and not args.graceful_stop.is_set():
+            path = find_file(filename, workdir)
+            if not path:
+                logger.debug(f'file {filename} not found, waiting for max {maxwait} s')
+                time.sleep(10)
+            else:
+                break
+            counter += 10
+
+    # fallback to known log file if no other file could be found
+    if not path:
+        logger.warning(f'file {filename} was not found for {maxwait} s, using default')
+    logf = path if path else config.Payload.payloadstdout
+
+    return logf
+
+
+def run_realtimelog(queues, traces, args):  # noqa: C901
     """
     Validate finished payloads.
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
@@ -431,18 +454,21 @@ def run_realtimelog(queues, traces, args):
 
         # wait with proceeding until the job is running
         abort_loops = False
+        first1 = True
+        first2 = True
         while not args.graceful_stop.is_set():
 
             # note: in multi-job mode, the real-time logging will be switched off at the end of the job
-            first = True
             while not args.graceful_stop.is_set():
                 if job.state == 'running':
-                    logger.debug('job is running, check if real-time logger is needed')
+                    if first1:
+                        logger.debug('job is running, check if real-time logger is needed')
+                        first1 = False
                     break
                 if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
-                    if first:
+                    if first2:
                         logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
-                        first = False
+                        first2 = False
                     time.sleep(10)
                     continue
                 time.sleep(1)
@@ -465,7 +491,6 @@ def run_realtimelog(queues, traces, args):
 
         # only set info_dic once per job (the info will not change)
         info_dic = get_logging_info(job, args)
-        logger.debug(f'info_dic={info_dic}')
         if info_dic:
             args.use_realtime_logging = True
             realtime_logger = get_realtime_logger(args, info_dic, job.workdir, job.pilotsecrets)
