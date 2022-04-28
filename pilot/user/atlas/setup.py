@@ -202,6 +202,7 @@ def set_inds(dataset):
         logger.warning("INDS unknown")
         os.environ['INDS'] = 'unknown'
 
+
 def get_analysis_trf(transform, workdir):
     """
     Prepare to download the user analysis transform with curl.
