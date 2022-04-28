@@ -11,9 +11,10 @@ import os
 import re
 import logging
 
-from subprocess import getoutput
+#from subprocess import getoutput
 
 from pilot.common.exception import PilotException, ErrorCodes
+from pilot.util.container import execute
 from pilot.info import infosys
 from pilot.util.disk import disk_usage
 
@@ -32,11 +33,13 @@ def get_local_disk_space(path):
 
     # -mP = blocks of 1024*1024 (MB) and POSIX format
     cmd = f"df -mP {path}"
-    disks = getoutput(cmd)
-    if disks:
-        logger.debug(f'disks={disks}')
+    #disks = getoutput(cmd)
+    _, stdout, stderr = execute(cmd)
+    if stdout:
+        logger.debug(f'stdout={stdout}')
+        logger.debug(f'stderr={stderr}')
         try:
-            disk = float(disks.splitlines()[1].split()[3])
+            disk = float(stdout.splitlines()[1].split()[3])
         except (IndexError, ValueError, TypeError, AttributeError) as error:
             msg = f'exception caught while trying to convert disk info: {error}'
             logger.warning(msg)

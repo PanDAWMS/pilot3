@@ -464,9 +464,10 @@ def set_environment_variables():
         environ['PILOT_OUTPUT_DIR'] = args.output_dir
 
     # keep track of the server urls
-    environ['PANDA_SERVER_URL'] = get_panda_server(args.url, args.port)
+    environ['PANDA_SERVER_URL'] = get_panda_server(args.url, args.port, update_server=args.update_server)
     environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
-    environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
+    if args.storagedata_url:
+        environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
 
 
 def wrap_up():
@@ -514,6 +515,13 @@ def wrap_up():
         elif trace.pilot['state'] == ERRNO_NOJOBS:
             logging.critical('pilot did not process any events -- aborting')
             exitcode = ERRNO_NOJOBS
+
+    try:
+        exitcode = int(exitcode)
+    except TypeError as exc:
+        logging.warning(f'failed to convert exit code to int: {exitcode}, {exc}')
+        exitcode = 1008
+
     logging.info('pilot has finished')
     logging.shutdown()
 

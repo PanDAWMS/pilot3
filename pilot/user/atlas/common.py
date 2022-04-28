@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from collections import defaultdict
@@ -292,7 +292,7 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=%s -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
 
 
 def extract_turls(indata):
@@ -431,6 +431,7 @@ def get_payload_command(job):
     else:
         logger.debug('no remote file open verification')
 
+    os.environ['INDS'] = 'unknown'  # reset in case set by earlier job
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")
@@ -2061,7 +2062,7 @@ def remove_special_files(workdir, dir_list, outputfiles):
                 remove_dir_tree(item)
 
 
-def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode=False):
+def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
     """
     Remove redundant files and directories prior to creating the log file.
 
@@ -2069,7 +2070,7 @@ def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode
 
     :param workdir: working directory (string).
     :param outputfiles: list of protected output files (list).
-    :param islooping: looping job variable to make sure workDir is not removed in case of looping (Boolean).
+    :param errors: list of Pilot assigned error codes (list).
     :param debugmode: True if debug mode has been switched on (Boolean).
     :return:
     """
@@ -2109,7 +2110,9 @@ def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode
     if os.path.exists(path):
         # remove at least root files from workDir (ie also in the case of looping job)
         cleanup_looping_payload(path)
-        if not islooping:
+        islooping = errors.LOOPINGJOB in piloterrors
+        ismemerror = errors.PAYLOADEXCEEDMAXMEM in piloterrors
+        if not islooping and not ismemerror:
             logger.debug('removing \'workDir\' from workdir=%s', workdir)
             remove_dir_tree(path)
 

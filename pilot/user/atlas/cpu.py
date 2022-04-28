@@ -11,7 +11,8 @@ import os
 import logging
 
 # from .utilities import get_memory_values
-from pilot.util.container import execute
+#from pilot.util.container import execute
+from pilot.util.math import float_to_rounded_string
 from .utilities import get_memory_values
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,12 @@ def set_core_counts(**kwargs):
     walltime = kwargs.get('walltime', None)
 
     if job and walltime:
-        summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+        try:
+            summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+        except ValueError as exc:
+            logger.warning(f'failed to parse memory monitor output: {exc}')
+            summary_dictionary = None
+
         if summary_dictionary:
             time_dictionary = summary_dictionary.get('Time', None)
             if time_dictionary:
@@ -102,6 +108,7 @@ def set_core_counts(**kwargs):
                     logger.debug(f'walltime={walltime}')
                     cores = float(stime + utime) / float(walltime)
                     logger.debug(f'number of cores={cores}')
+                    job.actualcorecount = float_to_rounded_string(cores, precision=2)
                 else:
                     logger.debug('no stime/utime')
             else:
@@ -111,25 +118,25 @@ def set_core_counts(**kwargs):
     else:
         logger.debug(f'failed to calculate number of cores (walltime={walltime})')
 
-    if job and job.pgrp:
-        # ps axo pgid,psr -> 154628   8 \n 154628   9 \n 1546280 1 ..
-        # sort is redundant; uniq removes any duplicate lines; wc -l gives the final count
-        # awk is added to get the pgrp list only and then grep -x makes sure that false positives are removed, e.g. 1546280
-        cmd = "ps axo pgid,psr | sort | grep %d | uniq | awk '{print $1}' | grep -x %d | wc -l" % (job.pgrp, job.pgrp)
-        _, stdout, _ = execute(cmd, mute=True)
-        logger.debug('%s: %s', cmd, stdout)
-        try:
-            job.actualcorecount = int(stdout)
-        except ValueError as exc:
-            logger.warning('failed to convert number of actual cores to int: %s', exc)
-        else:
-            job.corecounts = add_core_count(job.actualcorecount)  #, core_counts=job.corecounts)
-            #logger.debug('current core counts list: %s', str(job.corecounts))
-            # check suspicious values
-            #if job.actualcorecount > 5:
-            #    logger.warning('detected large actualcorecount: %d', job.actualcorecount)
-            #    cmd = "ps axo pgid,stat,euid,ruid,tty,tpgid,sess,pgrp,ppid,pid,pcpu,comm | sort | uniq | grep %d" % job.pgrp
-            #    exit_code, stdout, stderr = execute(cmd, mute=True)
-            #    logger.debug('%s (pgrp=%d): %s', cmd, job.pgrp, stdout)
-    else:
-        logger.debug('payload process group not set - cannot check number of cores used by payload')
+#    if job and job.pgrp:
+#        # ps axo pgid,psr -> 154628   8 \n 154628   9 \n 1546280 1 ..
+#        # sort is redundant; uniq removes any duplicate lines; wc -l gives the final count
+#        # awk is added to get the pgrp list only and then grep -x makes sure that false positives are removed, e.g. 1546280
+#        cmd = "ps axo pgid,psr | sort | grep %d | uniq | awk '{print $1}' | grep -x %d | wc -l" % (job.pgrp, job.pgrp)
+#        _, stdout, _ = execute(cmd, mute=True)
+#        logger.debug('%s: %s', cmd, stdout)
+#        try:
+#            job.actualcorecount = int(stdout)
+#        except ValueError as exc:
+#            logger.warning('failed to convert number of actual cores to int: %s', exc)
+#        else:
+#            job.corecounts = add_core_count(job.actualcorecount)  #, core_counts=job.corecounts)
+#            #logger.debug('current core counts list: %s', str(job.corecounts))
+#            # check suspicious values
+#            #if job.actualcorecount > 5:
+#            #    logger.warning('detected large actualcorecount: %d', job.actualcorecount)
+#            #    cmd = "ps axo pgid,stat,euid,ruid,tty,tpgid,sess,pgrp,ppid,pid,pcpu,comm | sort | uniq | grep %d" % job.pgrp
+#            #    exit_code, stdout, stderr = execute(cmd, mute=True)
+#            #    logger.debug('%s (pgrp=%d): %s', cmd, job.pgrp, stdout)
+#    else:
+#        logger.debug('payload process group not set - cannot check number of cores used by payload')
