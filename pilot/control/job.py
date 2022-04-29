@@ -309,6 +309,11 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # will it be the final update?
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
+    # insert out of batch time error code if MAXTIME has been reached
+    if os.environ.get('REACHED_MAXTIME', None):
+        msg = 'the max batch system time limit has been reached'
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+
     # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
 
