@@ -48,7 +48,7 @@ def find_processes_in_group(cpids, pid):
                 thispid = int(lines[i].split()[0])
                 thisppid = int(lines[i].split()[1])
             except Exception as error:
-                logger.warning('exception caught: %s', error)
+                logger.warning(f'exception caught: {error}')
             if thisppid == pid:
                 find_processes_in_group(cpids, thispid)
 
@@ -393,8 +393,7 @@ def kill_orphans():
 
     cmd = "ps -o pid,ppid,args -u %s" % whoami()
     exit_code, _processes, stderr = execute(cmd)
-    #pattern = re.compile(r'(\d+)\s+(\d+)\s+(\S+)')  # Python 3 (added r)
-    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')  # Python 3 (added r)
+    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')
 
     count = 0
     for line in _processes.split('\n'):
