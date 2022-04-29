@@ -186,7 +186,7 @@ def set_number_used_cores(job, walltime):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    cpu = __import__('pilot.user.%s.cpu' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    cpu = __import__('pilot.user.%s.cpu' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     kwargs = {'job': job, 'walltime': walltime}
     cpu.set_core_counts(**kwargs)
@@ -206,7 +206,7 @@ def verify_memory_usage(current_time, mt, job):
     show_memory_usage()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     if not memory.allow_memory_usage_verifications():
         return 0, ""
@@ -265,7 +265,7 @@ def verify_user_proxy(current_time, mt):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     # is it time to verify the proxy?
     proxy_verification_time = 60  # convert_to_int(config.Pilot.proxy_verification_time, default=600)
@@ -416,10 +416,10 @@ def utility_monitor(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    usercommon = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    usercommon = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     # loop over all utilities
-    for utcmd in list(job.utilities.keys()):  # E.g. utcmd = MemoryMonitor, Python 2/3
+    for utcmd in list(job.utilities.keys()):  # E.g. utcmd = MemoryMonitor
 
         # make sure the subprocess is still running
         utproc = job.utilities[utcmd][0]
@@ -656,8 +656,8 @@ def get_max_allowed_work_dir_size():
     except Exception as error:
         max_input_size = get_max_input_size()
         maxwdirsize = max_input_size + config.Pilot.local_size_limit_stdout * 1024
-        logger.info("work directory size check will use %d B as a max limit (maxinputsize [%d B] + local size limit for"
-                    " stdout [%d B])", maxwdirsize, max_input_size, config.Pilot.local_size_limit_stdout * 1024)
+        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (maxinputsize [{max_input_size}"
+                    f"B] + local size limit for stdout [{config.Pilot.local_size_limit_stdout * 1024} B])")
         logger.warning(f'conversion caught exception: {error}')
     else:
         # grace margin, as discussed in https://its.cern.ch/jira/browse/ATLASPANDA-482
