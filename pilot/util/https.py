@@ -9,7 +9,6 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-#import subprocess
 import json
 import os
 import platform
@@ -307,7 +306,6 @@ def execute_request(req):
 
     exit_code, stdout, _ = execute(req)
     return exit_code, stdout
-#    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):
@@ -342,9 +340,9 @@ def get_urlopen_output(req, context):
     try:
         output = urllib.request.urlopen(req, context=context)
     except urllib.error.HTTPError as exc:
-        logger.warning('server error (%s): %s' % (exc.code, exc.read()))
+        logger.warning(f'server error ({exc.code}): {exc.read()}')
     except urllib.error.URLError as exc:
-        logger.warning('connection error: %s' % exc.reason)
+        logger.warning(f'connection error: {exc.reason}')
     else:
         exitcode = 0
 
