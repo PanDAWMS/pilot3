@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 from os import environ
 
@@ -48,7 +48,7 @@ def get_job_metrics(job):
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     try:
-        job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)  # Python 2/3
+        job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)
     except AttributeError as exc:
         job_metrics = None
         logger.warning(f'function not implemented in jobmetrics module: {exc}')
