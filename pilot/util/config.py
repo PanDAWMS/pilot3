@@ -5,15 +5,11 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 import os
 import re
-
-try:
-    import ConfigParser
-except Exception:  # Python 3
-    import configparser as ConfigParser  # noqa: N812
+import configparser as ConfigParser
 
 _default_path = os.path.join(os.path.dirname(__file__), 'default.cfg')
 _path = os.environ.get('HARVESTER_PILOT_CONFIG', _default_path)
@@ -29,13 +25,13 @@ class _ConfigurationSection(object):
         return getattr(self, item)
 
     def __repr__(self):
-        return str(tuple(list(self.__dict__.keys())))  # Python 2/3
+        return str(tuple(list(self.__dict__.keys())))
 
     def __getattr__(self, attr):
         if attr in self.__dict__:
             return self.__dict__[attr]
         else:
-            raise AttributeError('Setting \"%s\" does not exist in the section; __dict__=%s' % (attr, self.__dict__))
+            raise AttributeError(f'setting \"{attr}\" does not exist in the section; __dict__={self.__dict__}')
 
 
 def read(config_file):
@@ -54,10 +50,10 @@ def read(config_file):
         for key, value in _config.items(section):
             # handle environmental variables
             if value.startswith('$'):
-                tmpmatch = re.search(r'\$\{*([^\}]+)\}*', value)  # Python 3 (added r)
+                tmpmatch = re.search(r'\$\{*([^\}]+)\}*', value)
                 envname = tmpmatch.group(1)
                 if envname not in os.environ:
-                    raise KeyError('{0} in the cfg is an undefined environment variable.'.format(envname))
+                    raise KeyError(f'{envname} in the cfg is an undefined environment variable')
                 value = os.environ.get(envname)
             # convert to proper types
             if value == 'True' or value == 'true':
@@ -66,7 +62,7 @@ def read(config_file):
                 value = False
             elif value == 'None' or value == 'none':
                 value = None
-            elif re.match(r'^\d+$', value):  # Python 3 (added r)
+            elif re.match(r'^\d+$', value):
                 value = int(value)
             setattr(settings, key, value)
 
