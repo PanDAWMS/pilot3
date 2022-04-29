@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
@@ -197,7 +197,7 @@ def run_checks(queues, args):
 
         t_max = 2 * 60
         logger.warning('pilot monitor received instruction that abort_job has been requested')
-        logger.warning('will wait for a maximum of %d seconds for threads to finish', t_max)
+        logger.warning(f'will wait for a maximum of {t_max} s for threads to finish')
         t_0 = time.time()
         while time.time() - t_0 < t_max:
             if args.job_aborted.is_set():
@@ -211,7 +211,7 @@ def run_checks(queues, args):
             args.graceful_stop.set()
 
         if not args.job_aborted.is_set():
-            logger.warning('will wait for a maximum of %d seconds for graceful_stop to take effect', t_max)
+            logger.warning(f'will wait for a maximum of {t_max} s for graceful_stop to take effect')
             t_max = 10
             t_0 = time.time()
             while time.time() - t_0 < t_max:
@@ -241,21 +241,21 @@ def get_max_running_time(lifetime, queuedata):
 
     # use the schedconfig value if set, otherwise use the pilot option lifetime value
     if not queuedata:
-        logger.warning('queuedata could not be extracted from queues, will use default for max running time '
-                       '(%d s)', max_running_time)
+        logger.warning(f'queuedata could not be extracted from queues, will use default for max running time '
+                       f'({max_running_time} s)')
     else:
         if queuedata.maxtime:
             try:
                 max_running_time = int(queuedata.maxtime)
             except Exception as error:
-                logger.warning('exception caught: %s', error)
-                logger.warning('failed to convert maxtime from queuedata, will use default value for max running time '
-                               '(%d s)', max_running_time)
+                logger.warning(f'exception caught: {error}')
+                logger.warning(f'failed to convert maxtime from queuedata, will use default value for max running time '
+                               f'({max_running_time} s)')
             else:
                 if max_running_time == 0:
                     max_running_time = lifetime  # fallback to default value
-                    logger.info('will use default value for max running time: %d s', max_running_time)
+                    logger.info(f'will use default value for max running time: {max_running_time} s')
                 else:
-                    logger.info('will use queuedata.maxtime value for max running time: %d s', max_running_time)
+                    logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time} s')
 
     return max_running_time
