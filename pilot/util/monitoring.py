@@ -24,7 +24,8 @@ from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
-from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes
+from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes,\
+    get_subprocesses
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import get_local_disk_space, check_hz
 
@@ -66,6 +67,9 @@ def job_monitor_tasks(job, mt, args):
             job.cpuconsumptiontime = int(round(cpuconsumptiontime))
             job.cpuconversionfactor = 1.0
             logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+
+        # keep track of the subprocesses running (store payload subprocess PIDs)
+        store_subprocess_pids(job)
 
         # check how many cores the payload is using
         time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
@@ -736,3 +740,20 @@ def check_output_file_sizes(job):
             logger.info(f'output file size check: skipping output file {path} since it does not exist')
 
     return exit_code, diagnostics
+
+
+def store_subprocess_pids(job):
+    """
+    Keep track of all running subprocesses.
+
+    :param job: job object.
+    :return:
+    """
+
+    # is the payload running?
+    if job.pid:
+        # get all subprocesses
+        job.subprocesses = get_subprocesses(job.pid)
+        logger.debug(f'payload subprocesses: {job.subprocesses}')
+    else:
+        logger.debug('payload not running (no subprocesses)')

@@ -758,3 +758,16 @@ def is_child(pid, pandaid_pid, dictionary):
         else:
             # try another pid
             return is_child(ppid, pandaid_pid, dictionary)
+
+
+def get_subprocesses(pid):
+    """
+    Return the subprocesses belonging to the given PID.
+
+    :param pid: main process PID (int).
+    :return: list of subprocess PIDs.
+    """
+
+    cmd = f'ps -opid --no-headers --ppid {pid}'
+    _, out, _ = execute(cmd)
+    return [int(line) for line in out.splitlines()] if out else []
