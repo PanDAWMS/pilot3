@@ -28,10 +28,10 @@ from .config import config
 from .constants import get_pilot_version
 from .container import execute
 from pilot.common.errorcodes import ErrorCodes
-errors = ErrorCodes()
 
 import logging
 logger = logging.getLogger(__name__)
+errors = ErrorCodes()
 
 _ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
 _ctx.ssl_context = None

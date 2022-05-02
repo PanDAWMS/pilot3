@@ -753,7 +753,9 @@ def store_subprocess_pids(job):
     # is the payload running?
     if job.pid:
         # get all subprocesses
-        job.subprocesses = get_subprocesses(job.pid)
+        _subprocesses = get_subprocesses(job.pid)
+        # merge lists without duplicates
+        job.subprocesses = list(set(job.subprocesses + _subprocesses))
         logger.debug(f'payload subprocesses: {job.subprocesses}')
     else:
         logger.debug('payload not running (no subprocesses)')

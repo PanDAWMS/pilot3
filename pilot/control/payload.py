@@ -20,6 +20,7 @@ from re import findall, split
 from pilot.control.payloads import generic, eventservice, eventservicemerge
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
+from pilot.util.container import execute
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
 from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file, find_file
@@ -552,7 +553,13 @@ def perform_initial_payload_error_analysis(job, exit_code):
         stderr = ''
         logger.info(f'file does not exist: {path}')
 
-    if exit_code != 0:
+    # check for memory errors first
+    if exit_code != 0 and job.subprocesses:
+        # scan for memory errors in dmesg messages
+        msg = scan_for_memory_errors(job.subprocesses)
+        if msg:
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
+    elif exit_code != 0:
         msg = ""
 
         # are there any critical errors in the stdout?
@@ -608,6 +615,31 @@ def perform_initial_payload_error_analysis(job, exit_code):
             # COREDUMP error will only be set if the core dump belongs to the payload (ie 'core.<payload pid>')
             logger.warning('setting COREDUMP error')
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
+
+
+def scan_for_memory_errors(subprocesses):
+    """
+    Scan for memory errors in dmesg messages.
+
+    :param subprocesses: list of payload subprocesses.
+    :return: error diagnostics (string).
+    """
+
+    diagnostics = ""
+    for pid in subprocesses:
+        logger.info(f'scanning dmesg message for subprocess={pid} for memory errors')
+        cmd = f'dmesg|grep {pid}'
+        _, out, _ = execute(cmd)
+        if 'Memory cgroup out of memory' in out:
+            for line in out.split('\n'):
+                diagnostics = line[line.find(' ') + 1:]
+                logger.warning(f'found memory error: {diagnostics}')
+                break
+
+        if diagnostics:
+            break
+
+    return diagnostics
 
 
 def set_error_code_from_stderr(msg, fatal):
