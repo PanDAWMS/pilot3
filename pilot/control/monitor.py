@@ -77,6 +77,7 @@ def control(queues, traces, args):
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been exceeded - must abort pilot')
                 logger.info('setting REACHED_MAXTIME and graceful stop')
                 environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
+                logger.debug(f"REACHED_MAXTIME={environ.get('REACHED_MAXTIME', None)}")
                 # do not set graceful stop if pilot has not finished sending the final job update
                 # i.e. wait until SERVER_UPDATE is FINAL_DONE
                 check_for_final_server_update(args.update_server)

@@ -27,6 +27,8 @@ from .filehandling import write_file
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
+from pilot.common.errorcodes import ErrorCodes
+errors = ErrorCodes()
 
 import logging
 logger = logging.getLogger(__name__)
@@ -366,6 +368,16 @@ def send_update(update_function, data, url, port, job=None):
     attempt = 0
     done = False
     res = None
+
+    if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
+        data['state'] = 'failed'
+        if job:
+            job.state = 'failed'
+            msg = 'the max batch system time limit has been reached'
+            logger.warning(msg)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+            add_error_codes(data, job)
+
     while attempt < max_attempts and not done:
         logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
 
@@ -449,3 +461,34 @@ def get_panda_server(url, port, update_server=True):
         logger.debug(f'updated {default} to {pandaserver}')
 
     return pandaserver
+
+
+def add_error_codes(data, job):
+    """
+    Add error codes to data structure.
+
+    :param data: data dictionary.
+    :param job: job object.
+    :return:
+    """
+
+    # error codes
+    pilot_error_code = job.piloterrorcode
+    pilot_error_codes = job.piloterrorcodes
+    if pilot_error_codes != []:
+        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
+        data['pilotErrorCode'] = pilot_error_codes[0]
+    else:
+        data['pilotErrorCode'] = pilot_error_code
+
+    # add error info
+    pilot_error_diag = job.piloterrordiag
+    pilot_error_diags = job.piloterrordiags
+    if pilot_error_diags != []:
+        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
+        data['pilotErrorDiag'] = pilot_error_diags[0]
+    else:
+        data['pilotErrorDiag'] = pilot_error_diag
+    data['transExitCode'] = job.transexitcode
+    data['exeErrorCode'] = job.exeerrorcode
+    data['exeErrorDiag'] = job.exeerrordiag
