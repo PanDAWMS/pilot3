@@ -62,7 +62,7 @@ def control(queues, traces, args):
                 pass
             else:
                 exc_type, exc_obj, exc_trace = exc
-                logger.warning("thread \'%s\' received an exception from bucket: %s", thread.name, exc_obj)
+                logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
 
                 # deal with the exception
                 # ..
@@ -204,13 +204,13 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # this job is now to be monitored, so add it to the monitored_payloads queue
             put_in_queue(job, queues.monitored_payloads)
 
-            logger.info('job %s added to monitored payloads queue', job.jobid)
+            logger.debug(f'job {job.jobid} added to monitored payloads queue')
 
             try:
                 out = open(os.path.join(job.workdir, config.Payload.payloadstdout), 'wb')
                 err = open(os.path.join(job.workdir, config.Payload.payloadstderr), 'wb')
             except Exception as error:
-                logger.warning('failed to open payload stdout/err: %s', error)
+                logger.warning(f'failed to open payload stdout/err: {error}')
                 out = None
                 err = None
             send_state(job, args, 'starting')
@@ -222,7 +222,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
                 continue
 
             payload_executor = get_payload_executor(args, job, out, err, traces)
-            logger.info("will use payload executor: %s", payload_executor)
+            logger.info(f"will use payload executor: {payload_executor}")
 
             # run the payload and measure the execution time
             job.t0 = os.times()
@@ -238,17 +238,16 @@ def execute_payloads(queues, traces, args):  # noqa: C901
 
             # some HPO jobs will produce new output files (following lfn name pattern), discover those and replace the job.outdata list
             if job.is_hpo:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user],
-                                  0)  # Python 2/3
+                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
                 try:
                     user.update_output_for_hpo(job)
                 except Exception as error:
-                    logger.warning('exception caught by update_output_for_hpo(): %s', error)
+                    logger.warning(f'exception caught by update_output_for_hpo(): {error}')
                 else:
                     for dat in job.outdata:
                         if not dat.guid:
                             dat.guid = get_guid()
-                            logger.warning('guid not set: generated guid=%s for lfn=%s', dat.guid, dat.lfn)
+                            logger.warning(f'guid not set: generated guid={dat.guid} for lfn={dat.lfn}')
 
             #if traces.pilot['nr_jobs'] == 1:
             #    logger.debug('faking job failure in first multi-job')
@@ -262,11 +261,11 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             #if job.piloterrorcodes:
             #    exit_code_interpret = 1
             #else:
-            user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
-                logger.warning('exception caught: %s', error)
+                logger.warning(f'exception caught: {error}')
                 #exit_code_interpret = -1
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM)
 
@@ -289,7 +288,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
         except queue.Empty:
             continue
         except Exception as error:
-            logger.fatal('execute payloads caught an exception (cannot recover): %s, %s', error, traceback.format_exc())
+            logger.fatal(f'execute payloads caught an exception (cannot recover): {error}, {traceback.format_exc()}')
             if job:
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONEXCEPTION)
                 #queues.failed_payloads.put(job)
@@ -528,7 +527,7 @@ def set_cpu_consumption_time(job):
     job.cpuconsumptiontime = int(round(cpuconsumptiontime))
     job.cpuconsumptionunit = "s"
     job.cpuconversionfactor = 1.0
-    logger.info('CPU consumption time: %f %s (rounded to %d %s)', cpuconsumptiontime, job.cpuconsumptionunit, job.cpuconsumptiontime, job.cpuconsumptionunit)
+    logger.info(f'CPU consumption time: {cpuconsumptiontime} {job.cpuconsumptionunit} (rounded to {job.cpuconsumptiontime} {job.cpuconsumptionunit})')
 
 
 def perform_initial_payload_error_analysis(job, exit_code):
@@ -542,7 +541,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
     """
 
     if exit_code != 0:
-        logger.warning('main payload execution returned non-zero exit code: %d', exit_code)
+        logger.warning(f'main payload execution returned non-zero exit code: {exit_code}')
 
     # look for singularity errors (the exit code can be zero in this case)
     path = os.path.join(job.workdir, config.Payload.payloadstderr)
