@@ -139,14 +139,14 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                 seconds_left = validity_end - tnow
                 logger.info("cache: check %s proxy validity: wanted=%dh left=%.2fh (now=%d validity_end=%d left=%d)",
                             proxy_id, limit, float(seconds_left) / 3600, tnow, validity_end, seconds_left)
-                if seconds_left < limit * 3600:  # REMOVE THIS, FAVOUR THE NEXT
-                    diagnostics = f"{proxy_id} proxy validity time is too short: %.2fh" % (float(seconds_left) / 3600)
-                    logger.warning(diagnostics)
-                    exit_code = errors.NOVOMSPROXY
-                elif seconds_left < limit * 3600 - 20 * 60:  # FAVOUR THIS, IE NEVER SET THE PREVIOUS
+                if seconds_left < limit * 3600 - 20 * 60:  # FAVOUR THIS, IE NEVER SET THE NEXT
                     diagnostics = f'{proxy_id} proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
                     logger.warning(diagnostics)
                     exit_code = errors.VOMSPROXYABOUTTOEXPIRE
+                #elif seconds_left < limit * 3600:  # REMOVE THIS, FAVOUR THE NEXT
+                #    diagnostics = f"{proxy_id} proxy validity time is too short: %.2fh" % (float(seconds_left) / 3600)
+                #    logger.warning(diagnostics)
+                #    exit_code = errors.NOVOMSPROXY
                 else:
                     logger.info("%s proxy validity time is verified", proxy_id)
             return exit_code, diagnostics
