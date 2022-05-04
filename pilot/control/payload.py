@@ -626,15 +626,17 @@ def scan_for_memory_errors(subprocesses):
     """
 
     diagnostics = ""
+    search_str = 'Memory cgroup out of memory'
     for pid in subprocesses:
         logger.info(f'scanning dmesg message for subprocess={pid} for memory errors')
         cmd = f'dmesg|grep {pid}'
         _, out, _ = execute(cmd)
-        if 'Memory cgroup out of memory' in out:
+        if search_str in out:
             for line in out.split('\n'):
-                diagnostics = line[line.find(' ') + 1:]
-                logger.warning(f'found memory error: {diagnostics}')
-                break
+                if search_str in line:
+                    diagnostics = line[line.find(search_str):]
+                    logger.warning(f'found memory error: {diagnostics}')
+                    break
 
         if diagnostics:
             break
