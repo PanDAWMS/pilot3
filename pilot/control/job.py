@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from __future__ import print_function  # Python 2
@@ -1256,6 +1256,8 @@ def get_job_label(args):
     elif status == 'test' and args.job_label != 'ptest':
         logger.warning('PQ status set to test - will use job label / prodSourceLabel test')
         job_label = 'test'
+    elif infosys.queuedata.type == 'unified':
+        job_label = 'unified'
     else:
         job_label = args.job_label
 
