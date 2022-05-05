@@ -9,7 +9,7 @@
 
 import os
 import re
-import configparser as ConfigParser
+import configparser as ConfigParser  # noqa: N812
 
 _default_path = os.path.join(os.path.dirname(__file__), 'default.cfg')
 _path = os.environ.get('HARVESTER_PILOT_CONFIG', _default_path)
