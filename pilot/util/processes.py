@@ -48,7 +48,7 @@ def find_processes_in_group(cpids, pid):
                 thispid = int(lines[i].split()[0])
                 thisppid = int(lines[i].split()[1])
             except Exception as error:
-                logger.warning('exception caught: %s', error)
+                logger.warning(f'exception caught: {error}')
             if thisppid == pid:
                 find_processes_in_group(cpids, thispid)
 
@@ -393,8 +393,7 @@ def kill_orphans():
 
     cmd = "ps -o pid,ppid,args -u %s" % whoami()
     exit_code, _processes, stderr = execute(cmd)
-    #pattern = re.compile(r'(\d+)\s+(\d+)\s+(\S+)')  # Python 3 (added r)
-    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')  # Python 3 (added r)
+    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')
 
     count = 0
     for line in _processes.split('\n'):
@@ -759,3 +758,16 @@ def is_child(pid, pandaid_pid, dictionary):
         else:
             # try another pid
             return is_child(ppid, pandaid_pid, dictionary)
+
+
+def get_subprocesses(pid):
+    """
+    Return the subprocesses belonging to the given PID.
+
+    :param pid: main process PID (int).
+    :return: list of subprocess PIDs.
+    """
+
+    cmd = f'ps -opid --no-headers --ppid {pid}'
+    _, out, _ = execute(cmd)
+    return [int(line) for line in out.splitlines()] if out else []
