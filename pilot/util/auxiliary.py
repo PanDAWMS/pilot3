@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 import re
@@ -83,6 +83,7 @@ def display_architecture_info():
     Display OS/architecture information.
     The function attempts to use the lsb_release -a command if available. If that is not available,
     it will dump the contents of
+    WARNING: lsb_release will not be available on CentOS Stream 9
 
     :return:
     """

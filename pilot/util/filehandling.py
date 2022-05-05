@@ -77,7 +77,7 @@ def rmdirs(path):
     try:
         rmtree(path)
     except OSError as exc:
-        logger.warning("failed to remove directories %s: %s", path, exc)
+        logger.warning(f"failed to remove directories {path}: {exc}")
     else:
         status = True
 
@@ -132,9 +132,9 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
 
     if not mute:
         if 'w' in mode:
-            logger.info('created file: %s', path)
+            logger.info(f'created file: {path}')
         if 'a' in mode:
-            logger.info('appended file: %s', path)
+            logger.info(f'appended file: {path}')
 
     return status
 
@@ -321,7 +321,7 @@ def read_list(filename):
         with open(filename, 'r') as filehandle:
             _list = load(filehandle)
     except IOError as exc:
-        logger.warning('failed to read %s: %s', filename, exc)
+        logger.warning(f'failed to read {filename}: {exc}')
 
     return convert(_list)
 
@@ -341,7 +341,7 @@ def read_json(filename):
         try:
             dictionary = load(_file)
         except JSONDecodeError as exc:
-            logger.warning('exception caught: %s', exc)
+            logger.warning(f'exception caught: {exc}')
             #raise FileHandlingFailure(str(error))
         else:
             _file.close()
@@ -426,10 +426,10 @@ def remove(path):
     try:
         os.remove(path)
     except OSError as exc:
-        logger.warning("failed to remove file: %s (%s, %s)", path, exc.errno, exc.strerror)
+        logger.warning(f"failed to remove file: {path} ({exc.errno}, {exc.strerror})")
         return -1
     else:
-        logger.debug('removed %s', path)
+        logger.debug(f'removed {path}')
 
     return 0
 
@@ -444,7 +444,7 @@ def remove_dir_tree(path):
     try:
         rmtree(path)
     except OSError as exc:
-        logger.warning("failed to remove directory: %s (%s, %s)", path, exc.errno, exc.strerror)
+        logger.warning(f"failed to remove directory: {path} ({exc.errno}, {exc.strerror})")
         return -1
     return 0
 
@@ -460,7 +460,7 @@ def remove_files(workdir, files):
 
     exitcode = 0
     if not isinstance(files, list):
-        logger.warning('files parameter not a list: %s', str(type(list)))
+        logger.warning(f'files parameter not a list: {type(list)}')
         exitcode = -1
     else:
         for _file in files:
@@ -500,7 +500,7 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
         except IOError:
             if attempt == 0:
                 safe_delay = 15
-                logger.warning('i/o error - will retry in {0} seconds'.format(safe_delay))
+                logger.warning(f'i/o error - will retry in {safe_delay} seconds')
                 time.sleep(safe_delay)
                 tar_files(wkdir, excludedfiles, logfile_name, attempt=1)
             else:
@@ -511,7 +511,7 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
         remove(_file[0])
 
     remove_empty_directories(wkdir)
-    logger.debug("packing of logs took {0} seconds".format(time.time() - pack_start))
+    logger.debug(f"packing of logs took {time.time() - pack_start} seconds")
 
     return 0
 
@@ -525,17 +525,18 @@ def move(path1, path2):
     """
 
     if not os.path.exists(path1):
-        logger.warning('file copy failure: path does not exist: %s', path1)
-        raise NoSuchFile("File does not exist: %s" % path1)
+        diagnostic = f'file copy failure: path does not exist: {path1}'
+        logger.warning(diagnostic)
+        raise NoSuchFile(diagnostic)
 
     try:
         import shutil
         shutil.move(path1, path2)
     except IOError as exc:
-        logger.warning("exception caught during file move: %s", exc)
+        logger.warning(f"exception caught during file move: {exc}")
         raise FileHandlingFailure(exc)
     else:
-        logger.info("moved %s to %s", path1, path2)
+        logger.info(f"moved {path1} to {path2}")
 
 
 def copy(path1, path2):
@@ -549,16 +550,17 @@ def copy(path1, path2):
     """
 
     if not os.path.exists(path1):
-        logger.warning('file copy failure: path does not exist: %s', path1)
-        raise NoSuchFile("File does not exist: %s" % path1)
+        diagnostics = f'file copy failure: path does not exist: {path1}'
+        logger.warning(diagnostics)
+        raise NoSuchFile(diagnostics)
 
     try:
         copy2(path1, path2)
     except IOError as exc:
-        logger.warning("exception caught during file copy: %s", exc)
+        logger.warning(f"exception caught during file copy: {exc}")
         raise FileHandlingFailure(exc)
     else:
-        logger.info("copied %s to %s", path1, path2)
+        logger.info(f"copied {path1} to {path2}")
 
 
 def add_to_total_size(path, total_size):
@@ -574,10 +576,10 @@ def add_to_total_size(path, total_size):
         # Get the file size
         fsize = get_local_file_size(path)
         if fsize:
-            logger.info("size of file %s: %d B", path, fsize)
+            logger.info(f"size of file {path}: {fsize} B")
             total_size += int(fsize)
     else:
-        logger.warning("skipping file %s since it is not present", path)
+        logger.warning(f"skipping file {path} since it is not present")
 
     return total_size
 
@@ -596,9 +598,9 @@ def get_local_file_size(filename):
         try:
             file_size = os.path.getsize(filename)
         except OSError as exc:
-            logger.warning("failed to get file size: %s", exc)
+            logger.warning(f"failed to get file size: {exc}")
     else:
-        logger.warning("local file does not exist: %s", filename)
+        logger.warning(f"local file does not exist: {filename}")
 
     return file_size
 
@@ -640,7 +642,7 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
     try:
         _file = open_file(filename, 'r')
     except FileHandlingFailure as exc:
-        logger.warning("failed to open file: %s, %s", filename, exc)
+        logger.warning(f"failed to open file: {filename}, {exc}")
     else:
         firstline = True
         for line in _file:
@@ -661,7 +663,7 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
                     try:
                         field = float(field)
                     except (TypeError, ValueError) as exc:
-                        logger.warning("failed to convert %s to float: %s (aborting)", field, exc)
+                        logger.warning(f"failed to convert {field} to float: {exc} (aborting)")
                         return None
                 tabledict[key].append(field)
                 i += 1
@@ -732,7 +734,7 @@ def calculate_checksum(filename, algorithm='adler32'):
     elif algorithm == 'md5' or algorithm == 'md5sum' or algorithm == 'md':
         return calculate_md5_checksum(filename)
     else:
-        msg = 'unknown checksum algorithm: %s' % algorithm
+        msg = f'unknown checksum algorithm: {algorithm}'
         logger.warning(msg)
         raise NotImplementedError()
 
@@ -883,7 +885,7 @@ def verify_file_list(list_of_files):
 
     diff = diff_lists(list_of_files, filtered_list)
     if diff:
-        logger.debug('found %d file(s) that do not exist (e.g. %s)', len(diff), diff[0])
+        logger.debug(f'found {len(diff)} file(s) that do not exist (e.g. {diff[0]})')
 
     return filtered_list
 
@@ -905,7 +907,7 @@ def find_latest_modified_file(list_of_files):
         latest_file = max(list_of_files, key=os.path.getmtime)
         mtime = int(os.path.getmtime(latest_file))
     except OSError as exc:
-        logger.warning("int conversion failed for mod time: %s", exc)
+        logger.warning(f"int conversion failed for mod time: {exc}")
         latest_file = ""
         mtime = None
 
@@ -924,9 +926,9 @@ def dump(path, cmd="cat"):
     if os.path.exists(path) or cmd == "echo":
         _cmd = "%s %s" % (cmd, path)
         _, stdout, stderr = execute(_cmd)
-        logger.info("%s:\n%s", _cmd, stdout + stderr)
+        logger.info(f"{_cmd}:\n{stdout + stderr}")
     else:
-        logger.info("path %s does not exist", path)
+        logger.info(f"path {path} does not exist")
 
 
 def establish_logging(debug=True, nopilotlog=False, filename=config.Pilot.pilotlog, loglevel=0):
@@ -966,7 +968,6 @@ def establish_logging(debug=True, nopilotlog=False, filename=config.Pilot.pilotl
     console.setLevel(level)
     console.setFormatter(logging.Formatter(format_str))
     logging.Formatter.converter = time.gmtime
-    #if not len(_logger.handlers):
     _logger.addHandler(console)
 
 
@@ -989,7 +990,7 @@ def remove_core_dumps(workdir, pid=None):
         for coredump in coredumps:
             if pid and os.path.basename(coredump) == "core.%d" % pid:
                 found = True
-            logger.info("removing core dump: %s", str(coredump))
+            logger.info(f"removing core dump: {coredump}")
             remove(coredump)
 
     return found
@@ -1059,14 +1060,14 @@ def copy_pilot_source(workdir):
     diagnostics = ""
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     try:
-        logger.debug('copy %s to %s', srcdir, workdir)
+        logger.debug(f'copy {srcdir} to {workdir}')
         cmd = 'cp -r %s/* %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
-            diagnostics = 'file copy failed: %d, %s' % (exit_code, stdout)
+            diagnostics = f'file copy failed: {exit_code}, {stdout}'
             logger.warning(diagnostics)
     except Exception as exc:
-        diagnostics = 'exception caught when copying pilot3 source: %s' % exc
+        diagnostics = f'exception caught when copying pilot3 source: {exc}'
         logger.warning(diagnostics)
 
     return diagnostics
@@ -1083,9 +1084,9 @@ def create_symlink(from_path='', to_path=''):
     try:
         os.symlink(from_path, to_path)
     except (OSError, FileNotFoundError) as exc:
-        logger.warning('failed to create symlink from %s to %s: %s', from_path, to_path, exc)
+        logger.warning(f'failed to create symlink from {from_path} to {to_path}: {exc}')
     else:
-        logger.debug('created symlink from %s to %s', from_path, to_path)
+        logger.debug(f'created symlink from {from_path} to {to_path}')
 
 
 def locate_file(pattern):
@@ -1144,7 +1145,7 @@ def get_disk_usage(start_path='.'):
                 try:
                     total_size += os.path.getsize(_fp)
                 except FileNotFoundError as exc:
-                    logger.warning('caught exception: %s (skipping this file)', exc)
+                    logger.warning(f'caught exception: {exc} (skipping this file)')
                     continue
 
     return total_size

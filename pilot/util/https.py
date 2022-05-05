@@ -9,7 +9,6 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-#import subprocess
 import json
 import os
 import platform
@@ -28,9 +27,11 @@ from .filehandling import write_file
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
+from pilot.common.errorcodes import ErrorCodes
 
 import logging
 logger = logging.getLogger(__name__)
+errors = ErrorCodes()
 
 _ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
 _ctx.ssl_context = None
@@ -307,7 +308,6 @@ def execute_request(req):
 
     exit_code, stdout, _ = execute(req)
     return exit_code, stdout
-#    return subprocess.getstatusoutput(req)
 
 
 def execute_urllib(url, data, plain, secure):
@@ -342,9 +342,9 @@ def get_urlopen_output(req, context):
     try:
         output = urllib.request.urlopen(req, context=context)
     except urllib.error.HTTPError as exc:
-        logger.warning('server error (%s): %s' % (exc.code, exc.read()))
+        logger.warning(f'server error ({exc.code}): {exc.read()}')
     except urllib.error.URLError as exc:
-        logger.warning('connection error: %s' % exc.reason)
+        logger.warning(f'connection error: {exc.reason}')
     else:
         exitcode = 0
 
@@ -368,6 +368,16 @@ def send_update(update_function, data, url, port, job=None):
     attempt = 0
     done = False
     res = None
+
+    if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
+        data['state'] = 'failed'
+        if job:
+            job.state = 'failed'
+            msg = 'the max batch system time limit has been reached'
+            logger.warning(msg)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+            add_error_codes(data, job)
+
     while attempt < max_attempts and not done:
         logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
 
@@ -451,3 +461,34 @@ def get_panda_server(url, port, update_server=True):
         logger.debug(f'updated {default} to {pandaserver}')
 
     return pandaserver
+
+
+def add_error_codes(data, job):
+    """
+    Add error codes to data structure.
+
+    :param data: data dictionary.
+    :param job: job object.
+    :return:
+    """
+
+    # error codes
+    pilot_error_code = job.piloterrorcode
+    pilot_error_codes = job.piloterrorcodes
+    if pilot_error_codes != []:
+        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
+        data['pilotErrorCode'] = pilot_error_codes[0]
+    else:
+        data['pilotErrorCode'] = pilot_error_code
+
+    # add error info
+    pilot_error_diag = job.piloterrordiag
+    pilot_error_diags = job.piloterrordiags
+    if pilot_error_diags != []:
+        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
+        data['pilotErrorDiag'] = pilot_error_diags[0]
+    else:
+        data['pilotErrorDiag'] = pilot_error_diag
+    data['transExitCode'] = job.transexitcode
+    data['exeErrorCode'] = job.exeerrorcode
+    data['exeErrorDiag'] = job.exeerrordiag

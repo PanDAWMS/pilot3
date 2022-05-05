@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from __future__ import print_function  # Python 2
@@ -300,8 +300,17 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     :return: boolean (True if successful, False otherwise).
     """
 
-    state = get_proper_state(job, state)
+    # insert out of batch time error code if MAXTIME has been reached
+    logger.debug(f"REACHED_MAXTIME={os.environ.get('REACHED_MAXTIME', None)}")
+    if os.environ.get('REACHED_MAXTIME', None):
+        msg = 'the max batch system time limit has been reached'
+        logger.warning(msg)
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+        state = 'failed'
+        job.state = state
 
+    state = get_proper_state(job, state)
+    logger.debug(f'state={state}')
     # should the pilot make any server updates?
     if not args.update_server:
         logger.info('pilot will not update the server (heartbeat message will be written to file)')
@@ -311,7 +320,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
 
     # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
-
+    logger.debug(f'data={data}')
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
     if not args.update_server:
         # if in harvester mode write to files required by harvester
@@ -578,6 +587,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     :return: data structure (dictionary).
     """
 
+    logger.debug(f'state={state}')
     data = {'jobId': job.jobid,
             'state': state,
             'timestamp': time_stamp(),
@@ -642,7 +652,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     add_memory_info(data, job.workdir, name=job.memorymonitor)
     if state == 'finished' or state == 'failed':
         add_timing_and_extracts(data, job, state, args)
-        add_error_codes(data, job)
+        https.add_error_codes(data, job)
 
     return data
 
@@ -803,37 +813,6 @@ def get_requested_log_tail(debug_command, workdir):
         logger.debug(f'tail =\n\n{_tail}\n\n')
 
     return _tail
-
-
-def add_error_codes(data, job):
-    """
-    Add error codes to data structure.
-
-    :param data: data dictionary.
-    :param job: job object.
-    :return:
-    """
-
-    # error codes
-    pilot_error_code = job.piloterrorcode
-    pilot_error_codes = job.piloterrorcodes
-    if pilot_error_codes != []:
-        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
-        data['pilotErrorCode'] = pilot_error_codes[0]
-    else:
-        data['pilotErrorCode'] = pilot_error_code
-
-    # add error info
-    pilot_error_diag = job.piloterrordiag
-    pilot_error_diags = job.piloterrordiags
-    if pilot_error_diags != []:
-        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
-        data['pilotErrorDiag'] = pilot_error_diags[0]
-    else:
-        data['pilotErrorDiag'] = pilot_error_diag
-    data['transExitCode'] = job.transexitcode
-    data['exeErrorCode'] = job.exeerrorcode
-    data['exeErrorDiag'] = job.exeerrordiag
 
 
 def get_cpu_consumption_time(cpuconsumptiontime):
@@ -1277,6 +1256,8 @@ def get_job_label(args):
     elif status == 'test' and args.job_label != 'ptest':
         logger.warning('PQ status set to test - will use job label / prodSourceLabel test')
         job_label = 'test'
+    elif infosys.queuedata.type == 'unified':
+        job_label = 'unified'
     else:
         job_label = args.job_label
 
@@ -2587,6 +2568,11 @@ def job_monitor(queues, traces, args):  # noqa: C901
             peeking_time = int(time.time())
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
+
+                if os.environ.get('REACHED_MAXTIME', None):
+                    # the batch system max time has been reached, time to abort (in the next step)
+                    jobs[i].state = 'failed'
+
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
