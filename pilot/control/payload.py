@@ -91,7 +91,7 @@ def control(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[payload] control thread has finished')
+    logger.info('[payload] control thread has finished')
 
 
 def validate_pre(queues, traces, args):

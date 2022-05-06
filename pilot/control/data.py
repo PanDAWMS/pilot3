@@ -87,7 +87,7 @@ def control(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] control thread has finished')
+    logger.info('[data] control thread has finished')
 
 
 def skip_special_files(job):
@@ -584,7 +584,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] copytool_in thread has finished')
+    logger.info('[data] copytool_in thread has finished')
 
 
 def copytool_out(queues, traces, args):
@@ -669,7 +669,7 @@ def copytool_out(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] copytool_out thread has finished')
+    logger.info('[data] copytool_out thread has finished')
 
 
 def is_already_processed(queues, processed_jobs):
@@ -1061,4 +1061,4 @@ def queue_monitoring(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] queue_monitor thread has finished')
+    logger.info('[data] queue_monitor thread has finished')

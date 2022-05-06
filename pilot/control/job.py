@@ -111,7 +111,7 @@ def control(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] control thread has finished')
+    logger.info('[job] control thread has finished')
     # test kill signal during end of generic workflow
     #import signal
     #os.kill(os.getpid(), signal.SIGBUS)
@@ -310,7 +310,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         job.state = state
 
     state = get_proper_state(job, state)
-    logger.debug(f'state={state}')
+
     # should the pilot make any server updates?
     if not args.update_server:
         logger.info('pilot will not update the server (heartbeat message will be written to file)')
@@ -321,6 +321,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
     logger.debug(f'data={data}')
+
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
     if not args.update_server:
         # if in harvester mode write to files required by harvester
@@ -1051,7 +1052,7 @@ def validate(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] validate thread has finished')
+    logger.info('[job] validate thread has finished')
 
 
 def hide_secrets(job):
@@ -1210,7 +1211,7 @@ def create_data_payload(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] create_data_payload thread has finished')
+    logger.info('[job] create_data_payload thread has finished')
 
 
 def get_task_id():
@@ -1901,7 +1902,7 @@ def retrieve(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] retrieve thread has finished')
+    logger.info('[job] retrieve thread has finished')
 
 
 def dump_job_definition(res):
@@ -2249,7 +2250,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] queue monitor thread has finished')
+    logger.info('[job] queue monitor thread has finished')
 
 
 def update_server(job, args):
@@ -2403,7 +2404,7 @@ def interceptor(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] interceptor thread has finished')
+    logger.info('[job] interceptor thread has finished')
 
 
 def fast_monitor_tasks(job):
@@ -2491,7 +2492,7 @@ def fast_job_monitor(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] fast job monitor thread has finished')
+    logger.info('[job] fast job monitor thread has finished')
 
 
 def job_monitor(queues, traces, args):  # noqa: C901
@@ -2645,7 +2646,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] job monitor thread has finished')
+    logger.info('[job] job monitor thread has finished')
 
 
 def download_new_proxy():
