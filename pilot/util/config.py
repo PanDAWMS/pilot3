@@ -9,7 +9,7 @@
 
 import os
 import re
-import configparser as ConfigParser  # noqa: N812
+import configparser
 
 _default_path = os.path.join(os.path.dirname(__file__), 'default.cfg')
 _path = os.environ.get('HARVESTER_PILOT_CONFIG', _default_path)
@@ -39,7 +39,7 @@ def read(config_file):
     Read the settings from file and return a dot notation object
     """
 
-    _config = ConfigParser.ConfigParser()
+    _config = configparser.ConfigParser()
     _config.read(config_file)
 
     obj = _ConfigurationSection()
