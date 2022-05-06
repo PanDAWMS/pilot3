@@ -13,12 +13,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_proxy(limit=None):
+def verify_proxy(limit=None, test=False):
     """
     Check for a valid voms/grid proxy longer than N hours.
     Use `limit` to set required time limit.
 
     :param limit: time limit in hours (int).
+    :param test: free Boolean test parameter.
     :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
     """
 

@@ -68,6 +68,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
 
     :param limit: time limit in hours (int).
     :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment
+    :param test: free Boolean test parameter.
     :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
     """
 
