@@ -110,6 +110,7 @@ class JobData(BaseData):
     looping_check = True           # perform looping payload check
     checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
     subprocesses = []              # list of PIDs for payload subprocesses
+    prodproxy = ""                 # to keep track of production proxy on unified queues
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -166,7 +167,7 @@ class JobData(BaseData):
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets'],
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
