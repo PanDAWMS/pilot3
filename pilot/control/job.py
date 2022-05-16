@@ -1869,6 +1869,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
+                # handle proxy on unified queues
+                handle_proxy(job)
+
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
                 put_in_queue(job, queues.jobs)
@@ -1885,7 +1888,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                         logger.info('ready for new job')
 
                         # re-establish logging
-                        logging.info('pilot has finished for previous job - re-establishing logging')
+                        logging.info('pilot has finished with previous job - re-establishing logging')
                         logging.handlers = []
                         logging.shutdown()
                         establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -1995,6 +1998,11 @@ def has_job_completed(queues, args):
 
         # reset any running real-time logger
         rtcleanup()
+
+        # reset proxy on unified queues for user jobs
+        if job.prodproxy:
+            os.environ['X509_USER_PROXY'] = job.prodproxy
+            job.prodproxy = ''
 
         # cleanup of any remaining processes
         if job.pid:
