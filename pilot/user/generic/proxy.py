@@ -24,3 +24,30 @@ def verify_proxy(limit=None, test=False):
     """
 
     return 0, ""
+
+
+def get_voms_role(role='production'):
+    """
+    Return the proper voms role.
+
+    :param role: proxy role, 'production' or 'user' (string).
+    :return: voms role (string).
+    """
+
+    return ''
+
+
+def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
+    """
+    Download a payload proxy from the server and verify it.
+
+    :param x509: X509_USER_PROXY (string).
+    :param voms_role: role, e.g. 'atlas' (string).
+    :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (string).
+    :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
+    """
+
+    exit_code = 0
+    diagnostics = ""
+
+    return exit_code, diagnostics

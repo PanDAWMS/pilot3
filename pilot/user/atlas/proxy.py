@@ -24,6 +24,17 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
+def get_voms_role(role='production'):
+    """
+    Return the proper voms role.
+
+    :param role: proxy role, 'production' or 'user' (string).
+    :return: voms role (string).
+    """
+
+    return 'atlas:/atlas/Role=production' if role == 'production' else 'atlas'
+
+
 def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     """
     Download a payload proxy from the server and verify it.

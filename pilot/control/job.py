@@ -46,7 +46,7 @@ from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
 from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes
-from pilot.util.proxy import get_distinguished_name
+from pilot.util.proxy import get_distinguished_name, get_proxy
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
@@ -1912,11 +1912,16 @@ def handle_proxy(job):
     """
     Handle the proxy on unified queues.
 
+    On unified queues, the pilot is started with the production proxy, but in case the job is a user job, the
+    production proxy is too powerful. A user proxy is then downloaded instead.
+
     :param job: job object.
     :return:
     """
 
-    pass
+    if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
+        logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
+        ec = download_new_proxy(role='user')
 
 
 def dump_job_definition(res):
@@ -2603,7 +2608,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 if exit_code != 0:
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
-                        ec = download_new_proxy()
+                        ec = download_new_proxy(role='production')
                         exit_code = ec if ec != 0 else 0  # reset the exit_code if success
 
                     if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
@@ -2668,12 +2673,13 @@ def job_monitor(queues, traces, args):  # noqa: C901
     logger.info('[job] job monitor thread has finished')
 
 
-def download_new_proxy():
+def download_new_proxy(role='production'):
     """
     The production proxy has expired, try to download a new one.
 
     If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
 
+    :param role: role, 'production' or 'user' (string).
     :return: exit code (int).
     """
 
@@ -2684,7 +2690,8 @@ def download_new_proxy():
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
-    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role='atlas:/atlas/Role=production')
+    voms_role = user.get_voms_role(role=role)
+    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role=voms_role)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY

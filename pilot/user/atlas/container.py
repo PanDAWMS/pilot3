@@ -18,7 +18,7 @@ import logging
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
-from pilot.user.atlas.proxy import get_and_verify_proxy
+from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
 from pilot.util.filehandling import write_file
@@ -277,18 +277,19 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
     x509 = os.environ.get('X509_USER_PROXY', '')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
-        cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, '')
+        cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
         # add it instead to the container setup command:
 
         # download and verify payload proxy from the server if desired
         proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
         if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis:
-            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role='atlas', proxy_type='payload')
+            voms_role = get_voms_role(role='user')
+            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
             if exit_code != 0:  # do not return non-zero exit code if only download fails
                 logger.warning('payload proxy verification failed')
 
         # add X509_USER_PROXY setting to the container setup command
-        _cmd = "export X509_USER_PROXY=%s;" % x509 + _cmd
+        _cmd = f"export X509_USER_PROXY={x509};" + _cmd
 
     return exit_code, diagnostics, _cmd, cmd
 
