@@ -190,7 +190,7 @@ def get_args():
                             default='PR',
                             help='Version tag (default: PR, optional: RC)')
 
-    arg_parser.add_argument('-z', '--updateserver',
+    arg_parser.add_argument('-z', '--noserverupdate',
                             dest='update_server',
                             action='store_false',
                             default=True,

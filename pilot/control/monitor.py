@@ -19,7 +19,7 @@ from os import environ, getpid, getuid
 from subprocess import Popen, PIPE
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
-from pilot.util.auxiliary import check_for_final_server_update
+from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
@@ -60,7 +60,7 @@ def control(queues, traces, args):
 
         while not args.graceful_stop.is_set():
             # every seconds, run the monitoring checks
-            if args.graceful_stop.wait(1) or args.graceful_stop.is_set():  # 'or' added for 2.6 compatibility
+            if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
                 logger.warning('aborting monitor loop since graceful_stop has been set')
                 break
 
@@ -78,8 +78,14 @@ def control(queues, traces, args):
                 logger.info('setting REACHED_MAXTIME and graceful stop')
                 environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
                 logger.debug(f"REACHED_MAXTIME={environ.get('REACHED_MAXTIME', None)}")
+
                 # do not set graceful stop if pilot has not finished sending the final job update
                 # i.e. wait until SERVER_UPDATE is FINAL_DONE
+                # note: if args.update_server is False, the function will return immediately. In that case, make sure
+                # that the heartbeat file has been updated (write_heartbeat_to_file() is called from job::send_state())
+
+                #args.update_server = False
+                set_pilot_state(state='failed')
                 check_for_final_server_update(args.update_server)
                 args.graceful_stop.set()
                 break

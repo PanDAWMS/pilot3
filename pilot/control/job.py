@@ -2477,7 +2477,7 @@ def fast_job_monitor(queues, traces, args):
                 for i in range(len(jobs)):
                     #current_id = jobs[i].jobid
                     if jobs[i].state == 'finished' or jobs[i].state == 'failed':
-                        logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
+                        logger.info('will abort fast job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                         break
 
                     # perform the monitoring tasks
