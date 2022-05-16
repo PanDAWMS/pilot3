@@ -1908,6 +1908,17 @@ def retrieve(queues, traces, args):  # noqa: C901
     logger.info('[job] retrieve thread has finished')
 
 
+def handle_proxy(job):
+    """
+    Handle the proxy on unified queues.
+
+    :param job: job object.
+    :return:
+    """
+
+    pass
+
+
 def dump_job_definition(res):
     """
     Dump the job definition to the log, but hide any sensitive information.
