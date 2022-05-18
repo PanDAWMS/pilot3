@@ -155,6 +155,9 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                     diagnostics = f'{proxy_id} proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
                     logger.warning(diagnostics)
                     exit_code = errors.VOMSPROXYABOUTTOEXPIRE
+
+                    # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
+                    del verify_arcproxy.cache[proxy_id]
                 #elif seconds_left < limit * 3600:  # REMOVE THIS, FAVOUR THE NEXT
                 #    diagnostics = f"{proxy_id} proxy validity time is too short: %.2fh" % (float(seconds_left) / 3600)
                 #    logger.warning(diagnostics)
