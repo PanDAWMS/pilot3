@@ -72,7 +72,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     """
 
     if limit is None:
-        limit = 48
+        limit = 1
 
     # add setup for arcproxy if it exists
     #arcproxy_setup = "%s/atlas.cern.ch/repo/sw/arc/client/latest/slc6/x86_64/setup.sh" % get_file_system_root_path()
