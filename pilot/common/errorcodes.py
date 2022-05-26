@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 import re
@@ -189,7 +189,7 @@ class ErrorCodes:
         NOPAYLOADMETADATA: "Payload metadata does not exist",
         LFNTOOLONG: "LFN too long (exceeding limit of 255 characters)",
         ZEROFILESIZE: "File size cannot be zero",
-        MKDIR: "Failed to create local directory",
+        MKDIR: "Failed to create directory",
         KILLSIGNAL: "Job terminated by unknown kill signal",
         SIGTERM: "Job killed by signal: SIGTERM",
         SIGQUIT: "Job killed by signal: SIGQUIT",
