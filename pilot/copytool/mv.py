@@ -12,7 +12,7 @@
 import os
 import re
 
-from pilot.common.exception import StageInFailure, StageOutFailure, ErrorCodes
+from pilot.common.exception import StageInFailure, StageOutFailure, MKDirFailure, ErrorCodes
 from pilot.util.container import execute
 
 import logging
@@ -64,6 +64,45 @@ def is_valid_for_copy_out(files):
     #return True
 
 
+def get_dir_path(turl, prefix='file://localhost'):
+    """
+    Extract the directory path from the turl that has a given prefix
+    E.g. turl = 'file://localhost/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f/user.jwebb2.66999._000001.top1outDS.tar'
+        -> '/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f'
+    (some of these directories will typically have to be created in the next step).
+
+    :param turl: TURL (string).
+    :param prefix: file prefix (string).
+    :return: directory path (string).
+    """
+
+    path = turl.replace(prefix, '')
+    return os.path.dirname(path)
+
+
+def build_final_path(turl, prefix='file://localhost'):
+
+    path = ''
+
+    # first get the directory path to be created
+    dirname = get_dir_path(turl, prefix=prefix)
+
+    # now create any missing directories on the SE side
+    try:
+        os.makedirs(dirname)
+    except FileExistsError:
+        # ignore if sub dirs already exist
+        pass
+    except (IsADirectoryError, OSError) as exc:
+        diagnostics = f'caught exception: {exc}'
+        logger.warning(diagnostics)
+        return ErrorCodes.MKDIR, diagnostics, path
+    else:
+        logger.debug(f'created {dirname}')
+
+    return 0, '', os.path.join(dirname, os.path.basename(turl))
+
+
 def copy_in(files, copy_type="symlink", **kwargs):
     """
     Tries to download the given files using mv directly.
@@ -110,7 +149,10 @@ def copy_out(files, copy_type="mv", **kwargs):
     exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
     if exit_code != 0:
         # raise failure
-        raise StageOutFailure(stdout)
+        if exit_code == ErrorCodes.MKDIR:
+            raise MKDirFailure(stdout)
+        else:
+            raise StageOutFailure(stdout)
 
     # Create output list for ARC CE if necessary
     logger.debug('init_dir for output.list=%s', os.path.dirname(kwargs.get('workdir')))
@@ -152,7 +194,16 @@ def move_all_files(files, copy_type, workdir):
             destination = os.path.join(workdir, name)
         else:
             source = os.path.join(workdir, name)
-            destination = os.path.join(os.path.dirname(workdir), name)
+            # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
+            pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+            user = __import__(f'pilot.user.{pilot_user}.copytool_definitions', globals(), locals(), [pilot_user], 0)
+            if user.mv_to_final_destination():
+                # create any sub dirs if they don't exist already, and find the final destination path
+                ec, diagnostics, destination = build_final_path(fspec.turl)
+                if ec:
+                    return ec, diagnostics, ''
+            else:
+                destination = os.path.join(os.path.dirname(workdir), name)
 
         # resolve canonical path
         source = os.path.realpath(source)
