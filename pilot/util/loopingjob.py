@@ -112,7 +112,7 @@ def get_time_for_last_touch(job, montime, looping_limit):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    loopingjob_definitions = __import__('pilot.user.%s.loopingjob_definitions' % pilot_user,
+    loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions',
                                         globals(), locals(), [pilot_user], 0)
 
     # locate all files that were modified the last N minutes
