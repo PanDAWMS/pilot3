@@ -25,8 +25,6 @@ from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
 
-#from .queuedata import QueueData
-
 from pilot.common.exception import PilotException
 from collections import namedtuple
 
@@ -60,7 +58,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
 
     # check if queue is ACTIVE
     if infosys.queuedata.state != 'ACTIVE':
-        logger.critical('specified queue is NOT ACTIVE: %s -- aborting' % infosys.queuedata.name)
+        logger.critical(f'specified queue is NOT ACTIVE: {infosys.queuedata.name} -- aborting')
         raise PilotException("Panda Queue is NOT ACTIVE")
 
     # do we need explicit varible declaration (queuedata)?
