@@ -46,7 +46,7 @@ from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
 from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes
-from pilot.util.proxy import get_distinguished_name, get_proxy
+from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
@@ -1922,6 +1922,7 @@ def handle_proxy(job):
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user')
+        # ..
 
 
 def dump_job_definition(res):

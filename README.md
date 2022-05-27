@@ -28,7 +28,11 @@ where ``PANDA_QUEUE`` correspond to the ATLAS PandaQueue as defined in AGIS. Thi
 
 The test cases are implemented as standard Python unittests under directory ``pilot/test/``. They can be discovered and executed automatically:
 
-    unit2 -v
+    python3 -m unittest
+
+To run the unit test on an individual module, use e.g.
+
+    python3 -m unittest -v pilot/test/test_copytools_mv.py
 
 ## Building and viewing docs
 
