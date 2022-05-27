@@ -1922,6 +1922,7 @@ def handle_proxy(job):
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user')
+        # ..
 
 
 def dump_job_definition(res):
