@@ -39,7 +39,7 @@ def create_output_list(files, init_dir):
             arcturl = '/'.join([rucio, arcturl, rse, activity])
         else:
             # Add ARC options to TURL
-            checksumtype, checksum = list(fspec.checksum.items())[0]  # Python 2/3
+            checksumtype, checksum = list(fspec.checksum.items())[0]
             arcturl += ':checksumtype=%s:checksumvalue=%s' % (checksumtype, checksum)
 
         logger.info('Adding to output.list: %s %s', fspec.lfn, arcturl)
