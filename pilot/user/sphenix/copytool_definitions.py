@@ -7,12 +7,35 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022
 
+from hashlib import md5
 
-def mv_to_final_destination():
+
+def mv_final_destination():
     """
-    Is mv allowed to move files to final destination?
+    Is mv allowed to move files to/from final destination?
 
     :return: Boolean.
     """
 
     return True
+
+
+def get_path(scope, lfn):
+    """
+    Construct a partial Rucio PFN using the scope and the LFN
+    <scope>/md5(<scope>:<lfn>)[0:2]/md5(<scope:lfn>)[2:4]/<lfn>
+
+    E.g. scope = 'user.jwebb2', lfn = 'user.jwebb2.66999._000001.top1outDS.tar'
+        -> 'user/jwebb2/01/9f/user.jwebb2.66999._000001.top1outDS.tar'
+
+    :param scope: scope (string).
+    :param lfn: LFN (string).
+    :return: partial rucio path (string).
+    """
+
+    s = '%s:%s' % (scope, lfn)
+    hash_hex = md5(s.encode('utf-8')).hexdigest()
+    paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
+    paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
+
+    return '/'.join(paths)

@@ -185,19 +185,23 @@ def move_all_files(files, copy_type, workdir):
     else:
         return -1, "", "incorrect copy method"
 
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.copytool_definitions', globals(), locals(), [pilot_user], 0)
     for fspec in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
 
         name = fspec.lfn
         if fspec.filetype == 'input':
-            # Assumes pilot runs in subdir one level down from working dir
-            source = os.path.join(os.path.dirname(workdir), name)
+            if user.mv_final_destination():
+                subpath = user.get_path(fspec.scope, fspec.lfn)
+                source = os.path.join(workdir, os.path.join(subpath, name))
+            else:
+                # Assumes pilot runs in subdir one level down from working dir
+                source = os.path.join(os.path.dirname(workdir), name)
             destination = os.path.join(workdir, name)
         else:
             source = os.path.join(workdir, name)
             # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
-            pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            user = __import__(f'pilot.user.{pilot_user}.copytool_definitions', globals(), locals(), [pilot_user], 0)
-            if user.mv_to_final_destination():
+            if user.mv_final_destination():
                 # create any sub dirs if they don't exist already, and find the final destination path
                 ec, diagnostics, destination = build_final_path(fspec.turl)
                 if ec:
