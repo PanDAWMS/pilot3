@@ -805,8 +805,7 @@ class JobData(BaseData):
                 else:
                     total_size += os.path.getsize(pfn)
 
-            _label = 'input+output' if self.checkinputsize else 'output'
-            logger.info(f'total size of present {_label} files: {total_size} B (workdir size: {workdir_size} B)')
+            logger.info(f'total size of present files: {total_size} B (workdir size: {workdir_size} B)')
             workdir_size -= total_size
 
         self.workdirsizes.append(workdir_size)
