@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
 # - David Cameron, david.cameron@cern.ch, 2018-2022
 
@@ -123,6 +123,11 @@ def copy_in(files, copy_type="symlink", **kwargs):
 
     if not kwargs.get('workdir'):
         raise StageInFailure("workdir is not specified")
+
+    # for symlinked input files, the file size should not be included in the workdir size (since it is not present!)
+    # the boolean will be checked by the caller
+    if copy_type == 'symlink':
+        kwargs['checkinputsize'] = False
 
     exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
     if exit_code != 0:

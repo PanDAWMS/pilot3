@@ -228,6 +228,7 @@ def _stage_in(args, job):
         else:
             # only the data API will know if the input file sizes should be included in size checks
             job.checkinputsize = kwargs.get('checkinputsize')
+            logger.debug(f'checkinputsize={job.checkinputsize}')
 
     logger.info('summary of transferred files:')
     for infile in job.indata:
