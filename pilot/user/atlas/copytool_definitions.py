@@ -10,7 +10,7 @@
 from hashlib import md5
 
 
-def mv_final_destination():
+def mv_to_final_destination():
     """
     Is mv allowed to move files to/from final destination?
     In ATLAS, the Pilot will only move the output to a local directory. The aCT will pick it up from there and move it

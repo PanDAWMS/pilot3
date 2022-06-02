@@ -191,7 +191,7 @@ def move_all_files(files, copy_type, workdir):
 
         name = fspec.lfn
         if fspec.filetype == 'input':
-            if user.mv_final_destination():
+            if user.mv_to_final_destination():
                 subpath = user.get_path(fspec.scope, fspec.lfn)
                 source = os.path.join(workdir, os.path.join(subpath, name))
             else:
@@ -201,7 +201,7 @@ def move_all_files(files, copy_type, workdir):
         else:
             source = os.path.join(workdir, name)
             # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
-            if user.mv_final_destination():
+            if user.mv_to_final_destination():
                 # create any sub dirs if they don't exist already, and find the final destination path
                 ec, diagnostics, destination = build_final_path(fspec.turl)
                 if ec:
