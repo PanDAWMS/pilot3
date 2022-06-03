@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
 # - David Cameron, david.cameron@cern.ch, 2018-2022
 
@@ -117,6 +117,12 @@ def copy_in(files, copy_type="symlink", **kwargs):
         if fspec.is_directaccess(ensure_replica=False) and allow_direct_access and fspec.accessmode == 'direct':
             fspec.status_code = ErrorCodes.BADQUEUECONFIGURATION
             raise StageInFailure("bad queue configuration - mv does not support direct access")
+
+        # for symlinked input files, the file size should not be included in the workdir size (since it is not present!)
+        # the boolean will be checked by the caller
+        if copy_type == 'symlink':
+            logger.debug('setting checkinputsize to False')
+            fspec.checkinputsize = False
 
     if copy_type not in ["cp", "mv", "symlink"]:
         raise StageInFailure("incorrect method for copy in")

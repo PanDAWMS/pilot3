@@ -227,7 +227,11 @@ def _stage_in(args, job):
             logger.error('failed to stage-in: error=%s', error)
         else:
             # only the data API will know if the input file sizes should be included in size checks
-            job.checkinputsize = kwargs.get('checkinputsize')
+            for fspec in job.indata:
+                if not fspec.checkinputsize:
+                    job.checkinputsize = False
+                    break  # it's enough to check one file
+            logger.debug(f'checkinputsize={job.checkinputsize}')
 
     logger.info('summary of transferred files:')
     for infile in job.indata:

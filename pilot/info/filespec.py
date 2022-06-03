@@ -5,6 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022
 
 """
 The implementation of data structure to host File related data description.
@@ -66,13 +67,14 @@ class FileSpec(BaseData):
     protocol_id = None  # id of the protocol to be used to construct turl
     is_tar = False     # whether it's a tar file or not
     ddm_activity = None  # DDM activity names (e.g. [read_lan, read_wan]) which should be used to resolve appropriate protocols from StorageData.arprotocols
+    checkinputsize = True
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['filesize', 'mtime', 'status_code'],
              str: ['lfn', 'guid', 'checksum', 'scope', 'dataset', 'ddmendpoint',
                    'filetype', 'surl', 'turl', 'domain', 'status', 'workdir', 'accessmode', 'storage_token'],
              list: ['replicas', 'inputddms', 'ddm_activity'],
-             bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan']
+             bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'checkinputsize']
              }
 
     def __init__(self, filetype='input', **data):  ## FileSpec can be split into FileSpecInput + FileSpecOuput classes in case of significant logic changes
