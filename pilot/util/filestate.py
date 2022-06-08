@@ -75,11 +75,11 @@ class FileState(object):
         """
 
         if not lfn or not state:
-            print('must set lfn/state')
+            logger.warning('must set lfn/state')
             return
 
         if state not in self._state_list:
-            print(f'unknown state: {state} (must be in: {self._state_list})')
+            logger.warning(f'unknown state: {state} (must be in: {self._state_list})')
             return
 
         self._file_states[lfn] = state
