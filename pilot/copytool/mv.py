@@ -130,7 +130,7 @@ def copy_in(files, copy_type="symlink", **kwargs):
     if not kwargs.get('workdir'):
         raise StageInFailure("workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
+    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), kwargs.get('jobworkdir'))
     if exit_code != 0:
         # raise failure
         raise StageInFailure(stdout)
@@ -152,7 +152,7 @@ def copy_out(files, copy_type="mv", **kwargs):
     if not kwargs.get('workdir'):
         raise StageOutFailure("Workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
+    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), '')
     if exit_code != 0:
         # raise failure
         if exit_code == ErrorCodes.MKDIR:
@@ -169,7 +169,7 @@ def copy_out(files, copy_type="mv", **kwargs):
     return files
 
 
-def move_all_files(files, copy_type, workdir):
+def move_all_files(files, copy_type, workdir, jobworkdir):
     """
     Move all files.
 
@@ -203,7 +203,7 @@ def move_all_files(files, copy_type, workdir):
             else:
                 # Assumes pilot runs in subdir one level down from working dir
                 source = os.path.join(os.path.dirname(workdir), name)
-            destination = os.path.join(workdir, name)
+            destination = os.path.join(jobworkdir, name) if jobworkdir else os.path.join(workdir, name)
         else:
             source = os.path.join(workdir, name)
             # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
