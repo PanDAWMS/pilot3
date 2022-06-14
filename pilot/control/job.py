@@ -1257,8 +1257,6 @@ def get_job_label(args):
     elif status == 'test' and args.job_label != 'ptest':
         logger.warning('PQ status set to test - will use job label / prodSourceLabel test')
         job_label = 'test'
-    #elif infosys.queuedata.type == 'unified':
-    #    job_label = 'unified'
     else:
         job_label = args.job_label
 
