@@ -121,7 +121,6 @@ def copy_in(files, copy_type="symlink", **kwargs):
         # for symlinked input files, the file size should not be included in the workdir size (since it is not present!)
         # the boolean will be checked by the caller
         if copy_type == 'symlink':
-            logger.debug('setting checkinputsize to False')
             fspec.checkinputsize = False
 
     if copy_type not in ["cp", "mv", "symlink"]:
@@ -200,10 +199,11 @@ def move_all_files(files, copy_type, workdir):
             if user.mv_to_final_destination():
                 subpath = user.get_path(fspec.scope, fspec.lfn)
                 source = os.path.join(workdir, os.path.join(subpath, name))
+                destination = os.path.join(os.path.dirname(workdir), name)
             else:
                 # Assumes pilot runs in subdir one level down from working dir
                 source = os.path.join(os.path.dirname(workdir), name)
-            destination = os.path.join(workdir, name)
+                destination = os.path.join(workdir, name)
         else:
             source = os.path.join(workdir, name)
             # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
