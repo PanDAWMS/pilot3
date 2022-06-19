@@ -1283,18 +1283,13 @@ def get_dispatcher_dictionary(args):
     """
 
     _diskspace = get_disk_space(infosys.queuedata)
-
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
-
     _nodename = get_node_name()
-
-    # override for RC dev pilots
-    job_label = get_job_label(args)
 
     data = {
         'siteName': infosys.queuedata.resource,
         'computingElement': args.queue,
-        'prodSourceLabel': job_label,
+        'prodSourceLabel': get_job_label(args),
         'diskSpace': _diskspace,
         'workingGroup': args.working_group,
         'cpu': _cpu,
