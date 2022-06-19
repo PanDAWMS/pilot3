@@ -1292,7 +1292,7 @@ def get_dispatcher_dictionary(args):
     job_label = get_job_label(args)
 
     data = {
-        'siteName': infosys.queuedata.resource,  # next: remove redundant '-r' option of pilot.py
+        'siteName': infosys.queuedata.resource,
         'computingElement': args.queue,
         'prodSourceLabel': job_label,
         'diskSpace': _diskspace,
