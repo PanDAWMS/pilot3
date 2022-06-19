@@ -129,6 +129,8 @@ def copy_in(files, copy_type="symlink", **kwargs):
     if not kwargs.get('workdir'):
         raise StageInFailure("workdir is not specified")
 
+    logger.debug(f"workdir={kwargs.get('workdir')}")
+    logger.debug(f"jobworkdir={kwargs.get('jobworkdir')}")
     exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), kwargs.get('jobworkdir'))
     if exit_code != 0:
         # raise failure
@@ -198,7 +200,8 @@ def move_all_files(files, copy_type, workdir, jobworkdir):
         if fspec.filetype == 'input':
             if user.mv_to_final_destination():
                 subpath = user.get_path(fspec.scope, fspec.lfn)
-                source = os.path.join(workdir, os.path.join(subpath, name))
+                logger.debug(f'subpath={subpath}')
+                source = os.path.join(workdir, subpath)
             else:
                 # Assumes pilot runs in subdir one level down from working dir
                 source = os.path.join(os.path.dirname(workdir), name)
