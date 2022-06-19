@@ -211,10 +211,11 @@ def _stage_in(args, job):
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             # get the proper input file destination (normally job.workdir unless stager workflow)
+            jobworkdir = job.workdir  # there is a distinction for mv copy tool on ND vs non-ATLAS
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
             kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
                           input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall,
-                          checkinputsize=True, rucio_host=args.rucio_host)
+                          checkinputsize=True, rucio_host=args.rucio_host, jobworkdir=jobworkdir)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
