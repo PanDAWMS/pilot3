@@ -101,10 +101,10 @@ class ActiveMQ(object):
 
     broker = '128.0.0.1'
     brokers_resolved = []
-    receiver_port = 61613
-    port = 61613
-    topic = '/topic/pandaidds'
-    receive_topics = ['/topic/pandaidds']
+    receiver_port = 0
+    port = 0
+    topic = '/topic/doma.panda_idds'
+    receive_topics = [topic]
     username = 'pilot'
     password = 'trustno1'
     ssl_key = ''
