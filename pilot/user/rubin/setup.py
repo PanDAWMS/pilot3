@@ -5,16 +5,18 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 import re
 import glob
 from time import sleep
+from datetime import datetime
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
-from pilot.util.filehandling import copy
+from pilot.util.filehandling import copy, head
 
 import logging
 logger = logging.getLogger(__name__)
@@ -176,3 +178,24 @@ def download_transform(url, transform_name, workdir):
         trial += 1
 
     return status, diagnostics
+
+
+def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})'):
+    """
+    Extract a more precise end of setup time from the payload stdout.
+    File path should be verified already.
+    The function will look for a date time in the beginning of the payload stdout with the given pattern.
+
+    :param path: path to payload stdout (string).
+    :param pattern: regular expression pattern (raw string).
+    :return: time in seconds since epoch (float).
+    """
+
+    end_time = None
+    head_list = head(path, count=50)
+    time_string = find_pattern_in_list(head_list, pattern)
+    if time_string:
+        logger.debug(f"extracted time string=\'{time_string}\' from file \'{path}\'")
+        end_time = datetime.strptime(time_string, '%H:%M:%S %Y/%m/%d').timestamp()  # since epoch
+
+    return end_time

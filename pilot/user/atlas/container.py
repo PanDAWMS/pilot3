@@ -571,7 +571,7 @@ def create_release_setup(cmd, atlas_setup, full_atlas_setup, release, workdir, i
 
     # add timing info (hours:minutes:seconds in UTC)
     # this is used to get a better timing info about setup
-    content += '\ndate +\"%H:%M:%S %Y/%m/%d\" -u'  # e.g. 07:36:27 2022/06/29
+    content += '\ndate +\"%H:%M:%S %Y/%m/%d\"'  # e.g. 07:36:27 2022/06/29
     content += '\nreturn $?'
 
     logger.debug('command to be written to release setup file:\n\n%s:\n\n%s\n', release_setup_name, content)

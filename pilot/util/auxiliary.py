@@ -616,3 +616,21 @@ def is_string(obj):
     """
 
     return True if isinstance(obj, str) else False
+
+
+def find_pattern_in_list(input_list, pattern):
+    """
+    Search for the given pattern in the input list.
+
+    :param input_list: list of string.
+    :param pattern: regular expression pattern (raw string).
+    :return: found string (or None).
+    """
+
+    found = None
+    for line in input_list:
+        out = re.search(pattern, line)
+        if out:
+            found = out[0]
+
+    return found

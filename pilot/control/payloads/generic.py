@@ -19,14 +19,14 @@ from subprocess import PIPE
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state, show_memory_usage
-# from pilot.util.config import config
+from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
     UTILITY_AFTER_PAYLOAD_FINISHED, PILOT_PRE_SETUP, PILOT_POST_SETUP, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, \
     UTILITY_AFTER_PAYLOAD_STARTED2, UTILITY_AFTER_PAYLOAD_FINISHED2
 from pilot.util.filehandling import write_file
 from pilot.util.processes import kill_processes
-from pilot.util.timing import add_to_pilot_timing
+from pilot.util.timing import add_to_pilot_timing, get_time_measurement
 from pilot.common.exception import PilotException
 
 import logging
@@ -60,17 +60,53 @@ class Executor(object):
         """
         Functions to run pre setup
         :param job: job object
+        :return:
         """
         # write time stamps to pilot timing file
         add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, time.time(), self.__args)
 
-    def post_setup(self, job):
+    def post_setup(self, job, update_time=time.time()):
         """
         Functions to run post setup
         :param job: job object
+        :return:
         """
+
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, time.time(), self.__args)
+        logger.debug(f'setting post-setup time to {update_time} s')
+        add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
+
+    def improve_post_setup(self):
+        """
+        Improve the post setup time if possible.
+        More precise timing info can possibly be extracted from payload stdout.
+
+        Read back the currently stored time for the post-setup, then add the elapsed time that passed between that time
+        and the time stamp from the payload stdout (if found).
+
+        :return:
+        """
+
+        path = os.path.join(self.__job.workdir, config.Payload.payloadstdout)
+        if not os.path.exists(path):
+            return
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        try:
+            end_setup_time = user.get_end_setup_time(path)  # since epoch
+        except Exception as exc:
+            logger.debug(f'caught exception: {exc}')
+            end_setup_time = None
+        if end_setup_time:
+            # get the currently stored post-setup time
+            time_measurement_dictionary = self.__args.timing.get(self.__job.jobid, None)
+            current_post_setup = get_time_measurement(PILOT_POST_SETUP, time_measurement_dictionary, self.__args.timing)
+            if current_post_setup:
+                logger.info(f'current post-setup time: {current_post_setup} s (since epoch)')
+                diff = end_setup_time - current_post_setup
+                logger.info(f'payload setup finished {diff} s later than previously recorded')
+                self.post_setup(self.__job, update_time=end_setup_time)
 
     def utility_before_payload(self, job):
         """
@@ -664,7 +700,12 @@ class Executor(object):
                 for order in [UTILITY_AFTER_PAYLOAD_FINISHED, UTILITY_AFTER_PAYLOAD_FINISHED2]:
                     exit_code = self.run_utility_after_payload_finished(exit_code, state, order)
 
+                # keep track of post-payload timing
                 self.post_payload(self.__job)
+
+                # improve the post-setup timing if possible (more precise time info regarding setup can possibly be
+                # extracted from the payload stdout)
+                self.improve_post_setup()
 
                 # stop any running utilities
                 if self.__job.utilities != {}:
