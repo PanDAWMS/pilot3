@@ -218,6 +218,23 @@ def tail(filename, nlines=10):
     return stdout
 
 
+def head(filename, count=20):
+    """
+    Return the first several line from the given file.
+
+    :param filename: file name (string).
+    :param count: number of lines (int).
+    :return: head lines (list).
+    """
+
+    ret = None
+    with open(filename, 'r') as _file:
+        lines = [_file.readline() for line in range(1, count + 1)]
+        ret = filter(len, lines)
+
+    return ret
+
+
 def grep(patterns, file_name):
     """
     Search for the patterns in the given list in a file.
