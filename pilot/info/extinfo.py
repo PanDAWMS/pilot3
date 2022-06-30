@@ -78,7 +78,10 @@ class ExtInfoProvider(DataLoader):
                    'PANDA': None  ## NOT implemented, FIX ME LATER
                    }
 
-        priority = priority or ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        queuedata_source_priority = user.get_queuedata_priority()
+        priority = priority or queuedata_source_priority
 
         return self.load_data(sources, priority, cache_time)
 
@@ -155,7 +158,10 @@ class ExtInfoProvider(DataLoader):
                              }
                    }
 
-        priority = priority or ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        queuedata_source_priority = user.get_queuedata_priority()
+        priority = priority or queuedata_source_priority
 
         return self.load_data(sources, priority, cache_time)
 
@@ -163,7 +169,7 @@ class ExtInfoProvider(DataLoader):
     def load_storage_data(self, ddmendpoints=[], priority=[], cache_time=60):
         """
         Download DDM Storages details by given name (DDMEndpoint) from various sources (prioritized).
-        Try to get data from LOCAL first, then CVMFS and AGIS
+        Unless specified as an argument in the function call, the prioritized list will be read from the user plug-in.
 
         :param pandaqueues: list of PandaQueues to be loaded
         :param cache_time: Default cache time in seconds.
@@ -204,7 +210,10 @@ class ExtInfoProvider(DataLoader):
                    'PANDA': None  ## NOT implemented, FIX ME LATER if need
                    }
 
-        priority = priority or ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        ddm_source_priority = user.get_ddm_source_priority()
+        priority = priority or ddm_source_priority
 
         return self.load_data(sources, priority, cache_time)
 

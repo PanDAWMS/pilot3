@@ -508,3 +508,28 @@ def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2}
         end_time = datetime.strptime(time_string, '%H:%M:%S %Y/%m/%d').timestamp()  # since epoch
 
     return end_time
+
+
+def get_queuedata_priority():
+    """
+    Return the prioritized list for the queuedata sources.
+    This list is used to determine which source to use for the queuedatas, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
+    load_schedconfig_data() (full set).
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def get_ddm_source_priority():
+    """
+    Return the prioritized list for the DDM sources.
+    This list is used to determine which source to use for the DDM endpoints, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_storage_data().
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
