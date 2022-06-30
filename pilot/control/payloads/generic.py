@@ -63,17 +63,23 @@ class Executor(object):
         :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting pre-setup time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, update_time, self.__args)
 
-    def post_setup(self, job, update_time=time.time()):
+    def post_setup(self, job, update_time=None):
         """
         Functions to run post setup
-        :param job: job object
+        :param job: job object.
         :return:
         """
 
         # write time stamps to pilot timing file
+        if not update_time:
+            update_time = time.time()
         logger.debug(f'setting post-setup time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
         add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
 
     def improve_post_setup(self):
@@ -96,14 +102,15 @@ class Executor(object):
         try:
             end_setup_time = user.get_end_setup_time(path)  # since epoch
         except Exception as exc:
-            logger.debug(f'caught exception: {exc}')
+            logger.debug(f'caught exception: {exc} (will not update setup time)')
             end_setup_time = None
         if end_setup_time:
             # get the currently stored post-setup time
             time_measurement_dictionary = self.__args.timing.get(self.__job.jobid, None)
             current_post_setup = get_time_measurement(PILOT_POST_SETUP, time_measurement_dictionary, self.__args.timing)
             if current_post_setup:
-                logger.info(f'current post-setup time: {current_post_setup} s (since epoch)')
+                logger.info(f'existing post-setup time: {current_post_setup} s (since epoch) (current time: {time.time()})')
+                logger.debug(f'extracted end time from payload stdout: {end_setup_time} s')
                 diff = end_setup_time - current_post_setup
                 logger.info(f'payload setup finished {diff} s later than previously recorded')
                 self.post_setup(self.__job, update_time=end_setup_time)
@@ -350,9 +357,13 @@ class Executor(object):
         E.g. write time stamps to timing file.
 
         :param job: job object.
+        :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting pre-payload time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
 
     def post_payload(self, job):
         """
@@ -360,9 +371,13 @@ class Executor(object):
         E.g. write time stamps to timing file.
 
         :param job: job object
+        :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting post-payload time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, update_time, self.__args)
 
     def run_command(self, cmd, label=None):
         """

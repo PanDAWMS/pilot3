@@ -632,5 +632,6 @@ def find_pattern_in_list(input_list, pattern):
         out = re.search(pattern, line)
         if out:
             found = out[0]
+            break
 
     return found
