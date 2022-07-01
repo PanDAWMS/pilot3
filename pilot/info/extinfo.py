@@ -80,8 +80,9 @@ class ExtInfoProvider(DataLoader):
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
-        queuedata_source_priority = user.get_queuedata_priority()
+        queuedata_source_priority = user.get_schedconfig_priority()
         priority = priority or queuedata_source_priority
+        logger.debug(f'schedconfig priority={priority}')
 
         return self.load_data(sources, priority, cache_time)
 
@@ -162,6 +163,7 @@ class ExtInfoProvider(DataLoader):
         user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
         queuedata_source_priority = user.get_queuedata_priority()
         priority = priority or queuedata_source_priority
+        logger.debug(f'queuedata priority={priority}')
 
         return self.load_data(sources, priority, cache_time)
 
@@ -214,6 +216,7 @@ class ExtInfoProvider(DataLoader):
         user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
         ddm_source_priority = user.get_ddm_source_priority()
         priority = priority or ddm_source_priority
+        logger.debug(f'storage data priority={priority}')
 
         return self.load_data(sources, priority, cache_time)
 

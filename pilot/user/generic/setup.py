@@ -201,9 +201,9 @@ def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2}
     return end_time
 
 
-def get_queuedata_priority():
+def get_schedconfig_priority():
     """
-    Return the prioritized list for the queuedata sources.
+    Return the prioritized list for the schedconfig sources.
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
@@ -212,6 +212,19 @@ def get_queuedata_priority():
     """
 
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def get_queuedata_priority():
+    """
+    Return the prioritized list for the schedconfig sources.
+    This list is used to determine which source to use for the queuedatas, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
+    load_schedconfig_data() (full set).
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
 def get_ddm_source_priority():
