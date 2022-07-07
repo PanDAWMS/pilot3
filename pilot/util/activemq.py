@@ -5,16 +5,14 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Wen Guan, wguan.icedew@gmail.com, 2022
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022
 
-import json
-import logging
-import socket
-import sys
 import time
+import socket
+import json
 import random
-import threading
+import logging
+# import threading
 
 try:
     import stomp
@@ -27,55 +25,35 @@ from pilot.common.errorcodes import ErrorCodes
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
-graceful_stop = threading.Event()
+#graceful_stop = threading.Event()
 
 
-class MessagingListener(stomp.ConnectionListener):
+class Listener(stomp.ConnectionListener):
     """
-    Messaging Listener
+    Messaging listener.
     """
-    def __init__(self, broker):
+
+    messages = []
+
+    def __init__(self, broker=None):
         """
         Init function.
 
         :param broker:
         """
 
-        self.__broker = broker
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    def on_error(self, frame):
-        """
-        Error handler.
-
-        :param frame:
-        """
-        self.logger.error(f'[broker] [{self.__broker}]: {frame}')
-
-    def on_message(self, frame):
-        """
-        on_message
-
-        :param frame:
-        """
-        self.logger.info(f"received message: {frame}")
-
-
-class Receiver(stomp.ConnectionListener):
-    """
-    Messaging Receiver
-    """
-
-    messages = []
-
-    def __init__(self):
-        """
-        Init function.
-        """
-
         self.__broker = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
+    def set_broker(self, broker):
+        """
+        Define broker for internal use.
+
+        :param broker:
+        """
+
+        self.__broker = broker
+
     def on_error(self, frame):
         """
         Error handler.
@@ -83,44 +61,56 @@ class Receiver(stomp.ConnectionListener):
         :param frame:
         """
 
-        self.messages.append(f'ERROR: {frame.body}')
+        self.logger.warning('received an error "%s"' % frame)
+        # store error in messages?
 
     def on_message(self, frame):
         """
-        on_message
+        Message handler.
 
         :param frame:
         """
 
+        self.logger.info('received a message "%s"' % frame.body)
         body = json.loads(frame.body)
-        self.logger.info(f"received message: {body} (broker={self.__broker})")
         if body not in self.messages:
             self.messages.append(body)
 
-        graceful_stop.set()
+    def get_messages(self):
+        """
+        Return stored messages to user.
+        """
+
+        return self.messages
 
 
 class ActiveMQ(object):
     """
-    ActiveMQ class
+    ActiveMQ class.
+    Note: the class can be used for either topic or queue messages.
+    E.g. 'topic': '/queue/panda.pilot' or '/topic/panda.pilot'
+    X.509 authentication using SSL not possible since key+cert cannot easily be reached from WNs.
     """
 
     broker = '128.0.0.1'
     brokers_resolved = []
     receiver_port = 0
     port = 0
-    topic = '/topic/doma.panda_idds'
+    topic = ''
     receive_topics = [topic]
-    username = 'atlpndpilot'
+    username = ''
     password = ''
+    listener = None
 
     def __init__(self, **kwargs):
         """
         Init function.
+        Note: the init function sets up all connections and starts the listener.
 
         :param kwargs: kwargs dictionary.
         """
 
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.broker = kwargs.get('broker', '')
         self.receiver_port = kwargs.get('receiver_port', '')
         self.port = kwargs.get('port', '')
@@ -129,69 +119,58 @@ class ActiveMQ(object):
         self.username = kwargs.get('username', '')
         self.password = kwargs.get('password', '')
         self.connections = []
-        self.cid = kwargs.get('id', None)
-        self.vo = kwargs.get('vo', None)
+
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
-
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    def send_message(self):
-        """
-        Send a test message to the ActiveMQ queue.
-        """
-
-        broker = random.choice(self.brokers_resolved)
-        self.logger.info(f'will send message to random broker: {broker}')
-        conn = stomp.Connection12(host_and_ports=[(broker, self.port)], keepalive=True)
-        conn.set_listener('message-sender', MessagingListener(conn.transport._Transport__host_and_ports[0]))
-        conn.connect(self.username, self.password, wait=True)
-
-        message = {'msg_type': 'get_job', 'taskid': 1234, 'jobid': 123456}
-
-        self.logger.info("sending message")
-        try:
-            conn.send(destination=self.topic,
-                      body=json.dumps(message),
-                      id=self.cid,
-                      ack='auto',
-                      headers={'persistent': 'true', 'vo': self.vo})
-        except Exception as exc:
-            self.logger.error(exc)
-        else:
-            self.logger.info("sent message")
-
-    def receive_message(self):
-        """
-        Receive a message from ActiveMQ.
-        """
 
         receive_topic = self.receive_topics[0]
 
         for broker in self.brokers_resolved:
             conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
                                       keepalive=True)
-
             if not conn in self.connections:
                 self.connections.append(conn)
 
-        receiver = Receiver()
-        messages = []
-        while not graceful_stop.is_set():
-            for conn in self.connections:
-                if not conn.is_connected():
-                    self.logger.info(f'connecting to {conn.transport._Transport__host_and_ports[0]}')
-                    receiver.set_broker(conn.transport._Transport__host_and_ports[0])
-                    conn.set_listener('message-receiver', receiver)
-                    conn.connect(self.username, self.password, wait=True)
-                    conn.subscribe(destination=receive_topic,
-                                   id=self.cid,
-                                   ack='auto')
-                    messages = receiver.get_messages()
-                    if messages:
-                        break
+        self.listener = Listener()
+        for conn in self.connections:
+            self.logger.debug(f'conn={conn}')
+            if not conn.is_connected():
+                self.listener.set_broker(conn.transport._Transport__host_and_ports[0])
+                conn.set_listener('message-receiver', self.listener)
+                conn.connect(self.username, self.password, wait=True)
+                self.logger.debug(f'topic={receive_topic}')
+                conn.subscribe(destination=receive_topic,
+                               id='atlas-pilot-messaging',
+                               ack='auto')
+                self.logger.debug('subscribed')
 
-            time.sleep(1)
+    def get_messages(self):
+        """
+        Return messages to user.
+        """
+        self.logger.debug(f'getting messages from {self.listener}')
+        return self.listener.get_messages() if self.listener else []
 
-        self.close_connections()
-        return messages
+    def send_message(self, message):
+        """
+        Send a message to a topic or queue.
+        """
+
+        conn = random.choice(self.connections)
+        self.logger.debug(f'sending to {conn} topic/queue={self.topic}')
+        conn.send(destination=self.topic, body=json.dumps(message), id='atlas-pilot-messaging', ack='auto',
+                  headers={'persistent': 'true', 'vo': 'atlas'})
+        self.logger.debug('sent message')
+
+    def close_connections(self):
+        """
+        Close all open connections.
+        """
+
+        for conn in self.connections:
+            try:
+                conn.disconnect()
+            except Exception as exc:
+                self.logger.warning(f'exception caught while closing connections: {exc}')
+            else:
+                self.logger.debug('closed connection')
