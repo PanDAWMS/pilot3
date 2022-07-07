@@ -851,10 +851,10 @@ def add_timing_and_extracts(data, job, state, args):
     """
 
     time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup = timing_report(job.jobid, args)
-    data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
-                          (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
-    #data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
-    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
+    #data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
+    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
+    data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
+                          (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""
