@@ -223,6 +223,13 @@ def get_args():
                             type=int,
                             help='Maximum number of getjob request failures in Harvester mode')
 
+    arg_parser.add_argument('--subscribe-to-msgsvc',
+                            dest='subscribe_to_msgsvc',
+                            action='store_true',
+                            default=False,
+                            required=False,
+                            help='Ask Pilot to receive job/task info from ActiveMQ')
+
     # SSL certificates
     arg_parser.add_argument('--cacert',
                             dest='cacert',
