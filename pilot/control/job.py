@@ -17,15 +17,16 @@ import time
 import hashlib
 import logging
 import queue
+from collections import namedtuple
 
 from json import dumps
-from re import findall
 from glob import glob
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import ExcThread, PilotException, FileHandlingFailure
 from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
+from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
     has_instruction_sets, locate_core_file, get_display_info
@@ -1427,34 +1428,6 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     return True
 
 
-def getjob_server_command(url, port):
-    """
-    Prepare the getJob server command.
-
-    :param url: PanDA server URL (string)
-    :param port: PanDA server port
-    :return: full server command (URL string)
-    """
-
-    if url != "":
-        port_pattern = '.:([0-9]+)'
-        if not findall(port_pattern, url):
-            url = url + ':%s' % port
-        else:
-            logger.debug(f'URL already contains port: {url}')
-    else:
-        url = config.Pilot.pandaserver
-    if url == "":
-        logger.fatal('PanDA server url not set (either as pilot option or in config file)')
-    elif not url.startswith("http"):
-        url = 'https://' + url
-        logger.warning('detected missing protocol in server url (added)')
-
-    # randomize server name
-    url = https.get_panda_server(url, port)
-    return '{pandaserver}/server/panda/getJob'.format(pandaserver=url)
-
-
 def get_job_definition_from_file(path, harvester):
     """
     Get a job definition from a pre-placed file.
@@ -1517,7 +1490,8 @@ def get_job_definition_from_server(args):
     # get the job dispatcher dictionary
     data = get_dispatcher_dictionary(args)
 
-    cmd = getjob_server_command(args.url, args.port)
+    # get the getJob server command
+    cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
         res = https.request(cmd, data=data)
@@ -1579,6 +1553,27 @@ def get_job_definition(args):
         if args.harvester and args.harvester_submitmode.lower() == 'push':
             pass  # local job definition file not found (go to sleep)
         else:
+            # test
+            queues = namedtuple('queues', ['messages'])
+            queues.messages = queue.Queue()
+
+            kwargs = {
+                'broker': 'atlas-test-mb.cern.ch',
+                'receiver_port': 61013,
+                # 61023,
+                'port': 61013,
+                # 61023,
+                'topic': '/queue/panda.pilot',
+                'receive_topics': ['/queue/panda.pilot'],
+                #    'topic': '/topic/panda.pilot',
+                #    'receive_topics': ['/topic/panda.pilot'],
+                'username': 'X',
+                'password': 'X',
+                'queues': queues,
+                'pandaurl': args.url,
+                'pandaport': args.port
+            }
+            amq = ActiveMQ(**kwargs)
             logger.info('will download job definition from server')
             res = get_job_definition_from_server(args)
 

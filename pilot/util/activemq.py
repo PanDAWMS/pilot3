@@ -7,42 +7,45 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022
 
-import time
 import socket
 import json
 import random
 import logging
-# import threading
 
 try:
     import stomp
+    connectionlistener = stomp.ConnectionListener
 except ModuleNotFoundError:
-    pass
+    #from types import SimpleNamespace
+    #_stomp = {'ConnectionListener': print}
+    #stomp = SimpleNamespace(**_stomp)
+    connectionlistener = object
 
 from pilot.common.errorcodes import ErrorCodes
 #from pilot.common.exception import PilotException
+from pilot.util import https
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
-#graceful_stop = threading.Event()
 
-
-class Listener(stomp.ConnectionListener):
+class Listener(connectionlistener):
     """
     Messaging listener.
     """
 
     messages = []
 
-    def __init__(self, broker=None):
+    def __init__(self, broker=None, queues=None):
         """
         Init function.
 
         :param broker:
+        :param queues: queues
         """
 
         self.__broker = None
+        self.__queues = queues
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def set_broker(self, broker):
@@ -73,8 +76,10 @@ class Listener(stomp.ConnectionListener):
 
         self.logger.info('received a message "%s"' % frame.body)
         body = json.loads(frame.body)
-        if body not in self.messages:
-            self.messages.append(body)
+        if body not in [_obj for _obj in list(self.__queues.messages.queue)]:
+            self.__queues.messages.put(body)
+        #if body not in self.messages:
+        #    self.messages.append(body)
 
     def get_messages(self):
         """
@@ -96,11 +101,14 @@ class ActiveMQ(object):
     brokers_resolved = []
     receiver_port = 0
     port = 0
+    pandaport = 0
+    pandaurl = ''
     topic = ''
     receive_topics = [topic]
     username = ''
     password = ''
     listener = None
+    queues = None
 
     def __init__(self, **kwargs):
         """
@@ -116,22 +124,39 @@ class ActiveMQ(object):
         self.port = kwargs.get('port', '')
         self.topic = kwargs.get('topic', '')
         self.receive_topics = kwargs.get('receive_topics', '')
-        self.username = kwargs.get('username', '')
-        self.password = kwargs.get('password', '')
+        self.username = None
+        self.password = None
+        #self.username = kwargs.get('username', '')
+        #self.password = kwargs.get('password', '')
         self.connections = []
+        self.pandaurl = kwargs.get('pandaurl', '')
+        self.pandaport = kwargs.get('pandaport', 0)
+        self.queues = kwargs.get('queues', None)
 
+        # get credentials from the PanDA server, abort if not returned
+        res = self.get_credentials()
+        self.logger.debug(f'secrets res={res}')
+        return
+
+        # get the list of brokers to use
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
 
         receive_topic = self.receive_topics[0]
 
+        # prepare the connections
         for broker in self.brokers_resolved:
-            conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
-                                      keepalive=True)
-            if not conn in self.connections:
-                self.connections.append(conn)
+            try:
+                conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
+                                          keepalive=True)
+            except Exception:  # primarily used to avoid interpreted problem with stomp is not available
+                pass
+            else:
+                if not conn in self.connections:
+                    self.connections.append(conn)
 
-        self.listener = Listener()
+        self.listener = Listener(queues=self.queues)
+        # setup the connections (once setup, the listener will wait for messages)
         for conn in self.connections:
             self.logger.debug(f'conn={conn}')
             if not conn.is_connected():
@@ -174,3 +199,23 @@ class ActiveMQ(object):
                 self.logger.warning(f'exception caught while closing connections: {exc}')
             else:
                 self.logger.debug('closed connection')
+
+    def get_credentials(self):
+        """
+        Download username+password from the PanDA server for ActiveMQ authentication.
+
+        :return: credentials dictionary.
+        """
+
+        res = {}
+        if not self.pandaurl or self.pandaport == 0:
+            self.logger.warning('PanDA server URL and/or port not set - cannot get ActiveMQ credentials')
+            return {}
+
+        data = {'get_json': True, 'keys': 'MB_USERNAME,MB_PASSWORD'}
+        cmd = https.get_server_command(self.pandaurl, self.pandaport, cmd='get_user_secrets')
+        if cmd != "":
+            logger.info(f'executing server command: {cmd}')
+            res = https.request(cmd, data=data)
+
+        return res

@@ -22,6 +22,7 @@ import urllib.parse
 import pipes
 from collections import namedtuple
 from time import sleep, time
+from re import findall
 
 from .filehandling import write_file
 from .config import config
@@ -492,3 +493,31 @@ def add_error_codes(data, job):
     data['transExitCode'] = job.transexitcode
     data['exeErrorCode'] = job.exeerrorcode
     data['exeErrorDiag'] = job.exeerrordiag
+
+
+def get_server_command(url, port, cmd='getJob'):
+    """
+    Prepare the getJob server command.
+
+    :param url: PanDA server URL (string)
+    :param port: PanDA server port
+    :return: full server command (URL string)
+    """
+
+    if url != "":
+        port_pattern = '.:([0-9]+)'
+        if not findall(port_pattern, url):
+            url = url + ':%s' % port
+        else:
+            logger.debug(f'URL already contains port: {url}')
+    else:
+        url = config.Pilot.pandaserver
+    if url == "":
+        logger.fatal('PanDA server url not set (either as pilot option or in config file)')
+    elif not url.startswith("http"):
+        url = 'https://' + url
+        logger.warning('detected missing protocol in server url (added)')
+
+    # randomize server name
+    url = get_panda_server(url, port)
+    return f'{url}/server/panda/{cmd}'
