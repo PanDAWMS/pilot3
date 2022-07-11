@@ -1844,6 +1844,10 @@ def retrieve(queues, traces, args):  # noqa: C901
                     job = create_job(res, args.queue)
                 except PilotException as error:
                     raise error
+                else:
+                    logger.info('resetting any existing errors')
+                    job.reset_errors()
+
                 #else:
                     # verify the job status on the server
                     #try:
