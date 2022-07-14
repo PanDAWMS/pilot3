@@ -20,6 +20,10 @@ class ErrorCodes:
     might very well be codes that can be reassigned/removed.
     """
 
+    # global variables shared by all modules/jobs
+    pilot_error_codes = []
+    pilot_error_diags = []
+
     # Error code constants (from Pilot 1)
     GENERALERROR = 1008
     NOLOCALSPACE = 1098
@@ -290,6 +294,13 @@ class ErrorCodes:
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
     recoverable_error_codes = [0] + put_error_codes
 
+    def reset_pilot_errors(self):
+        """
+        Reset the class static variables related with pilot errors.
+        """
+        ErrorCodes.pilot_error_codes = []
+        ErrorCodes.pilot_error_diags = []
+
     def get_kill_signal_error_code(self, signal):
         """
         Match a kill signal with a corresponding Pilot error code.
@@ -317,7 +328,7 @@ class ErrorCodes:
 
         return self._error_messages.get(errorcode, "Unknown error code: %d" % errorcode)
 
-    def add_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[], priority=False, msg=None):
+    def add_error_code(self, errorcode, priority=False, msg=None):
         """
         Add pilot error code to list of error codes.
         This function adds the given error code to the list of all errors that have occurred. This is needed since
@@ -334,6 +345,8 @@ class ErrorCodes:
         """
 
         # do nothing if the error code has already been added
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode not in pilot_error_codes:
             error_msg = msg if msg else self.get_error_message(errorcode)
             if priority:
@@ -345,7 +358,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[]):
+    def remove_error_code(self, errorcode):
         """
         Silently remove an error code and its diagnostics from the internal error lists.
         There is no warning or exception thrown in case the error code is not present in the lists.
@@ -354,6 +367,8 @@ class ErrorCodes:
         :return: pilot_error_codes, pilot_error_diags
         """
 
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode in pilot_error_codes:
             try:
                 index = pilot_error_codes.index(errorcode)
@@ -366,7 +381,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def report_errors(self, pilot_error_codes, pilot_error_diags):
+    def report_errors(self):
         """
         Report all errors that occurred during running.
         The function should be called towards the end of running a job.
@@ -377,6 +392,8 @@ class ErrorCodes:
         """
 
         i = 0
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if pilot_error_codes == []:
             report = "no pilot errors were reported"
         else:
