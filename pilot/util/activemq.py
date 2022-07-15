@@ -152,7 +152,7 @@ class ActiveMQ(object):
             except Exception:  # primarily used to avoid interpreted problem with stomp is not available
                 pass
             else:
-                if not conn in self.connections:
+                if conn not in self.connections:
                     self.connections.append(conn)
 
         self.listener = Listener(queues=self.queues)

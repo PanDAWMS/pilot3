@@ -16,6 +16,7 @@ import os
 import time
 import hashlib
 import logging
+import multiprocessing
 import queue
 from collections import namedtuple
 
@@ -1266,7 +1267,7 @@ def get_job_label(args):
     return job_label
 
 
-def get_dispatcher_dictionary(args):
+def get_dispatcher_dictionary(args, taskid=None):
     """
     Return a dictionary with required fields for the dispatcher getJob operation.
 
@@ -1282,6 +1283,7 @@ def get_dispatcher_dictionary(args):
     the resource to be used outside the privileged group under any circumstances.
 
     :param args: arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param taskid: task id from message broker, if any (None or string).
     :returns: dictionary prepared for the dispatcher getJob operation.
     """
 
@@ -1313,10 +1315,15 @@ def get_dispatcher_dictionary(args):
         dn = get_distinguished_name()
         data['prodUserID'] = dn
 
-    taskid = get_task_id()
-    if taskid != "" and args.allow_same_user:
+    # special handling for task id from message broker
+    if taskid:
         data['taskID'] = taskid
         logger.info(f"will download a new job belonging to task id: {data['taskID']}")
+    else:  # task id from env var
+        taskid = get_task_id()
+        if taskid != "" and args.allow_same_user:
+            data['taskID'] = taskid
+            logger.info(f"will download a new job belonging to task id: {data['taskID']}")
 
     if args.resource_type != "":
         data['resourceType'] = args.resource_type
@@ -1477,18 +1484,19 @@ def get_job_definition_from_file(path, harvester):
     return res
 
 
-def get_job_definition_from_server(args):
+def get_job_definition_from_server(args, taskid=None):
     """
     Get a job definition from a server.
 
     :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param taskid: task id from message broker, if any (None or string)
     :return: job definition dictionary.
     """
 
     res = {}
 
     # get the job dispatcher dictionary
-    data = get_dispatcher_dictionary(args)
+    data = get_dispatcher_dictionary(args, taskid=taskid)
 
     # get the getJob server command
     cmd = https.get_server_command(args.url, args.port)
@@ -1553,31 +1561,107 @@ def get_job_definition(args):
         if args.harvester and args.harvester_submitmode.lower() == 'push':
             pass  # local job definition file not found (go to sleep)
         else:
-            # test
-            queues = namedtuple('queues', ['messages'])
-            queues.messages = queue.Queue()
-
-            kwargs = {
-                'broker': 'atlas-test-mb.cern.ch',
-                'receiver_port': 61013,
-                # 61023,
-                'port': 61013,
-                # 61023,
-                'topic': '/queue/panda.pilot',
-                'receive_topics': ['/queue/panda.pilot'],
-                #    'topic': '/topic/panda.pilot',
-                #    'receive_topics': ['/topic/panda.pilot'],
-                'username': 'X',
-                'password': 'X',
-                'queues': queues,
-                'pandaurl': args.url,
-                'pandaport': args.port
-            }
-            amq = ActiveMQ(**kwargs)
-            logger.info('will download job definition from server')
-            res = get_job_definition_from_server(args)
+            # get the task id from a message broker if requested
+            if args.subscribe_to_msgsvc or True:
+                taskid = get_taskid_from_mb(args)
+                logger.info(f'will download job definition from server using taskid={taskid}')
+            else:
+                taskid = None
+                logger.info('will download job definition from server')
+            res = get_job_definition_from_server(args, taskid=taskid)
 
     return res
+
+
+def get_taskid_from_mb(args):
+    """
+    Try and get the task id from a message broker.
+    Wait maximum .. s, then abort.
+    Note that this might also be interrupted by args.graceful_stop.
+
+    :param args: pilot args object.
+    :return: task id (string).
+    """
+
+    ctx = multiprocessing.get_context('spawn')
+    queue = ctx.Queue()
+    proc = multiprocessing.Process(target=get_mb_taskid, args=(args, queue,))
+    proc.start()
+
+    _t0 = time.time()  # basically this should be PILOT_START_TIME, but any large time will suffice for the loop below
+    maxtime = args.lifetime
+    while not args.graceful_stop.is_set() and time.time() - _t0 < maxtime:
+        proc.join(10)  # wait for ten seconds, then check graceful_stop and that we are within the allowed running time
+        if proc.is_alive():
+            continue
+        else:
+            break  # ie abort 'infinite' loop when the process has finished
+
+    if proc.is_alive():
+        # still running after max time/graceful_stop: kill it
+        proc.terminate()
+
+    try:
+        taskid = queue.get(timeout=1)
+    except Exception:
+        taskid = None
+
+    return taskid
+
+
+def get_mb_taskid(args, queue):
+    """
+
+    """
+
+    queues = namedtuple('queues', ['messages'])
+    queues.messages = queue.Queue()
+    kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
+    # start connections
+    amq = ActiveMQ(**kwargs)
+    # wait for messages
+    message = None
+    while True:
+        time.sleep(0.5)
+        try:
+            message = queues.messages.get(block=True)
+        except queue.Empty:
+            logger.info('waiting')
+            continue
+        else:
+            logger.info(message)
+            break
+
+    # message = {'msg_type': 'get_job', 'taskid': taskid}
+    if message and message['msg_type'] == 'get_job':
+        taskid = message['taskid']
+    else:
+        taskid = None
+
+    queue.put(taskid)
+    #return taskid
+
+
+def get_kwargs_for_mb(queues, url, port, allow_same_user):
+    """
+
+    """
+
+    topic = f'/{"topic" if allow_same_user else "queue"}/panda.pilot'
+    kwargs = {
+        'broker': 'atlas-test-mb.cern.ch',
+        'receiver_port': 61013,
+        'port': 61013,
+        'topic': topic,
+        'receive_topics': ['/queue/panda.pilot'],
+        'username': 'X',
+        'password': 'X',
+        'queues': queues,
+        'pandaurl': url,
+        'pandaport': port
+    }
+
+    return kwargs
 
 
 def now():

@@ -7,29 +7,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022
 
-import hashlib
-import io
-import os
-import re
-import tarfile
-import time
-import uuid
-import sys
 import logging
-from collections.abc import Iterable, Mapping
-from glob import glob
-from json import load, JSONDecodeError
-from json import dump as dumpjson
-from pathlib import Path
-from shutil import copy2, rmtree
-from zlib import adler32
-from functools import partial
-from mmap import mmap
-
-from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
-from pilot.util.config import config
-from .container import execute
-from .math import diff_lists
 
 logger = logging.getLogger(__name__)
 

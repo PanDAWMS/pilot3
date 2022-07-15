@@ -80,8 +80,8 @@ def main():
         logger.fatal(error)
         return error.get_error_code()
 
-    # set the site name for rucio  ## is it really used?
-    environ['PILOT_RUCIO_SITENAME'] = infosys.queuedata.site
+    # set the site name for rucio
+    environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', None) or infosys.queuedata.site
 
     # store the site name as set with a pilot option
     environ['PILOT_SITENAME'] = infosys.queuedata.resource  #args.site  # TODO: replace with singleton
