@@ -1584,8 +1584,8 @@ def get_taskid_from_mb(args):
     """
 
     ctx = multiprocessing.get_context('spawn')
-    queue = ctx.Queue()
-    proc = multiprocessing.Process(target=get_mb_taskid, args=(args, queue,))
+    _queue = ctx.Queue()
+    proc = multiprocessing.Process(target=get_mb_taskid, args=(args, _queue,))
     proc.start()
 
     _t0 = time.time()  # basically this should be PILOT_START_TIME, but any large time will suffice for the loop below
@@ -1602,20 +1602,20 @@ def get_taskid_from_mb(args):
         proc.terminate()
 
     try:
-        taskid = queue.get(timeout=1)
+        taskid = _queue.get(timeout=1)
     except Exception:
         taskid = None
 
     return taskid
 
 
-def get_mb_taskid(args, queue):
+def get_mb_taskid(args, _queue):
     """
 
     """
 
     queues = namedtuple('queues', ['messages'])
-    queues.messages = queue.Queue()
+    queues.messages = _queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
     # start connections
     amq = ActiveMQ(**kwargs)
@@ -1625,7 +1625,7 @@ def get_mb_taskid(args, queue):
         time.sleep(0.5)
         try:
             message = queues.messages.get(block=True)
-        except queue.Empty:
+        except _queue.Empty:
             logger.info('waiting')
             continue
         else:
@@ -1638,7 +1638,7 @@ def get_mb_taskid(args, queue):
     else:
         taskid = None
 
-    queue.put(taskid)
+    _queue.put(taskid)
     #return taskid
 
 
