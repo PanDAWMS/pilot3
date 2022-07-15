@@ -76,8 +76,8 @@ class Listener(connectionlistener):
 
         self.logger.info('received a message "%s"' % frame.body)
         body = json.loads(frame.body)
-        if body not in [_obj for _obj in list(self.__queues.messages.queue)]:
-            self.__queues.messages.put(body)
+        if body not in [_obj for _obj in list(self.__queues.mbmessages.queue)]:
+            self.__queues.mbmessages.put(body)
         #if body not in self.messages:
         #    self.messages.append(body)
 

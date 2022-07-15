@@ -69,7 +69,8 @@ def control(queues, traces, args):
     """
 
     targets = {'validate': validate, 'retrieve': retrieve, 'create_data_payload': create_data_payload,
-               'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor}
+               'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor,
+               'message_listener': message_listener}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 
@@ -1318,6 +1319,8 @@ def get_dispatcher_dictionary(args, taskid=None):
     # special handling for task id from message broker
     if taskid:
         data['taskID'] = taskid
+        if args.allow_same_user:
+            data['viaTopic'] = True
         logger.info(f"will download a new job belonging to task id: {data['taskID']}")
     else:  # task id from env var
         taskid = get_task_id()
@@ -1539,7 +1542,7 @@ def locate_job_definition(args):
     return path
 
 
-def get_job_definition(args):
+def get_job_definition(queues, args):
     """
     Get a job definition from a source (server or pre-placed local file).
 
@@ -1562,22 +1565,48 @@ def get_job_definition(args):
             pass  # local job definition file not found (go to sleep)
         else:
             # get the task id from a message broker if requested
+            taskid = None
+            abort = False
             if args.subscribe_to_msgsvc:
-                taskid = get_taskid_from_mb(args)
-                logger.info(f'will download job definition from server using taskid={taskid}')
+                while not args.graceful_stop.is_set():
+                    try:  # look for graceful stop every ten seconds, otherwise block the queue
+                        message = queues.messages.get(block=True, timeout=10)
+                    except queue.Empty:
+                        continue
+                    else:
+                        break
+
+#                message = get_message_from_mb(args)
+                if message and message['msg_type'] == 'get_job':
+                    taskid = message['taskid']
+                elif message and message['msg_type'] == 'kill_task':
+                    # abort immediately
+                    logger.warning('received instruction to kill task (abort pilot)')
+                    abort = True
+                elif message and message['msg_type'] == 'finish_task':
+                    # abort gracefully - let job finish, but no job is downloaded so ignore this?
+                    logger.warning('received instruction to finish task (abort pilot)')
+                    abort = True
+                elif args.graceful_stop.is_set():
+                    logger.warning('graceful_stop is set, will abort getJob')
+                    abort = True
+                if taskid:
+                    logger.info(f'will download job definition from server using taskid={taskid}')
             else:
-                taskid = None
                 logger.info('will download job definition from server')
-            res = get_job_definition_from_server(args, taskid=taskid)
+            if abort:
+                res = None  # None will trigger 'fatal' error and will finish the pilot
+            else:
+                res = get_job_definition_from_server(args, taskid=taskid)
 
     return res
 
 
-def get_taskid_from_mb(args):
+def get_message_from_mb(args):
     """
     Try and get the task id from a message broker.
-    Wait maximum .. s, then abort.
-    Note that this might also be interrupted by args.graceful_stop.
+    Wait maximum args.lifetime s, then abort.
+    Note that this might also be interrupted by args.graceful_stop (checked for each ten seconds).
 
     :param args: pilot args object.
     :return: task id (string).
@@ -1585,7 +1614,7 @@ def get_taskid_from_mb(args):
 
     ctx = multiprocessing.get_context('spawn')
     _queue = ctx.Queue()
-    proc = multiprocessing.Process(target=get_mb_taskid, args=(args, _queue,))
+    proc = multiprocessing.Process(target=get_message, args=(args, _queue,))
     proc.start()
 
     _t0 = time.time()  # basically this should be PILOT_START_TIME, but any large time will suffice for the loop below
@@ -1602,20 +1631,20 @@ def get_taskid_from_mb(args):
         proc.terminate()
 
     try:
-        taskid = _queue.get(timeout=1)
+        message = _queue.get(timeout=1)
     except Exception:
-        taskid = None
+        message = None
 
-    return taskid
+    return message
 
 
-def get_mb_taskid(args, _queue):
+def get_message(args, _queue):
     """
 
     """
 
-    queues = namedtuple('queues', ['messages'])
-    queues.messages = queue.Queue()
+    queues = namedtuple('queues', ['mbmessages'])
+    queues.mbmessages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
     # start connections
     amq = ActiveMQ(**kwargs)
@@ -1624,22 +1653,16 @@ def get_mb_taskid(args, _queue):
     while True:
         time.sleep(0.5)
         try:
-            message = queues.messages.get(block=True)
+            message = queues.mbmessages.get(block=True)  # add timeout?
         except queue.Empty:
-            logger.info('waiting')
+            #logger.debug('waiting')
             continue
         else:
-            logger.info(message)
+            #logger.info(message)
             break
 
     # message = {'msg_type': 'get_job', 'taskid': taskid}
-    if message and message['msg_type'] == 'get_job':
-        taskid = message['taskid']
-    else:
-        taskid = None
-
-    _queue.put(taskid)
-    #return taskid
+    _queue.put(message)
 
 
 def get_kwargs_for_mb(queues, url, port, allow_same_user):
@@ -1881,7 +1904,7 @@ def retrieve(queues, traces, args):  # noqa: C901
         time_pre_getjob = time.time()
 
         # get a job definition from a source (file or server)
-        res = get_job_definition(args)
+        res = get_job_definition(queues, args)
         #res['debug'] = True
         if res:
             dump_job_definition(res)
@@ -2531,6 +2554,37 @@ def fast_monitor_tasks(job):
         logger.warning('caught exception: %s', exc)
 
     return exit_code
+
+
+def message_listener(queues, traces, args):
+    """
+
+    """
+
+    while not args.graceful_stop.is_set():
+
+        # listen for a message and add it to the messages queue
+        message = get_message_from_mb(args)  # in blocking mode
+
+        # if kill_task or finish_task instructions are received, abort this thread as it will not be needed any longer
+        if message and (message['msg_type'] == 'kill_task' or message['msg_type'] == 'finish_task'):
+            put_in_queue(message, queues.messages)  # will only be put in the queue if not there already
+            if message['kill_task']:
+                args.graceful_stop.set()
+                # kill running job?
+            break
+        elif message and message['msg_type'] == 'get_job':
+            put_in_queue(message, queues.messages)  # will only be put in the queue if not there already
+            continue  # wait for the next message
+
+    # proceed to set the job_aborted flag?
+    if threads_aborted():
+        logger.debug('will proceed to set job_aborted')
+        args.job_aborted.set()
+    else:
+        logger.debug('will not set job_aborted yet')
+
+    logger.info('[job] message listener thread has finished')
 
 
 def fast_job_monitor(queues, traces, args):
