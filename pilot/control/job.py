@@ -1562,7 +1562,7 @@ def get_job_definition(args):
             pass  # local job definition file not found (go to sleep)
         else:
             # get the task id from a message broker if requested
-            if args.subscribe_to_msgsvc or True:
+            if args.subscribe_to_msgsvc:
                 taskid = get_taskid_from_mb(args)
                 logger.info(f'will download job definition from server using taskid={taskid}')
             else:
@@ -1615,7 +1615,7 @@ def get_mb_taskid(args, _queue):
     """
 
     queues = namedtuple('queues', ['messages'])
-    queues.messages = _queue.Queue()
+    queues.messages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
     # start connections
     amq = ActiveMQ(**kwargs)
@@ -1625,7 +1625,7 @@ def get_mb_taskid(args, _queue):
         time.sleep(0.5)
         try:
             message = queues.messages.get(block=True)
-        except _queue.Empty:
+        except queue.Empty:
             logger.info('waiting')
             continue
         else:
