@@ -133,6 +133,7 @@ class ActiveMQ(object):
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
+        logger.debug('got credentials')
 
         # get the list of brokers to use
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
@@ -141,6 +142,7 @@ class ActiveMQ(object):
         receive_topic = self.receive_topics[0]
 
         # prepare the connections
+        logger.debug(f'brokers={self.brokers_resolved}')
         for broker in self.brokers_resolved:
             try:
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
@@ -150,7 +152,7 @@ class ActiveMQ(object):
             else:
                 if conn not in self.connections:
                     self.connections.append(conn)
-
+        logger.debug('setup connections')
         self.listener = Listener(queues=self.queues)
         # setup the connections (once setup, the listener will wait for messages)
         for conn in self.connections:
