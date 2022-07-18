@@ -126,17 +126,13 @@ class ActiveMQ(object):
         self.receive_topics = kwargs.get('receive_topics', '')
         self.username = None
         self.password = None
-        #self.username = kwargs.get('username', '')
-        #self.password = kwargs.get('password', '')
         self.connections = []
         self.pandaurl = kwargs.get('pandaurl', '')
         self.pandaport = kwargs.get('pandaport', 0)
         self.queues = kwargs.get('queues', None)
 
         # get credentials from the PanDA server, abort if not returned
-        res = self.get_credentials()
-        self.logger.debug(f'secrets res={res}')
-        return
+        self.get_credentials()
 
         # get the list of brokers to use
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
@@ -218,4 +214,7 @@ class ActiveMQ(object):
             logger.info(f'executing server command: {cmd}')
             res = https.request(cmd, data=data)
 
-        return res
+        # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
+        if res and res[0] == True:
+            self.username = res[1]['MB_USERNAME']
+            self.password = res[1]['MB_PASSWORD']
