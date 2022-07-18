@@ -152,7 +152,7 @@ class ActiveMQ(object):
             else:
                 if conn not in self.connections:
                     self.connections.append(conn)
-        logger.debug('setup connections')
+        logger.debug(f'setup connections: {self.connections}')
         self.listener = Listener(queues=self.queues)
         # setup the connections (once setup, the listener will wait for messages)
         for conn in self.connections:
