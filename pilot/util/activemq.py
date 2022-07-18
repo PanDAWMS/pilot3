@@ -145,9 +145,11 @@ class ActiveMQ(object):
         logger.debug(f'brokers={self.brokers_resolved}')
         for broker in self.brokers_resolved:
             try:
+                logger.debug(f'broker={broker}', port={self.receiver_port})
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
                                           keepalive=True)
-            except Exception:  # primarily used to avoid interpreted problem with stomp is not available
+            except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
+                logger.warning(f'exception caught: {exc}')
                 pass
             else:
                 if conn not in self.connections:
