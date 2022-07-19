@@ -1673,7 +1673,16 @@ def get_message(args, message_queue):
             #logger.info(message)
             break
 
+    if args.graceful_stop.is_set():
+        logger.debug('get_message(): graceful stop')
+    else:
+        logger.debug('no')
+    if os.environ.get('REACHED_MAXTIME', None):
+        logger.debug('get_message(): reached max time')
+    else:
+        logger.debug('nope')
     if args.graceful_stop.is_set() or os.environ.get('REACHED_MAXTIME', None):
+        logger.debug('closing connections')
         amq.close_connections()
         logger.debug('get_message() ended')
 
