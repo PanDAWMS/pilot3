@@ -1620,6 +1620,10 @@ def get_message_from_mb(args):
     ctx = multiprocessing.get_context('spawn')
     message_queue = ctx.Queue()
     amq_queue = ctx.Queue()
+    if message_queue == amq_queue:
+        logger.debug('WARNING QUEUES ARE THE SAME')
+    else:
+        logger.debug('QUEUES ARE NOT THE SAME')
     proc = multiprocessing.Process(target=get_message, args=(args, message_queue, amq_queue,))
     proc.start()
 
@@ -1631,8 +1635,8 @@ def get_message_from_mb(args):
             if not args.amq:
                 try:
                     amq = amq_queue.get(timeout=1)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(f'exception: {exc}')
                 else:
                     logger.debug('received the amq instance')
                     args.amq = amq

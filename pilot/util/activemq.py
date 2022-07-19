@@ -134,8 +134,8 @@ class ActiveMQ(object):
         self.debug = kwargs.get('debug', False)
 
         console = logging.StreamHandler(sys.stdout)
-        if self.debug:
-            console.setLevel(logging.INFO)
+        #if self.debug:
+        #    console.setLevel(logging.INFO)
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
