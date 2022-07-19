@@ -147,6 +147,7 @@ class ActiveMQ(object):
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
 
         receive_topic = self.receive_topics[0]
+        self.logger.debug(f'receive topic: {self.receive_topics[0]}')
 
         # prepare the connections
         self.logger.debug(f'brokers={self.brokers_resolved}')
