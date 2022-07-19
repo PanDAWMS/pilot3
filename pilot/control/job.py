@@ -1631,9 +1631,9 @@ def get_message_from_mb(args):
         if proc.is_alive():
             if not args.amq:
                 try:
-                    amq = amq_queue.get(timeout=1)
-                except Exception as exc:
-                    logger.debug('exception: %s' % exc)
+                    amq = amq_queue.get(timeout=10)
+                except queue.Empty:
+                    pass
                 else:
                     logger.debug('received the amq instance')
                     args.amq = amq
@@ -1672,6 +1672,7 @@ def get_message(args, message_queue, amq_queue):
     message = None
     while not args.graceful_stop.is_set() and not os.environ.get('REACHED_MAXTIME', None):
         time.sleep(0.5)
+        logger.debug('waiting for a message')
         try:
             message = queues.mbmessages.get(block=True)  # add timeout?
         except queue.Empty:
