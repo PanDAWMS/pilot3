@@ -141,6 +141,8 @@ class ActiveMQ(object):
         self.get_credentials()
         self.logger.debug('got credentials')
 
+        logging.getLogger('stomp').setLevel(logging.INFO)
+
         # get the list of brokers to use
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
@@ -153,7 +155,7 @@ class ActiveMQ(object):
             try:
                 self.logger.debug(f'broker={broker}, port={self.receiver_port}')
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
-                                          keepalive=True, verbose=False)
+                                          keepalive=True)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
                 self.logger.warning(f'exception caught: {exc}')
                 pass
