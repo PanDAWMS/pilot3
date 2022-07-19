@@ -45,7 +45,7 @@ def control(queues, traces, args):
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
     traces.pilot['lifetime_max'] = t_0
 
-    threadchecktime = 30  #int(config.Pilot.thread_check)
+    threadchecktime = int(config.Pilot.thread_check)
 
     # for CPU usage debugging
     cpuchecktime = int(config.Pilot.cpu_check)

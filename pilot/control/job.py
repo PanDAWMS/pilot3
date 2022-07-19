@@ -1647,7 +1647,7 @@ def get_message(args, _queue):
     queues.mbmessages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
     # start connections
-    amq = ActiveMQ(**kwargs)
+    args.amq = ActiveMQ(**kwargs)
     # wait for messages
     message = None
     while True:
@@ -2583,6 +2583,10 @@ def message_listener(queues, traces, args):
         args.job_aborted.set()
     else:
         logger.debug('will not set job_aborted yet')
+
+    if args.amq:
+        logger.debug('closing ActiveMQ connections')
+        args.amq.close_connections()
 
     logger.info('[job] message listener thread has finished')
 

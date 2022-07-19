@@ -64,6 +64,7 @@ def main():
     # perform https setup
     if args.use_https:
         https_setup(args, get_pilot_version())
+    args.amq = None
 
     # let the server know that the worker has started
     if args.update_server:

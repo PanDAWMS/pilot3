@@ -198,7 +198,7 @@ class ActiveMQ(object):
             except Exception as exc:
                 self.logger.warning(f'exception caught while closing connections: {exc}')
             else:
-                self.logger.debug('closed connection')
+                self.logger.debug(f'closed connection to {conn}')
 
     def get_credentials(self):
         """
