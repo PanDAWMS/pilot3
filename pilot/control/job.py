@@ -1613,6 +1613,10 @@ def get_message_from_mb(args):
     :return: task id (string).
     """
 
+    if args.graceful_stop.is_set():
+        logger.debug('will not start ActiveMQ since graceful_stop is set')
+        return None
+
     ctx = multiprocessing.get_context('spawn')
     _queue = ctx.Queue()
     proc = multiprocessing.Process(target=get_message, args=(args, _queue,))
@@ -2566,6 +2570,8 @@ def message_listener(queues, traces, args):
 
         # listen for a message and add it to the messages queue
         message = get_message_from_mb(args)  # in blocking mode
+        if args.graceful_stop.is_set():
+            break
 
         # if kill_task or finish_task instructions are received, abort this thread as it will not be needed any longer
         if message and (message['msg_type'] == 'kill_task' or message['msg_type'] == 'finish_task'):
