@@ -1691,7 +1691,7 @@ def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
         'receiver_port': 61013,
         'port': 61013,
         'topic': topic,
-        'receive_topics': ['/queue/panda.pilot'],
+        'receive_topics': [topic],
         'username': 'X',
         'password': 'X',
         'queues': queues,
