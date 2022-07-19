@@ -1629,7 +1629,14 @@ def get_message_from_mb(args):
     while not args.graceful_stop.is_set() and time.time() - _t0 < maxtime:
         proc.join(10)  # wait for ten seconds, then check graceful_stop and that we are within the allowed running time
         if proc.is_alive():
-            #if not args.amq:
+            if not args.amq:
+                try:
+                    args.amq = message_queue.get(timeout=1)
+                except Exception:
+                    args.amq = None
+                else:
+                    logger.debug('got the amq message')
+
             #    try:
             #        amq = amq_queue.get(timeout=10)
             #    except queue.Empty:
@@ -1665,6 +1672,7 @@ def get_message(args, message_queue):
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
     # start connections
     amq = ActiveMQ(**kwargs)
+    message_queue.put(amq)
     #amq_queue.put(amq)
     #logger.debug('put amq instance in queue')
 
