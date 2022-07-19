@@ -2561,7 +2561,7 @@ def message_listener(queues, traces, args):
 
     """
 
-    while not args.graceful_stop.is_set():
+    while not args.graceful_stop.is_set() and args.subscribe_to_msgsvc:
 
         # listen for a message and add it to the messages queue
         message = get_message_from_mb(args)  # in blocking mode
@@ -2578,11 +2578,12 @@ def message_listener(queues, traces, args):
             continue  # wait for the next message
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
-        logger.debug('will proceed to set job_aborted')
-        args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
+    if args.subscribe_to_msgsvc:
+        if threads_aborted():
+            logger.debug('will proceed to set job_aborted')
+            args.job_aborted.set()
+        else:
+            logger.debug('will not set job_aborted yet')
 
     if args.amq:
         logger.debug('closing ActiveMQ connections')
