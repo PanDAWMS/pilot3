@@ -1666,24 +1666,14 @@ def get_message(args, message_queue):
         try:
             message = queues.mbmessages.get(block=True, timeout=10)
         except queue.Empty:
-            #logger.debug('waiting')
             continue
         else:
-            #logger.info(message)
             break
 
-    if args.graceful_stop.is_set():
-        logger.debug('get_message(): graceful stop')
-    else:
-        logger.debug('no')
-    if os.environ.get('REACHED_MAXTIME', None):
-        logger.debug('get_message(): reached max time')
-    else:
-        logger.debug('nope')
     if args.graceful_stop.is_set() or os.environ.get('REACHED_MAXTIME', None):
         logger.debug('closing connections')
         amq.close_connections()
-        logger.debug('get_message() ended')
+        logger.debug('get_message() ended - the pilot has finished')
 
     if message:
         # message = {'msg_type': 'get_job', 'taskid': taskid}

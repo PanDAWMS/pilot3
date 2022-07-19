@@ -134,13 +134,12 @@ class ActiveMQ(object):
         self.debug = kwargs.get('debug', False)
 
         console = logging.StreamHandler(sys.stdout)
-        #if self.debug:
-        #    console.setLevel(logging.INFO)
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
         self.logger.debug('got credentials')
 
+        # prevent stomp from exposing credentials in stdout (in case pilot is running in debug mode)
         logging.getLogger('stomp').setLevel(logging.INFO)
 
         # get the list of brokers to use
@@ -153,7 +152,7 @@ class ActiveMQ(object):
         self.logger.debug(f'brokers={self.brokers_resolved}')
         for broker in self.brokers_resolved:
             try:
-                self.logger.debug(f'broker={broker}, port={self.receiver_port}')
+                # self.logger.debug(f'broker={broker}, port={self.receiver_port}')
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
                                           keepalive=True)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
@@ -162,6 +161,7 @@ class ActiveMQ(object):
             else:
                 if conn not in self.connections:
                     self.connections.append(conn)
+
         self.logger.debug(f'setup connections: {self.connections}')
         self.listener = Listener(queues=self.queues)
         # setup the connections (once setup, the listener will wait for messages)
