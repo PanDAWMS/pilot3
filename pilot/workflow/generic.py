@@ -79,7 +79,7 @@ def interrupt(args, signum, frame):
     logger.warning('setting graceful stop (in case it was not set already)')
     args.graceful_stop.set()
     logger.warning('waiting for threads to finish')
-    args.job_aborted.wait()
+    args.job_aborted.wait(timeout=60)
 
 
 def register_signals(signals, args):
