@@ -45,7 +45,7 @@ def control(queues, traces, args):
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
     traces.pilot['lifetime_max'] = t_0
 
-    threadchecktime = int(config.Pilot.thread_check)
+    threadchecktime = 30  #int(config.Pilot.thread_check)
 
     # for CPU usage debugging
     cpuchecktime = int(config.Pilot.cpu_check)
@@ -73,8 +73,11 @@ def control(queues, traces, args):
             # check if the pilot has run out of time (stop ten minutes before PQ limit)
             time_since_start = get_time_since_start(args)
             grace_time = 10 * 60
+            if time_since_start - grace_time < 0:
+                grace_time = 0
             if time_since_start - grace_time > max_running_time:
-                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been exceeded - must abort pilot')
+                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
+                             f'exceeded - time to abort pilot')
                 logger.info('setting REACHED_MAXTIME and graceful stop')
                 environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
                 logger.debug(f"REACHED_MAXTIME={environ.get('REACHED_MAXTIME', None)}")
