@@ -1670,11 +1670,11 @@ def get_message(args, message_queue, amq_queue):
 
     # wait for messages
     message = None
-    while not args.graceful_stop.is_set() and not os.environ.get('REACHED_MAXTIME', None):
+    while not (args.graceful_stop.is_set() or os.environ.get('REACHED_MAXTIME', None)):
         time.sleep(0.5)
         logger.debug('waiting for a message')
         try:
-            message = queues.mbmessages.get(block=True, timeout=10)  # add timeout?
+            message = queues.mbmessages.get(block=True, timeout=10)
         except queue.Empty:
             #logger.debug('waiting')
             continue
@@ -1682,8 +1682,12 @@ def get_message(args, message_queue, amq_queue):
             #logger.info(message)
             break
 
-    # message = {'msg_type': 'get_job', 'taskid': taskid}
-    message_queue.put(message)
+    if args.graceful_stop.is_set() or os.environ.get('REACHED_MAXTIME', None):
+        logger.debug('get_message() ended')
+
+    if message:
+        # message = {'msg_type': 'get_job', 'taskid': taskid}
+        message_queue.put(message)
 
 
 def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
