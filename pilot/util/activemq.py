@@ -11,6 +11,7 @@ import socket
 import json
 import random
 import logging
+import sys
 
 try:
     import stomp
@@ -132,9 +133,13 @@ class ActiveMQ(object):
         self.queues = kwargs.get('queues', None)
         self.debug = kwargs.get('debug', False)
 
+        console = logging.StreamHandler(sys.stdout)
+        if self.debug:
+            console.setLevel(logging.INFO)
+
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
-        logger.debug('got credentials')
+        self.logger.debug('got credentials')
 
         # get the list of brokers to use
         _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
@@ -143,33 +148,30 @@ class ActiveMQ(object):
         receive_topic = self.receive_topics[0]
 
         # prepare the connections
-        logger.debug(f'brokers={self.brokers_resolved}')
+        self.logger.debug(f'brokers={self.brokers_resolved}')
         for broker in self.brokers_resolved:
             try:
-                logger.debug(f'broker={broker}, port={self.receiver_port}')
+                self.logger.debug(f'broker={broker}, port={self.receiver_port}')
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
                                           keepalive=True)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
-                logger.warning(f'exception caught: {exc}')
+                self.logger.warning(f'exception caught: {exc}')
                 pass
             else:
                 if conn not in self.connections:
                     self.connections.append(conn)
-        logger.debug(f'setup connections: {self.connections}')
+        self.logger.debug(f'setup connections: {self.connections}')
         self.listener = Listener(queues=self.queues)
         # setup the connections (once setup, the listener will wait for messages)
         for conn in self.connections:
             if not conn.is_connected():
                 self.listener.set_broker(conn.transport._Transport__host_and_ports[0])
                 conn.set_listener('message-receiver', self.listener)
-                if self.debug:
-                    logging.basicConfig(level=logging.INFO)
                 conn.connect(self.username, self.password, wait=True)
                 conn.subscribe(destination=receive_topic,
                                id='atlas-pilot-messaging',
                                ack='auto')
-                if self.debug:
-                    logging.basicConfig(level=logging.DEBUG)
+
                 self.logger.debug('subscribed')
 
     def get_messages(self):
@@ -218,7 +220,7 @@ class ActiveMQ(object):
         data = {'get_json': True, 'keys': 'MB_USERNAME,MB_PASSWORD'}
         cmd = https.get_server_command(self.pandaurl, self.pandaport, cmd='get_user_secrets')
         if cmd != "":
-            logger.info(f'executing server command: {cmd}')
+            self.logger.info(f'executing server command: {cmd}')
             res = https.request(cmd, data=data)
 
         # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
