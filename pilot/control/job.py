@@ -1637,14 +1637,17 @@ def get_message_from_mb(args):
         proc.terminate()
 
     try:
-        message = message_queue.get(timeout=1)
+        message = message_queue.get(timeout=10)
     except Exception:
         message = None
 
     try:
-        amq = amq_queue.get(timeout=1)
+        amq = amq_queue.get(timeout=10)
     except Exception:
+        logger.debug('did not receive the amq instance')
         amq = None
+    else:
+        logger.debug('received the amq instance')
     args.amq = amq
 
     return message
@@ -2592,6 +2595,17 @@ def message_listener(queues, traces, args):
         elif message and message['msg_type'] == 'get_job':
             put_in_queue(message, queues.messages)  # will only be put in the queue if not there already
             continue  # wait for the next message
+
+        if args.amq:
+            logger.debug('got the amq instance')
+        else:
+            logger.debug('no amq instance')
+        time.sleep(1)
+
+    if args.amq:
+        logger.debug('got the amq instance 2')
+    else:
+        logger.debug('no amq instance 2')
 
     # proceed to set the job_aborted flag?
     if args.subscribe_to_msgsvc:
