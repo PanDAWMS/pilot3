@@ -1628,6 +1628,14 @@ def get_message_from_mb(args):
     while not args.graceful_stop.is_set() and time.time() - _t0 < maxtime:
         proc.join(10)  # wait for ten seconds, then check graceful_stop and that we are within the allowed running time
         if proc.is_alive():
+            if not args.amq:
+                try:
+                    amq = amq_queue.get(timeout=1)
+                except Exception:
+                    pass
+                else:
+                    logger.debug('received the amq instance')
+                args.amq = amq
             continue
         else:
             break  # ie abort 'infinite' loop when the process has finished
@@ -1637,18 +1645,11 @@ def get_message_from_mb(args):
         proc.terminate()
 
     try:
-        message = message_queue.get(timeout=10)
+        message = message_queue.get(timeout=1)
     except Exception:
         message = None
-
-    try:
-        amq = amq_queue.get(timeout=10)
-    except Exception:
-        logger.debug('did not receive the amq instance')
-        amq = None
-    else:
-        logger.debug('received the amq instance')
-    args.amq = amq
+    if not message:
+        logger.debug('not returning any messages')
 
     return message
 
@@ -1663,6 +1664,8 @@ def get_message(args, message_queue, amq_queue):
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
     # start connections
     amq = ActiveMQ(**kwargs)
+    amq_queue.put(amq)
+
     # wait for messages
     message = None
     while True:
@@ -1678,7 +1681,6 @@ def get_message(args, message_queue, amq_queue):
 
     # message = {'msg_type': 'get_job', 'taskid': taskid}
     message_queue.put(message)
-    amq_queue.put(amq)
 
 
 def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
