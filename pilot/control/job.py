@@ -1618,8 +1618,9 @@ def get_message_from_mb(args):
         return None
 
     ctx = multiprocessing.get_context('spawn')
-    _queue = ctx.Queue()
-    proc = multiprocessing.Process(target=get_message, args=(args, _queue,))
+    message_queue = ctx.Queue()
+    amq_queue = ctx.Queue()
+    proc = multiprocessing.Process(target=get_message, args=(args, message_queue, amq_queue,))
     proc.start()
 
     _t0 = time.time()  # basically this should be PILOT_START_TIME, but any large time will suffice for the loop below
@@ -1636,14 +1637,20 @@ def get_message_from_mb(args):
         proc.terminate()
 
     try:
-        message = _queue.get(timeout=1)
+        message = message_queue.get(timeout=1)
     except Exception:
         message = None
+
+    try:
+        amq = amq_queue.get(timeout=1)
+    except Exception:
+        amq = None
+    args.amq = amq
 
     return message
 
 
-def get_message(args, _queue):
+def get_message(args, message_queue, amq_queue):
     """
 
     """
@@ -1652,7 +1659,7 @@ def get_message(args, _queue):
     queues.mbmessages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
     # start connections
-    args.amq = ActiveMQ(**kwargs)
+    amq = ActiveMQ(**kwargs)
     # wait for messages
     message = None
     while True:
@@ -1667,7 +1674,8 @@ def get_message(args, _queue):
             break
 
     # message = {'msg_type': 'get_job', 'taskid': taskid}
-    _queue.put(message)
+    message_queue.put(message)
+    amq_queue.put(amq)
 
 
 def get_kwargs_for_mb(queues, url, port, allow_same_user):
