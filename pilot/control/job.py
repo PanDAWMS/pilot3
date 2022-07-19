@@ -1635,7 +1635,7 @@ def get_message_from_mb(args):
                     pass
                 else:
                     logger.debug('received the amq instance')
-                args.amq = amq
+                    args.amq = amq
             continue
         else:
             break  # ie abort 'infinite' loop when the process has finished
