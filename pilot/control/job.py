@@ -1663,7 +1663,6 @@ def get_message(args, message_queue):
     message = None
     while not args.graceful_stop.is_set() and not os.environ.get('REACHED_MAXTIME', None):
         time.sleep(0.5)
-        logger.debug('waiting for a message')
         try:
             message = queues.mbmessages.get(block=True, timeout=10)
         except queue.Empty:
