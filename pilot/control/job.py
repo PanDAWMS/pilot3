@@ -1568,6 +1568,7 @@ def get_job_definition(queues, args):
             taskid = None
             abort = False
             if args.subscribe_to_msgsvc:
+                message = None
                 while not args.graceful_stop.is_set():
                     try:  # look for graceful stop every ten seconds, otherwise block the queue
                         message = queues.messages.get(block=True, timeout=10)
