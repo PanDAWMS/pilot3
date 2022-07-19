@@ -1674,7 +1674,7 @@ def get_message(args, message_queue, amq_queue):
         time.sleep(0.5)
         logger.debug('waiting for a message')
         try:
-            message = queues.mbmessages.get(block=True)  # add timeout?
+            message = queues.mbmessages.get(block=True, timeout=10)  # add timeout?
         except queue.Empty:
             #logger.debug('waiting')
             continue
