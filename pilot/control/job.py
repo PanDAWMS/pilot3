@@ -1657,7 +1657,7 @@ def get_message(args, message_queue, amq_queue):
 
     queues = namedtuple('queues', ['mbmessages'])
     queues.mbmessages = queue.Queue()
-    kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user)
+    kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
     # start connections
     amq = ActiveMQ(**kwargs)
     # wait for messages
@@ -1678,7 +1678,7 @@ def get_message(args, message_queue, amq_queue):
     amq_queue.put(amq)
 
 
-def get_kwargs_for_mb(queues, url, port, allow_same_user):
+def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
     """
 
     """
@@ -1694,7 +1694,8 @@ def get_kwargs_for_mb(queues, url, port, allow_same_user):
         'password': 'X',
         'queues': queues,
         'pandaurl': url,
-        'pandaport': port
+        'pandaport': port,
+        'debug': debug
     }
 
     return kwargs

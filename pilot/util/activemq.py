@@ -130,6 +130,7 @@ class ActiveMQ(object):
         self.pandaurl = kwargs.get('pandaurl', '')
         self.pandaport = kwargs.get('pandaport', 0)
         self.queues = kwargs.get('queues', None)
+        self.debug = kwargs.get('debug', False)
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
@@ -158,15 +159,17 @@ class ActiveMQ(object):
         self.listener = Listener(queues=self.queues)
         # setup the connections (once setup, the listener will wait for messages)
         for conn in self.connections:
-            self.logger.debug(f'conn={conn}')
             if not conn.is_connected():
                 self.listener.set_broker(conn.transport._Transport__host_and_ports[0])
                 conn.set_listener('message-receiver', self.listener)
+                if self.debug:
+                    logging.basicConfig(level=logging.INFO)
                 conn.connect(self.username, self.password, wait=True)
-                self.logger.debug(f'topic={receive_topic}')
                 conn.subscribe(destination=receive_topic,
                                id='atlas-pilot-messaging',
                                ack='auto')
+                if self.debug:
+                    logging.basicConfig(level=logging.DEBUG)
                 self.logger.debug('subscribed')
 
     def get_messages(self):
