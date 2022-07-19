@@ -153,7 +153,7 @@ class ActiveMQ(object):
             try:
                 self.logger.debug(f'broker={broker}, port={self.receiver_port}')
                 conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
-                                          keepalive=True)
+                                          keepalive=True, verbose=False)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
                 self.logger.warning(f'exception caught: {exc}')
                 pass
