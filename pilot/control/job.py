@@ -1687,9 +1687,9 @@ def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
 
     topic = f'/{"topic" if allow_same_user else "queue"}/panda.pilot'
     kwargs = {
-        'broker': 'atlas-test-mb.cern.ch',
-        'receiver_port': 61013,
-        'port': 61013,
+        'broker': config.Message_broker.url,  # 'atlas-test-mb.cern.ch',
+        'receiver_port': config.Message_broker.receiver_port,  # 61013,
+        # 'port': config.Message_broker.port,  # 61013,
         'topic': topic,
         'receive_topics': [topic],
         'username': 'X',
