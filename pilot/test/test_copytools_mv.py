@@ -48,7 +48,7 @@ class TestCopytoolMv(unittest.TestCase):
         jdata = JobData(res)
 
         infiles = ""
-        outfiles = ""
+        #outfiles = ""
         fsize = ""
         realdatasetsin = ""
         dispatchdblocktokenforout = ""

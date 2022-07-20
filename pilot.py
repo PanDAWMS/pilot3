@@ -64,6 +64,7 @@ def main():
     # perform https setup
     if args.use_https:
         https_setup(args, get_pilot_version())
+    args.amq = None
 
     # let the server know that the worker has started
     if args.update_server:
@@ -80,8 +81,8 @@ def main():
         logger.fatal(error)
         return error.get_error_code()
 
-    # set the site name for rucio  ## is it really used?
-    environ['PILOT_RUCIO_SITENAME'] = infosys.queuedata.site
+    # set the site name for rucio
+    environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', None) or infosys.queuedata.site
 
     # store the site name as set with a pilot option
     environ['PILOT_SITENAME'] = infosys.queuedata.resource  #args.site  # TODO: replace with singleton
@@ -222,6 +223,13 @@ def get_args():
                             required=False,
                             type=int,
                             help='Maximum number of getjob request failures in Harvester mode')
+
+    arg_parser.add_argument('--subscribe-to-msgsvc',
+                            dest='subscribe_to_msgsvc',
+                            action='store_true',
+                            default=False,
+                            required=False,
+                            help='Ask Pilot to receive job/task info from ActiveMQ')
 
     # SSL certificates
     arg_parser.add_argument('--cacert',
