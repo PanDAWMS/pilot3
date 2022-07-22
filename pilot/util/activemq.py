@@ -137,7 +137,9 @@ class ActiveMQ(object):
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
-        self.logger.debug('got credentials')
+        if not self.username or not self.password:
+            self.logger.warning('cannot continue without message broker credentials')
+            return
 
         # prevent stomp from exposing credentials in stdout (in case pilot is running in debug mode)
         logging.getLogger('stomp').setLevel(logging.INFO)
@@ -228,5 +230,8 @@ class ActiveMQ(object):
 
         # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
         if res and res[0] == True:
-            self.username = res[1]['MB_USERNAME']
-            self.password = res[1]['MB_PASSWORD']
+            try:
+                self.username = res[1]['MB_USERNAME']
+                self.password = res[1]['MB_PASSWORD']
+            except KeyError as exc:
+                self.logger.warning(f'failed to extract keys from res={res}: {exc}')
