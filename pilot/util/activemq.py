@@ -122,7 +122,7 @@ class ActiveMQ(object):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.broker = kwargs.get('broker', '')
         self.receiver_port = kwargs.get('receiver_port', '')
-        self.port = kwargs.get('port', '')
+        # self.port = kwargs.get('port', '')
         self.topic = kwargs.get('topic', '')
         self.receive_topics = kwargs.get('receive_topics', '')
         self.username = None
@@ -137,7 +137,9 @@ class ActiveMQ(object):
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
-        self.logger.debug('got credentials')
+        if not self.username or not self.password:
+            self.logger.warning('cannot continue without message broker credentials')
+            return
 
         # prevent stomp from exposing credentials in stdout (in case pilot is running in debug mode)
         logging.getLogger('stomp').setLevel(logging.INFO)
@@ -154,7 +156,7 @@ class ActiveMQ(object):
         for broker in self.brokers_resolved:
             try:
                 # self.logger.debug(f'broker={broker}, port={self.receiver_port}')
-                conn = stomp.Connection12(host_and_ports=[(broker, self.receiver_port)],
+                conn = stomp.Connection12(host_and_ports=[(broker, int(self.receiver_port))],
                                           keepalive=True)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
                 self.logger.warning(f'exception caught: {exc}')
@@ -228,5 +230,8 @@ class ActiveMQ(object):
 
         # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
         if res and res[0] == True:
-            self.username = res[1]['MB_USERNAME']
-            self.password = res[1]['MB_PASSWORD']
+            try:
+                self.username = res[1]['MB_USERNAME']
+                self.password = res[1]['MB_PASSWORD']
+            except KeyError as exc:
+                self.logger.warning(f'failed to extract keys from res={res}: {exc}')
