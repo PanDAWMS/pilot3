@@ -157,6 +157,7 @@ class ErrorCodes:
     REMOTEFILEOPENTIMEDOUT = 1368
     FRONTIER = 1369
     VOMSPROXYABOUTTOEXPIRE = 1370  # note, not a failure but an internal 'error' code used to download a new proxy
+    BADOUTPUTFILENAME = 1371
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -288,7 +289,8 @@ class ErrorCodes:
         COMMANDTIMEDOUT: "Command timed out",
         REMOTEFILEOPENTIMEDOUT: "Remote file open timed out",
         FRONTIER: "Frontier error",
-        VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire"
+        VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
+        BADOUTPUTFILENAME: "Output file name does not follow naming convention"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

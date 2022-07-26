@@ -39,3 +39,13 @@ def get_path(scope, lfn):
     paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
 
     return '/'.join(paths)
+
+
+def naming_convension_pattern():
+    """
+    Return a regular expression pattern in case the output file name should be verified.
+
+    :return: raw string.
+    """
+
+    return r''

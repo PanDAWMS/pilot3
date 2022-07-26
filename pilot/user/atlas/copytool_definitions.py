@@ -40,3 +40,18 @@ def get_path(scope, lfn):
     paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
 
     return '/'.join(paths)
+
+
+def naming_convension_pattern():
+    """
+    Return a regular expression pattern in case the output file name should be verified.
+
+    pattern=re.compile(r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,250}$')
+    re.findall(pattern, 'AOD.29466419._001462.pool.root.1')
+    ['AOD.29466419._001462.pool.root.1']
+
+    :return: raw string.
+    """
+
+    max_filename_size = 250
+    return r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,%s}$' % max_filename_size
