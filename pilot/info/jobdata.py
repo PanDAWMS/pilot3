@@ -315,8 +315,8 @@ class JobData(BaseData):
         """
         Construct validated FileSpec objects for output and log files from raw dict `data`
         Note: final preparation for output files can only be done after the payload has finished in case the payload
-        has produced a job report with e.g. output file guids. This is verified in
-        pilot/control/payload/process_job_report().
+        has produced a job report with e.g. output file guids. For ATLAS, this is verified in
+        pilot/user/atlas/diagnose/process_job_report().
 
         :param data:
         :return: (list of `FileSpec` for output, list of `FileSpec` for log)
