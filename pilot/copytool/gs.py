@@ -163,8 +163,7 @@ def copy_out(files, **kwargs):
         (bucket, remote_path) = reobj.groups()
 
         logfiles = []
-        lfn = fspec.lfn.strip(' ')
-        dataset = fspec.dataset
+        lfn = fspec.lfn.strip()
         if lfn == '/' or lfn.endswith("log.tgz"):
             # ["pilotlog.txt", "payload.stdout", "payload.stderr"]:
             logfiles += glob(workdir + '/payload*.*')
@@ -213,8 +212,8 @@ def copy_out(files, **kwargs):
                 # raise PilotException(diagnostics, code=fspec.status_code, state=fspec.status)
 
         if fspec.status is None:
-           fspec.status = 'transferred'
-           fspec.status_code = 0
+            fspec.status = 'transferred'
+            fspec.status_code = 0
 
     return files
 
