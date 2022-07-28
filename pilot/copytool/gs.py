@@ -13,6 +13,7 @@ import logging
 from pilot.info import infosys
 import subprocess
 import re
+from glob import glob
 
 try:
     from google.cloud import storage
@@ -148,26 +149,35 @@ def copy_out(files, **kwargs):
 
     workdir = kwargs.pop('workdir')
 
-    if len(files) > 0:
-        fspec = files[0]
-        # bucket = re.sub(r'gs://(.*?)/.*', r'\1', fspec.turl)
-        reobj = re.match(r'gs://([^/]*)/(.*)', fspec.turl)
-        (bucket, remote_path) = reobj.groups()
+    # if len(files) > 0:
+    #     fspec = files[0]
+    #     # bucket = re.sub(r'gs://(.*?)/.*', r'\1', fspec.turl)
+    #     reobj = re.match(r'gs://([^/]*)/(.*)', fspec.turl)
+    #     (bucket, remote_path) = reobj.groups()
 
     for fspec in files:
         logger.info('Going to process fspec.turl=%s', fspec.turl)
 
-        logfiles = []
-        lfn = fspec.lfn.strip(' ')
-        dataset = fspec.dataset
-        if lfn == '/' or dataset.endswith('/'):
-            # ["pilotlog.txt", "payload.stdout", "payload.stderr"]:
-            logfiles = os.listdir(workdir)
-        else:
-            logfiles = [lfn]
+        fspec.status = None
+        reobj = re.match(r'gs://([^/]*)/(.*)', fspec.turl)
+        (bucket, remote_path) = reobj.groups()
 
-        for logfile in logfiles:
-            path = os.path.join(workdir, logfile)
+        logfiles = []
+        lfn = fspec.lfn.strip()
+        if lfn == '/' or lfn.endswith("log.tgz"):
+            # ["pilotlog.txt", "payload.stdout", "payload.stderr"]:
+            logfiles += glob(workdir + '/payload*.*')
+            logfiles += glob(workdir + '/memory_monitor*.*')
+            # if lfn.find('/') < 0:
+            #     lfn_path = os.path.join(workdir, lfn)
+            #    if os.path.exists(lfn_path) and lfn_path not in logfiles:
+            #        logfiles += [lfn_path]
+            logfiles += glob(workdir + '/pilotlog*.*')
+        else:
+            logfiles = [os.path.join(workdir, lfn)]
+
+        for path in logfiles:
+            logfile = os.path.basename(path)
             if os.path.exists(path):
                 if logfile == config.Pilot.pilotlog or logfile == config.Payload.payloadstdout or logfile == config.Payload.payloadstderr:
                     content_type = "text/plain"
@@ -199,10 +209,11 @@ def copy_out(files, **kwargs):
                 logger.warning(diagnostics)
                 fspec.status = 'failed'
                 fspec.status_code = errors.STAGEOUTFAILED
-                raise PilotException(diagnostics, code=fspec.status_code, state=fspec.status)
+                # raise PilotException(diagnostics, code=fspec.status_code, state=fspec.status)
 
-        fspec.status = 'transferred'
-        fspec.status_code = 0
+        if fspec.status is None:
+            fspec.status = 'transferred'
+            fspec.status_code = 0
 
     return files
 
