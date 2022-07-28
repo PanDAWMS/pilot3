@@ -1066,10 +1066,26 @@ def update_job_data(job):
             # remove the files listed in allowNoOutput if they don't exist
             remove_no_output_files(job)
 
+    validate_output_data(job)
+
+
+def validate_output_data(job):
+    """
+    Validate output data.
+    Set any missing GUIDs and make sure the output file names follow the ATLAS naming convention - if not, set the
+    error code.
+
+    :param job: job object.
+    :return:
+    """
+
     ## validate output data (to be moved into the JobData)
     ## warning: do no execute this code unless guid lookup in job report
     # has failed - pilot should only generate guids
     ## if they are not present in job report
+
+    pattern = re.compile(naming_convention_pattern())
+    bad_files = []
     for dat in job.outdata:
         if not dat.guid:
             dat.guid = get_guid()
@@ -1078,6 +1094,37 @@ def update_job_data(job):
                 dat.guid,
                 dat.lfn
             )
+        # is the output file following the naming convention?
+        found = re.findall(pattern, dat.lfn)
+        if found:
+            logger.info(f'verified that {dat.lfn} follows the naming convention')
+        else:
+            bad_files.append(dat.lfn)
+
+    if bad_files:
+        if len(bad_files) > 1:
+            diagnostic = f'{bad_files} do not follow the naming convention: {naming_convention_pattern()}'
+        else:
+            diagnostic = f'{dat.lfn} does not follow the naming convention: {naming_convention_pattern()}'
+            # job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
+        logger.warning(diagnostic)
+    else:
+        logger.debug('verified that all output files follow the ATLAS naming convention')
+
+
+def naming_convention_pattern():
+    """
+    Return a regular expression pattern in case the output file name should be verified.
+
+    pattern=re.compile(r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,250}$')
+    re.findall(pattern, 'AOD.29466419._001462.pool.root.1')
+    ['AOD.29466419._001462.pool.root.1']
+
+    :return: raw string.
+    """
+
+    max_filename_size = 250
+    return r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,%s}$' % max_filename_size
 
 
 def get_stageout_label(job):
