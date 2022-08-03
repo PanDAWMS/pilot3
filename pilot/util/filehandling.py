@@ -964,6 +964,8 @@ def establish_logging(debug=True, nopilotlog=False, filename=config.Pilot.pilotl
     :return:
     """
 
+    sys.stdout = open(config.Pilot.stdlog, 'w')
+
     _logger = logging.getLogger('')
     _logger.handlers = []
     _logger.propagate = False
