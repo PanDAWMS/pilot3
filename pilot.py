@@ -599,6 +599,14 @@ if __name__ == '__main__':
     # initialize job status dictionary (e.g. used to keep track of log transfers)
     args.job_status = {}  # TODO: move to singleton or to job object directly?
 
+
+
+    if 'BNL_OSG_SPHENIX_TEST' in args.queue:
+        args.lifetime = 3600
+        args.subscribe_to_msgsvc = True
+
+
+
     # store T0 time stamp
     add_to_pilot_timing('0', PILOT_START_TIME, time.time(), args)
     add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
