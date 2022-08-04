@@ -534,7 +534,7 @@ def set_cpu_consumption_time(job):
 def perform_initial_payload_error_analysis(job, exit_code):
     """
     Perform an initial analysis of the payload.
-    Singularity errors are caught here.
+    Singularity/apptainer errors are caught here.
 
     :param job: job object.
     :param exit_code: exit code from payload execution.
@@ -544,7 +544,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
     if exit_code != 0:
         logger.warning(f'main payload execution returned non-zero exit code: {exit_code}')
 
-    # look for singularity errors (the exit code can be zero in this case)
+    # look for singularity/apptainer errors (the exit code can be zero in this case)
     path = os.path.join(job.workdir, config.Payload.payloadstderr)
     if os.path.exists(path):
         stderr = read_file(path)

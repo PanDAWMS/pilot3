@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 
 """
