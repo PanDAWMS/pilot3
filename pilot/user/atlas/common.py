@@ -1111,8 +1111,9 @@ def validate_output_data(job):
             # only fail the job in this case (otherwise test jobs would fail!), and only report on the first file
             if errors.BADOUTPUTFILENAME not in job.piloterrorcodes:
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
+        logger.warning(diagnostic)
 
-    else:
+    if not bad_files:
         logger.debug('verified that all output files follow the ATLAS naming convention')
 
 
