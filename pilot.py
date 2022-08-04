@@ -264,6 +264,10 @@ def get_args():
                             dest='rucio_host',
                             default='',
                             help='URL for the Rucio host (optional)')
+    arg_parser.add_argument('--redirect-stdout',
+                            dest='redirectstdout',
+                            default='',
+                            help='Redirect all stdout to given file, or /dev/null (optional)')
 
     # Country group
     arg_parser.add_argument('--country-group',
@@ -580,6 +584,39 @@ def send_worker_status(status, queue, url, port, logger):
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
+def set_lifetime(args):
+    """
+    Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
+
+    :param args: pilot args.
+    :return:
+    """
+
+    lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
+    if lifetime:
+        try:
+            lifetime = int(lifetime)
+        except (ValueError, TypeError):
+            pass
+        else:
+            args.lifetime = lifetime
+
+
+def set_redirectall(args):
+    """
+
+    """
+
+    redirectall = os.environ.get('PANDAPILOT_REDIRECTALL', False)
+    if not redirectall:
+        try:
+            redirectall = bool(redirectall)
+        except (ValueError, TypeError):
+            pass
+        else:
+            args.redirectall = redirectall
+
+
 if __name__ == '__main__':
     """
     Main function of pilot module.
@@ -599,13 +636,10 @@ if __name__ == '__main__':
     # initialize job status dictionary (e.g. used to keep track of log transfers)
     args.job_status = {}  # TODO: move to singleton or to job object directly?
 
-
-
-    if 'BNL_OSG_SPHENIX_TEST' in args.queue:
-        args.lifetime = 3600
-        args.subscribe_to_msgsvc = True
-
-
+    #if 'BNL_OSG_SPHENIX_TEST' in args.queue:
+    #    args.lifetime = 3600
+    #    args.subscribe_to_msgsvc = True
+    #    args.redirectstdout = '/dev/null'
 
     # store T0 time stamp
     add_to_pilot_timing('0', PILOT_START_TIME, time.time(), args)
@@ -618,8 +652,10 @@ if __name__ == '__main__':
     if exit_code != 0:
         sys.exit(exit_code)
 
+    set_lifetime(args)
+
     # setup and establish standard logging
-    establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
+    establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, redirectstdout=args.redirectstdout)
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()
