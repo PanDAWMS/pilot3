@@ -83,11 +83,11 @@ def wrapper(executable, **kwargs):
     if workdir == '.' and pilot_home != '':
         workdir = pilot_home
 
-    # if job.imagename (from --containerimage <image>) is set, then always use raw singularity
+    # if job.imagename (from --containerimage <image>) is set, then always use raw singularity/apptainer
     if config.Container.setup_type == "ALRB":  # and job and not job.imagename:
         fctn = alrb_wrapper
     else:
-        fctn = singularity_wrapper
+        fctn = container_wrapper
     return fctn(executable, workdir, job=job)
 
 
@@ -112,9 +112,9 @@ def extract_platform_and_os(platform):
     return ret
 
 
-def get_grid_image_for_singularity(platform):
+def get_grid_image(platform):
     """
-    Return the full path to the singularity grid image
+    Return the full path to the singularity/apptainer grid image
 
     :param platform: E.g. "x86_64-slc6" (string).
     :return: full path to grid image (string).
@@ -126,7 +126,10 @@ def get_grid_image_for_singularity(platform):
 
     arch_and_os = extract_platform_and_os(platform)
     image = arch_and_os + ".img"
-    _path = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/singularity")
+    _path1 = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/apptainer")
+    _path2 = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/singularity")
+    paths = [path for path in [_path1, _path2] if os.path.isdir(path)]
+    _path = paths[0]
     path = os.path.join(_path, image)
     if not os.path.exists(path):
         image = 'x86_64-centos7.img'
@@ -327,7 +330,7 @@ def get_container_options(container_options):
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
 
     opts = ''
-    # Set the singularity options
+    # Set the singularity/apptainer options
     if container_options:
         # the event service payload cannot use -C/--containall since it will prevent yampl from working
         if is_raythena:
@@ -362,7 +365,7 @@ def alrb_wrapper(cmd, workdir, job=None):
     :param cmd (string): command to be executed in a container.
     :param workdir: (not used)
     :param job: job object.
-    :return: prepended command with singularity execution command (string).
+    :return: prepended command with singularity/apptainer execution command (string).
     """
 
     if not job:
@@ -603,13 +606,15 @@ def remove_container_string(job_params):
     return job_params, container_path
 
 
-def singularity_wrapper(cmd, workdir, job=None):
+def container_wrapper(cmd, workdir, job=None):
     """
-    Prepend the given command with the singularity execution command
+    Prepend the given command with the singularity/apptainer execution command
     E.g. cmd = /bin/bash hello_world.sh
     -> singularity_command = singularity exec -B <bindmountsfromcatchall> <img> /bin/bash hello_world.sh
     singularity exec -B <bindmountsfromcatchall>  /cvmfs/atlas.cern.ch/repo/images/singularity/x86_64-slc6.img <script>
     Note: if the job object is not set, then it is assumed that the middleware container is to be used.
+    Note 2: if apptainer is specified in CRIC in the container type, it is assumes that the executable is called
+    apptainer.
 
     :param cmd: command to be prepended (string).
     :param workdir: explicit work directory where the command should be executed (needs to be set for Singularity) (string).
@@ -627,36 +632,39 @@ def singularity_wrapper(cmd, workdir, job=None):
     container_name = queuedata.container_type.get("pilot")  # resolve container name for user=pilot
     logger.debug("resolved container_name from queuedata.container_type: %s", container_name)
 
-    if container_name == 'singularity':
-        logger.info("singularity has been requested")
+    if container_name == 'singularity' or container_name == 'apptainer':
+        logger.info("singularity/apptainer has been requested")
 
-        # Get the singularity options
-        singularity_options = queuedata.container_options
-        if singularity_options != "":
-            singularity_options += ","
+        # Get the container options
+        options = queuedata.container_options
+        if options != "":
+            options += ","
         else:
-            singularity_options = "-B "
-        singularity_options += "/cvmfs,${workdir},/home"
-        logger.debug("using singularity_options: %s", singularity_options)
+            options = "-B "
+        options += "/cvmfs,${workdir},/home"
+        logger.debug("using options: %s", options)
 
         # Get the image path
         if job:
-            image_path = job.imagename or get_grid_image_for_singularity(job.platform)
+            image_path = job.imagename or get_grid_image(job.platform)
         else:
             image_path = config.Container.middleware_container
 
         # Does the image exist?
         if image_path:
             # Prepend it to the given command
-            cmd = "export workdir=" + workdir + "; singularity --verbose exec " + singularity_options + " " + image_path + \
-                  " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
+            quote = pipes.quote(f'cd $workdir;pwd;{cmd}')
+            cmd = f"export workdir={workdir}; {container_name} --verbose exec {options} {image_path} " \
+                  f"/bin/bash -c {quote}"
+            #cmd = "export workdir=" + workdir + "; singularity --verbose exec " + options + " " + image_path + \
+            #      " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
 
             # for testing user containers
             # singularity_options = "-B $PWD:/data --pwd / "
             # singularity_cmd = "singularity exec " + singularity_options + image_path
             # cmd = re.sub(r'-p "([A-Za-z0-9.%/]+)"', r'-p "%s\1"' % urllib.pathname2url(singularity_cmd), cmd)
         else:
-            logger.warning("singularity options found but image does not exist")
+            logger.warning("singularity/apptainer options found but image does not exist")
 
         logger.info("updated command: %s", cmd)
 
