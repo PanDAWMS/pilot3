@@ -1101,13 +1101,17 @@ def validate_output_data(job):
         else:
             bad_files.append(dat.lfn)
 
-    if bad_files:
-        if len(bad_files) > 1:
-            diagnostic = f'{bad_files} do not follow the naming convention: {naming_convention_pattern()}'
-        else:
-            diagnostic = f'{dat.lfn} does not follow the naming convention: {naming_convention_pattern()}'
-            # job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
-        logger.warning(diagnostic)
+    # make sure there are no illegal characters in the file names
+    for bad_file_name in bad_files:
+        diagnostic = f'{bad_file_name} does not follow the naming convention: {naming_convention_pattern()}'
+        try:
+            bad_file_name.encode('ascii')
+        except UnicodeEncodeError as exc:
+            diagnostic += f' and contains illegal characters: {exc}'
+            # only fail the job in this case (otherwise test jobs would fail!), and only report on the first file
+            if errors.BADOUTPUTFILENAME not in job.piloterrorcodes:
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
+
     else:
         logger.debug('verified that all output files follow the ATLAS naming convention')
 

@@ -292,7 +292,7 @@ class ErrorCodes:
         REMOTEFILEOPENTIMEDOUT: "Remote file open timed out",
         FRONTIER: "Frontier error",
         VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
-        BADOUTPUTFILENAME: "Output file name does not follow naming convention"
+        BADOUTPUTFILENAME: "Output file name contains illegal characters"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
