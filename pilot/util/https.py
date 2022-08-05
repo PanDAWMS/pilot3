@@ -307,8 +307,7 @@ def execute_request(req):
     :return: status (int), stdout (string), stderr (string).
     """
 
-    exit_code, stdout, stderr = execute(req)
-    return exit_code, stdout, stderr
+    return execute(req)
 
 
 def execute_urllib(url, data, plain, secure):
