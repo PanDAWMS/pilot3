@@ -159,6 +159,7 @@ class ErrorCodes:
     VOMSPROXYABOUTTOEXPIRE = 1370  # note, not a failure but an internal 'error' code used to download a new proxy
     BADOUTPUTFILENAME = 1371
     APPTAINERNOTINSTALLED = 1372
+    CERTIFICATEHASEXPIRED = 1373
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -292,7 +293,8 @@ class ErrorCodes:
         REMOTEFILEOPENTIMEDOUT: "Remote file open timed out",
         FRONTIER: "Frontier error",
         VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
-        BADOUTPUTFILENAME: "Output file name contains illegal characters"
+        BADOUTPUTFILENAME: "Output file name contains illegal characters",
+        CERTIFICATEHASEXPIRED: "Certificate has expired"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

@@ -8,8 +8,6 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2020
 
-# from pilot.util.container import execute
-
 import os
 import logging
 import re
@@ -91,7 +89,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     if x509 is None:
         x509 = os.environ.get('X509_USER_PROXY', '')
     if x509 != '':
-        envsetup = 'export X509_USER_PROXY=%s;' % x509
+        envsetup = f'export X509_USER_PROXY={x509};'
     else:
         envsetup = ''
 
@@ -104,7 +102,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     # first try to use arcproxy since voms-proxy-info is not working properly on SL6
     #  (memory issues on queues with limited memory)
 
-    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id, test=test)
+    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
     if exit_code != 0 and exit_code != -1:
         return exit_code, diagnostics
     elif exit_code == -1:
@@ -112,11 +110,11 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     else:
         return 0, diagnostics
 
-    exit_code, diagnostics = verify_vomsproxy(envsetup, limit)
-    if exit_code != 0:
-        return exit_code, diagnostics
-    else:
-        return 0, diagnostics
+    #exit_code, diagnostics = verify_vomsproxy(envsetup, limit)
+    #if exit_code != 0:
+    #    return exit_code, diagnostics
+    #else:
+    #    return 0, diagnostics
 
     return 0, diagnostics
 
@@ -167,13 +165,14 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
             return exit_code, diagnostics
 
     # options and options' sequence are important for parsing, do not change it
-    cmd = "%sarcproxy -i vomsACvalidityEnd -i vomsACvalidityLeft" % envsetup
+    # cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft" only cert
+    cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
 
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
         if 'command not found' in stdout:
-            logger.warning("arcproxy is not available on this queue,"
-                           "this can lead to memory issues with voms-proxy-info on SL6: %s", stdout)
+            logger.warning(f"arcproxy is not available on this queue,"
+                           f"this can lead to memory issues with voms-proxy-info on SL6: {stdout}")
             exit_code = -1
         else:
             exit_code, diagnostics, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
@@ -212,8 +211,8 @@ def verify_vomsproxy(envsetup, limit):
     diagnostics = ""
 
     if os.environ.get('X509_USER_PROXY', '') != '':
-        cmd = "%svoms-proxy-info -actimeleft --file $X509_USER_PROXY" % envsetup
-        logger.info('executing command: %s', cmd)
+        cmd = f"{envsetup}voms-proxy-info -actimeleft --timeleft --file $X509_USER_PROXY"
+        logger.info(f'executing command: {cmd}')
         _exit_code, stdout, stderr = execute(cmd, shell=True)
         if stdout is not None:
             if "command not found" in stdout:
@@ -249,11 +248,11 @@ def verify_gridproxy(envsetup, limit):
         # more accurate calculation of HH:MM
         limit_hours = int(limit * 60) / 60
         limit_minutes = int(limit * 60 + .999) - limit_hours * 60
-        cmd = "%sgrid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
+        cmd = "grid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
     else:
-        cmd = "%sgrid-proxy-info -exists -valid 24:00" % (envsetup)
+        cmd = f"{envsetup}grid-proxy-info -exists -valid 24:00"
 
-    logger.info('executing command: %s', cmd)
+    logger.info(f'executing command: {cmd}')
     exit_code, stdout, stderr = execute(cmd, shell=True)
     if stdout is not None:
         if exit_code != 0:
@@ -261,7 +260,7 @@ def verify_gridproxy(envsetup, limit):
                 logger.info("skipping grid proxy check since command is not available")
             else:
                 # Analyze exit code / stdout
-                diagnostics = "grid proxy certificate does not exist or is too short: %d, %s" % (exit_code, stdout)
+                diagnostics = f"grid proxy certificate does not exist or is too short: {exit_code}, {stdout}"
                 logger.warning(diagnostics)
                 return errors.NOPROXY, diagnostics
         else:
@@ -272,11 +271,11 @@ def verify_gridproxy(envsetup, limit):
     return ec, diagnostics
 
 
-def interpret_proxy_info(ec, stdout, stderr, limit):
+def interpret_proxy_info(_ec, stdout, stderr, limit):
     """
     Interpret the output from arcproxy or voms-proxy-info.
 
-    :param ec: exit code from proxy command (int).
+    :param _ec: exit code from proxy command (int).
     :param stdout: stdout from proxy command (string).
     :param stderr: stderr from proxy command (string).
     :param limit: time limit in hours (int).
@@ -290,54 +289,54 @@ def interpret_proxy_info(ec, stdout, stderr, limit):
     logger.debug('stdout = %s', stdout)
     logger.debug('stderr = %s', stderr)
 
-    if ec != 0:
+    if _ec != 0:
         if "Unable to verify signature! Server certificate possibly not installed" in stdout:
-            logger.warning("skipping voms proxy check: %s", stdout)
+            logger.warning(f"skipping voms proxy check: {stdout}")
         # test for command errors
         elif "arcproxy: error while loading shared libraries" in stderr:
             exitcode = -1
             logger.warning('skipping arcproxy test')
         elif "arcproxy:" in stdout:
-            diagnostics = "arcproxy failed: %s" % (stdout)
+            diagnostics = f"arcproxy failed: {stdout}"
             logger.warning(diagnostics)
             exitcode = errors.GENERALERROR
         else:
             # Analyze exit code / output
-            diagnostics = "voms proxy certificate check failure: %d, %s" % (ec, stdout)
+            diagnostics = f"voms proxy certificate check failure: {_ec}, {stdout}"
             logger.warning(diagnostics)
             exitcode = errors.NOVOMSPROXY
     else:
         if "\n" in stdout:
             # try to extract the time left from the command output
-            validity_end, stdout = extract_time_left(stdout)
+            validity_end_cert, validity_end, stdout = extract_time_left(stdout)
             if validity_end:
-                return exitcode, diagnostics, validity_end
+                return exitcode, diagnostics, validity_end_cert, validity_end
             else:
-                diagnostics = "arcproxy failed: %s" % stdout
+                diagnostics = f"arcproxy failed: {stdout}"
                 logger.warning(diagnostics)
                 exitcode = errors.GENERALERROR
-                return exitcode, diagnostics, validity_end
+                return exitcode, diagnostics, validity_end_cert, validity_end
 
         # test for command errors
         if "arcproxy:" in stdout:
-            diagnostics = "arcproxy failed: %s" % stdout
+            diagnostics = f"arcproxy failed: {stdout}"
             logger.warning(diagnostics)
             exitcode = errors.GENERALERROR
         else:
             # on EMI-3 the time output is different (HH:MM:SS as compared to SS on EMI-2)
             if ":" in stdout:
                 ftr = [3600, 60, 1]
-                stdout = sum([a * b for a, b in zip(ftr, list(map(int, stdout.split(':'))))])  # Python 2/3
+                stdout = sum([a * b for a, b in zip(ftr, list(map(int, stdout.split(':'))))])
             try:
                 validity = int(stdout)
                 if validity >= limit * 3600:
-                    logger.info("voms proxy verified (%d s)", validity)
+                    logger.info(f"voms proxy verified ({validity} s)")
                 else:
-                    diagnostics = "voms proxy certificate does not exist or is too short (lifetime %d s)" % validity
+                    diagnostics = f"voms proxy certificate does not exist or is too short (lifetime {validity} s)"
                     logger.warning(diagnostics)
                     exitcode = errors.NOVOMSPROXY
             except ValueError as exc:
-                diagnostics = "failed to evaluate command stdout: %s, stderr: %s, exc=%s" % (stdout, stderr, exc)
+                diagnostics = f"failed to evaluate command stdout: {stdout}, stderr: {stderr}, exc={exc}"
                 logger.warning(diagnostics)
                 exitcode = errors.GENERALERROR
 
@@ -359,21 +358,19 @@ def extract_time_left(stdout):
     if stdout[-1] == '\n':
         stdout = stdout[:-1]
     stdout_split = stdout.split('\n')
-    logger.debug("splitted stdout = %s", stdout_split)
-
     try:
         validity_end = int(stdout_split[-2])
     except (ValueError, TypeError):
         # try to get validity_end in penultimate line
         try:
             validity_end_str = stdout_split[-1]  # may raise exception IndexError if stdout is too short
-            logger.debug("try to get validity_end from the line: \"%s\"", validity_end_str)
+            logger.debug(f"try to get validity_end from the line: \"{validity_end_str}\"")
             validity_end = int(validity_end_str)  # may raise ValueError if not string
         except (IndexError, ValueError) as exc:
-            logger.info("validity_end not found in stdout (%s)", exc)
+            logger.info(f"validity_end not found in stdout: {exc}")
         #validity_end = None
 
     if validity_end:
-        logger.info("validity_end = %d", validity_end)
+        logger.info(f"validity_end = {validity_end}")
 
     return validity_end, stdout
