@@ -150,7 +150,7 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                 validities = [validity_end_cert, validity_end]
                 proxies = ['cert', 'proxy']
                 for proxyname, validity in list(zip(proxies, validities)):
-                    exit_code, diagnostics = check_time_left(proxyname, validity)
+                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
                         del verify_arcproxy.cache[proxy_id]
@@ -173,7 +173,7 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
 
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
-                    logger.info("cache the validity_end: cache['%s'] = %d", proxy_id, validity_end)
+                    logger.info(f"cache the validity ends: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
                     verify_arcproxy.cache[proxy_id] = [validity_end_cert, validity_end]
                 else:
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
@@ -193,9 +193,13 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
     return exit_code, diagnostics
 
 
-def check_time_left(proxyname, validity):
+def check_time_left(proxyname, validity, limit):
     """
 
+    :param proxyname: cert or proxy (string).
+    :param validity:
+    :param limit: time limit in hours (int).
+    return exit code (int), diagnostics (string).
     """
 
     exit_code = 0
