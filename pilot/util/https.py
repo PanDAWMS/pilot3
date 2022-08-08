@@ -206,13 +206,13 @@ def request(url, data=None, plain=False, secure=True):
         req = get_curl_command(plain, dat)
 
         try:
-            status, output = execute_request(req)
+            status, output, stderr = execute(req)
         except Exception as exc:
             logger.warning('exception: %s', exc)
             return None
         else:
             if status != 0:
-                logger.warning('request failed (%s): %s', status, output)
+                logger.warning(f'request failed ({status}): stdout={output}, stderr={stderr}')
                 return None
 
         # return output if plain otherwise return json.loads(output)
@@ -297,18 +297,6 @@ def get_curl_config_option(writestatus, url, data, filename):
         dat = '--config %s %s' % (filename, url)
 
     return dat
-
-
-def execute_request(req):
-    """
-    Execute the curl request.
-
-    :param req: curl request command (string).
-    :return: status (int), output (string).
-    """
-
-    exit_code, stdout, _ = execute(req)
-    return exit_code, stdout
 
 
 def execute_urllib(url, data, plain, secure):
