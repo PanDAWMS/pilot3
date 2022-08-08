@@ -140,32 +140,26 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
             verify_arcproxy.cache = {}
 
         if proxy_id in verify_arcproxy.cache:  # if exist, then calculate result from current cache
-            validity_end = verify_arcproxy.cache[proxy_id]
+            validity_end_cert = verify_arcproxy.cache[proxy_id][0]
+            validity_end = verify_arcproxy.cache[proxy_id][1]
             if validity_end < 0:  # previous validity check failed, do not try to re-check
                 exit_code = -1
                 diagnostics = "arcproxy verification failed (cached result)"
             else:
-                tnow = int(time() + 0.5)  # round to seconds
-                seconds_left = validity_end - tnow
-                logger.info("cache: check %s proxy validity: wanted=%dh left=%.2fh (now=%d validity_end=%d left=%d)",
-                            proxy_id, limit, float(seconds_left) / 3600, tnow, validity_end, seconds_left)
-                if seconds_left < limit * 3600 - 20 * 60:  # FAVOUR THIS, IE NEVER SET THE NEXT
-                    diagnostics = f'{proxy_id} proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
-                    logger.warning(diagnostics)
-                    exit_code = errors.VOMSPROXYABOUTTOEXPIRE
+                #
+                validities = [validity_end_cert, validity_end]
+                proxies = ['cert', 'proxy']
+                for proxyname, validity in list(zip(proxies, validities)):
+                    exit_code, diagnostics = check_time_left(proxyname, validity)
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
+                        del verify_arcproxy.cache[proxy_id]
 
-                    # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
-                    del verify_arcproxy.cache[proxy_id]
-                #elif seconds_left < limit * 3600:  # REMOVE THIS, FAVOUR THE NEXT
-                #    diagnostics = f"{proxy_id} proxy validity time is too short: %.2fh" % (float(seconds_left) / 3600)
-                #    logger.warning(diagnostics)
-                #    exit_code = errors.NOVOMSPROXY
-                else:
-                    logger.info("%s proxy validity time is verified", proxy_id)
             return exit_code, diagnostics
 
     # options and options' sequence are important for parsing, do not change it
-    # cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft" only cert
+    # -i validityEnd -i validityLeft: time left for the certificate
+    # -i vomsACvalidityEnd -i vomsACvalidityLeft: time left for the proxy
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
 
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
@@ -175,13 +169,14 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                            f"this can lead to memory issues with voms-proxy-info on SL6: {stdout}")
             exit_code = -1
         else:
-            exit_code, diagnostics, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
+            exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
+
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
                     logger.info("cache the validity_end: cache['%s'] = %d", proxy_id, validity_end)
-                    verify_arcproxy.cache[proxy_id] = validity_end
+                    verify_arcproxy.cache[proxy_id] = [validity_end_cert, validity_end]
                 else:
-                    verify_arcproxy.cache[proxy_id] = -1  # -1 in cache means any error in prev validation
+                    verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
                 logger.info("voms proxy verified using arcproxy")
                 return 0, diagnostics
@@ -194,6 +189,27 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                 exit_code = -1
     else:
         logger.warning('command execution failed')
+
+    return exit_code, diagnostics
+
+
+def check_time_left(proxyname, validity):
+    """
+
+    """
+
+    exit_code = 0
+    diagnostics = ''
+    tnow = int(time() + 0.5)  # round to seconds
+    seconds_left = validity - tnow
+    logger.info("cache: check %s validity: wanted=%dh left=%.2fh (now=%d validity=%d left=%d)",
+                proxyname, limit, float(seconds_left) / 3600, tnow, validity, seconds_left)
+    if seconds_left < limit * 3600 - 20 * 60:
+        diagnostics = 'cert/proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
+        logger.warning(diagnostics)
+        exit_code = errors.CERTIFICATEHASEXPIRED if proxyname == 'cert' else errors.VOMSPROXYABOUTTOEXPIRE
+    else:
+        logger.info(f"{proxyname} validity time is verified")
 
     return exit_code, diagnostics
 
@@ -218,7 +234,7 @@ def verify_vomsproxy(envsetup, limit):
             if "command not found" in stdout:
                 logger.info("skipping voms proxy check since command is not available")
             else:
-                exit_code, diagnostics, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
+                exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
                 if exit_code == 0:
                     logger.info("voms proxy verified using voms-proxy-info")
                     return 0, diagnostics
@@ -279,12 +295,13 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     :param stdout: stdout from proxy command (string).
     :param stderr: stderr from proxy command (string).
     :param limit: time limit in hours (int).
-    :return: exit code (int), diagnostics (string). validity end in seconds if detected, None if not detected(int)
+    :return: exit code (int), diagnostics (string). validity end cert, validity end in seconds if detected, None if not detected (int).
     """
 
     exitcode = 0
     diagnostics = ""
     validity_end = None  # not detected
+    validity_end_cert = None  # not detected
 
     logger.debug('stdout = %s', stdout)
     logger.debug('stderr = %s', stderr)
@@ -340,10 +357,53 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
                 logger.warning(diagnostics)
                 exitcode = errors.GENERALERROR
 
-    return exitcode, diagnostics, validity_end
+    return exitcode, diagnostics, validity_end_cert, validity_end
 
 
 def extract_time_left(stdout):
+    """
+    Extract the time left for the cert and proxy from the proxy command.
+    Some processing on the stdout is done.
+
+    :param stdout: stdout (string).
+    :return: validity_end_cert, validity_end, stdout (int, string))
+    """
+
+    validity_end_cert = None
+    validity_end = None
+
+    # remove the last \n in case there is one
+    if stdout[-1] == '\n':
+        stdout = stdout[:-1]
+    stdout_split = stdout.split('\n')
+    # give up if there not four entries
+    if len(stdout_split) != 4:
+        print(f'cannot extract validity_end from: {stdout}')
+        return None, None, stdout
+
+    try:
+        validity_end_cert = int(stdout_split[-4])
+        validity_end = int(stdout_split[-2])
+    except (ValueError, TypeError):
+        # try to get validity_end in penultimate line
+        try:
+            validity_end_cert = None  # unknown in this case
+            validity_end_str = stdout_split[-1]  # may raise exception IndexError if stdout is too short
+            logger.debug(f"try to get validity_end from the line: \"{validity_end_str}\"")
+            validity_end = int(
+                validity_end_str)  # may raise ValueError if not string
+        except (IndexError, ValueError) as exc:
+            logger.warning(f"validity_end not found in stdout: {exc}")
+
+    if validity_end_cert:
+        logger.info(f"validity_end_cert = {validity_end_cert}")
+    if validity_end:
+        logger.info(f"validity_end = {validity_end}")
+
+    return validity_end_cert, validity_end, stdout
+
+
+def extract_time_left_old(stdout):
     """
     Extract the time left from the proxy command.
     Some processing on the stdout is done.
