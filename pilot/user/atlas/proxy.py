@@ -119,7 +119,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
     return 0, diagnostics
 
 
-def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
+def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C901
     """
     Verify the proxy using arcproxy.
 
@@ -161,7 +161,6 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
     # -i validityEnd -i validityLeft: time left for the certificate
     # -i vomsACvalidityEnd -i vomsACvalidityLeft: time left for the proxy
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
-
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
         if 'command not found' in stdout:
@@ -211,6 +210,10 @@ def check_time_left(proxyname, validity, limit):
     diagnostics = ''
     tnow = int(time() + 0.5)  # round to seconds
     seconds_left = validity - tnow
+
+
+    if proxyname == 'cert':
+        seconds_left = 3500
     logger.info("cache: check %s validity: wanted=%dh left=%.2fh (now=%d validity=%d left=%d)",
                 proxyname, limit, float(seconds_left) / 3600, tnow, validity, seconds_left)
     if seconds_left < limit * 3600 - 20 * 60:
