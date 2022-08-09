@@ -130,6 +130,7 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
     """
     exit_code = 0
     diagnostics = ""
+    proxies = ['cert', 'proxy']
 
     if test:
         return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
@@ -148,7 +149,6 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
             else:
                 #
                 validities = [validity_end_cert, validity_end]
-                proxies = ['cert', 'proxy']
                 for proxyname, validity in list(zip(proxies, validities)):
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
@@ -178,8 +178,13 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):
                 else:
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-                logger.info("voms proxy verified using arcproxy")
-                return 0, diagnostics
+                logger.info("voms proxy / cert end times extracted using arcproxy")
+                for proxyname, validity in list(zip(proxies, verify_arcproxy.cache[proxy_id])):
+                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
+                        del verify_arcproxy.cache[proxy_id]
+                return exit_code, diagnostics
             elif exit_code == -1:  # skip to next proxy test
                 return exit_code, diagnostics
             elif exit_code == errors.NOVOMSPROXY:
