@@ -1986,7 +1986,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
-                # handle proxy on unified queues
+                # handle proxy in unified dispatch
                 handle_proxy(job)
 
                 # add the job definition to the jobs queue and increase the job counter,
@@ -2027,9 +2027,9 @@ def retrieve(queues, traces, args):  # noqa: C901
 
 def handle_proxy(job):
     """
-    Handle the proxy on unified queues.
+    Handle the proxy in unified dispatch.
 
-    On unified queues, the pilot is started with the production proxy, but in case the job is a user job, the
+    In unified dispatch, the pilot is started with the production proxy, but in case the job is a user job, the
     production proxy is too powerful. A user proxy is then downloaded instead.
 
     :param job: job object.
@@ -2040,6 +2040,8 @@ def handle_proxy(job):
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user')
         # ..
+        if not ec:
+            pass
 
 
 def dump_job_definition(res):

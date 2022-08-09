@@ -133,7 +133,7 @@ class ActiveMQ(object):
         self.queues = kwargs.get('queues', None)
         self.debug = kwargs.get('debug', False)
 
-        console = logging.StreamHandler(sys.stdout)
+        _ = logging.StreamHandler(sys.stdout)
 
         # get credentials from the PanDA server, abort if not returned
         self.get_credentials()
@@ -229,7 +229,7 @@ class ActiveMQ(object):
             res = https.request(cmd, data=data)
 
         # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
-        if res and res[0] == True:
+        if res and res[0]:
             try:
                 self.username = res[1]['MB_USERNAME']
                 self.password = res[1]['MB_PASSWORD']

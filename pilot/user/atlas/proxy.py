@@ -273,7 +273,7 @@ def verify_gridproxy(envsetup, limit):
         # more accurate calculation of HH:MM
         limit_hours = int(limit * 60) / 60
         limit_minutes = int(limit * 60 + .999) - limit_hours * 60
-        cmd = "grid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
+        cmd = "%sgrid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
     else:
         cmd = f"{envsetup}grid-proxy-info -exists -valid 24:00"
 
