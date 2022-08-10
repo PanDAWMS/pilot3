@@ -172,6 +172,7 @@ def get_error_code_translation_dictionary():
         errors.NOSUCHFILE: [67, "No such file or directory"],  # added to traces object
         errors.NOVOMSPROXY: [68, "Voms proxy not valid"],  # added to traces object
         errors.NOPROXY: [68, "Proxy not valid"],  # added to traces object
+        errors.CERTIFICATEHASEXPIRED: [68, "Proxy not valid"],
         errors.NOLOCALSPACE: [69, "No space left on local disk"],  # added to traces object
         errors.UNKNOWNEXCEPTION: [70, "Exception caught by pilot"],  # added to traces object
         errors.QUEUEDATA: [71, "Pilot could not download queuedata"],  # tested
