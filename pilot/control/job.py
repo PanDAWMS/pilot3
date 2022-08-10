@@ -1381,7 +1381,7 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
         exit_code, diagnostics = userproxy.verify_proxy(test=False)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
-        if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY:
+        if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
             logger.warning(diagnostics)
             return False
 
@@ -2777,13 +2777,13 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
+                logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
                 if exit_code != 0:
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
                         ec = download_new_proxy(role='production')
                         exit_code = ec if ec != 0 else 0  # reset the exit_code if success
-
-                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
+                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
