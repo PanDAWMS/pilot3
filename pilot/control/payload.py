@@ -339,6 +339,7 @@ def get_logging_info(job, args):
     info_dic = {}
 
     if not job.realtimelogging:
+        logger.info("job.realtimelogging is not enabled")
         return {}
 
     # args handling
@@ -352,21 +353,7 @@ def get_logging_info(job, args):
         logger.warning('not enough info available for activating real-time logging')
         return {}
 
-    if info:
-        try:
-            info_dic['logging_type'] = info[0][0]
-            info_dic['protocol'] = info[0][1]
-            info_dic['url'] = info[0][2]
-            info_dic['port'] = info[0][3]
-        except IndexError as exc:
-            print(f'exception caught: {exc}')
-            info_dic = {}
-        else:
-            # find the log file to tail
-            path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
-            logger.info(f'using {path} for real-time logging')
-            info_dic['logfiles'] = [path]
-    else:
+    if len(logserver) > 0:
         items = logserver.split(':')
         info_dic['logging_type'] = items[0].lower()
         pattern = r'(\S+)\:\/\/(\S+)'
@@ -383,6 +370,20 @@ def get_logging_info(job, args):
             logger.warning(f'protocol/url could not be extracted from {items}')
             info_dic['protocol'] = ''
             info_dic['url'] = ''
+    elif info:
+        try:
+            info_dic['logging_type'] = info[0][0]
+            info_dic['protocol'] = info[0][1]
+            info_dic['url'] = info[0][2]
+            info_dic['port'] = info[0][3]
+        except IndexError as exc:
+            logger.warning(f'exception caught: {exc}')
+            return {}
+        else:
+            # find the log file to tail
+            path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
+            logger.info(f'using {path} for real-time logging')
+            info_dic['logfiles'] = [path]
 
     if 'logfiles' not in info_dic:
         # Rubin
@@ -493,6 +494,7 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
         info_dic = get_logging_info(job, args)
         if info_dic:
             args.use_realtime_logging = True
+            logger.debug("Going to get realtime_logger")
             realtime_logger = get_realtime_logger(args, info_dic, job.workdir, job.pilotsecrets)
         else:
             logger.debug('real-time logging not needed at this point')
