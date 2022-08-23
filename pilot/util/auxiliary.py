@@ -117,7 +117,8 @@ def get_batchsystem_jobid():
                         'LSB_JOBID': 'LSF',
                         'JOB_ID': 'Grid Engine',  # Sun's Grid Engine
                         'clusterid': 'Condor',  # Condor (variable sent through job submit file)
-                        'SLURM_JOB_ID': 'SLURM'}
+                        'SLURM_JOB_ID': 'SLURM',
+                        'K8S_JOB_ID': 'Kubernetes'}
 
     for key, value in list(batchsystem_dict.items()):
         if key in os.environ:
