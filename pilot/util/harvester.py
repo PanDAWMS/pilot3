@@ -111,11 +111,12 @@ def get_initial_work_report():
     :return: work report dictionary.
     """
 
+    hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
     work_report = {'jobStatus': 'starting',
                    'messageLevel': logging.getLevelName(logger.getEffectiveLevel()),
                    'cpuConversionFactor': 1.0,
                    'cpuConsumptionTime': '',
-                   'node': socket.gethostname(),
+                   'node': hostname,
                    'workdir': '',
                    'timestamp': time_stamp(),
                    'endTime': '',

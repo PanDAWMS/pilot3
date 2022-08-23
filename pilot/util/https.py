@@ -138,8 +138,6 @@ def https_setup(args=None, version=None):
                                                        sys.version.split()[0],
                                                        platform.system(),
                                                        platform.machine())
-    logger.debug('User-Agent: %s', _ctx.user_agent)
-
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
 
@@ -147,7 +145,7 @@ def https_setup(args=None, version=None):
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
     except Exception as exc:
-        logger.warning('SSL communication is impossible due to SSL error: %s -- falling back to curl', exc)
+        logger.warning(f'SSL communication is impossible due to SSL error: {exc} -- falling back to curl')
         _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
@@ -193,7 +191,7 @@ def request(url, data=None, plain=False, secure=True):
 
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
-    logger.debug('server update dictionary = \n%s', str(data))
+    logger.debug(f'server update dictionary = \n{data}')
 
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
@@ -208,7 +206,7 @@ def request(url, data=None, plain=False, secure=True):
         try:
             status, output, stderr = execute(req)
         except Exception as exc:
-            logger.warning('exception: %s', exc)
+            logger.warning(f'exception: {exc}')
             return None
         else:
             if status != 0:
@@ -222,7 +220,7 @@ def request(url, data=None, plain=False, secure=True):
             try:
                 ret = json.loads(output)
             except Exception as exc:
-                logger.warning('json.loads() failed to parse output=%s: %s', output, exc)
+                logger.warning(f'json.loads() failed to parse output={output}: {exc}')
                 return None
             else:
                 return ret
@@ -245,14 +243,31 @@ def get_curl_command(plain, dat):
     :param dat: curl config option (string).
     :return: curl command (string).
     """
-    req = 'curl -sS --compressed --connect-timeout %s --max-time %s '\
-          '--capath %s --cert %s --cacert %s --key %s '\
-          '-H %s %s %s' % (config.Pilot.http_connect_timeout, config.Pilot.http_maxtime,
-                           pipes.quote(_ctx.capath or ''), pipes.quote(_ctx.cacert or ''),
-                           pipes.quote(_ctx.cacert or ''), pipes.quote(_ctx.cacert or ''),
-                           pipes.quote('User-Agent: %s' % _ctx.user_agent),
-                           "-H " + pipes.quote('Accept: application/json') if not plain else '',
-                           dat)
+
+    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)
+    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)
+    logger.debug(f'PANDA_AUTH_TOKEN={auth_token}')
+    logger.debug(f'PANDA_AUTH_ORIGIN={auth_origin}')
+
+    if auth_token and auth_origin:
+        # curl --silent --capath
+        # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
+        # -H "Authorization: Bearer <PANDA_AUTH_ID_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+              f'--max-time {config.Pilot.http_maxtime} '\
+              f'--capath {pipes.quote(_ctx.capath or "")} ' \
+              f'-H "Authorization: Bearer {pipes.quote(auth_token)}" ' \
+              f'-H "Origin: {pipes.quote(auth_origin)}" {dat}'
+    else:
+        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+              f'--max-time {config.Pilot.http_maxtime} '\
+              f'--capath {pipes.quote(_ctx.capath or "")} ' \
+              f'--cert {pipes.quote(_ctx.cacert or "")} ' \
+              f'--cacert {pipes.quote(_ctx.cacert or "")} ' \
+              f'--key {pipes.quote(_ctx.cacert or "")} '\
+              f'-H {pipes.quote("User-Agent: %s" % _ctx.user_agent)} ' \
+              f'-H {pipes.quote("Accept: application/json") if not plain else ""} {dat}'
+
     logger.info('request: %s', req)
     return req
 
@@ -294,7 +309,7 @@ def get_curl_config_option(writestatus, url, data, filename):
         logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
         dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
     else:
-        dat = '--config %s %s' % (filename, url)
+        dat = f'--config {filename} {url}'
 
     return dat
 
