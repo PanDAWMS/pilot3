@@ -2857,7 +2857,7 @@ def download_new_proxy(role='production'):
 
     exit_code = 0
     x509 = os.environ.get('X509_USER_PROXY', '')
-    logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
+    logger.info('attempt to download a new proxy')
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
