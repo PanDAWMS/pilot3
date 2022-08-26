@@ -172,12 +172,24 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
 
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
-                    logger.info(f"cache the validity ends: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
+                    logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
                     verify_arcproxy.cache[proxy_id] = [validity_end_cert, validity_end]
                 else:
+                    logger.warning('cannot store validity ends from arcproxy in cache')
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-                logger.info("voms proxy / cert end times extracted using arcproxy")
+
+                try:
+                    logger.debug(f'proxy_id={proxy_id}')
+                    logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
+                    logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
+                except Exception as exc:
+                    logger.debug(f'exc={exc}')
+
+                #if proxy_id in verify_arcproxy.cache:
+                #    logger.debug('getting validity ends from arcproxy cache')
+                #else:
+                #    logger.debug('using validity ends from arcproxy (cache not available)')
                 endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
                 for proxyname, validity in list(zip(proxies, endtimes)):
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
