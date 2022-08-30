@@ -38,7 +38,7 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     Download a payload proxy from the server and verify it.
 
     :param x509: X509_USER_PROXY (string).
-    :param voms_role: role, e.g. 'atlas' (string).
+    :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (string).
     :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (string).
     :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
     """
@@ -50,9 +50,13 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     if proxy_type:
         x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy'  # compose new name to store payload proxy
     else:
-        x509_payload = x509
+        os.environ['PILOT_X509_ORG'] = x509  # keep track of the original x509
+        #x509_payload = x509
+        x509_payload = re.sub('.proxy$', '', x509) + f'-unified.proxy'  # compose new name to store payload proxy
+        os.environ['X509_USER_PROXY'] = x509_payload  # keep track of the original x509
     logger.info(f"download proxy from server (type=\'{proxy_type}\')")
-    if get_proxy(x509_payload, voms_role):
+    res, _ = get_proxy(x509_payload, voms_role):
+    if res:
         logger.debug("server returned proxy (verifying)")
         exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
         # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
@@ -136,6 +140,13 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
         return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
         #return errors.NOVOMSPROXY, 'dummy test'
 
+    try:
+        logger.debug(f'proxy_id={proxy_id}')
+        logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
+        logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
+    except Exception as exc:
+        logger.debug(f'exc={exc}')
+
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
             verify_arcproxy.cache = {}
@@ -160,6 +171,10 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
     # options and options' sequence are important for parsing, do not change it
     # -i validityEnd -i validityLeft: time left for the certificate
     # -i vomsACvalidityEnd -i vomsACvalidityLeft: time left for the proxy
+    #   validityEnd - timestamp when proxy validity ends.
+    #   validityLeft - duration of proxy validity left in seconds.
+    #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
+    #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
@@ -178,13 +193,6 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
                     logger.warning('cannot store validity ends from arcproxy in cache')
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-
-                try:
-                    logger.debug(f'proxy_id={proxy_id}')
-                    logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
-                    logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
-                except Exception as exc:
-                    logger.debug(f'exc={exc}')
 
                 #if proxy_id in verify_arcproxy.cache:
                 #    logger.debug('getting validity ends from arcproxy cache')
