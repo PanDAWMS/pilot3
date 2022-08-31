@@ -55,7 +55,7 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
         x509_payload = re.sub('.proxy$', '', x509) + f'-unified.proxy'  # compose new name to store payload proxy
         os.environ['X509_USER_PROXY'] = x509_payload  # keep track of the original x509
     logger.info(f"download proxy from server (type=\'{proxy_type}\')")
-    res, _ = get_proxy(x509_payload, voms_role)
+    res, x509_payload = get_proxy(x509_payload, voms_role)  # note that x509_payload might be updated
     if res:
         logger.debug("server returned proxy (verifying)")
         exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
