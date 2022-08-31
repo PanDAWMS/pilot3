@@ -262,7 +262,7 @@ def update_alrb_setup(cmd, use_release_setup):
     return updated_cmd
 
 
-def update_for_user_proxy(_cmd, cmd, is_analysis=False):
+def update_for_user_proxy(_cmd, cmd, is_analysis=False, queue_type=''):
     """
     Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
     Try to receive payload proxy and update X509_USER_PROXY in container setup command
@@ -271,6 +271,7 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
     :param _cmd: container setup command (string).
     :param cmd: command the container will execute (string).
     :param is_analysis: True for user job (Boolean).
+    :param queue_type: queue type (e.g. 'unified') (string).
     :return: exit_code (int), diagnostics (string), updated _cmd (string), updated cmd (string).
     """
 
@@ -285,7 +286,7 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
 
         # download and verify payload proxy from the server if desired
         proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
-        if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis:
+        if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis and queue_type != 'unified':
             voms_role = get_voms_role(role='user')
             exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
             if exit_code != 0:  # do not return non-zero exit code if only download fails
@@ -404,7 +405,7 @@ def alrb_wrapper(cmd, workdir, job=None):
         # -> if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
 
         # add user proxy if necessary (actually it should also be removed from cmd)
-        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis())
+        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis(), queue_type=job.infosys.queuedata.type)
         if exit_code:
             job.piloterrordiag = diagnostics
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
