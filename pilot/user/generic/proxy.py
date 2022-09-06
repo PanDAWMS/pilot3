@@ -50,4 +50,4 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     exit_code = 0
     diagnostics = ""
 
-    return exit_code, diagnostics
+    return exit_code, diagnostics, x509
