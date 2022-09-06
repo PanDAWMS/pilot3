@@ -2007,9 +2007,10 @@ def retrieve(queues, traces, args):  # noqa: C901
 
                         # re-establish logging
                         logging.info('pilot has finished with previous job - re-establishing logging')
-                        if 'PILOT_X509_ORG' in os.environ:
-                            logger.info(f'reset X509_USER_PROXY from {os.environ.get("X509_USER_PROXY")} to {os.environ.get("PILOT_X509_ORG")}')
-                            os.environ['X509_USER_PROXY'] = os.environ.get('PILOT_X509_ORG')
+                        # should not be necessary:
+                        #if 'PILOT_X509_ORG' in os.environ:
+                        #    logger.info(f'reset X509_USER_PROXY from {os.environ.get("X509_USER_PROXY")} to {os.environ.get("PILOT_X509_ORG")}')
+                        #    os.environ['X509_USER_PROXY'] = os.environ.get('PILOT_X509_ORG')
                         logging.handlers = []
                         logging.shutdown()
                         establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
