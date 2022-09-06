@@ -839,6 +839,13 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
 
+    # switch the X509_USER_PROXY on unified dispatch queues (restore later in this function)
+    x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')
+    x509_org = os.environ.get('X509_USER_PROXY', '')
+    if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
+        os.environ['X509_USER_PROXY'] = x509_unified_dispatch
+        logger.info(f'switched proxy on unified dispatch queue: X509_USER_PROXY={x509_unified_dispatch}')
+
     if use_container:
         logger.info('stage-out will be done in a container')
         try:
@@ -879,6 +886,10 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
             # error = PilotException("stageOut failed with error=%s" % e, code=ErrorCodes.STAGEOUTFAILED)
         else:
             logger.debug('stage-out client completed')
+
+    if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
+        os.environ['X509_USER_PROXY'] = x509_org
+        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org}')
 
     logger.info('summary of transferred files:')
     for iofile in xdata:

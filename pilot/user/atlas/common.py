@@ -780,7 +780,8 @@ def get_analysis_run_command(job, trf_name):
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        cmd += 'export X509_USER_PROXY=%s;' % os.environ.get('X509_USER_PROXY')
+        x509 = os.environ.get('X509_UNIFIED_DISPATCH', 'X509_USER_PROXY')
+        cmd += f'export X509_USER_PROXY={x509};'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
@@ -907,8 +908,8 @@ def update_forced_accessmode(log, cmd, transfertype, jobparams, trf_name):
         # need to add proxy if not there already
         if "--directIn" in cmd and "export X509_USER_PROXY" not in cmd:
             if 'X509_USER_PROXY' in os.environ:
-                cmd = cmd.replace("./%s" % trf_name, "export X509_USER_PROXY=%s;./%s" %
-                                  (os.environ.get('X509_USER_PROXY'), trf_name))
+                x509 = os.environ.get('X509_UNIFIED_DISPATCH', 'X509_USER_PROXY')
+                cmd = cmd.replace("./%s" % trf_name, "export X509_USER_PROXY=%s;./%s" % (x509, trf_name))
 
     # if both direct access and the accessmode loop added a
     # directIn switch, remove the first one from the string

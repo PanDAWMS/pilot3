@@ -2007,10 +2007,6 @@ def retrieve(queues, traces, args):  # noqa: C901
 
                         # re-establish logging
                         logging.info('pilot has finished with previous job - re-establishing logging')
-                        # should not be necessary:
-                        #if 'PILOT_X509_ORG' in os.environ:
-                        #    logger.info(f'reset X509_USER_PROXY from {os.environ.get("X509_USER_PROXY")} to {os.environ.get("PILOT_X509_ORG")}')
-                        #    os.environ['X509_USER_PROXY'] = os.environ.get('PILOT_X509_ORG')
                         logging.handlers = []
                         logging.shutdown()
                         establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -2043,7 +2039,7 @@ def handle_proxy(job):
 
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
-        ec = download_new_proxy(role='user')
+        ec = download_new_proxy(role='user', proxy_type='unified')
         # ..
         if not ec:
             pass
@@ -2850,13 +2846,14 @@ def job_monitor(queues, traces, args):  # noqa: C901
     logger.info('[job] job monitor thread has finished')
 
 
-def download_new_proxy(role='production'):
+def download_new_proxy(role='production', proxy_type=''):
     """
     The production proxy has expired, try to download a new one.
 
     If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
 
     :param role: role, 'production' or 'user' (string).
+    :param proxy_type:
     :return: exit code (int).
     """
 
@@ -2868,11 +2865,14 @@ def download_new_proxy(role='production'):
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     voms_role = user.get_voms_role(role=role)
-    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role=voms_role)
+    ec, diagnostics, new_509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY
-
+    else:
+        if new_509 and new_509 != x509 and 'unified' in x509 and os.path.exists(new_509):
+            os.environ['X509_UNIFIED_DISPATCH'] = new_509
+            logger.debug(f'set X509_UNIFIED_DISPATCH to {new_509}')
     return exit_code
 
 

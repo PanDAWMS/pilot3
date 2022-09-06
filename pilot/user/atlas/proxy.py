@@ -39,21 +39,16 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
 
     :param x509: X509_USER_PROXY (string).
     :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (string).
-    :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (string).
-    :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
+    :param proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank) (string).
+    :return:  exit code (int), diagnostics (string), updated x509 (string).
     """
 
     exit_code = 0
     diagnostics = ""
 
-    # try to receive payload proxy and update x509
-    if proxy_type:
-        x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy'  # compose new name to store payload proxy
-    else:
-        os.environ['PILOT_X509_ORG'] = x509  # keep track of the original x509
-        #x509_payload = x509
-        x509_payload = re.sub('.proxy$', '', x509) + f'-unified.proxy'  # compose new name to store payload proxy
+    x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy' if proxy_type else x509
 
+    # try to receive payload proxy and update x509
     logger.info(f"download proxy from server (type=\'{proxy_type}\')")
     res, x509_payload = get_proxy(x509_payload, voms_role)  # note that x509_payload might be updated
     if res:
@@ -70,9 +65,6 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
             x509 = x509_payload
     else:
         logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
-
-    if os.path.exists(x509_payload) and exit_code == 0:
-        os.environ['X509_USER_PROXY'] = x509_payload  # keep track of the original x509
 
     return exit_code, diagnostics, x509
 
