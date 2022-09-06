@@ -325,6 +325,7 @@ def copy_out(files, **kwargs):  # noqa: C901
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
+    logger.info(f'rucio stage-out: X509_USER_PROXY={os.environ.get("X509_USER_PROXY", "")}')
 
     summary = kwargs.pop('summary', True)
     ignore_errors = kwargs.pop('ignore_errors', False)

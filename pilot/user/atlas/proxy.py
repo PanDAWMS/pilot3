@@ -53,7 +53,7 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
         os.environ['PILOT_X509_ORG'] = x509  # keep track of the original x509
         #x509_payload = x509
         x509_payload = re.sub('.proxy$', '', x509) + f'-unified.proxy'  # compose new name to store payload proxy
-        os.environ['X509_USER_PROXY'] = x509_payload  # keep track of the original x509
+
     logger.info(f"download proxy from server (type=\'{proxy_type}\')")
     res, x509_payload = get_proxy(x509_payload, voms_role)  # note that x509_payload might be updated
     if res:
@@ -70,6 +70,9 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
             x509 = x509_payload
     else:
         logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
+
+    if os.path.exists(x509_payload) and exit_code == 0:
+        os.environ['X509_USER_PROXY'] = x509_payload  # keep track of the original x509
 
     return exit_code, diagnostics, x509
 

@@ -1987,7 +1987,8 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
                 # handle proxy in unified dispatch
-                handle_proxy(job)
+                if args.verify_proxy:
+                    handle_proxy(job)
 
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished

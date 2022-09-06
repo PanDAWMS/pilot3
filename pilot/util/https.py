@@ -191,6 +191,10 @@ def request(url, data=None, plain=False, secure=True):
 
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
+    # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
+    # we might have to update _ctx
+    update_ctx()
+
     logger.debug(f'server update dictionary = \n{data}')
 
     # get the filename and strdata for the curl config file
@@ -233,6 +237,18 @@ def request(url, data=None, plain=False, secure=True):
             return None
 
         return output.read() if plain else json.load(output)
+
+
+def update_ctx():
+    """
+    Update the ctx object in case X509_USER_PROXY has been updated.
+    """
+
+    x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
+    if x509 != _ctx.cacert and os.path.exists(x509):
+        _ctx.cacert = x509
+    if x509 != _ctx.capath and os.path.exists(x509):
+        _ctx.capath = x509
 
 
 def get_curl_command(plain, dat):
