@@ -49,17 +49,18 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy' if proxy_type else x509
 
     # try to receive payload proxy and update x509
-    logger.info(f"download proxy from server (type=\'{proxy_type}\')")
+    logger.info(f"download proxy from server (type=\'{proxy_type}\', x509_payload={x509_payload})")
     res, x509_payload = get_proxy(x509_payload, voms_role)  # note that x509_payload might be updated
+    logger.debug(f'get_proxy() returned {x509_payload}')
     if res:
         logger.debug("server returned proxy (verifying)")
         exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
         # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
         if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
             logger.warning(diagnostics)
-            logger.info(f"proxy verification failed (type=\'{proxy_type}\')")
+            logger.info(f"proxy verification failed (proxy type=\'{proxy_type}\')")
         else:
-            logger.info(f"proxy verified (type=\'{proxy_type}\')")
+            logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
             # is commented: no user proxy should be in the command the container will execute
             # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
             x509 = x509_payload

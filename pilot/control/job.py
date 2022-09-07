@@ -2859,7 +2859,7 @@ def download_new_proxy(role='production', proxy_type=''):
 
     exit_code = 0
     x509 = os.environ.get('X509_USER_PROXY', '')
-    logger.info('attempt to download a new proxy')
+    logger.info(f'attempt to download a new proxy (proxy_type={proxy_type})')
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
@@ -2870,9 +2870,12 @@ def download_new_proxy(role='production', proxy_type=''):
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY
     else:
-        if new_509 and new_509 != x509 and 'unified' in x509 and os.path.exists(new_509):
+        if new_509 and new_509 != x509 and 'unified' in new_x509 and os.path.exists(new_509):
             os.environ['X509_UNIFIED_DISPATCH'] = new_509
             logger.debug(f'set X509_UNIFIED_DISPATCH to {new_509}')
+        else:
+            logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_509}, x509={x509}, os.path.exists(new_509)={os.path.exists(new_509)}')
+
     return exit_code
 
 

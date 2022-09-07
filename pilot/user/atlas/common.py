@@ -780,7 +780,8 @@ def get_analysis_run_command(job, trf_name):
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        x509 = os.environ.get('X509_UNIFIED_DISPATCH', 'X509_USER_PROXY')
+        logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
+        x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
 
     # set up trfs
@@ -908,8 +909,15 @@ def update_forced_accessmode(log, cmd, transfertype, jobparams, trf_name):
         # need to add proxy if not there already
         if "--directIn" in cmd and "export X509_USER_PROXY" not in cmd:
             if 'X509_USER_PROXY' in os.environ:
-                x509 = os.environ.get('X509_UNIFIED_DISPATCH', 'X509_USER_PROXY')
+                x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
                 cmd = cmd.replace("./%s" % trf_name, "export X509_USER_PROXY=%s;./%s" % (x509, trf_name))
+
+        # update the proxy for unified dispatch if necessary
+        x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')
+        x509_unified_export = f"export X509_USER_PROXY={x509_unified_dispatch}"
+        x509_prod = f"export X509_USER_PROXY={os.environ.get('X509_USER_PROXY', 'notset')}"
+        if x509_unified_dispatch and x509_prod in cmd:
+            cmd = cmd.replace(x509_prod, x509_unified_export)
 
     # if both direct access and the accessmode loop added a
     # directIn switch, remove the first one from the string

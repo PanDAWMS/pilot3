@@ -845,6 +845,8 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
         os.environ['X509_USER_PROXY'] = x509_unified_dispatch
         logger.info(f'switched proxy on unified dispatch queue: X509_USER_PROXY={x509_unified_dispatch}')
+    else:
+        logger.debug(f'will not switch proxy since X509_UNIFIED_DISPATCH={x509_unified_dispatch}, os.path.exists(x509_unified_dispatch)={os.path.exists(x509_unified_dispatch)}, X509_USER_PROXY={x509_org}')
 
     if use_container:
         logger.info('stage-out will be done in a container')
