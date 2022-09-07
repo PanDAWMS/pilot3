@@ -247,8 +247,6 @@ def update_ctx():
     x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
     if x509 != _ctx.cacert and os.path.exists(x509):
         _ctx.cacert = x509
-    if x509 != _ctx.capath and os.path.exists(x509):
-        _ctx.capath = x509
 
 
 def get_curl_command(plain, dat):
