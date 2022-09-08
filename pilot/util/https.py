@@ -24,7 +24,7 @@ from collections import namedtuple
 from time import sleep, time
 from re import findall
 
-from .filehandling import write_file
+from .filehandling import write_file, read_file
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
@@ -205,10 +205,12 @@ def request(url, data=None, plain=False, secure=True):
     dat = get_curl_config_option(writestatus, url, data, filename)
 
     if _ctx.ssl_context is None and secure:
-        req = get_curl_command(plain, dat)
-
+        req, obscure = get_curl_command(plain, dat)
+        if not req:
+            logger.warning('failed to construct valid curl command')
+            return None
         try:
-            status, output, stderr = execute(req)
+            status, output, stderr = execute(req, obscure=obscure)
         except Exception as exc:
             logger.warning(f'exception: {exc}')
             return None
@@ -255,22 +257,35 @@ def get_curl_command(plain, dat):
 
     :param plain:
     :param dat: curl config option (string).
-    :return: curl command (string).
+    :return: curl command (string), sensitive string to be obscured before dumping to log (string).
     """
 
-    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)
-    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)
-    logger.debug(f'PANDA_AUTH_TOKEN={auth_token}')
-    logger.debug(f'PANDA_AUTH_ORIGIN={auth_origin}')
+    auth_token_content = ''
+    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)  # file name of the token
+    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)  # origin of the token (panda_dev.pilot)
 
     if auth_token and auth_origin:
         # curl --silent --capath
         # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
-        # -H "Authorization: Bearer <PANDA_AUTH_ID_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+        # -H "Authorization: Bearer <contents of PANDA_AUTH_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+        path = locate_token(auth_token)
+        auth_token_content = ""
+        if os.path.exists(path):
+            auth_token_content = read_file(path)
+            if not auth_token_content:
+                logger.warning(f'failed to read file {path}')
+                return None
+        else:
+            logger.warning(f'path does not exist: {path}')
+            return None
+        if not auth_token_content:
+            logger.warning('PANDA_AUTH_TOKEN content could not be read')
+            return None
         req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
-              f'-H "Authorization: Bearer {pipes.quote(auth_token)}" ' \
+              f'-H "Authorization: Bearer {pipes.quote(auth_token_content)}" ' \
+              f'-H {pipes.quote("Accept: application/json") if not plain else ""} ' \
               f'-H "Origin: {pipes.quote(auth_origin)}" {dat}'
     else:
         req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
@@ -282,8 +297,33 @@ def get_curl_command(plain, dat):
               f'-H {pipes.quote("User-Agent: %s" % _ctx.user_agent)} ' \
               f'-H {pipes.quote("Accept: application/json") if not plain else ""} {dat}'
 
-    logger.info('request: %s', req)
-    return req
+    #logger.info('request: %s', req)
+    return req, auth_token_content
+
+
+def locate_token(auth_token):
+    """
+    Locate the token file.
+
+    :param auth_token: file name of token (string).
+    :return: path to token (string).
+    """
+
+    _primary = os.path.dirname(os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', '')))
+    paths = [os.path.join(_primary, auth_token),
+             os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token), 
+             os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
+    path = ""
+    for _path in paths:
+        logger.debug(f'looking for {_path}')
+        if os.path.exists(_path):
+            path = _path
+            break
+
+    if path == "":
+        logger.info(f'did not find any local token file ({auth_token}) in paths={paths}')
+
+    return path
 
 
 def get_vars(url, data):
