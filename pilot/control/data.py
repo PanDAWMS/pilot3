@@ -100,7 +100,7 @@ def skip_special_files(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         user.update_stagein(job)
     except Exception as error:
