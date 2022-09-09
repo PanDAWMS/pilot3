@@ -113,6 +113,8 @@ class RealTimeLogger(Logger):
                 from google.cloud.logging_v2.handlers import CloudLoggingHandler
                 client = google.cloud.logging.Client()
                 _handler = CloudLoggingHandler(client, name=name)
+                api_logger = logging.getLogger('google.cloud.logging_v2')
+                api_logger.setLevel(INFO)
             elif logtype == "fluent":
                 from fluent import handler
                 _handler = handler.FluentHandler(name, host=server, port=port)
@@ -254,7 +256,7 @@ class RealTimeLogger(Logger):
         i = 0
         while not args.graceful_stop.is_set():
             i += 1
-            if i % 10 == 0:
+            if i % 10 == 1:
                 logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state})')
             if job.state == '' or job.state == 'starting' or job.state == 'running':
                 if len(self.logfiles) > len(self.openfiles):
@@ -266,7 +268,7 @@ class RealTimeLogger(Logger):
                                 self.openfiles[logfile] = openfile
                                 logger.debug(f'opened logfile: {logfile}')
 
-                logger.debug(f'real-time logging: sending logs for state={job.state} [1]')
+                # logger.debug(f'real-time logging: sending logs for state={job.state} [1]')
                 self.send_loginfiles()
             elif job.state == 'stagein' or job.state == 'stageout':
                 logger.debug('no real-time logging during stage-in/out')
