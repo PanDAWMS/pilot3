@@ -783,6 +783,10 @@ def get_analysis_run_command(job, trf_name):
         logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
         x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
+    if 'PANDA_AUTH_TOKEN' in os.environ:
+        cmd += 'unset PANDA_AUTH_TOKEN;'
+    if 'PANDA_AUTH_ORIGIN' in os.environ:
+        cmd += 'unset PANDA_AUTH_ORIGIN;'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined

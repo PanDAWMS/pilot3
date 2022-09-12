@@ -1989,6 +1989,8 @@ def retrieve(queues, traces, args):  # noqa: C901
                 # handle proxy in unified dispatch
                 if args.verify_proxy:
                     handle_proxy(job)
+                else:
+                    logger.debug(f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} (job.infosys.queuedata.type={job.infosys.queuedata.type})')
 
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
@@ -2040,9 +2042,11 @@ def handle_proxy(job):
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user', proxy_type='unified')
-        # ..
         if not ec:
-            pass
+            logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
+    else:
+        logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
+                     f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
 
 
 def dump_job_definition(res):
@@ -2865,16 +2869,16 @@ def download_new_proxy(role='production', proxy_type=''):
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     voms_role = user.get_voms_role(role=role)
-    ec, diagnostics, new_509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type)
+    ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY
     else:
-        if new_509 and new_509 != x509 and 'unified' in new_x509 and os.path.exists(new_509):
-            os.environ['X509_UNIFIED_DISPATCH'] = new_509
-            logger.debug(f'set X509_UNIFIED_DISPATCH to {new_509}')
+        if new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
+            os.environ['X509_UNIFIED_DISPATCH'] = new_x509
+            logger.debug(f'set X509_UNIFIED_DISPATCH to {new_x509}')
         else:
-            logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_509}, x509={x509}, os.path.exists(new_509)={os.path.exists(new_509)}')
+            logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_x509}, x509={x509}, os.path.exists(new_x509)={os.path.exists(new_x509)}')
 
     return exit_code
 
