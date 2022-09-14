@@ -2042,7 +2042,7 @@ def handle_proxy(job):
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user', proxy_type='unified')
-        if not ec:
+        if ec:
             logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
     else:
         logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
