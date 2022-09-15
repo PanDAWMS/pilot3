@@ -2877,6 +2877,9 @@ def download_new_proxy(role='production', proxy_type=''):
         if new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
             os.environ['X509_UNIFIED_DISPATCH'] = new_x509
             logger.debug(f'set X509_UNIFIED_DISPATCH to {new_x509}')
+            cmd = f'export X509_USER_PROXY={os.environ.get("X509_UNIFIED_DISPATCH")};echo $X509_USER_PROXY; voms-proxy-info -all'
+            _, stdout, _ = execute(cmd)
+            logger.debug(f'cmd={cmd}:\n{stdout}')
         else:
             logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_x509}, x509={x509}, os.path.exists(new_x509)={os.path.exists(new_x509)}')
 
