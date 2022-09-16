@@ -37,13 +37,14 @@ def get_voms_role(role='production'):
     return ''
 
 
-def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
+def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     """
     Download a payload proxy from the server and verify it.
 
     :param x509: X509_USER_PROXY (string).
     :param voms_role: role, e.g. 'rubin' (string).
     :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (string).
+    :param workdir: payload work directory (string).
     :return:  exit code (int), diagnostics (string), updated X509_USER_PROXY (string).
     """
 
