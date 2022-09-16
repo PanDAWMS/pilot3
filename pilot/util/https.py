@@ -311,7 +311,7 @@ def locate_token(auth_token):
 
     _primary = os.path.dirname(os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', '')))
     paths = [os.path.join(_primary, auth_token),
-             os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token), 
+             os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
     path = ""
     for _path in paths:

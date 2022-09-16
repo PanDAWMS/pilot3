@@ -1035,7 +1035,8 @@ def validate(queues, traces, args):
                 handle_proxy(job)
             else:
                 logger.debug(
-                    f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} (job.infosys.queuedata.type={job.infosys.queuedata.type})')
+                    f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} '
+                    f'(job.infosys.queuedata.type={job.infosys.queuedata.type})')
 
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
