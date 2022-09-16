@@ -278,7 +278,9 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False, queue_type=''):
     exit_code = 0
     diagnostics = ""
 
-    x509 = os.environ.get('X509_USER_PROXY', '')
+    #x509 = os.environ.get('X509_USER_PROXY', '')
+    x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+    logger.debug(f'using X509_USER_PROXY={x509}')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
         cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')

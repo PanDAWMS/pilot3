@@ -33,13 +33,14 @@ def get_voms_role(role='production'):
     return 'atlas:/atlas/Role=production' if role == 'production' else 'atlas'
 
 
-def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
+def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     """
     Download a payload proxy from the server and verify it.
 
     :param x509: X509_USER_PROXY (string).
     :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (string).
     :param proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank) (string).
+    :param workdir: payload work directory (string).
     :return:  exit code (int), diagnostics (string), updated x509 (string).
     """
 
@@ -47,6 +48,9 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type=''):
     diagnostics = ""
 
     x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy' if proxy_type else x509
+    # for unified proxies, store it in the workdir
+    if proxy_type == 'unified':
+        x509_payload = os.path.join(workdir, os.path.basename(x509_payload))
 
     # try to receive payload proxy and update x509
     logger.info(f"download proxy from server (type=\'{proxy_type}\', x509_payload={x509_payload})")

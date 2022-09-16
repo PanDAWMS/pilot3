@@ -1030,6 +1030,13 @@ def validate(queues, traces, args):
 
             create_symlink(from_path='../%s' % config.Pilot.pilotlog, to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
+            # handle proxy in unified dispatch
+            if args.verify_proxy:
+                handle_proxy(job)
+            else:
+                logger.debug(
+                    f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} (job.infosys.queuedata.type={job.infosys.queuedata.type})')
+
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
@@ -1986,12 +1993,6 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
-                # handle proxy in unified dispatch
-                if args.verify_proxy:
-                    handle_proxy(job)
-                else:
-                    logger.debug(f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} (job.infosys.queuedata.type={job.infosys.queuedata.type})')
-
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
                 put_in_queue(job, queues.jobs)
@@ -2041,7 +2042,7 @@ def handle_proxy(job):
 
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
-        ec = download_new_proxy(role='user', proxy_type='unified')
+        ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
         if ec:
             logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
     else:
@@ -2850,14 +2851,15 @@ def job_monitor(queues, traces, args):  # noqa: C901
     logger.info('[job] job monitor thread has finished')
 
 
-def download_new_proxy(role='production', proxy_type=''):
+def download_new_proxy(role='production', proxy_type='', workdir=''):
     """
     The production proxy has expired, try to download a new one.
 
     If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
 
     :param role: role, 'production' or 'user' (string).
-    :param proxy_type:
+    :param proxy_type: proxy type, e.g. unified (string).
+    :param workdir: payload work directory (string).
     :return: exit code (int).
     """
 
@@ -2869,7 +2871,7 @@ def download_new_proxy(role='production', proxy_type=''):
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
     voms_role = user.get_voms_role(role=role)
-    ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type)
+    ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY
