@@ -236,7 +236,7 @@ def check_time_left(proxyname, validity, limit):
     seconds_left = validity - tnow
 
 
-    if proxyname == 'cert':
+    if proxyname == 'proxy':
         seconds_left = 1000
     logger.info("cache: check %s validity: wanted=%dh (%ds with grace) left=%.2fh (now=%d validity=%d left=%d)",
                 proxyname, limit, limit * 3600 - 20 * 60, float(seconds_left) / 3600, tnow, validity, seconds_left)
