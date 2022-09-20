@@ -273,7 +273,7 @@ def publish_work_report(work_report=None, worker_attributes_file="worker_attribu
         try:
             work_report['timestamp'] = time_stamp()
             if "outputfiles" in work_report:
-                del(work_report["outputfiles"])
+                del (work_report["outputfiles"])
             if "inputfiles" in work_report:
                 del (work_report["inputfiles"])
             if "xml" in work_report:
