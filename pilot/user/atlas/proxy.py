@@ -203,7 +203,8 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
-                        del verify_arcproxy.cache[proxy_id]
+                        if proxy_id:
+                            del verify_arcproxy.cache[proxy_id]
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
@@ -235,9 +236,9 @@ def check_time_left(proxyname, validity, limit):
     tnow = int(time() + 0.5)  # round to seconds
     seconds_left = validity - tnow
 
-
-    if proxyname == 'proxy':
-        seconds_left = 1000
+    # test bad proxy
+    #if proxyname == 'proxy':
+    #    seconds_left = 1000
     logger.info("cache: check %s validity: wanted=%dh (%ds with grace) left=%.2fh (now=%d validity=%d left=%d)",
                 proxyname, limit, limit * 3600 - 20 * 60, float(seconds_left) / 3600, tnow, validity, seconds_left)
     if seconds_left < limit * 3600 - 20 * 60:

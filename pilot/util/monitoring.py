@@ -271,11 +271,10 @@ def verify_user_proxy(current_time, mt):
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
-
-
     # is it time to verify the proxy?
-    proxy_verification_time = 30  # convert_to_int(config.Pilot.proxy_verification_time, default=600)
-    #proxy_verification_time = convert_to_int(config.Pilot.proxy_verification_time, default=600)
+    # test bad proxy
+    #proxy_verification_time = 30  # convert_to_int(config.Pilot.proxy_verification_time, default=600)
+    proxy_verification_time = convert_to_int(config.Pilot.proxy_verification_time, default=600)
     if current_time - mt.get('ct_proxy') > proxy_verification_time:
         # is the proxy still valid?
         exit_code, diagnostics = userproxy.verify_proxy(test=False)  # use test=True to test expired proxy
