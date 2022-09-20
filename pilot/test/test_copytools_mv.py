@@ -40,7 +40,7 @@ class TestCopytoolMv(unittest.TestCase):
         self.tmp_dst_dir = os.path.join(self.tmp_src_dir, 'dest')
         os.mkdir(self.tmp_dst_dir)
 
-        os.environ['PILOT_USER'] = 'sphenix'
+        os.environ['PILOT_USER'] = 'atlas'
         #self.filelist = []
 
         # need a job data object, but we will overwrite some of its info
