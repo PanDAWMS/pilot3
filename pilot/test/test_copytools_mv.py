@@ -168,12 +168,12 @@ class TestCopytoolMv(unittest.TestCase):
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': ''})
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': None})
 
-    def test_copy_out_mv(self):
-        _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
-        copy_out(self.outdata, workdir=self.tmp_src_dir)
-        # for testing: _, stdout2, stderr2 = execute(' '.join(['ls', os.path.join(self.tmp_dst_dir, 'abc/def')]))
-        # here check files linked
-        self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, os.path.join(self.tmp_dst_dir, 'abc/def'), dir2_expected_content=stdout1), 0)
+    #def test_copy_out_mv(self):
+    #    _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
+    #    copy_out(self.outdata, workdir=self.tmp_src_dir)
+    #    # for testing: _, stdout2, stderr2 = execute(' '.join(['ls', os.path.join(self.tmp_dst_dir, 'abc/def')]))
+    #    # here check files linked
+    #    self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, os.path.join(self.tmp_dst_dir, 'abc/def'), dir2_expected_content=stdout1), 0)
 
     def test_copy_out_cp(self):
         pass
