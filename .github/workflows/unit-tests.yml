@@ -33,7 +33,7 @@ jobs:
                 architecture: x64
 
             - name: Pip install
-              run: pip install unittest2 "flake8${{ env.FLAKE8_VERSION }}" 'pep8-naming' 'flake8-blind-except'
+              run: pip install "flake8${{ env.FLAKE8_VERSION }}" 'pep8-naming' 'flake8-blind-except'
 
             - name: Setup env
               run: |
@@ -47,5 +47,5 @@ jobs:
               run: flake8 --config ${{ env.FLAKE8_CONFIG}} pilot.py pilot/
 
             - name: Run unit tests
-              run: unit2 -v
+              run: python -m unittest
 
