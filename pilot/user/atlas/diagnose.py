@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 import json
 import os
@@ -105,8 +105,17 @@ def interpret_payload_exit_info(job):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOLOCALSPACE, priority=True)
 
         # double check local space
-        spaceleft = convert_mb_to_b(get_local_disk_space(os.getcwd()))  # B (diskspace is in MB)
-        logger.info('verifying local space: %d B', spaceleft)
+        try:
+            disk_space = get_local_disk_space(os.getcwd())
+        except PilotException as exc:
+            diagnostics = exc.get_detail()
+            logger.warning(f'exception caught while executing df: {diagnostics} (ignoring)')
+        else:
+            if disk_space:
+                spaceleft = convert_mb_to_b(disk_space)  # B (diskspace is in MB)
+                logger.info('remaining local space: %d B', spaceleft)
+            else:
+                logger.warning('get_local_disk_space() returned None')
         return
 
     # look for specific errors in the stdout (full)
@@ -596,10 +605,18 @@ def process_job_report(job):
                     diagnostics = 'Invalid memory reference or a segmentation fault in payload: %s (job report)' % \
                                   job.exitmsg
                     logger.warning(diagnostics)
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADSIGSEGV)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADSIGSEGV, msg=diagnostics)
                     job.piloterrorcode = errors.PAYLOADSIGSEGV
                     job.piloterrordiag = diagnostics
                 else:
+                    # extract Frontier errors
+                    errmsg = get_frontier_details(job.metadata)
+                    if errmsg:
+                        msg = f'Frontier error: {errmsg}'
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.FRONTIER, msg=msg)
+                        job.piloterrorcode = errors.FRONTIER
+                        job.piloterrordiag = msg
+
                     logger.info('extracted exit message from job report: %s', job.exitmsg)
                     if job.exitmsg != 'OK':
                         job.exeerrordiag = job.exitmsg
@@ -615,6 +632,44 @@ def process_job_report(job):
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADALLOC)
                     job.piloterrorcode = errors.BADALLOC
                     job.piloterrordiag = diagnostics
+
+
+def get_frontier_details(job_report_dictionary):
+    """
+    Extract special Frontier related errors from the job report.
+
+    :param job_report_dictionary: job report (dictionary).
+    :return: extracted error message (string).
+    """
+
+    try:
+        error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
+    except KeyError as exc:
+        logger.warning(f'key error: {exc} (ignore detailed Frontier analysis)')
+        return ""
+
+    patterns = {'abnormalLines': r'Cannot\sfind\sa\svalid\sfrontier\sconnection(.*)',
+                'lastNormalLine': r'Using\sfrontier\sconnection\sfrontier(.*)'}
+    errmsg = ''
+
+    for pattern_name in patterns:
+        for level, entries in error_details.items():  # _=level='FATAL','ERROR'
+            for entry in entries:
+                if 'moreDetails' in entry:
+                    dic = entry['moreDetails'].get(pattern_name, None)
+                    for item in dic:
+                        if 'message' in item:
+                            message = dic[item]
+                            if re.findall(patterns.get(pattern_name), message):
+                                errmsg = message
+        if errmsg:
+            break
+    try:
+        msg = re.split(r'INFO\ |WARNING\ ', errmsg)[1]
+    except (IndexError, TypeError):
+        msg = errmsg
+
+    return msg
 
 
 def get_job_report_errors(job_report_dictionary):

@@ -5,15 +5,14 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import os
-import sys
+import logging
 
 from pilot.util.constants import PILOT_KILL_SIGNAL
 from pilot.util.timing import get_time_since
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -34,11 +33,11 @@ def should_abort(args, limit=30, label=''):
             was_killed = was_pilot_killed(args.timing)
             time_since = get_time_since('0', PILOT_KILL_SIGNAL, args)
             if time_since < limit and was_killed:
-                logger.warning('%s:received graceful stop - %d s ago, continue for now' % (label, time_since))
+                logger.warning('%s:received graceful stop - %d s ago, continue for now', label, time_since)
             else:
                 abort = True
         else:
-            logger.warning('%s:received graceful stop - abort after this iteration' % label)
+            logger.warning('%s:received graceful stop - abort after this iteration', label)
             abort = True
 
     return abort
@@ -57,13 +56,3 @@ def was_pilot_killed(timing):
         if PILOT_KILL_SIGNAL in timing[i]:
             was_killed = True
     return was_killed
-
-
-def is_python3():
-    """
-    Check if we are running on Python 3.
-
-    :return: boolean.
-    """
-
-    return sys.version_info >= (3, 0)

@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
 
 import logging
 import os
@@ -80,8 +80,8 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             job_data['siteName'] = 'BNL_CLOUD_MCORE'
             job_data['state'] = 'starting'
             job_data['attemptNr'] = job['attemptNr'] + 1
-            job_data['node'] = 'pilot2_test'
-            job_data['schedulerID'] = 'pilot2_test'
+            job_data['node'] = 'pilot3_test'
+            job_data['schedulerID'] = 'pilot3_test'
             job_data['coreCount'] = 1
             status = communicator_manager.update_jobs(jobs=[job_data])
             job_data['state'] = 'running'

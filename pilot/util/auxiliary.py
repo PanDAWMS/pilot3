@@ -5,22 +5,17 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 import re
 import sys
+import logging
 
-from collections import Set, Mapping, deque, OrderedDict
+from collections.abc import Set, Mapping
+from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
-
-try:
-    zero_depth_bases = (basestring, Number, xrange, bytearray)  # Python 2
-    iteritems = 'iteritems'
-except NameError:
-    zero_depth_bases = (str, bytes, Number, range, bytearray)  # Python 3
-    iteritems = 'items'
 
 from pilot.util.constants import (
     SUCCESS,
@@ -35,9 +30,9 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.util.container import execute
 from pilot.util.filehandling import dump
 
-import logging
+zero_depth_bases = (str, bytes, Number, range, bytearray)
+iteritems = 'items'
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
@@ -47,8 +42,6 @@ def pilot_version_banner():
 
     :return:
     """
-
-    logger = logging.getLogger(__name__)
 
     version = '***  PanDA Pilot version %s  ***' % get_pilot_version()
     logger.info('*' * len(version))
@@ -75,8 +68,8 @@ def is_virtual_machine():
     status = False
 
     # look for 'hypervisor' in cpuinfo
-    with open("/proc/cpuinfo", "r") as fd:
-        lines = fd.readlines()
+    with open("/proc/cpuinfo", "r") as _fd:
+        lines = _fd.readlines()
         for line in lines:
             if "hypervisor" in line:
                 status = True
@@ -90,13 +83,14 @@ def display_architecture_info():
     Display OS/architecture information.
     The function attempts to use the lsb_release -a command if available. If that is not available,
     it will dump the contents of
+    WARNING: lsb_release will not be available on CentOS Stream 9
 
     :return:
     """
 
     logger.info("architecture information:")
 
-    exit_code, stdout, stderr = execute("lsb_release -a", mute=True)
+    _, stdout, stderr = execute("lsb_release -a", mute=True)
     if 'Command not found' in stdout or 'Command not found' in stderr:
         # Dump standard architecture info files if available
         dump("/etc/lsb-release")
@@ -123,26 +117,24 @@ def get_batchsystem_jobid():
                         'LSB_JOBID': 'LSF',
                         'JOB_ID': 'Grid Engine',  # Sun's Grid Engine
                         'clusterid': 'Condor',  # Condor (variable sent through job submit file)
-                        'SLURM_JOB_ID': 'SLURM'}
+                        'SLURM_JOB_ID': 'SLURM',
+                        'K8S_JOB_ID': 'Kubernetes'}
 
-    try:
-        for key, value in batchsystem_dict.iteritems():  # Python 2
-            if key in os.environ:
-                return value, os.environ.get(key, '')
-    except Exception:
-        for key, value in list(batchsystem_dict.items()):  # Python 3
-            if key in os.environ:
-                return value, os.environ.get(key, '')
+    for key, value in list(batchsystem_dict.items()):
+        if key in os.environ:
+            return value, os.environ.get(key, '')
 
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
         try:
-            from commands import getoutput  # Python 2
-        except Exception:
-            from subprocess import getoutput  # Python 3
-        return "Condor", getoutput(
-            'sed -n "s/^GlobalJobId.*\\"\\(.*\\)\\".*/\\1/p" %s' % os.environ.get("_CONDOR_JOB_AD"))
-
+            with open(os.environ.get("_CONDOR_JOB_AD"), 'r') as _fp:
+                for line in _fp:
+                    res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
+                    if res is None:
+                        continue
+                    return "Condor", res.group(1)
+        except OSError as exc:
+            logger.warning("failed to read HTCondor job classAd: %s", exc)
     return None, ""
 
 
@@ -155,16 +147,6 @@ def get_job_scheduler_id():
     return os.environ.get("PANDA_JSID", "unknown")
 
 
-def get_pilot_id():
-    """
-    Get the pilot id from the environment variable GTAG
-
-    :return: pilot id (string)
-    """
-
-    return os.environ.get("GTAG", "unknown")
-
-
 def whoami():
     """
     Return the name of the pilot user.
@@ -172,33 +154,9 @@ def whoami():
     :return: whoami output (string).
     """
 
-    exit_code, who_am_i, stderr = execute('whoami', mute=True)
+    _, who_am_i, _ = execute('whoami', mute=True)
 
     return who_am_i
-
-
-def get_logger(job_id, log=None):
-    """
-    Return the logger object.
-    Use this function to get the proper logger object. It relies on a python 2.7 function, getChild(), but if the queue
-    is only using Python 2.6, the standard logger object will be returned instead.
-
-    WARNING: it seems using this function can lead to severe memory leaks (multiple GB) in some jobs. Do not use. Keep
-    this definition for possible later investigation.
-
-    :param jod_id: PanDA job id (string).
-    :return: logger object.
-    """
-
-    try:
-        if log:
-            log = log.getChild(job_id)
-        else:
-            log = logger.getChild(job_id)
-    except Exception:
-        if not log:
-            log = logger
-    return log
 
 
 def get_error_code_translation_dictionary():
@@ -215,6 +173,7 @@ def get_error_code_translation_dictionary():
         errors.NOSUCHFILE: [67, "No such file or directory"],  # added to traces object
         errors.NOVOMSPROXY: [68, "Voms proxy not valid"],  # added to traces object
         errors.NOPROXY: [68, "Proxy not valid"],  # added to traces object
+        errors.CERTIFICATEHASEXPIRED: [68, "Proxy not valid"],
         errors.NOLOCALSPACE: [69, "No space left on local disk"],  # added to traces object
         errors.UNKNOWNEXCEPTION: [70, "Exception caught by pilot"],  # added to traces object
         errors.QUEUEDATA: [71, "Pilot could not download queuedata"],  # tested
@@ -389,16 +348,6 @@ def check_for_final_server_update(update_server):
         i += 1
 
 
-def is_python3():
-    """
-    Check if we are running on Python 3.
-
-    :return: boolean.
-    """
-
-    return sys.version_info >= (3, 0)
-
-
 def get_resource_name():
     """
     Return the name of the resource (only set for HPC resources; e.g. Cori, otherwise return 'grid').
@@ -535,17 +484,17 @@ def has_instruction_sets(instruction_sets):
     """
 
     ret = ''
-    r = ''
+    pattern = ''
 
-    for i in instruction_sets:
-        r += r'\|%s[^ ]*\|%s[^ ]*' % (i.lower(), i.upper()) if r else r'%s[^ ]*\|%s[^ ]*' % (i.lower(), i.upper())
-    cmd = "grep -o \'%s\' /proc/cpuinfo" % r
+    for instr in instruction_sets:
+        pattern += r'\|%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper()) if pattern else r'%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper())
+    cmd = "grep -o \'%s\' /proc/cpuinfo" % pattern
 
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
-        for i in instruction_sets:
-            if i.lower() in stdout.split() or i.upper() in stdout.split():
-                ret += '|%s' % i.upper() if ret else i.upper()
+        for instr in instruction_sets:
+            if instr.lower() in stdout.split() or instr.upper() in stdout.split():
+                ret += '|%s' % instr.upper() if ret else instr.upper()
 
     return ret
 
@@ -597,7 +546,7 @@ def get_pid_from_command(cmd, pattern=r'gdb --pid (\d+)'):
         except Exception:
             pid = None
     else:
-        print('no match for pattern \'%s\' in command=\'%s\'' % (pattern, cmd))
+        logger.warning('no match for pattern \'%s\' in command=\'%s\'', pattern, cmd)
 
     return pid
 
@@ -668,12 +617,23 @@ def is_string(obj):
     :return: True if obj is a string (Boolean).
     """
 
-    value = False
-    try:
-        if isinstance(obj, basestring):  # Python 2 # noqa: F821
-            value = True
-    except NameError:
-        if isinstance(obj, str):  # Python 3
-            value = True
+    return True if isinstance(obj, str) else False
 
-    return value
+
+def find_pattern_in_list(input_list, pattern):
+    """
+    Search for the given pattern in the input list.
+
+    :param input_list: list of string.
+    :param pattern: regular expression pattern (raw string).
+    :return: found string (or None).
+    """
+
+    found = None
+    for line in input_list:
+        out = re.search(pattern, line)
+        if out:
+            found = out[0]
+            break
+
+    return found

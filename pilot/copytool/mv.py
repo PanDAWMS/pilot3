@@ -5,14 +5,14 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - David Cameron, david.cameron@cern.ch, 2018-2019
+# - David Cameron, david.cameron@cern.ch, 2018-2022
 
 import os
 import re
 
-from pilot.common.exception import StageInFailure, StageOutFailure, ErrorCodes, PilotException
+from pilot.common.exception import StageInFailure, StageOutFailure, MKDirFailure, ErrorCodes
 from pilot.util.container import execute
 
 import logging
@@ -22,15 +22,10 @@ require_replicas = False  # indicate if given copytool requires input replicas t
 check_availablespace = False  # indicate whether space check should be applied before stage-in transfers using given copytool
 
 
-def create_output_list(files, init_dir, ddmconf):
+def create_output_list(files, init_dir):
     """
     Add files to the output list which tells ARC CE which files to upload
     """
-
-    if not ddmconf:
-        raise PilotException("copy_out() failed to resolve ddmconf from function arguments",
-                             code=ErrorCodes.STAGEOUTFAILED,
-                             state='COPY_ERROR')
 
     for fspec in files:
         arcturl = fspec.turl
@@ -44,13 +39,7 @@ def create_output_list(files, init_dir, ddmconf):
             arcturl = '/'.join([rucio, arcturl, rse, activity])
         else:
             # Add ARC options to TURL
-            checksumtype, checksum = list(fspec.checksum.items())[0]  # Python 2/3
-            # resolve token value from fspec.ddmendpoint
-            token = ddmconf.get(fspec.ddmendpoint).token
-            if not token:
-                logger.info('No space token info for %s', fspec.ddmendpoint)
-            else:
-                arcturl = re.sub(r'((:\d+)/)', r'\2;autodir=no;spacetoken=%s/' % token, arcturl)
+            checksumtype, checksum = list(fspec.checksum.items())[0]
             arcturl += ':checksumtype=%s:checksumvalue=%s' % (checksumtype, checksum)
 
         logger.info('Adding to output.list: %s %s', fspec.lfn, arcturl)
@@ -75,6 +64,45 @@ def is_valid_for_copy_out(files):
     #return True
 
 
+def get_dir_path(turl, prefix='file://localhost'):
+    """
+    Extract the directory path from the turl that has a given prefix
+    E.g. turl = 'file://localhost/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f/user.jwebb2.66999._000001.top1outDS.tar'
+        -> '/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f'
+    (some of these directories will typically have to be created in the next step).
+
+    :param turl: TURL (string).
+    :param prefix: file prefix (string).
+    :return: directory path (string).
+    """
+
+    path = turl.replace(prefix, '')
+    return os.path.dirname(path)
+
+
+def build_final_path(turl, prefix='file://localhost'):
+
+    path = ''
+
+    # first get the directory path to be created
+    dirname = get_dir_path(turl, prefix=prefix)
+
+    # now create any missing directories on the SE side
+    try:
+        os.makedirs(dirname)
+    except FileExistsError:
+        # ignore if sub dirs already exist
+        pass
+    except (IsADirectoryError, OSError) as exc:
+        diagnostics = f'caught exception: {exc}'
+        logger.warning(diagnostics)
+        return ErrorCodes.MKDIR, diagnostics, path
+    else:
+        logger.debug(f'created {dirname}')
+
+    return 0, '', os.path.join(dirname, os.path.basename(turl))
+
+
 def copy_in(files, copy_type="symlink", **kwargs):
     """
     Tries to download the given files using mv directly.
@@ -90,13 +118,20 @@ def copy_in(files, copy_type="symlink", **kwargs):
             fspec.status_code = ErrorCodes.BADQUEUECONFIGURATION
             raise StageInFailure("bad queue configuration - mv does not support direct access")
 
+        # for symlinked input files, the file size should not be included in the workdir size (since it is not present!)
+        # the boolean will be checked by the caller
+        if copy_type == 'symlink':
+            fspec.checkinputsize = False
+
     if copy_type not in ["cp", "mv", "symlink"]:
         raise StageInFailure("incorrect method for copy in")
 
     if not kwargs.get('workdir'):
         raise StageInFailure("workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
+    logger.debug(f"workdir={kwargs.get('workdir')}")
+    logger.debug(f"jobworkdir={kwargs.get('jobworkdir')}")
+    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), kwargs.get('jobworkdir'))
     if exit_code != 0:
         # raise failure
         raise StageInFailure(stdout)
@@ -118,21 +153,24 @@ def copy_out(files, copy_type="mv", **kwargs):
     if not kwargs.get('workdir'):
         raise StageOutFailure("Workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'))
+    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), '')
     if exit_code != 0:
         # raise failure
-        raise StageOutFailure(stdout)
+        if exit_code == ErrorCodes.MKDIR:
+            raise MKDirFailure(stdout)
+        else:
+            raise StageOutFailure(stdout)
 
     # Create output list for ARC CE if necessary
     logger.debug('init_dir for output.list=%s', os.path.dirname(kwargs.get('workdir')))
     output_dir = kwargs.get('output_dir', '')
     if not output_dir:
-        create_output_list(files, os.path.dirname(kwargs.get('workdir')), kwargs.get('ddmconf', None))
+        create_output_list(files, os.path.dirname(kwargs.get('workdir')))
 
     return files
 
 
-def move_all_files(files, copy_type, workdir):
+def move_all_files(files, copy_type, workdir, jobworkdir):
     """
     Move all files.
 
@@ -154,16 +192,30 @@ def move_all_files(files, copy_type, workdir):
     else:
         return -1, "", "incorrect copy method"
 
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.copytool_definitions', globals(), locals(), [pilot_user], 0)
     for fspec in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
 
         name = fspec.lfn
         if fspec.filetype == 'input':
-            # Assumes pilot runs in subdir one level down from working dir
-            source = os.path.join(os.path.dirname(workdir), name)
-            destination = os.path.join(workdir, name)
+            if user.mv_to_final_destination():
+                subpath = user.get_path(fspec.scope, fspec.lfn)
+                logger.debug(f'subpath={subpath}')
+                source = os.path.join(workdir, subpath)
+            else:
+                # Assumes pilot runs in subdir one level down from working dir
+                source = os.path.join(os.path.dirname(workdir), name)
+            destination = os.path.join(jobworkdir, name) if jobworkdir else os.path.join(workdir, name)
         else:
             source = os.path.join(workdir, name)
-            destination = os.path.join(os.path.dirname(workdir), name)
+            # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
+            if user.mv_to_final_destination():
+                # create any sub dirs if they don't exist already, and find the final destination path
+                ec, diagnostics, destination = build_final_path(fspec.turl)
+                if ec:
+                    return ec, diagnostics, ''
+            else:
+                destination = os.path.join(os.path.dirname(workdir), name)
 
         # resolve canonical path
         source = os.path.realpath(source)

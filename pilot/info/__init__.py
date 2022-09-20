@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 """
 Pilot Information component
@@ -25,11 +25,8 @@ from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
 
-#from .queuedata import QueueData
-
 from pilot.common.exception import PilotException
-
-import collections
+from collections import namedtuple
 
 import logging
 logger = logging.getLogger(__name__)
@@ -43,25 +40,25 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
 
     raise PilotException in case of errors.
 
-    :param args: input (shared) agruments
+    :param args: input (shared) arguments
     :return: None
     """
 
     # ## initialize info service
     infosys.init(args.queue)
 
-    args.info = collections.namedtuple('info', ['queue', 'infoservice',
-                                                # queuedata,
-                                                'site', 'storages',
-                                                # 'site_info',
-                                                'storages_info'])
+    args.info = namedtuple('info', ['queue', 'infoservice',
+                                    # queuedata,
+                                    'site', 'storages',
+                                    # 'site_info',
+                                    'storages_info'])
     args.info.queue = args.queue
     args.info.infoservice = infosys  # ## THIS is actually for tests and redundant - the pilot.info.infosys should be used
     # args.infoservice = infosys  # ??
 
     # check if queue is ACTIVE
     if infosys.queuedata.state != 'ACTIVE':
-        logger.critical('specified queue is NOT ACTIVE: %s -- aborting' % infosys.queuedata.name)
+        logger.critical(f'specified queue is NOT ACTIVE: {infosys.queuedata.name} -- aborting')
         raise PilotException("Panda Queue is NOT ACTIVE")
 
     # do we need explicit varible declaration (queuedata)?
@@ -77,10 +74,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     #args.location.storages_info = infosys.storages_info
 
     # find all enabled storages at site
-    try:
-        args.info.storages = [ddm for ddm, dat in infosys.storages_info.iteritems() if dat.site == infosys.queuedata.site]  # Python 2
-    except Exception:
-        args.info.storages = [ddm for ddm, dat in list(infosys.storages_info.items()) if dat.site == infosys.queuedata.site]  # Python 3
+    args.info.storages = [ddm for ddm, dat in list(infosys.storages_info.items()) if dat.site == infosys.queuedata.site]
 
     #args.info.sites_info = infosys.sites_info
 

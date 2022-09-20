@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from collections import defaultdict
@@ -49,12 +49,11 @@ from .utilities import (
 from pilot.util.auxiliary import (
     get_resource_name,
     show_memory_usage,
-    is_python3,
     get_key_value,
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import TrfDownloadFailure, PilotException
+from pilot.common.exception import TrfDownloadFailure, PilotException, FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -172,7 +171,7 @@ def open_remote_files(indata, workdir, nthreads):
 
     exitcode = 0
     diagnostics = ""
-    not_opened = ""
+    not_opened = []
 
     # extract direct i/o files from indata (string of comma-separated turls)
     turls = extract_turls(indata)
@@ -188,7 +187,7 @@ def open_remote_files(indata, workdir, nthreads):
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
-        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot2'), script_path)
+        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
         full_script_path = dir1 if os.path.exists(dir1) else dir2
         if not os.path.exists(full_script_path):
@@ -216,43 +215,70 @@ def open_remote_files(indata, workdir, nthreads):
 
             show_memory_usage()
 
-            logger.info('*** executing file open verification script:\n\n\'%s\'\n\n', cmd)
-            exit_code, stdout, stderr = execute(cmd, usecontainer=False)
+            timeout = len(indata) * 120 + 180
+            logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
+
+            exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
-
-            show_memory_usage()
+            logger.info('remote file open finished with ec=%d', exitcode)
 
             # error handling
-            if exit_code:
-                logger.warning('script %s finished with ec=%d', script, exit_code)
-            else:
-                dictionary_path = os.path.join(
-                    workdir,
-                    config.Pilot.remotefileverification_dictionary
-                )
-                if not dictionary_path:
-                    logger.warning('file does not exist: %s', dictionary_path)
-                else:
-                    file_dictionary = read_json(dictionary_path)
-                    if not file_dictionary:
-                        logger.warning('could not read dictionary from %s', dictionary_path)
-                    else:
-                        not_opened = ""
-                        for turl in file_dictionary:
-                            opened = file_dictionary[turl]
-                            if not opened:
-                                logger.info('turl could not be opened: %s', turl)
-                                not_opened += turl if not not_opened else ",%s" % turl
-                            else:
-                                logger.info('turl could be opened: %s', turl)
+            if exitcode:
+                logger.warning('script %s finished with ec=%d', script, exitcode)
 
-                        if not_opened:
-                            exitcode = errors.REMOTEFILECOULDNOTBEOPENED
-                            diagnostics = "Remote file could not be opened: %s" % not_opened if "," not in not_opened else "turls not opened:%s" % not_opened
+                # note: ignore any time-out errors if the remote files could still be opened
+                _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
+                if not _exitcode:
+                    logger.info('ignoring time-out error since remote file could still be opened')
+                    exitcode = 0
+                elif _exitcode:
+                    exitcode = _exitcode
+                if exitcode == errors.COMMANDTIMEDOUT:
+                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
+            else:
+                exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
+
+    return exitcode, diagnostics, not_opened
+
+
+def parse_remotefileverification_dictionary(workdir):
+    """
+    Verify that all files could be remotely opened.
+    Note: currently ignoring if remote file dictionary doesn't exist.
+
+    :param workdir: work directory needed for opening remote file dictionary (string).
+    :return: exit code (int), diagnostics (string).
+    """
+
+    exitcode = 0
+    diagnostics = ""
+    not_opened = []
+
+    dictionary_path = os.path.join(
+        workdir,
+        config.Pilot.remotefileverification_dictionary
+    )
+
+    file_dictionary = read_json(dictionary_path)
+    if not file_dictionary:
+        diagnostics = 'could not read dictionary from %s' % dictionary_path
+        logger.warning(diagnostics)
+    else:
+        for turl in file_dictionary:
+            opened = file_dictionary[turl]
+            if not opened:
+                logger.info('turl could not be opened: %s', turl)
+                not_opened.append(turl)
+            else:
+                logger.info('turl could be opened: %s', turl)
+
+    if not_opened:
+        exitcode = errors.REMOTEFILECOULDNOTBEOPENED
+        diagnostics = f"Remote file(s) could not be opened: {not_opened}"
 
     return exitcode, diagnostics, not_opened
 
@@ -266,7 +292,7 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=%s -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
 
 
 def extract_turls(indata):
@@ -382,7 +408,7 @@ def get_payload_command(job):
     if config.Pilot.remotefileverification_log and 'remoteio_test=false' not in catchall:
         exitcode = 0
         diagnostics = ""
-        not_opened_turls = ""
+
         try:
             logger.debug('executing open_remote_files()')
             exitcode, diagnostics, not_opened_turls = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
@@ -405,6 +431,7 @@ def get_payload_command(job):
     else:
         logger.debug('no remote file open verification')
 
+    os.environ['INDS'] = 'unknown'  # reset in case set by earlier job
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")
@@ -418,12 +445,12 @@ def get_payload_command(job):
     if not cmd.endswith(';'):
         cmd += '; '
 
-    # only if not using a user container
-    if not job.imagename:
-        site = os.environ.get('PILOT_SITENAME', '')
-        variables = get_payload_environment_variables(
-            cmd, job.jobid, job.taskid, job.attemptnr, job.processingtype, site, userjob)
-        cmd = ''.join(variables) + cmd
+    site = os.environ.get('PILOT_SITENAME', '')
+    variables = get_payload_environment_variables(cmd, job.jobid, job.taskid, job.attemptnr, job.processingtype, site, userjob)
+    cmd = ''.join(variables) + cmd
+
+    # prepend payload command with environment variables from PQ.environ if set
+    cmd = prepend_env_vars(job.infosys.queuedata.environ, cmd)
 
     # prepend PanDA job id in case it is not there already (e.g. runcontainer jobs)
     if 'export PandaID' not in cmd:
@@ -463,6 +490,64 @@ def get_payload_command(job):
     logger.info('payload run command: %s', cmd)
 
     return cmd
+
+
+def prepend_env_vars(environ, cmd):
+    """
+    Prepend the payload command with environmental variables from PQ.environ if set.
+
+    :param environ: PQ.environ (string).
+    :param cmd: payload command (string).
+    :return: updated payload command (string).
+    """
+
+    exports = get_exports(environ)
+    exports_to_add = ''
+    for _cmd in exports:
+        exports_to_add += _cmd
+    if exports_to_add:
+        cmd = exports_to_add + cmd
+        logger.debug(f'prepended exports to payload command: {exports_to_add}')
+
+    return cmd
+
+
+def get_key_values(from_string):
+    """
+    Return a list of key value tuples from given string.
+    Example: from_string = 'KEY1=VALUE1 KEY2=VALUE2' -> [('KEY1','VALUEE1'), ('KEY2', 'VALUE2')]
+
+    :param from_string: string containing key-value pairs (string).
+    :return: list of key-pair tuples (list).
+    """
+
+    return re.findall(re.compile(r"\b(\w+)=(.*?)(?=\s\w+=\s*|$)"), from_string)
+
+
+def get_exports(from_string):
+    """
+    Return list of exports from given string.
+
+    :param from_string: string containing key-value pairs (string).
+    :return: list of export commands (list).
+    """
+
+    exports = []
+    key_values = get_key_values(from_string)
+    logger.debug(f'extracted key-values: {key_values}')
+    if key_values:
+        for number in range(len(key_values)):
+            raw_val = key_values[number]
+            _key = raw_val[0]
+            _value = raw_val[1]
+            key_value = ''
+            if not _key.startswith('export '):
+                key_value = 'export ' + _key + '=' + _value
+            if not _value.endswith(';'):
+                key_value += ';'
+            exports.append(key_value)
+
+    return exports
 
 
 def get_normal_payload_command(cmd, job, preparesetup, userjob):
@@ -695,7 +780,13 @@ def get_analysis_run_command(job, trf_name):
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        cmd += 'export X509_USER_PROXY=%s;' % os.environ.get('X509_USER_PROXY')
+        logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
+        x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+        cmd += f'export X509_USER_PROXY={x509};'
+    if 'PANDA_AUTH_TOKEN' in os.environ:
+        cmd += 'unset PANDA_AUTH_TOKEN;'
+    if 'PANDA_AUTH_ORIGIN' in os.environ:
+        cmd += 'unset PANDA_AUTH_ORIGIN;'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
@@ -753,82 +844,6 @@ def get_analysis_run_command(job, trf_name):
             cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
 
     show_memory_usage()
-
-    return cmd
-
-
-## SHOULD NOT BE USED since payload cmd should be properly generated
-## from the beginning (consider final directio settings) (anisyonk)
-## DEPRECATE ME (anisyonk)
-def update_forced_accessmode(log, cmd, transfertype, jobparams, trf_name):
-    """
-    Update the payload command for forced accessmode.
-    accessmode is an option that comes from HammerCloud and is used to
-    force a certain input file access mode; i.e. copy-to-scratch or direct access.
-
-    :param log: logging object.
-    :param cmd: payload command.
-    :param transfertype: transfer type (.e.g 'direct') from the job
-    definition with priority over accessmode (string).
-    :param jobparams: job parameters (string).
-    :param trf_name: transformation name (string).
-    :return: updated payload command string.
-    """
-
-    if "accessmode" in cmd and transfertype != 'direct':
-        accessmode_usect = None
-        accessmode_directin = None
-        _accessmode_dic = {"--accessmode=copy": ["copy-to-scratch mode", ""],
-                           "--accessmode=direct": ["direct access mode", " --directIn"]}
-
-        # update run_command according to jobPars
-        for _mode in list(_accessmode_dic.keys()):  # Python 2/3
-            if _mode in jobparams:
-                # any accessmode set in jobPars should overrule schedconfig
-                logger.info("enforcing %s", _accessmode_dic[_mode][0])
-                if _mode == "--accessmode=copy":
-                    # make sure direct access is turned off
-                    accessmode_usect = True
-                    accessmode_directin = False
-                elif _mode == "--accessmode=direct":
-                    # make sure copy-to-scratch gets turned off
-                    accessmode_usect = False
-                    accessmode_directin = True
-                else:
-                    accessmode_usect = False
-                    accessmode_directin = False
-
-                # update run_command (do not send the accessmode switch to runAthena)
-                cmd += _accessmode_dic[_mode][1]
-                if _mode in cmd:
-                    cmd = cmd.replace(_mode, "")
-
-        # force usage of copy tool for stage-in or direct access
-        if accessmode_usect:
-            logger.info('forced copy tool usage selected')
-            # remove again the "--directIn"
-            if "directIn" in cmd:
-                cmd = cmd.replace(' --directIn', ' ')
-        elif accessmode_directin:
-            logger.info('forced direct access usage selected')
-            if "directIn" not in cmd:
-                cmd += ' --directIn'
-        else:
-            logger.warning('neither forced copy tool usage nor direct access was selected')
-
-        if "directIn" in cmd and "usePFCTurl" not in cmd:
-            cmd += ' --usePFCTurl'
-
-        # need to add proxy if not there already
-        if "--directIn" in cmd and "export X509_USER_PROXY" not in cmd:
-            if 'X509_USER_PROXY' in os.environ:
-                cmd = cmd.replace("./%s" % trf_name, "export X509_USER_PROXY=%s;./%s" %
-                                  (os.environ.get('X509_USER_PROXY'), trf_name))
-
-    # if both direct access and the accessmode loop added a
-    # directIn switch, remove the first one from the string
-    if cmd.count("directIn") > 1:
-        cmd = cmd.replace(' --directIn', ' ', 1)
 
     return cmd
 
@@ -981,10 +996,26 @@ def update_job_data(job):
             # remove the files listed in allowNoOutput if they don't exist
             remove_no_output_files(job)
 
+    validate_output_data(job)
+
+
+def validate_output_data(job):
+    """
+    Validate output data.
+    Set any missing GUIDs and make sure the output file names follow the ATLAS naming convention - if not, set the
+    error code.
+
+    :param job: job object.
+    :return:
+    """
+
     ## validate output data (to be moved into the JobData)
     ## warning: do no execute this code unless guid lookup in job report
     # has failed - pilot should only generate guids
     ## if they are not present in job report
+
+    pattern = re.compile(naming_convention_pattern())
+    bad_files = []
     for dat in job.outdata:
         if not dat.guid:
             dat.guid = get_guid()
@@ -993,6 +1024,42 @@ def update_job_data(job):
                 dat.guid,
                 dat.lfn
             )
+        # is the output file following the naming convention?
+        found = re.findall(pattern, dat.lfn)
+        if found:
+            logger.info(f'verified that {dat.lfn} follows the naming convention')
+        else:
+            bad_files.append(dat.lfn)
+
+    # make sure there are no illegal characters in the file names
+    for bad_file_name in bad_files:
+        diagnostic = f'{bad_file_name} does not follow the naming convention: {naming_convention_pattern()}'
+        try:
+            bad_file_name.encode('ascii')
+        except UnicodeEncodeError as exc:
+            diagnostic += f' and contains illegal characters: {exc}'
+            # only fail the job in this case (otherwise test jobs would fail!), and only report on the first file
+            if errors.BADOUTPUTFILENAME not in job.piloterrorcodes:
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
+        logger.warning(diagnostic)
+
+    if not bad_files:
+        logger.debug('verified that all output files follow the ATLAS naming convention')
+
+
+def naming_convention_pattern():
+    """
+    Return a regular expression pattern in case the output file name should be verified.
+
+    pattern=re.compile(r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,250}$')
+    re.findall(pattern, 'AOD.29466419._001462.pool.root.1')
+    ['AOD.29466419._001462.pool.root.1']
+
+    :return: raw string.
+    """
+
+    max_filename_size = 250
+    return r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,%s}$' % max_filename_size
 
 
 def get_stageout_label(job):
@@ -1102,17 +1169,25 @@ def discover_new_output(name_pattern, workdir):
             # get file size
             filesize = get_local_file_size(path)
             # get checksum
-            checksum = calculate_checksum(path)
-
-            if filesize and checksum:
-                new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
-            else:
+            try:
+                checksum = calculate_checksum(path)
+            except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                 logger.warning(
-                    'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                    'failed to create file info (filesize=%d) for lfn=%s: %s',
                     filesize,
-                    checksum,
-                    lfn
+                    lfn,
+                    exc
                 )
+            else:
+                if filesize and checksum:
+                    new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
+                else:
+                    logger.warning(
+                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
+                        filesize,
+                        checksum,
+                        lfn
+                    )
 
     return new_output
 
@@ -1519,13 +1594,8 @@ def parse_jobreport_data(job_report):  # noqa: C901
     work_attributes['outputfiles'] = outputfiles_dict
 
     if work_attributes['inputfiles']:
-        if is_python3():
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
-                                                                         work_attributes['inputfiles']])
-        else:
-            work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, map(lambda inpfiles: len(inpfiles['subFiles']),
-                                                                            work_attributes['inputfiles']))
-
+        work_attributes['nInputFiles'] = reduce(lambda a, b: a + b, [len(inpfiles['subFiles']) for inpfiles in
+                                                                     work_attributes['inputfiles']])
     if 'resource' in job_report and 'executor' in job_report['resource']:
         j = job_report['resource']['executor']
 
@@ -1818,7 +1888,7 @@ def get_redundants():
                 "home",
                 "o..pacman..o",
                 "pacman-*",
-                "python",
+                "python*",
                 "runAthena*",
                 "share",
                 "sources.*",
@@ -1853,15 +1923,23 @@ def get_redundants():
                 "pandawnutil/*",
                 "src/*",
                 "singularity_cachedir",
+                "apptainer_cachedir",
                 "_joproxy15",
                 "HAHM_*",
                 "Process",
                 "merged_lhef._0.events-new",
-                "singularity/*",  # new
-                "/cores",  # new
-                "/work",  # new
-                "docs/",  # new
-                "/pilot2"]  # new
+                "panda_secrets.json",
+                "singularity/*",
+                "apptainer/*",
+                "/cores",
+                "/panda_pilot*",
+                "/work",
+                "README*",
+                "MANIFEST*",
+                "*.part*",
+                "docs/",
+                "/venv/",
+                "/pilot3"]
 
     return dir_list
 
@@ -1960,14 +2038,13 @@ def remove_special_files(workdir, dir_list, outputfiles):
 
     for item in to_delete:
         if item not in exclude_files:
-            logger.debug('removing %s', item)
             if os.path.isfile(item):
                 remove(item)
             else:
                 remove_dir_tree(item)
 
 
-def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode=False):
+def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
     """
     Remove redundant files and directories prior to creating the log file.
 
@@ -1975,7 +2052,7 @@ def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode
 
     :param workdir: working directory (string).
     :param outputfiles: list of protected output files (list).
-    :param islooping: looping job variable to make sure workDir is not removed in case of looping (Boolean).
+    :param errors: list of Pilot assigned error codes (list).
     :param debugmode: True if debug mode has been switched on (Boolean).
     :return:
     """
@@ -2015,7 +2092,9 @@ def remove_redundant_files(workdir, outputfiles=None, islooping=False, debugmode
     if os.path.exists(path):
         # remove at least root files from workDir (ie also in the case of looping job)
         cleanup_looping_payload(path)
-        if not islooping:
+        islooping = errors.LOOPINGJOB in piloterrors
+        ismemerror = errors.PAYLOADEXCEEDMAXMEM in piloterrors
+        if not islooping and not ismemerror:
             logger.debug('removing \'workDir\' from workdir=%s', workdir)
             remove_dir_tree(path)
 
@@ -2740,3 +2819,15 @@ def allow_timefloor(submitmode):
     """
 
     return True
+
+
+def get_pilot_id(jobid):
+    """
+    Get the pilot id from the environment variable GTAG.
+    Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
+
+    :param jobid: PanDA job id - UNUSED (int).
+    :return: pilot id (string).
+    """
+
+    return os.environ.get("GTAG", "unknown")

@@ -5,17 +5,17 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
-
-#try:
-#    # import dask
-#    import dask_kubernetes
-##except ModuleNotFoundError:  # Python 3
-#except Exception:
-#    pass
-
-# from pilot.util.container import execute
-# from pilot.util.filehandling import establish_logging, write_file
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def precleanup():
+    """
+    Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
+
+    :return:
+    """
+
+    pass

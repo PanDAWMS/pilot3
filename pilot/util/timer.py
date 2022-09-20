@@ -27,10 +27,7 @@ import traceback
 import threading
 import multiprocessing
 
-try:
-    from queue import Empty  # Python 3
-except Exception:
-    from Queue import Empty  # Python 2
+from queue import Empty
 from functools import wraps
 
 
@@ -95,9 +92,9 @@ class TimedThread(object):
             return ret[1]
         else:
             try:
-                _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])  # python3
+                _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])
             except AttributeError:
-                exec("raise ret[1][0], ret[1][1], ret[1][2]")   # python3 compatible code for python2 execution
+                exec("raise ret[1][0], ret[1][1], ret[1][2]")
             raise _r
 
 

@@ -5,16 +5,18 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
 import re
 import glob
 from time import sleep
+from datetime import datetime
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
-from pilot.util.filehandling import copy
+from pilot.util.filehandling import copy, head
 
 import logging
 logger = logging.getLogger(__name__)
@@ -176,3 +178,62 @@ def download_transform(url, transform_name, workdir):
         trial += 1
 
     return status, diagnostics
+
+
+def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})'):
+    """
+    Extract a more precise end of setup time from the payload stdout.
+    File path should be verified already.
+    The function will look for a date time in the beginning of the payload stdout with the given pattern.
+
+    :param path: path to payload stdout (string).
+    :param pattern: regular expression pattern (raw string).
+    :return: time in seconds since epoch (float).
+    """
+
+    end_time = None
+    head_list = head(path, count=50)
+    time_string = find_pattern_in_list(head_list, pattern)
+    if time_string:
+        logger.debug(f"extracted time string=\'{time_string}\' from file \'{path}\'")
+        end_time = datetime.strptime(time_string, '%H:%M:%S %Y/%m/%d').timestamp()  # since epoch
+
+    return end_time
+
+
+def get_schedconfig_priority():
+    """
+    Return the prioritized list for the schedconfig sources.
+    This list is used to determine which source to use for the queuedatas, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
+    load_schedconfig_data() (full set).
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def get_queuedata_priority():
+    """
+    Return the prioritized list for the schedconfig sources.
+    This list is used to determine which source to use for the queuedatas, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
+    load_schedconfig_data() (full set).
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
+
+
+def get_ddm_source_priority():
+    """
+    Return the prioritized list for the DDM sources.
+    This list is used to determine which source to use for the DDM endpoints, which can be different for
+    different users. The sources themselves are defined in info/extinfo/load_storage_data().
+
+    :return: prioritized DDM source list.
+    """
+
+    return ['LOCAL', 'USER', 'CVMFS', 'CRIC', 'PANDA']

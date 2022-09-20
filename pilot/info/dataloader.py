@@ -18,16 +18,11 @@ Base loader class to retrive data from Ext sources (file, url)
 import os
 import time
 import json
-try:
-    import urllib.request  # Python 3
-    import urllib.error  # Python 3
-    import urllib.parse  # Python 3
-except Exception:
-    import urllib2  # Python 2
+import urllib.request
+import urllib.error
+import urllib.parse
 
 from datetime import datetime, timedelta
-
-from pilot.util.auxiliary import is_python3
 from pilot.util.timer import timeout
 from pilot.util.https import ctx
 
@@ -108,23 +103,15 @@ class DataLoader(object):
                         content = _readfile(url)
                     else:
                         logger.info('[attempt=%s/%s] loading data from url=%s' % (trial, nretry, url))
-
-                        try:
-                            req = urllib.request.Request(url)  # Python 3
-                        except Exception:
-                            req = urllib2.Request(url)  # Python 2
-
+                        req = urllib.request.Request(url)
                         req.add_header('User-Agent', ctx.user_agent)
+                        content = urllib.request.urlopen(req, context=ctx.ssl_context, timeout=20).read()
 
-                        try:
-                            content = urllib.request.urlopen(req, context=ctx.ssl_context, timeout=20).read()  # Python 3
-                        except Exception:
-                            content = urllib2.urlopen(req, context=ctx.ssl_context, timeout=20).read()  # Python 2
                     if fname:  # save to cache
                         with open(fname, "w+") as f:
-                            if isinstance(content, bytes) and is_python3():  # if-statement will always be needed for python 3
-                                content = content.decode("utf-8")  # Python 2/3 - only works for byte streams in python 3
-                            f.write(content)  # Python 3, added str (write() argument must be str, not bytes; JSON OK)
+                            if isinstance(content, bytes):  # if-statement will always be needed for python 3
+                                content = content.decode("utf-8")
+                            f.write(content)
                             logger.info('saved data from "%s" resource into file=%s, length=%.1fKb' %
                                         (url, fname, len(content) / 1024.))
                     return content
@@ -167,7 +154,7 @@ class DataLoader(object):
         """
 
         if not priority:  # no priority set ## randomly order if need (FIX ME LATER)
-            priority = list(sources.keys())  # Python 3
+            priority = list(sources.keys())
 
         for key in priority:
             dat = sources.get(key)
@@ -179,7 +166,7 @@ class DataLoader(object):
             idat.setdefault('cache_time', cache_time)
 
             content = self.load_url_data(**idat)
-            if isinstance(content, bytes) and is_python3():
+            if isinstance(content, bytes):
                 content = content.decode("utf-8")
                 logger.debug('converted content to utf-8')
             if not content:
@@ -215,7 +202,7 @@ def merge_dict_data(d1, d2, keys=[], common=True, left=True, right=True, rec=Fal
 
     ### TODO: verify and configure logic later
 
-    if not(type(d1) == type(d2) and type(d1) is dict):
+    if not (type(d1) == type(d2) and type(d1) is dict):
         return d2
 
     ret = d1.copy()

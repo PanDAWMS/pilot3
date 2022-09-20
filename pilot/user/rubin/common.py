@@ -5,9 +5,10 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
 import os
+from re import findall
 from signal import SIGTERM
 
 from pilot.common.exception import TrfDownloadFailure
@@ -109,13 +110,13 @@ def update_job_data(job):
     pass
 
 
-def remove_redundant_files(workdir, outputfiles=[], islooping=False, debugmode=False):
+def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
     """
     Remove redundant files and directories prior to creating the log file.
 
     :param workdir: working directory (string).
     :param outputfiles: list of output files.
-    :param islooping: looping job variable to make sure workDir is not removed in case of looping (boolean).
+    :param piloterrors: list of Pilot assigned error codes (list).
     :param debugmode: True if debug mode has been switched on (Boolean).
     :return:
     """
@@ -144,7 +145,7 @@ def get_utility_commands(order=None, job=None):
     return {}
 
 
-def get_utility_command_setup(name, setup=None):
+def get_utility_command_setup(name, job, setup=None):
     """
     Return the proper setup for the given utility command.
     If a payload setup is specified
@@ -300,3 +301,21 @@ def allow_timefloor(submitmode):
         allow = False
 
     return allow
+
+
+def get_pilot_id(jobid):
+    """
+    Get the pilot id from the environment variable GTAG.
+    Update for each job to get a unique pilot id per job.
+
+    :param jobid: PanDA job id (int).
+    :return: pilot id (string).
+    """
+
+    pilotid = os.environ.get("GTAG", "unknown")
+    regex = r'PandaJob\_(\d+)+'
+    _id = findall(regex, pilotid)
+    if _id:
+        pilotid = pilotid.replace(_id[0], str(jobid))
+
+    return pilotid

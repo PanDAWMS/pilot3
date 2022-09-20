@@ -58,9 +58,9 @@ def write_pilot_timing(pilot_timing_dictionary):
     #    timing_file += '_{0}'.format(rank)
     path = os.path.join(os.environ.get('PILOT_HOME', ''), timing_file)
     if write_json(path, pilot_timing_dictionary):
-        logger.debug('updated pilot timing dictionary: %s' % path)
+        logger.debug(f'updated pilot timing dictionary: {path}')
     else:
-        logger.warning('failed to update pilot timing dictionary: %s' % path)
+        logger.warning(f'failed to update pilot timing dictionary: {path}')
 
 
 def add_to_pilot_timing(job_id, timing_constant, time_measurement, args, store=False):
@@ -204,19 +204,18 @@ def get_postgetjob_time(job_id, args):
             time_measurement = time_measurement_dictionary.get(timing_constant, None)
 
         if not time_measurement:
-            logger.warning('failed to extract time measurement %s from %s (no such key)' % (timing_constant, time_measurement_dictionary))
+            logger.warning(f'failed to extract time measurement {timing_constant} from {time_measurement_dictionary} (no such key)')
 
     return time_measurement
 
 
-def get_time_measurement(timing_constant, time_measurement_dictionary, timing_dictionary, job_id):
+def get_time_measurement(timing_constant, time_measurement_dictionary, timing_dictionary):
     """
     Return a requested time measurement from the time measurement dictionary, read from the pilot timing file.
 
     :param timing_constant: timing constant (e.g. PILOT_MULTIJOB_START_TIME)
     :param time_measurement_dictionary: time measurement dictionary, extracted from pilot timing dictionary.
     :param timing_dictionary: full timing dictionary from pilot timing file.
-    :param job_id: PanDA job id (string).
     :return: time measurement (float).
     """
 
@@ -228,8 +227,7 @@ def get_time_measurement(timing_constant, time_measurement_dictionary, timing_di
         if time_measurement_dictionary_0:
             time_measurement = time_measurement_dictionary_0.get(timing_constant, None)
         else:
-            logger.warning('failed to extract time measurement %s from %s (no such key)' % (timing_constant, time_measurement_dictionary))
-
+            logger.warning(f'failed to extract time measurement {timing_constant} from {time_measurement_dictionary} (no such key)')
     return time_measurement
 
 
@@ -272,14 +270,13 @@ def get_time_since(job_id, timing_constant, args):
         # extract time measurements
         time_measurement_dictionary = args.timing.get(job_id, None)
         if time_measurement_dictionary:
-            time_measurement = get_time_measurement(timing_constant, time_measurement_dictionary,
-                                                    args.timing, job_id)
+            time_measurement = get_time_measurement(timing_constant, time_measurement_dictionary, args.timing)
             if time_measurement:
                 diff = time.time() - time_measurement
         else:
-            logger.warning('failed to extract time measurement dictionary from %s' % str(args.timing))
+            logger.warning(f'failed to extract time measurement dictionary from {args.timing}')
     else:
-        logger.warning('job id %s not found in timing dictionary' % job_id)
+        logger.warning(f'job id {job_id} not found in timing dictionary')
 
     return diff
 
@@ -311,17 +308,15 @@ def get_time_difference(job_id, timing_constant_1, timing_constant_2, args):
         time_measurement_dictionary = args.timing.get(job_id, None)
         if time_measurement_dictionary:
 
-            time_measurement_1 = get_time_measurement(timing_constant_1, time_measurement_dictionary,
-                                                      args.timing, job_id)
-            time_measurement_2 = get_time_measurement(timing_constant_2, time_measurement_dictionary,
-                                                      args.timing, job_id)
+            time_measurement_1 = get_time_measurement(timing_constant_1, time_measurement_dictionary, args.timing)
+            time_measurement_2 = get_time_measurement(timing_constant_2, time_measurement_dictionary, args.timing)
 
             if time_measurement_1 and time_measurement_2:
                 diff = time_measurement_2 - time_measurement_1
         else:
-            logger.warning('failed to extract time measurement dictionary from %s' % str(args.timing))
+            logger.warning(f'failed to extract time measurement dictionary from {args.timing}')
     else:
-        logger.warning('job id %s not found in timing dictionary' % job_id)
+        logger.warning(f'job id {job_id} not found in timing dictionary')
 
     # always return a positive number
     if diff < 0:
@@ -330,8 +325,8 @@ def get_time_difference(job_id, timing_constant_1, timing_constant_2, args):
     # convert to int as a last step
     try:
         diff = int(diff)
-    except Exception as e:
-        logger.warning('failed to convert %s to int: %s (will reset to 0)' % (diff, e))
+    except Exception as exc:
+        logger.warning(f'failed to convert {diff} to int: {exc} (will reset to 0)')
         diff = 0
 
     return diff
@@ -350,22 +345,22 @@ def timing_report(job_id, args):
     time_getjob = get_getjob_time(job_id, args)
     time_initial_setup = get_initial_setup_time(job_id, args)
     time_setup = get_setup_time(job_id, args)
-    time_total_setup = time_initial_setup + time_setup
+    #time_total_setup = time_initial_setup + time_setup
     time_stagein = get_stagein_time(job_id, args)
     time_payload = get_payload_execution_time(job_id, args)
     time_stageout = get_stageout_time(job_id, args)
     logger.info('.' * 30)
     logger.info('. Timing measurements:')
-    logger.info('. get job = %d s' % time_getjob)
-    logger.info('. initial setup = %d s' % time_initial_setup)
-    logger.info('. payload setup = %d s' % time_setup)
-    logger.info('. total setup = %d s' % time_total_setup)
-    logger.info('. stage-in = %d s' % time_stagein)
-    logger.info('. payload execution = %d s' % time_payload)
-    logger.info('. stage-out = %d s' % time_stageout)
+    logger.info(f'. get job = {time_getjob} s')
+    logger.info(f'. initial setup = {time_initial_setup} s')
+    logger.info(f'. payload setup = {time_setup} s')
+    #logger.info(f'. total setup = {time_total_setup} s')
+    logger.info(f'. stage-in = {time_stagein} s')
+    logger.info(f'. payload execution = {time_payload} s')
+    logger.info(f'. stage-out = {time_stageout} s')
     logger.info('.' * 30)
 
-    return time_getjob, time_stagein, time_payload, time_stageout, time_total_setup
+    return time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup
 
 
 def time_stamp():
@@ -395,15 +390,13 @@ def get_elapsed_real_time(t0=None):
     :return: time stamp (int).
     """
 
-    if t0 and type(t0) == tuple:
+    if t0 and isinstance(t0, tuple):
         try:
             _t0 = int(t0[4])
-        except Exception as e:
-            logger.warning('unknown timing format for t0: %s' % e)
+        except (IndexError, ValueError, TypeError) as exc:
+            logger.warning(f'unknown timing format for t0: {exc}')
             _t0 = 0
     else:
         _t0 = 0
 
-    t = int(os.times()[4])
-
-    return t - _t0
+    return int(os.times()[4]) - _t0

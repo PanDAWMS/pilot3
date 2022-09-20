@@ -5,16 +5,12 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
 
 # Note: leave this module for now - the code might be useful for reuse
 
 import time
-
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
+import queue
 
 from pilot.common.exception import ExcThread
 from pilot.util.processes import threads_aborted

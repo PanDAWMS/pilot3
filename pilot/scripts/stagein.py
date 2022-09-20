@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
 
 import argparse
 import os
@@ -13,6 +13,7 @@ import re
 
 from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
+from pilot.common.exception import ConversionFailure
 from pilot.info import InfoService, FileSpec, infosys
 from pilot.util.config import config
 from pilot.util.filehandling import establish_logging, write_json, read_json
@@ -168,18 +169,23 @@ def get_args():
                             required=False,
                             default='',
                             help='PQ catchall field')
+    arg_parser.add_argument('--rucio_host',
+                            dest='rucio_host',
+                            required=False,
+                            default='',
+                            help='Optional rucio host')
 
     return arg_parser.parse_args()
 
 
-def str2bool(v):
+def str2bool(_str):
     """ Helper function to convert string to bool """
 
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if isinstance(_str, bool):
+        return _str
+    if _str.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif _str.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
@@ -189,52 +195,55 @@ def verify_args():
     """
     Make sure required arguments are set, and if they are not then set them.
     (deprecated)
-    :return:
+
+    :return: internal error code (int).
     """
+
+    ret = 0
     if not args.workdir:
         args.workdir = os.getcwd()
 
-    if not args.queuename:
+    elif not args.queuename:
         message('queue name not set, cannot initialize InfoService')
-        return NO_QUEUENAME
+        ret = NO_QUEUENAME
 
-    if not args.scopes:
+    elif not args.scopes:
         message('scopes not set')
-        return NO_SCOPES
+        ret = NO_SCOPES
 
-    if not args.lfns:
+    elif not args.lfns:
         message('LFNs not set')
-        return NO_LFNS
+        ret = NO_LFNS
 
-    if not args.eventtype:
+    elif not args.eventtype:
         message('No event type provided')
-        return NO_EVENTTYPE
+        ret = NO_EVENTTYPE
 
-    if not args.localsite:
+    elif not args.localsite:
         message('No local site provided')
-        return NO_LOCALSITE
+        ret = NO_LOCALSITE
 
-    if not args.remotesite:
+    elif not args.remotesite:
         message('No remote site provided')
-        return NO_REMOTESITE
+        ret = NO_REMOTESITE
 
-    if not args.produserid:
+    elif not args.produserid:
         message('No produserid provided')
-        return NO_PRODUSERID
+        ret = NO_PRODUSERID
 
-    if not args.jobid:
+    elif not args.jobid:
         message('No jobid provided')
-        return NO_JOBID
+        ret = NO_JOBID
 
-    if not args.taskid:
+    elif not args.taskid:
         message('No taskid provided')
-        return NO_TASKID
+        ret = NO_TASKID
 
-    if not args.jobdefinitionid:
+    elif not args.jobdefinitionid:
         message('No jobdefinitionid provided')
-        return NO_JOBDEFINITIONID
+        ret = NO_JOBDEFINITIONID
 
-    return 0
+    return ret
 
 
 def message(msg):
@@ -243,12 +252,12 @@ def message(msg):
 
 def str_to_int_list(_list):
     _new_list = []
-    for x in _list:
+    for val in _list:
         try:
-            _x = int(x)
-        except Exception:
-            _x = None
-        _new_list.append(_x)
+            _val = int(val)
+        except (ValueError, TypeError):
+            _val = None
+        _new_list.append(_val)
     return _new_list
 
 
@@ -284,7 +293,7 @@ def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, dir
         _accessmodes = accessmodes.split(',')
         _storagetokens = storagetokens.split(',')
         _guids = guids.split(',')
-    except Exception as error:
+    except (NameError, TypeError, ValueError) as error:
         message("exception caught: %s" % error)
 
     file_list_dictionary = {'lfns': _lfns, 'scopes': _scopes, 'filesizes': _filesizes, 'checksums': _checksums,
@@ -329,16 +338,16 @@ def add_to_dictionary(dictionary, key, value1, value2, value3, value4):
     return dictionary
 
 
-def extract_error_info(err):
+def extract_error_info(errc):
 
     error_code = 0
     error_message = ""
 
-    _code = re.search(r'error code: (\d+)', err)
+    _code = re.search(r'error code: (\d+)', errc)
     if _code:
         error_code = _code.group(1)
 
-    _msg = re.search('details: (.+)', err)
+    _msg = re.search('details: (.+)', errc)
     if _msg:
         error_message = _msg.group(1)
         error_message = error_message.replace('[PilotException(', '').strip()
@@ -366,8 +375,8 @@ if __name__ == '__main__':
     # get the file info
     try:
         replica_dictionary = read_json(os.path.join(args.workdir, args.replicadictionary))
-    except Exception as e:
-        message('exception caught reading json: %s' % e)
+    except ConversionFailure as exc:
+        message('exception caught reading json: %s' % exc)
         exit(1)
 
 #    file_list_dictionary = get_file_lists(args.lfns, args.scopes, args.filesizes, args.checksums, args.allowlans,
@@ -396,8 +405,8 @@ if __name__ == '__main__':
         infoservice = InfoService()
         infoservice.init(args.queuename, infosys.confinfo, infosys.extinfo)
         infosys.init(args.queuename)  # is this correct? otherwise infosys.queuedata doesn't get set
-    except Exception as e:
-        message(e)
+    except Exception as exc:
+        message(exc)
 
     # perform stage-in (single transfers)
     err = ""
@@ -409,7 +418,7 @@ if __name__ == '__main__':
         client = StageInClient(infoservice, logger=logger, trace_report=trace_report)
         activity = 'pr'
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, use_pcache=args.usepcache, use_bulk=False,
-                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall)
+                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall, rucio_host=args.rucio_host)
     xfiles = []
     for lfn in replica_dictionary:
         files = [{'scope': replica_dictionary[lfn]['scope'],
@@ -424,36 +433,18 @@ if __name__ == '__main__':
                   'direct_access_wan': replica_dictionary[lfn]['directaccesswan'],
                   'is_tar': replica_dictionary[lfn]['istar'],
                   'accessmode': replica_dictionary[lfn]['accessmode'],
-                  'storage_token': replica_dictionary[lfn]['storagetoken']}]
+                  'storage_token': replica_dictionary[lfn]['storagetoken'],
+                  'checkinputsize': True}]
 
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
         _xfiles = [FileSpec(type='input', **f) for f in files]
         xfiles += _xfiles
 
-#    for lfn, scope, filesize, checksum, allowlan, allowwan, dalan, dawan, istar, accessmode, sttoken, guid in list(zip(lfns,
-#                                                                                                                       scopes,
-#                                                                                                                       filesizes,
-#                                                                                                                       checksums,
-#                                                                                                                       allowlans,
-#                                                                                                                       allowwans,
-#                                                                                                                       directaccesslans,
-#                                                                                                                       directaccesswans,
-#                                                                                                                       istars,
-#                                                                                                                       accessmodes,
-#                                                                                                                       storagetokens,
-#                                                                                                                       guids)):
-#        files = [{'scope': scope, 'lfn': lfn, 'workdir': args.workdir, 'filesize': filesize, 'checksum': checksum,
-#                  'allow_lan': allowlan, 'allow_wan': allowwan, 'direct_access_lan': dalan, 'guid': guid,
-#                  'direct_access_wan': dawan, 'is_tar': istar, 'accessmode': accessmode, 'storage_token': sttoken}]
-#
-#        # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
-#        _xfiles = [FileSpec(type='input', **f) for f in files]
-#        xfiles += _xfiles
-
     try:
-        r = client.transfer(xfiles, activity=activity, **kwargs)
-    except Exception as e:
-        err = str(e)
+        client.prepare_sources(xfiles)
+        client.transfer(xfiles, activity=activity, **kwargs)
+    except Exception as exc:
+        err = str(exc)
         errcode = -1
         message(err)
 

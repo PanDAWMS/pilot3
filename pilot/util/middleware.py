@@ -5,15 +5,15 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
 
-from os import environ, path, getcwd  #, chmod
+from os import environ, path, getcwd
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, StageInFailure, StageOutFailure
 from pilot.util.config import config
 from pilot.util.container import execute
-from pilot.util.filehandling import copy, read_json, write_json, write_file, copy_pilot_source  #, find_executable
+from pilot.util.filehandling import copy, read_json, write_json, write_file, copy_pilot_source
 
 import logging
 logger = logging.getLogger(__name__)
@@ -37,31 +37,31 @@ def containerise_general_command(job, container_options, label='command', contai
     if container_type == 'container':
         # add bits and pieces needed to run the cmd in a container
         pilot_user = environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)
         try:
             cmd = user.create_middleware_container_command(job.workdir, job.debug_command, container_options, label=label, proxy=False)
-        except PilotException as e:
-            raise e
+        except PilotException as exc:
+            raise exc
     else:
         logger.warning('not yet implemented')
         raise PilotException
 
     try:
-        logger.info('*** executing %s (logging will be redirected) ***', label)
+        logger.info(f'*** executing {label} (logging will be redirected) ***')
         exit_code, stdout, stderr = execute(cmd, job=job, usecontainer=False)
     except Exception as exc:
-        logger.info('*** %s has failed ***', label)
-        logger.warning('exception caught: %s', exc)
+        logger.info(f'*** {label} has failed ***')
+        logger.warning(f'exception caught: {exc}')
     else:
         if exit_code == 0:
-            logger.info('*** %s has finished ***', label)
+            logger.info(f'*** {label} has finished ***')
         else:
-            logger.info('*** %s has failed ***', label)
-        logger.debug('%s script returned exit_code=%d', label, exit_code)
+            logger.info(f'*** {label} has failed ***')
+        logger.debug(f'{label} script returned exit_code={exit_code}')
 
 
 def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite, container_options, external_dir,
-                            label='stage-in', container_type='container'):
+                            label='stage-in', container_type='container', rucio_host=''):
     """
     Containerise the middleware by performing stage-in/out steps in a script that in turn can be run in a container.
 
@@ -78,8 +78,9 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
     :param remotesite:
     :param container_options: container options from queuedata (string).
     :param external_dir: input or output files directory (string).
-    :param label: optional 'stage-in/out' (String).
-    :param container_type: optional 'container/bash'
+    :param label: optional 'stage-in/out' (string).
+    :param container_type: optional 'container/bash' (string).
+    :param rucio_host: optiona rucio host (string).
     :raises StageInFailure: for stage-in failures
     :raises StageOutFailure: for stage-out failures
     :return:
@@ -91,35 +92,36 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
     script = config.Container.middleware_container_stagein_script if label == 'stage-in' else config.Container.middleware_container_stageout_script
 
     try:
-        cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label, container_type=container_type)
-    except PilotException as e:
-        raise e
+        cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label,
+                          container_type=container_type, rucio_host=rucio_host)
+    except PilotException as exc:
+        raise exc
 
     if container_type == 'container':
         # add bits and pieces needed to run the cmd in a container
         pilot_user = environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)
         try:
             cmd = user.create_middleware_container_command(job.workdir, cmd, container_options, label=label)
-        except PilotException as e:
-            raise e
+        except PilotException as exc:
+            raise exc
     else:
-        logger.warning('%s will not be done in a container (but it will be done by a script)', label)
+        logger.warning(f'{label} will not be done in a container (but it will be done by a script)')
 
     try:
-        logger.info('*** executing %s (logging will be redirected) ***', label)
+        logger.info(f'*** executing {label} (logging will be redirected) ***')
         exit_code, stdout, stderr = execute(cmd, job=job, usecontainer=False)
     except Exception as exc:
-        logger.info('*** %s has failed ***', label)
-        logger.warning('exception caught: %s', exc)
+        logger.info(f'*** {label} has failed ***')
+        logger.warning(f'exception caught: {exc}')
     else:
         if exit_code == 0:
-            logger.info('*** %s has finished ***', label)
+            logger.info(f'*** {label} has finished ***')
         else:
-            logger.info('*** %s has failed ***', label)
-            logger.warning('stderr:\n%s', stderr)
-            logger.warning('stdout:\n%s', stdout)
-        logger.debug('%s script returned exit_code=%d', label, exit_code)
+            logger.info(f'*** {label} has failed ***')
+            logger.warning(f'stderr:\n{stderr}')
+            logger.warning(f'stdout:\n{stdout}')
+        logger.debug(f'{label} script returned exit_code={exit_code}')
 
         # write stdout+stderr to files
         try:
@@ -127,7 +129,7 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
             write_file(path.join(job.workdir, _stdout_name), stdout, mute=False)
             write_file(path.join(job.workdir, _stderr_name), stderr, mute=False)
         except PilotException as exc:
-            msg = 'exception caught: %s' % exc
+            msg = f'exception caught: {exc}'
             if label == 'stage-in':
                 raise StageInFailure(msg)
             else:
@@ -151,7 +153,7 @@ def get_script_path(script):
     srcdir = environ.get('PILOT_SOURCE_DIR', '.')
     _path = path.join(srcdir, 'pilot/scripts')
     if not path.exists(_path):
-        _path = path.join(srcdir, 'pilot2')
+        _path = path.join(srcdir, 'pilot3')
         _path = path.join(_path, 'pilot/scripts')
     _path = path.join(_path, script)
     if not path.exists(_path):
@@ -160,7 +162,8 @@ def get_script_path(script):
     return _path
 
 
-def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label='stage-in', container_type='container'):
+def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label='stage-in',
+                container_type='container', rucio_host=''):
     """
     Get the middleware container execution command.
 
@@ -176,6 +179,7 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
     :param external_dir: input or output files directory (string).
     :param label: optional 'stage-[in|out]' (string).
     :param container_type: optional 'container/bash' (string).
+    :param rucio_host: optional rucio host (string).
     :return: stage-in/out command (string).
     :raises PilotException: for stage-in/out related failures
     """
@@ -189,7 +193,7 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
         try:
             status = write_json(path.join(job.workdir, config.Container.stagein_replica_dictionary), filedata_dictionary)
         except Exception as exc:
-            diagnostics = 'exception caught in get_command(): %s' % exc
+            diagnostics = f'exception caught in get_command(): {exc}'
             logger.warning(diagnostics)
             raise PilotException(diagnostics)
         else:
@@ -216,7 +220,7 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
     else:
         # for container_type=bash we need to add the rucio setup
         pilot_user = environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)
         try:
             final_script_path = user.get_middleware_container_script('', final_script_path, asetup=True)
         except PilotException:
@@ -240,7 +244,8 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
 
     cmd += ' --taskid=%s' % job.taskid
     cmd += ' --jobdefinitionid=%s' % job.jobdefinitionid
-    cmd += ' --catchall=%s' % job.infosys.queuedata.catchall
+    cmd += ' --catchall=\'%s\'' % job.infosys.queuedata.catchall
+    cmd += ' --rucio_host=\'%s\'' % rucio_host
 
     if container_type == 'bash':
         cmd += '\nexit $?'
@@ -282,7 +287,7 @@ def handle_updated_job_object(job, xdata, label='stage-in'):
                     fspec.checksum['adler32'] = file_dictionary[fspec.lfn][4]
                     fspec.filesize = file_dictionary[fspec.lfn][5]
             except Exception as exc:
-                msg = "exception caught while reading file dictionary: %s" % exc
+                msg = f"exception caught while reading file dictionary: {exc}"
                 logger.warning(msg)
                 if label == 'stage-in':
                     raise StageInFailure(msg)
@@ -295,7 +300,7 @@ def handle_updated_job_object(job, xdata, label='stage-in'):
         if error_code:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=error_diag)
     else:
-        msg = "%s file dictionary not found" % label
+        msg = f"{label} file dictionary not found"
         logger.warning(msg)
         if label == 'stage-in':
             raise StageInFailure(msg)
@@ -358,7 +363,7 @@ def get_filedata(data):
                                           'accessmode': fspec.accessmode,
                                           'storagetoken': fspec.storage_token}
         except Exception as exc:
-            logger.warning('exception caught in get_filedata(): %s', exc)
+            logger.warning(f'exception caught in get_filedata(): {exc}')
 
     return file_dictionary
 

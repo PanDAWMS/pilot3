@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 
 import time
 
@@ -46,17 +46,16 @@ def scan_for_jobs(queues):
     :return: found jobs (list of job objects).
     """
 
-    t0 = time.time()
+    _t0 = time.time()
     found_job = False
     jobs = None
 
-    while time.time() - t0 < 30:
-        for q in queues._fields:
-            _q = getattr(queues, q)
-            jobs = list(_q.queue)
+    while time.time() - _t0 < 30:
+        for queue in queues._fields:
+            _queue = getattr(queues, queue)
+            jobs = list(_queue.queue)
             if len(jobs) > 0:
-                logger.info('found %d job(s) in queue %s after %d s - will begin queue monitoring' %
-                            (len(jobs), q, time.time() - t0))
+                logger.info(f'found {len(jobs)} job(s) in queue {queue} after {time.time() - _t0} s - will begin queue monitoring')
                 found_job = True
                 break
         if found_job:
@@ -102,35 +101,42 @@ def abort_jobs_in_queues(queues, sig):
     jobs_list = []
 
     # loop over all queues and find all jobs
-    for q in queues._fields:
-        _q = getattr(queues, q)
-        jobs = list(_q.queue)
+    for queue in queues._fields:
+        _queue = getattr(queues, queue)
+        jobs = list(_queue.queue)
         for job in jobs:
             if is_string(job):  # this will be the case for the completed_jobids queue
                 continue
             if job not in jobs_list:
                 jobs_list.append(job)
 
-    logger.info('found %d job(s) in %d queues' % (len(jobs_list), len(queues._fields)))
+    logger.info(f'found {len(jobs_list)} job(s) in {len(queues._fields)} queues')
     for job in jobs_list:
-        try:
-            logger.info('aborting job %s' % job.jobid)
-            declare_failed_by_kill(job, queues.failed_jobs, sig)
-        except Exception as e:
-            logger.warning('failed to declare job as failed: %s' % e)
+        logger.info(f'aborting job {job.jobid}')
+        declare_failed_by_kill(job, queues.failed_jobs, sig)
 
 
-def queue_report(queues):
+def queue_report(queues, purge=False):
     """
+    Report on how many jobs are till in the various queues.
+    This function can also empty the queues (except completed_jobids).
 
-    :param queues:
+    :param queues: queues object.
+    :param purge: clean up queues if True (Boolean).
     :return:
     """
 
-    for q in queues._fields:
-        _q = getattr(queues, q)
-        jobs = list(_q.queue)
-        logger.info('queue %s has %d job(s)' % (q, len(jobs)))
+    exceptions_list = ['completed_jobids']
+    for queue in queues._fields:
+        _queue = getattr(queues, queue)
+        jobs = list(_queue.queue)
+        if queue not in exceptions_list:
+            tag = '[purged]' if purge else ''
+            logger.info(f'queue {queue} had {len(jobs)} job(s) {tag}')
+            with _queue.mutex:
+                _queue.queue.clear()
+        else:
+            logger.info(f'queue {queue} has {len(jobs)} job(s)')
 
 
 def put_in_queue(obj, queue):

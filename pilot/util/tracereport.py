@@ -9,6 +9,7 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018
 
 import hashlib
+import os
 import socket
 import time
 from sys import exc_info
@@ -83,13 +84,14 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
+        hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
         try:
-            self['hostname'] = socket.gethostbyaddr(socket.gethostname())[0]
+            self['hostname'] = socket.gethostbyaddr(hostname)[0]
         except Exception:
             logger.debug("unable to detect hostname for trace report")
 
         try:
-            self['ip'] = socket.gethostbyname(socket.gethostname())
+            self['ip'] = socket.gethostbyname(hostname)
         except Exception:
             logger.debug("unable to detect host IP for trace report")
 

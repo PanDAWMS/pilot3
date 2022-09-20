@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 """
 The implementation of base data structure to host various settings collected
@@ -69,22 +69,14 @@ class BaseData(object):
                           None: self.clean_string,  # default validator
                           }
 
-        try:
-            _items = list(self._keys.items())  # Python 3
-        except Exception:
-            _items = self._keys.iteritems()  # Python 2
-        for ktype, knames in _items:
+        for ktype, knames in list(self._keys.items()):
 
             for kname in knames:
                 raw, value = None, None
 
                 ext_names = kmap.get(kname) or kname
-                try:
-                    if isinstance(ext_names, basestring):  # Python 2  # noqa: F821
-                        ext_names = [ext_names]
-                except Exception:
-                    if isinstance(ext_names, str):  # Python 3
-                        ext_names = [ext_names]
+                if isinstance(ext_names, str):
+                    ext_names = [ext_names]
 
                 for name in ext_names:
                     raw = data.get(name)
@@ -127,18 +119,14 @@ class BaseData(object):
         if isinstance(raw, ktype):
             return raw
 
-        try:
-            if isinstance(raw, basestring):  # Python 2  # noqa: F821
-                raw = raw.strip()
-        except Exception:
-            if isinstance(raw, str):  # Python 3
-                raw = raw.strip()
+        if isinstance(raw, str):
+            raw = raw.strip()
 
         try:
             return ktype(raw)
         except Exception:
             if raw is not None:
-                logger.warning('failed to convert data for key=%s, raw=%s to type=%s, defval=%s' % (kname, raw, ktype, defval))
+                logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}, defval={defval}')
             return defval
 
     def clean_string(self, raw, ktype, kname=None, defval=""):
@@ -155,16 +143,12 @@ class BaseData(object):
         if raw is None:
             return defval
         else:
-            try:
-                if isinstance(raw, basestring):  # Python 2  # noqa: F821
-                    raw = raw.strip()
-            except Exception:
-                if isinstance(raw, str):  # Python 3
-                    raw = raw.strip()
+            if isinstance(raw, str):
+                raw = raw.strip()
         try:
             return ktype(raw)
         except Exception:
-            logger.warning('failed to convert data for key=%s, raw=%s to type=%s' % (kname, raw, ktype))
+            logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
     def clean_boolean(self, raw, ktype, kname=None, defval=None):
@@ -185,7 +169,7 @@ class BaseData(object):
         allowed_values = ['', 'none', 'true', 'false', 'yes', 'no', '1', '0']
 
         if val not in allowed_values:
-            logger.warning('failed to convert data for key=%s, raw=%s to type=%s' % (kname, raw, ktype))
+            logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
         return val.lower() in ['1', 'true', 'yes']
@@ -209,7 +193,7 @@ class BaseData(object):
         try:
             return ktype(raw)
         except Exception:
-            logger.warning('failed to convert data for key=%s, raw=%s to type=%s' % (kname, raw, ktype))
+            logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
     def clean_listdata(self, raw, ktype, kname=None, defval=None):
@@ -226,16 +210,12 @@ class BaseData(object):
         elif raw is None:
             return defval
         else:
-            try:
-                if isinstance(raw, basestring):  # Python 2  # noqa: F821
-                    raw = raw.split(',')
-            except Exception:
-                if isinstance(raw, str):  # Python 3
-                    raw = raw.split(',')
+            if isinstance(raw, str):
+                raw = raw.split(',')
         try:
             return ktype(raw)
         except Exception:
-            logger.warning('failed to convert data for key=%s, raw=%s to type=%s' % (kname, raw, ktype))
+            logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
     ## custom function pattern to apply extra validation to the give key values

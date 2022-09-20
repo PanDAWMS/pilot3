@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 import os
 import time
@@ -48,7 +48,7 @@ def find_processes_in_group(cpids, pid):
                 thispid = int(lines[i].split()[0])
                 thisppid = int(lines[i].split()[1])
             except Exception as error:
-                logger.warning('exception caught: %s', error)
+                logger.warning(f'exception caught: {error}')
             if thisppid == pid:
                 find_processes_in_group(cpids, thispid)
 
@@ -393,8 +393,7 @@ def kill_orphans():
 
     cmd = "ps -o pid,ppid,args -u %s" % whoami()
     exit_code, _processes, stderr = execute(cmd)
-    #pattern = re.compile(r'(\d+)\s+(\d+)\s+(\S+)')  # Python 3 (added r)
-    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')  # Python 3 (added r)
+    pattern = re.compile(r'(\d+)\s+(\d+)\s+([\S\s]+)')
 
     count = 0
     for line in _processes.split('\n'):
@@ -410,7 +409,7 @@ def kill_orphans():
                 continue
             if 'cvmfs2' in args:
                 logger.info("ignoring possible orphan process running cvmfs2: pid=%s, ppid=%s, args=\'%s\'", pid, ppid, args)
-            elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args:
+            elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args or 'runpilot3-wrapper.sh' in args:
                 logger.info("ignoring pilot launcher: pid=%s, ppid=%s, args='%s'", pid, ppid, args)
             elif ppid == '1':
                 count += 1
@@ -523,9 +522,12 @@ def get_instant_cpu_consumption_time(pid):
     if pid and hz and hz > 0:
         path = "/proc/%d/stat" % pid
         if os.path.exists(path):
-            with open(path) as fp:
-                fields = fp.read().split(' ')[13:17]
-                utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
+            try:
+                with open(path) as fp:
+                    fields = fp.read().split(' ')[13:17]
+                    utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
+            except (FileNotFoundError, IOError) as exc:
+                logger.warning(f'exception caught: {exc} (ignored)')
 
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes
@@ -595,7 +597,7 @@ def cleanup(job, args):
         logger.info('workdir not removed %s', job.workdir)
 
     # collect any zombie processes
-    job.collect_zombies(tn=10)
+    job.collect_zombies(depth=10)
     logger.info("collected zombie processes")
 
     if job.pid:
@@ -756,3 +758,16 @@ def is_child(pid, pandaid_pid, dictionary):
         else:
             # try another pid
             return is_child(ppid, pandaid_pid, dictionary)
+
+
+def get_subprocesses(pid):
+    """
+    Return the subprocesses belonging to the given PID.
+
+    :param pid: main process PID (int).
+    :return: list of subprocess PIDs.
+    """
+
+    cmd = f'ps -opid --no-headers --ppid {pid}'
+    _, out, _ = execute(cmd)
+    return [int(line) for line in out.splitlines()] if out else []

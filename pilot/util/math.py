@@ -5,15 +5,12 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
 
 from pilot.common.exception import NotDefined
 
 from decimal import Decimal
 from re import split, sub
-
-import logging
-logger = logging.getLogger(__name__)
 
 SYMBOLS = {
     'customary': ('B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'),
@@ -36,7 +33,6 @@ def mean(data):
     if n < 1:
         raise ValueError('mean requires at least one data point')
 
-    # return sum(data)/n # in Python 2 use sum(data)/float(n)
     return sum(data) / float(n)
 
 
@@ -60,7 +56,7 @@ def sum_dev(x, y):
     Sum (x - x_mean)**(y - y_mean)
 
     :param x: list of ints or floats.
-    :param y:  list of ints or floats.
+    :param y: list of ints or floats.
     :return: sum of deviations (float).
     """
 
@@ -82,7 +78,7 @@ def chi2(observed, expected):
     if 0 in expected:
         return 0.0
 
-    return sum((_o - _e) ** 2 / _e for _o, _e in zip(observed, expected))
+    return sum((_o - _e) ** 2 / _e ** 2 for _o, _e in zip(observed, expected))
 
 
 def float_to_rounded_string(num, precision=3):
@@ -98,13 +94,13 @@ def float_to_rounded_string(num, precision=3):
 
     try:
         _precision = Decimal(10) ** -precision
-    except Exception as e:
-        raise NotDefined('failed to define precision=%s: %e' % (str(precision), e))
+    except Exception as exc:
+        raise NotDefined(f'failed to define precision={precision}: {exc}')
 
     try:
         s = Decimal(str(num)).quantize(_precision)
-    except Exception as e:
-        raise NotDefined('failed to convert %s to Decimal: %s' % (str(num), e))
+    except Exception as exc:
+        raise NotDefined(f'failed to convert {num} to Decimal: {exc}')
 
     return str(s)
 
@@ -186,8 +182,8 @@ def convert_mb_to_b(size):
 
     try:
         size = int(size)
-    except Exception as e:
-        raise ValueError('cannot convert %s to int: %s' % (str(size), e))
+    except Exception as exc:
+        raise ValueError(f'cannot convert {size} to int: {exc}')
 
     return size * 1024 ** 2
 

@@ -8,7 +8,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 import time
@@ -19,14 +19,14 @@ from subprocess import PIPE
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state, show_memory_usage
-# from pilot.util.config import config
+from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
     UTILITY_AFTER_PAYLOAD_FINISHED, PILOT_PRE_SETUP, PILOT_POST_SETUP, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, \
     UTILITY_AFTER_PAYLOAD_STARTED2, UTILITY_AFTER_PAYLOAD_FINISHED2
 from pilot.util.filehandling import write_file
 from pilot.util.processes import kill_processes
-from pilot.util.timing import add_to_pilot_timing
+from pilot.util.timing import add_to_pilot_timing, get_time_measurement
 from pilot.common.exception import PilotException
 
 import logging
@@ -60,17 +60,60 @@ class Executor(object):
         """
         Functions to run pre setup
         :param job: job object
+        :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting pre-setup time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, update_time, self.__args)
 
-    def post_setup(self, job):
+    def post_setup(self, job, update_time=None):
         """
         Functions to run post setup
-        :param job: job object
+        :param job: job object.
+        :return:
         """
+
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, time.time(), self.__args)
+        if not update_time:
+            update_time = time.time()
+        logger.debug(f'setting post-setup time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
+
+    def improve_post_setup(self):
+        """
+        Improve the post setup time if possible.
+        More precise timing info can possibly be extracted from payload stdout.
+
+        Read back the currently stored time for the post-setup, then add the elapsed time that passed between that time
+        and the time stamp from the payload stdout (if found).
+
+        :return:
+        """
+
+        path = os.path.join(self.__job.workdir, config.Payload.payloadstdout)
+        if not os.path.exists(path):
+            return
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        try:
+            end_setup_time = user.get_end_setup_time(path)  # since epoch
+        except Exception as exc:
+            logger.debug(f'caught exception: {exc} (will not update setup time)')
+            end_setup_time = None
+        if end_setup_time:
+            # get the currently stored post-setup time
+            time_measurement_dictionary = self.__args.timing.get(self.__job.jobid, None)
+            current_post_setup = get_time_measurement(PILOT_POST_SETUP, time_measurement_dictionary, self.__args.timing)
+            if current_post_setup:
+                logger.info(f'existing post-setup time: {current_post_setup} s (since epoch) (current time: {time.time()})')
+                logger.debug(f'extracted end time from payload stdout: {end_setup_time} s')
+                diff = end_setup_time - current_post_setup
+                logger.info(f'payload setup finished {diff} s later than previously recorded')
+                self.post_setup(self.__job, update_time=end_setup_time)
 
     def utility_before_payload(self, job):
         """
@@ -86,7 +129,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should we run any additional commands? (e.g. special monitoring commands)
         cmd_dictionary = user.get_utility_commands(order=UTILITY_BEFORE_PAYLOAD, job=job)
@@ -108,7 +151,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be prepended to the payload execution string?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_WITH_PAYLOAD, job=job)
@@ -132,7 +175,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=order, job=self.__job)
@@ -150,7 +193,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_AFTER_PAYLOAD_STARTED, job=job)
@@ -185,7 +228,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(order=UTILITY_AFTER_PAYLOAD_STARTED, job=job)
@@ -227,7 +270,7 @@ class Executor(object):
 
         # get the payload command from the user specific code
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         # should any additional commands be prepended to the payload execution string?
         cmd_dictionary = user.get_utility_commands(order=order, job=job)
@@ -235,7 +278,9 @@ class Executor(object):
             cmd = '%s %s' % (cmd_dictionary.get('command'), cmd_dictionary.get('args'))
             logger.info('utility command (\'%s\') to be executed after the payload has finished: %s', cmd_dictionary.get('label', 'utility'), cmd)
 
-        return cmd, cmd_dictionary.get('label'), cmd_dictionary.get('ignore_failure')
+        label = cmd_dictionary.get('label') if cmd_dictionary else 'unknown'
+        ignore_failure = cmd_dictionary.get('ignore_failure') if cmd_dictionary else False
+        return cmd, label, ignore_failure
 
     def execute_utility_command(self, cmd, job, label):
         """
@@ -312,9 +357,13 @@ class Executor(object):
         E.g. write time stamps to timing file.
 
         :param job: job object.
+        :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting pre-payload time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
 
     def post_payload(self, job):
         """
@@ -322,9 +371,13 @@ class Executor(object):
         E.g. write time stamps to timing file.
 
         :param job: job object
+        :return:
         """
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, time.time(), self.__args)
+        update_time = time.time()
+        logger.debug(f'setting post-payload time to {update_time} s')
+        logger.debug(f'gmtime={time.gmtime(update_time)}')
+        add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, update_time, self.__args)
 
     def run_command(self, cmd, label=None):
         """
@@ -453,15 +506,12 @@ class Executor(object):
 
         breaker = False
         exit_code = None
-        try:
-            iteration = long(0)  # Python 2, do not use 0L since it will create a syntax error in spite of the try # noqa: F821
-        except Exception:
-            iteration = 0  # Python 3, long doesn't exist
+        iteration = 0
         while True:
             time.sleep(0.1)
 
             iteration += 1
-            for _ in range(60):  # Python 2/3
+            for _ in range(60):
                 if args.graceful_stop.is_set():
                     breaker = True
                     logger.info('breaking -- sending SIGTERM pid=%s', proc.pid)
@@ -500,8 +550,7 @@ class Executor(object):
         # for testing looping job: cmd = user.get_payload_command(job) + ';sleep 240'
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user],
-                              0)  # Python 2/3
+            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
             cmd = user.get_payload_command(job)  #+ 'sleep 1000'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
@@ -666,7 +715,12 @@ class Executor(object):
                 for order in [UTILITY_AFTER_PAYLOAD_FINISHED, UTILITY_AFTER_PAYLOAD_FINISHED2]:
                     exit_code = self.run_utility_after_payload_finished(exit_code, state, order)
 
+                # keep track of post-payload timing
                 self.post_payload(self.__job)
+
+                # improve the post-setup timing if possible (more precise time info regarding setup can possibly be
+                # extracted from the payload stdout)
+                self.improve_post_setup()
 
                 # stop any running utilities
                 if self.__job.utilities != {}:
@@ -725,10 +779,10 @@ class Executor(object):
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
 
-        for utcmd in list(self.__job.utilities.keys()):  # Python 2/3
+        for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
                 sig = user.get_utility_command_kill_signal(utcmd)
                 logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
                 try:

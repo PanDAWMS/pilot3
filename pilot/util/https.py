@@ -7,37 +7,38 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 
-import collections
-import subprocess  # Python 2/3
-try:
-    import commands  # Python 2
-except Exception:
-    pass
 import json
 import os
 import platform
+import random
+import socket
 import ssl
 import sys
-try:
-    import urllib.request  # Python 3
-    import urllib.error  # Python 3
-    import urllib.parse  # Python 3
-except Exception:
-    import urllib  # Python 2
-    import urllib2  # Python 2
+import urllib.request
+import urllib.error
+import urllib.parse
 import pipes
+from collections import namedtuple
+from time import sleep, time
+from re import findall
 
-from .filehandling import write_file
-from .auxiliary import is_python3
+from .filehandling import write_file, read_file
 from .config import config
 from .constants import get_pilot_version
+from .container import execute
+from pilot.common.errorcodes import ErrorCodes
 
 import logging
 logger = logging.getLogger(__name__)
+errors = ErrorCodes()
 
-_ctx = collections.namedtuple('_ctx', 'ssl_context user_agent capath cacert')
+_ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
+_ctx.ssl_context = None
+_ctx.user_agent = None
+_ctx.capath = None
+_ctx.cacert = None
 
 # anisyonk: public copy of `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
 # anisyonk: public instance, should be properly initialized by `https_setup()`
@@ -93,7 +94,7 @@ def cacert_default_location():
     try:
         return '/tmp/x509up_u%s' % str(os.getuid())
     except AttributeError:
-        logger.warn('No UID available? System not POSIX-compatible... trying to continue')
+        logger.warning('No UID available? System not POSIX-compatible... trying to continue')
         pass
 
     return None
@@ -137,21 +138,15 @@ def https_setup(args=None, version=None):
                                                        sys.version.split()[0],
                                                        platform.system(),
                                                        platform.machine())
-    logger.debug('User-Agent: %s' % _ctx.user_agent)
-
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
 
-    if sys.version_info < (2, 7, 9):  # by anisyonk: actually SSL context should work, but prior to 2.7.9 there is no automatic hostname/certificate validation
-        logger.warn('Python version <2.7.9 lacks SSL contexts -- falling back to curl')
+    try:
+        _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
+                                                      cafile=_ctx.cacert)
+    except Exception as exc:
+        logger.warning(f'SSL communication is impossible due to SSL error: {exc} -- falling back to curl')
         _ctx.ssl_context = None
-    else:
-        try:
-            _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
-                                                          cafile=_ctx.cacert)
-        except Exception as e:
-            logger.warn('SSL communication is impossible due to SSL error: %s -- falling back to curl' % str(e))
-            _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
     ctx.capath = _ctx.capath
@@ -161,8 +156,8 @@ def https_setup(args=None, version=None):
     try:
         ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
         ctx.ssl_context.load_cert_chain(ctx.cacert)
-    except Exception as e:  # redandant try-catch protection, should work well for both python2 & python3 -- CLEAN ME later (anisyonk)
-        logger.warn('Failed to initialize SSL context .. skipped, error: %s' % str(e))
+    except Exception as exc:
+        logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
 def request(url, data=None, plain=False, secure=True):
@@ -196,7 +191,11 @@ def request(url, data=None, plain=False, secure=True):
 
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
-    logger.debug('server update dictionary = \n%s' % str(data))
+    # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
+    # we might have to update _ctx
+    update_ctx()
+
+    logger.debug(f'server update dictionary = \n{data}')
 
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
@@ -206,16 +205,18 @@ def request(url, data=None, plain=False, secure=True):
     dat = get_curl_config_option(writestatus, url, data, filename)
 
     if _ctx.ssl_context is None and secure:
-        req = get_curl_command(plain, dat)
-
+        req, obscure = get_curl_command(plain, dat)
+        if not req:
+            logger.warning('failed to construct valid curl command')
+            return None
         try:
-            status, output = execute_request(req)
-        except Exception as e:
-            logger.warning('exception: %s' % e)
+            status, output, stderr = execute(req, obscure=obscure)
+        except Exception as exc:
+            logger.warning(f'exception: {exc}')
             return None
         else:
             if status != 0:
-                logger.warn('request failed (%s): %s' % (status, output))
+                logger.warning(f'request failed ({status}): stdout={output}, stderr={stderr}')
                 return None
 
         # return output if plain otherwise return json.loads(output)
@@ -224,8 +225,8 @@ def request(url, data=None, plain=False, secure=True):
         else:
             try:
                 ret = json.loads(output)
-            except Exception as e:
-                logger.warning('json.loads() failed to parse output=%s: %s' % (output, e))
+            except Exception as exc:
+                logger.warning(f'json.loads() failed to parse output={output}: {exc}')
                 return None
             else:
                 return ret
@@ -233,16 +234,21 @@ def request(url, data=None, plain=False, secure=True):
         req = execute_urllib(url, data, plain, secure)
         context = _ctx.ssl_context if secure else None
 
-        if is_python3():  # Python 3
-            ec, output = get_urlopen_output(req, context)
-            if ec:
-                return None
-        else:  # Python 2
-            ec, output = get_urlopen2_output(req, context)
-            if ec:
-                return None
+        ec, output = get_urlopen_output(req, context)
+        if ec:
+            return None
 
         return output.read() if plain else json.load(output)
+
+
+def update_ctx():
+    """
+    Update the ctx object in case X509_USER_PROXY has been updated.
+    """
+
+    x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
+    if x509 != _ctx.cacert and os.path.exists(x509):
+        _ctx.cacert = x509
 
 
 def get_curl_command(plain, dat):
@@ -251,18 +257,73 @@ def get_curl_command(plain, dat):
 
     :param plain:
     :param dat: curl config option (string).
-    :return: curl command (string).
+    :return: curl command (string), sensitive string to be obscured before dumping to log (string).
     """
-    req = 'curl -sS --compressed --connect-timeout %s --max-time %s '\
-          '--capath %s --cert %s --cacert %s --key %s '\
-          '-H %s %s %s' % (config.Pilot.http_connect_timeout, config.Pilot.http_maxtime,
-                           pipes.quote(_ctx.capath or ''), pipes.quote(_ctx.cacert or ''),
-                           pipes.quote(_ctx.cacert or ''), pipes.quote(_ctx.cacert or ''),
-                           pipes.quote('User-Agent: %s' % _ctx.user_agent),
-                           "-H " + pipes.quote('Accept: application/json') if not plain else '',
-                           dat)
-    logger.info('request: %s' % req)
-    return req
+
+    auth_token_content = ''
+    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)  # file name of the token
+    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)  # origin of the token (panda_dev.pilot)
+
+    if auth_token and auth_origin:
+        # curl --silent --capath
+        # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
+        # -H "Authorization: Bearer <contents of PANDA_AUTH_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+        path = locate_token(auth_token)
+        auth_token_content = ""
+        if os.path.exists(path):
+            auth_token_content = read_file(path)
+            if not auth_token_content:
+                logger.warning(f'failed to read file {path}')
+                return None
+        else:
+            logger.warning(f'path does not exist: {path}')
+            return None
+        if not auth_token_content:
+            logger.warning('PANDA_AUTH_TOKEN content could not be read')
+            return None
+        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+              f'--max-time {config.Pilot.http_maxtime} '\
+              f'--capath {pipes.quote(_ctx.capath or "")} ' \
+              f'-H "Authorization: Bearer {pipes.quote(auth_token_content)}" ' \
+              f'-H {pipes.quote("Accept: application/json") if not plain else ""} ' \
+              f'-H "Origin: {pipes.quote(auth_origin)}" {dat}'
+    else:
+        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+              f'--max-time {config.Pilot.http_maxtime} '\
+              f'--capath {pipes.quote(_ctx.capath or "")} ' \
+              f'--cert {pipes.quote(_ctx.cacert or "")} ' \
+              f'--cacert {pipes.quote(_ctx.cacert or "")} ' \
+              f'--key {pipes.quote(_ctx.cacert or "")} '\
+              f'-H {pipes.quote("User-Agent: %s" % _ctx.user_agent)} ' \
+              f'-H {pipes.quote("Accept: application/json") if not plain else ""} {dat}'
+
+    #logger.info('request: %s', req)
+    return req, auth_token_content
+
+
+def locate_token(auth_token):
+    """
+    Locate the token file.
+
+    :param auth_token: file name of token (string).
+    :return: path to token (string).
+    """
+
+    _primary = os.path.dirname(os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', '')))
+    paths = [os.path.join(_primary, auth_token),
+             os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
+             os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
+    path = ""
+    for _path in paths:
+        logger.debug(f'looking for {_path}')
+        if os.path.exists(_path):
+            path = _path
+            break
+
+    if path == "":
+        logger.info(f'did not find any local token file ({auth_token}) in paths={paths}')
+
+    return path
 
 
 def get_vars(url, data):
@@ -276,12 +337,9 @@ def get_vars(url, data):
 
     strdata = ""
     for key in data:
-        try:
-            strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})  # Python 3
-        except Exception:
-            strdata += 'data="%s"\n' % urllib.urlencode({key: data[key]})  # Python 2
+        strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})
     jobid = ''
-    if 'jobId' in list(data.keys()):  # Python 2/3
+    if 'jobId' in list(data.keys()):
         jobid = '_%s' % data['jobId']
 
     # write data to temporary config file
@@ -303,28 +361,11 @@ def get_curl_config_option(writestatus, url, data, filename):
 
     if not writestatus:
         logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
-        try:
-            dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')  # Python 3
-        except Exception:
-            dat = pipes.quote(url + '?' + urllib.urlencode(data) if data else '')  # Python 2
+        dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
     else:
-        dat = '--config %s %s' % (filename, url)
+        dat = f'--config {filename} {url}'
 
     return dat
-
-
-def execute_request(req):
-    """
-    Execute the curl request.
-
-    :param req: curl request command (string).
-    :return: status (int), output (string).
-    """
-    try:
-        status, output = subprocess.getstatusoutput(req)  # Python 3
-    except Exception:
-        status, output = commands.getstatusoutput(req)  # Python 2
-    return status, output
 
 
 def execute_urllib(url, data, plain, secure):
@@ -335,11 +376,8 @@ def execute_urllib(url, data, plain, secure):
     :param data: data structure
     :return: urllib request structure.
     """
-    try:
-        req = urllib.request.Request(url, urllib.parse.urlencode(data))  # Python 3
-    except Exception:
-        req = urllib2.Request(url, urllib.urlencode(data))  # Python 2
 
+    req = urllib.request.Request(url, urllib.parse.urlencode(data))
     if not plain:
         req.add_header('Accept', 'application/json')
     if secure:
@@ -357,38 +395,186 @@ def get_urlopen_output(req, context):
     :return: ec (int), output (string).
     """
 
-    ec = -1
+    exitcode = -1
     output = ""
     try:
         output = urllib.request.urlopen(req, context=context)
-    except urllib.error.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib.error.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
+    except urllib.error.HTTPError as exc:
+        logger.warning(f'server error ({exc.code}): {exc.read()}')
+    except urllib.error.URLError as exc:
+        logger.warning(f'connection error: {exc.reason}')
     else:
-        ec = 0
+        exitcode = 0
 
-    return ec, output
+    return exitcode, output
 
 
-def get_urlopen2_output(req, context):
+def send_update(update_function, data, url, port, job=None):
     """
-    Get the output from the urlopen2 request.
+    Send the update to the server using the given function and data.
 
-    :param req:
-    :param context:
-    :return: ec (int), output (string).
+    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (string).
+    :param data: data (dictionary).
+    :param url: server url (string).
+    :param port: server port (string).
+    :param job: job object.
+    :return: server response (dictionary).
     """
 
-    ec = -1
-    output = ""
-    try:
-        output = urllib2.urlopen(req, context=context)
-    except urllib2.HTTPError as e:
-        logger.warn('server error (%s): %s' % (e.code, e.read()))
-    except urllib2.URLError as e:
-        logger.warn('connection error: %s' % e.reason)
+    time_before = int(time())
+    max_attempts = 10
+    attempt = 0
+    done = False
+    res = None
+
+    if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
+        data['state'] = 'failed'
+        if job:
+            job.state = 'failed'
+            msg = 'the max batch system time limit has been reached'
+            logger.warning(msg)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+            add_error_codes(data, job)
+
+    while attempt < max_attempts and not done:
+        logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
+
+        # get the URL for the PanDA server from pilot options or from config
+        try:
+            pandaserver = get_panda_server(url, port)
+        except Exception as exc:
+            logger.warning(f'exception caught in get_panda_server(): {exc}')
+            sleep(5)
+            attempt += 1
+            continue
+        # send the heartbeat
+        try:
+            res = request(f'{pandaserver}/server/panda/{update_function}', data=data)
+        except Exception as exc:
+            logger.warning(f'exception caught in https.request(): {exc}')
+        else:
+            if res is not None:
+                done = True
+            txt = f'server {update_function} request completed in {int(time()) - time_before}s'
+            if job:
+                txt += f' for job {job.jobid}'
+            logger.info(txt)
+            # hide sensitive info
+            pilotsecrets = ''
+            if res and 'pilotSecrets' in res:
+                pilotsecrets = res['pilotSecrets']
+                res['pilotSecrets'] = '********'
+            logger.info(f'server responded with: res = {res}')
+            if pilotsecrets:
+                res['pilotSecrets'] = pilotsecrets
+
+        attempt += 1
+    return res
+
+
+def get_panda_server(url, port, update_server=True):
+    """
+    Get the URL for the PanDA server.
+    The URL will be randomized if the server can be contacted (otherwise fixed).
+
+    :param url: URL string, if set in pilot option (port not included).
+    :param port: port number, if set in pilot option (int).
+    :param update_server: True if the server can be contacted (Boolean).
+    :return: full URL (either from pilot options or from config file).
+    """
+
+    if url != '':
+        parsedurl = url.split('://')
+        scheme = None
+        if len(parsedurl) == 2:
+            scheme = parsedurl[0]
+            loc = parsedurl[1]
+        else:
+            loc = parsedurl[0]
+
+        parsedloc = loc.split(':')
+        loc = parsedloc[0]
+
+        # if a port is provided in the url, then override the port argument
+        if len(parsedloc) == 2:
+            port = parsedloc[1]
+        # default scheme to https
+        if not scheme:
+            scheme = "https"
+        portstr = f":{port}" if port else ""
+        pandaserver = f"{scheme}://{loc}{portstr}"
     else:
-        ec = 0
+        pandaserver = config.Pilot.pandaserver
+        if not pandaserver.startswith('http'):
+            pandaserver = 'https://' + pandaserver
 
-    return ec, output
+    if not update_server:
+        return pandaserver
+
+    # add randomization for PanDA server
+    default = 'pandaserver.cern.ch'
+    if default in pandaserver:
+        rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
+        pandaserver = pandaserver.replace(default, rnd)
+        logger.debug(f'updated {default} to {pandaserver}')
+
+    return pandaserver
+
+
+def add_error_codes(data, job):
+    """
+    Add error codes to data structure.
+
+    :param data: data dictionary.
+    :param job: job object.
+    :return:
+    """
+
+    # error codes
+    pilot_error_code = job.piloterrorcode
+    pilot_error_codes = job.piloterrorcodes
+    if pilot_error_codes != []:
+        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
+        data['pilotErrorCode'] = pilot_error_codes[0]
+    else:
+        data['pilotErrorCode'] = pilot_error_code
+
+    # add error info
+    pilot_error_diag = job.piloterrordiag
+    pilot_error_diags = job.piloterrordiags
+    if pilot_error_diags != []:
+        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
+        data['pilotErrorDiag'] = pilot_error_diags[0]
+    else:
+        data['pilotErrorDiag'] = pilot_error_diag
+    data['transExitCode'] = job.transexitcode
+    data['exeErrorCode'] = job.exeerrorcode
+    data['exeErrorDiag'] = job.exeerrordiag
+
+
+def get_server_command(url, port, cmd='getJob'):
+    """
+    Prepare the getJob server command.
+
+    :param url: PanDA server URL (string)
+    :param port: PanDA server port
+    :return: full server command (URL string)
+    """
+
+    if url != "":
+        port_pattern = '.:([0-9]+)'
+        if not findall(port_pattern, url):
+            url = url + ':%s' % port
+        else:
+            logger.debug(f'URL already contains port: {url}')
+    else:
+        url = config.Pilot.pandaserver
+    if url == "":
+        logger.fatal('PanDA server url not set (either as pilot option or in config file)')
+    elif not url.startswith("http"):
+        url = 'https://' + url
+        logger.warning('detected missing protocol in server url (added)')
+
+    # randomize server name
+    url = get_panda_server(url, port)
+    return f'{url}/server/panda/{cmd}'
