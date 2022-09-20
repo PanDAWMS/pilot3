@@ -693,7 +693,7 @@ def create_root_container_command(workdir, cmd):
     else:
         if status:
             # generate the final container command
-            x509 = os.environ.get('X509_USER_PROXY', '')
+            x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
             if x509:
                 command += 'export X509_USER_PROXY=%s;' % x509
             command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
