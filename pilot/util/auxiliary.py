@@ -117,7 +117,8 @@ def get_batchsystem_jobid():
                         'LSB_JOBID': 'LSF',
                         'JOB_ID': 'Grid Engine',  # Sun's Grid Engine
                         'clusterid': 'Condor',  # Condor (variable sent through job submit file)
-                        'SLURM_JOB_ID': 'SLURM'}
+                        'SLURM_JOB_ID': 'SLURM',
+                        'K8S_JOB_ID': 'Kubernetes'}
 
     for key, value in list(batchsystem_dict.items()):
         if key in os.environ:
@@ -172,6 +173,7 @@ def get_error_code_translation_dictionary():
         errors.NOSUCHFILE: [67, "No such file or directory"],  # added to traces object
         errors.NOVOMSPROXY: [68, "Voms proxy not valid"],  # added to traces object
         errors.NOPROXY: [68, "Proxy not valid"],  # added to traces object
+        errors.CERTIFICATEHASEXPIRED: [68, "Proxy not valid"],
         errors.NOLOCALSPACE: [69, "No space left on local disk"],  # added to traces object
         errors.UNKNOWNEXCEPTION: [70, "Exception caught by pilot"],  # added to traces object
         errors.QUEUEDATA: [71, "Pilot could not download queuedata"],  # tested
@@ -616,3 +618,22 @@ def is_string(obj):
     """
 
     return True if isinstance(obj, str) else False
+
+
+def find_pattern_in_list(input_list, pattern):
+    """
+    Search for the given pattern in the input list.
+
+    :param input_list: list of string.
+    :param pattern: regular expression pattern (raw string).
+    :return: found string (or None).
+    """
+
+    found = None
+    for line in input_list:
+        out = re.search(pattern, line)
+        if out:
+            found = out[0]
+            break
+
+    return found

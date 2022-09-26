@@ -29,6 +29,7 @@ def execute(executable, **kwargs):
 
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
+    obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
 
     # convert executable to string if it is a list
     if isinstance(executable, list):
@@ -47,7 +48,7 @@ def execute(executable, **kwargs):
             return None if kwargs.get('returnproc', False) else -1, "", diagnostics
 
     if not kwargs.get('mute', False):
-        print_executable(executable)
+        print_executable(executable, obscure=obscure)
 
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
@@ -82,12 +83,13 @@ def execute(executable, **kwargs):
     return exit_code, stdout, stderr
 
 
-def print_executable(executable):
+def print_executable(executable, obscure=''):
     """
     Print out the command to be executed, omitting any secrets.
     Any S3_SECRET_KEY=... parts will be removed.
 
     :param executable: executable (string).
+    :param obscure: sensitive string to be obscured before dumping to log (string)
     :return:
     """
 
@@ -97,6 +99,9 @@ def print_executable(executable):
             secret_key = sub_cmd.split('S3_SECRET_KEY=')[1]
             secret_key = 'S3_SECRET_KEY=' + secret_key
             executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
+    if obscure:
+        executable_readable = executable_readable.replace(obscure, '********')
+
     logger.info(f'executing command: {executable_readable}')
 
 

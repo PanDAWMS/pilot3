@@ -16,16 +16,18 @@ import os
 import time
 import hashlib
 import logging
+import multiprocessing
 import queue
+from collections import namedtuple
 
 from json import dumps
-from re import findall
 from glob import glob
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import ExcThread, PilotException, FileHandlingFailure
 from pilot.info import infosys, JobData, InfoService, JobInfoProvider
 from pilot.util import https
+from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
     has_instruction_sets, locate_core_file, get_display_info
@@ -67,7 +69,8 @@ def control(queues, traces, args):
     """
 
     targets = {'validate': validate, 'retrieve': retrieve, 'create_data_payload': create_data_payload,
-               'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor}
+               'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor,
+               'message_listener': message_listener}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 
@@ -111,7 +114,7 @@ def control(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] control thread has finished')
+    logger.info('[job] control thread has finished')
     # test kill signal during end of generic workflow
     #import signal
     #os.kill(os.getpid(), signal.SIGBUS)
@@ -310,7 +313,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         job.state = state
 
     state = get_proper_state(job, state)
-    logger.debug(f'state={state}')
+
     # should the pilot make any server updates?
     if not args.update_server:
         logger.info('pilot will not update the server (heartbeat message will be written to file)')
@@ -321,6 +324,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     # build the data structure needed for updateJob
     data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
     logger.debug(f'data={data}')
+
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
     if not args.update_server:
         # if in harvester mode write to files required by harvester
@@ -849,9 +853,11 @@ def add_timing_and_extracts(data, job, state, args):
     :return:
     """
 
-    time_getjob, time_stagein, time_payload, time_stageout, time_total_setup = timing_report(job.jobid, args)
-    data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
-                          (time_getjob, time_stagein, time_payload, time_stageout, time_total_setup)
+    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup = timing_report(job.jobid, args)
+    #data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
+    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
+    data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
+                          (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""
@@ -1024,6 +1030,14 @@ def validate(queues, traces, args):
 
             create_symlink(from_path='../%s' % config.Pilot.pilotlog, to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
+            # handle proxy in unified dispatch
+            if args.verify_proxy:
+                handle_proxy(job)
+            else:
+                logger.debug(
+                    f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} '
+                    f'(job.infosys.queuedata.type={job.infosys.queuedata.type})')
+
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
@@ -1051,7 +1065,7 @@ def validate(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] validate thread has finished')
+    logger.info('[job] validate thread has finished')
 
 
 def hide_secrets(job):
@@ -1210,7 +1224,7 @@ def create_data_payload(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] create_data_payload thread has finished')
+    logger.info('[job] create_data_payload thread has finished')
 
 
 def get_task_id():
@@ -1256,15 +1270,13 @@ def get_job_label(args):
     elif status == 'test' and args.job_label != 'ptest':
         logger.warning('PQ status set to test - will use job label / prodSourceLabel test')
         job_label = 'test'
-    #elif infosys.queuedata.type == 'unified':
-    #    job_label = 'unified'
     else:
         job_label = args.job_label
 
     return job_label
 
 
-def get_dispatcher_dictionary(args):
+def get_dispatcher_dictionary(args, taskid=None):
     """
     Return a dictionary with required fields for the dispatcher getJob operation.
 
@@ -1280,22 +1292,18 @@ def get_dispatcher_dictionary(args):
     the resource to be used outside the privileged group under any circumstances.
 
     :param args: arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param taskid: task id from message broker, if any (None or string).
     :returns: dictionary prepared for the dispatcher getJob operation.
     """
 
     _diskspace = get_disk_space(infosys.queuedata)
-
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
-
     _nodename = get_node_name()
 
-    # override for RC dev pilots
-    job_label = get_job_label(args)
-
     data = {
-        'siteName': infosys.queuedata.resource,  # next: remove redundant '-r' option of pilot.py
+        'siteName': infosys.queuedata.resource,
         'computingElement': args.queue,
-        'prodSourceLabel': job_label,
+        'prodSourceLabel': get_job_label(args),
         'diskSpace': _diskspace,
         'workingGroup': args.working_group,
         'cpu': _cpu,
@@ -1316,10 +1324,17 @@ def get_dispatcher_dictionary(args):
         dn = get_distinguished_name()
         data['prodUserID'] = dn
 
-    taskid = get_task_id()
-    if taskid != "" and args.allow_same_user:
+    # special handling for task id from message broker
+    if taskid:
         data['taskID'] = taskid
+        if args.allow_same_user:
+            data['viaTopic'] = True
         logger.info(f"will download a new job belonging to task id: {data['taskID']}")
+    else:  # task id from env var
+        taskid = get_task_id()
+        if taskid != "" and args.allow_same_user:
+            data['taskID'] = taskid
+            logger.info(f"will download a new job belonging to task id: {data['taskID']}")
 
     if args.resource_type != "":
         data['resourceType'] = args.resource_type
@@ -1374,7 +1389,7 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
         exit_code, diagnostics = userproxy.verify_proxy(test=False)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
-        if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY:
+        if exit_code == errors.NOPROXY or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
             logger.warning(diagnostics)
             return False
 
@@ -1431,34 +1446,6 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     return True
 
 
-def getjob_server_command(url, port):
-    """
-    Prepare the getJob server command.
-
-    :param url: PanDA server URL (string)
-    :param port: PanDA server port
-    :return: full server command (URL string)
-    """
-
-    if url != "":
-        port_pattern = '.:([0-9]+)'
-        if not findall(port_pattern, url):
-            url = url + ':%s' % port
-        else:
-            logger.debug(f'URL already contains port: {url}')
-    else:
-        url = config.Pilot.pandaserver
-    if url == "":
-        logger.fatal('PanDA server url not set (either as pilot option or in config file)')
-    elif not url.startswith("http"):
-        url = 'https://' + url
-        logger.warning('detected missing protocol in server url (added)')
-
-    # randomize server name
-    url = https.get_panda_server(url, port)
-    return '{pandaserver}/server/panda/getJob'.format(pandaserver=url)
-
-
 def get_job_definition_from_file(path, harvester):
     """
     Get a job definition from a pre-placed file.
@@ -1508,20 +1495,22 @@ def get_job_definition_from_file(path, harvester):
     return res
 
 
-def get_job_definition_from_server(args):
+def get_job_definition_from_server(args, taskid=None):
     """
     Get a job definition from a server.
 
     :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param taskid: task id from message broker, if any (None or string)
     :return: job definition dictionary.
     """
 
     res = {}
 
     # get the job dispatcher dictionary
-    data = get_dispatcher_dictionary(args)
+    data = get_dispatcher_dictionary(args, taskid=taskid)
 
-    cmd = getjob_server_command(args.url, args.port)
+    # get the getJob server command
+    cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
         res = https.request(cmd, data=data)
@@ -1561,7 +1550,7 @@ def locate_job_definition(args):
     return path
 
 
-def get_job_definition(args):
+def get_job_definition(queues, args):
     """
     Get a job definition from a source (server or pre-placed local file).
 
@@ -1583,10 +1572,143 @@ def get_job_definition(args):
         if args.harvester and args.harvester_submitmode.lower() == 'push':
             pass  # local job definition file not found (go to sleep)
         else:
-            logger.info('will download job definition from server')
-            res = get_job_definition_from_server(args)
+            # get the task id from a message broker if requested
+            taskid = None
+            abort = False
+            if args.subscribe_to_msgsvc:
+                message = None
+                while not args.graceful_stop.is_set():
+                    try:  # look for graceful stop every ten seconds, otherwise block the queue
+                        message = queues.messages.get(block=True, timeout=10)
+                    except queue.Empty:
+                        continue
+                    else:
+                        break
+
+#                message = get_message_from_mb(args)
+                if message and message['msg_type'] == 'get_job':
+                    taskid = message['taskid']
+                elif message and message['msg_type'] == 'kill_task':
+                    # abort immediately
+                    logger.warning('received instruction to kill task (abort pilot)')
+                    abort = True
+                elif message and message['msg_type'] == 'finish_task':
+                    # abort gracefully - let job finish, but no job is downloaded so ignore this?
+                    logger.warning('received instruction to finish task (abort pilot)')
+                    abort = True
+                elif args.graceful_stop.is_set():
+                    logger.warning('graceful_stop is set, will abort getJob')
+                    abort = True
+                if taskid:
+                    logger.info(f'will download job definition from server using taskid={taskid}')
+            else:
+                logger.info('will download job definition from server')
+            if abort:
+                res = None  # None will trigger 'fatal' error and will finish the pilot
+            else:
+                res = get_job_definition_from_server(args, taskid=taskid)
 
     return res
+
+
+def get_message_from_mb(args):
+    """
+    Try and get the task id from a message broker.
+    Wait maximum args.lifetime s, then abort.
+    Note that this might also be interrupted by args.graceful_stop (checked for each ten seconds).
+
+    :param args: pilot args object.
+    :return: task id (string).
+    """
+
+    if args.graceful_stop.is_set():
+        logger.debug('will not start ActiveMQ since graceful_stop is set')
+        return None
+
+    ctx = multiprocessing.get_context('spawn')
+    message_queue = ctx.Queue()
+    #amq_queue = ctx.Queue()
+
+    proc = multiprocessing.Process(target=get_message, args=(args, message_queue,))
+    proc.start()
+
+    _t0 = time.time()  # basically this should be PILOT_START_TIME, but any large time will suffice for the loop below
+    maxtime = args.lifetime
+    while not args.graceful_stop.is_set() and time.time() - _t0 < maxtime:
+        proc.join(10)  # wait for ten seconds, then check graceful_stop and that we are within the allowed running time
+        if proc.is_alive():
+            continue
+        else:
+            break  # ie abort 'infinite' loop when the process has finished
+
+    if proc.is_alive():
+        # still running after max time/graceful_stop: kill it
+        proc.terminate()
+
+    try:
+        message = message_queue.get(timeout=1)
+    except Exception:
+        message = None
+    if not message:
+        logger.debug('not returning any messages')
+
+    return message
+
+
+def get_message(args, message_queue):
+    """
+
+    """
+
+    queues = namedtuple('queues', ['mbmessages'])
+    queues.mbmessages = queue.Queue()
+    kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
+    # start connections
+    amq = ActiveMQ(**kwargs)
+    args.amq = amq
+
+    # wait for messages
+    message = None
+    while not args.graceful_stop.is_set() and not os.environ.get('REACHED_MAXTIME', None):
+        time.sleep(0.5)
+        try:
+            message = queues.mbmessages.get(block=True, timeout=10)
+        except queue.Empty:
+            continue
+        else:
+            break
+
+    if args.graceful_stop.is_set() or os.environ.get('REACHED_MAXTIME', None):
+        logger.debug('closing connections')
+        amq.close_connections()
+        logger.debug('get_message() ended - the pilot has finished')
+
+    if message:
+        # message = {'msg_type': 'get_job', 'taskid': taskid}
+        message_queue.put(message)
+
+
+def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
+    """
+
+    """
+
+    topic = f'/{"topic" if allow_same_user else "queue"}/panda.pilot'
+    kwargs = {
+        'broker': config.Message_broker.url,  # 'atlas-test-mb.cern.ch',
+        'receiver_port': config.Message_broker.receiver_port,  # 61013,
+        # 'port': config.Message_broker.port,  # 61013,
+        'topic': topic,
+        'receive_topics': [topic],
+        'username': 'X',
+        'password': 'X',
+        'queues': queues,
+        'pandaurl': url,
+        'pandaport': port,
+        'debug': debug
+    }
+
+    return kwargs
 
 
 def now():
@@ -1806,7 +1928,7 @@ def retrieve(queues, traces, args):  # noqa: C901
         time_pre_getjob = time.time()
 
         # get a job definition from a source (file or server)
-        res = get_job_definition(args)
+        res = get_job_definition(queues, args)
         #res['debug'] = True
         if res:
             dump_job_definition(res)
@@ -1853,6 +1975,10 @@ def retrieve(queues, traces, args):  # noqa: C901
                     job = create_job(res, args.queue)
                 except PilotException as error:
                     raise error
+                else:
+                    logger.info('resetting any existing errors')
+                    job.reset_errors()
+
                 #else:
                     # verify the job status on the server
                     #try:
@@ -1884,7 +2010,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                         logger.info('ready for new job')
 
                         # re-establish logging
-                        logging.info('pilot has finished for previous job - re-establishing logging')
+                        logging.info('pilot has finished with previous job - re-establishing logging')
                         logging.handlers = []
                         logging.shutdown()
                         establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
@@ -1901,7 +2027,28 @@ def retrieve(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] retrieve thread has finished')
+    logger.info('[job] retrieve thread has finished')
+
+
+def handle_proxy(job):
+    """
+    Handle the proxy in unified dispatch.
+
+    In unified dispatch, the pilot is started with the production proxy, but in case the job is a user job, the
+    production proxy is too powerful. A user proxy is then downloaded instead.
+
+    :param job: job object.
+    :return:
+    """
+
+    if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
+        logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
+        ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
+        if ec:
+            logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
+    else:
+        logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
+                     f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
 
 
 def dump_job_definition(res):
@@ -1997,6 +2144,11 @@ def has_job_completed(queues, args):
 
         # reset any running real-time logger
         rtcleanup()
+
+        # reset proxy on unified queues for user jobs
+        if job.prodproxy:
+            os.environ['X509_USER_PROXY'] = job.prodproxy
+            job.prodproxy = ''
 
         # cleanup of any remaining processes
         if job.pid:
@@ -2252,7 +2404,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] queue monitor thread has finished')
+    logger.info('[job] queue monitor thread has finished')
 
 
 def update_server(job, args):
@@ -2406,7 +2558,7 @@ def interceptor(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] interceptor thread has finished')
+    logger.info('[job] interceptor thread has finished')
 
 
 def fast_monitor_tasks(job):
@@ -2427,6 +2579,55 @@ def fast_monitor_tasks(job):
         logger.warning('caught exception: %s', exc)
 
     return exit_code
+
+
+def message_listener(queues, traces, args):
+    """
+
+    """
+
+    while not args.graceful_stop.is_set() and args.subscribe_to_msgsvc:
+
+        # listen for a message and add it to the messages queue
+        message = get_message_from_mb(args)  # in blocking mode
+        if args.graceful_stop.is_set():
+            break
+
+        # if kill_task or finish_task instructions are received, abort this thread as it will not be needed any longer
+        if message and (message['msg_type'] == 'kill_task' or message['msg_type'] == 'finish_task'):
+            put_in_queue(message, queues.messages)  # will only be put in the queue if not there already
+            if message['kill_task']:
+                args.graceful_stop.set()
+                # kill running job?
+            break
+        elif message and message['msg_type'] == 'get_job':
+            put_in_queue(message, queues.messages)  # will only be put in the queue if not there already
+            continue  # wait for the next message
+
+        if args.amq:
+            logger.debug('got the amq instance')
+        else:
+            logger.debug('no amq instance')
+        time.sleep(1)
+
+    if args.amq:
+        logger.debug('got the amq instance 2')
+    else:
+        logger.debug('no amq instance 2')
+
+    # proceed to set the job_aborted flag?
+    if args.subscribe_to_msgsvc:
+        if threads_aborted():
+            logger.debug('will proceed to set job_aborted')
+            args.job_aborted.set()
+        else:
+            logger.debug('will not set job_aborted yet')
+
+    if args.amq:
+        logger.debug('closing ActiveMQ connections')
+        args.amq.close_connections()
+
+    logger.info('[job] message listener thread has finished')
 
 
 def fast_job_monitor(queues, traces, args):
@@ -2479,7 +2680,7 @@ def fast_job_monitor(queues, traces, args):
                 for i in range(len(jobs)):
                     #current_id = jobs[i].jobid
                     if jobs[i].state == 'finished' or jobs[i].state == 'failed':
-                        logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
+                        logger.info('will abort fast job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                         break
 
                     # perform the monitoring tasks
@@ -2494,7 +2695,7 @@ def fast_job_monitor(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] fast job monitor thread has finished')
+    logger.info('[job] fast job monitor thread has finished')
 
 
 def job_monitor(queues, traces, args):  # noqa: C901
@@ -2583,13 +2784,13 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
+                logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
                 if exit_code != 0:
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
-                        ec = download_new_proxy()
+                        ec = download_new_proxy(role='production')
                         exit_code = ec if ec != 0 else 0  # reset the exit_code if success
-
-                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY:
+                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
@@ -2648,29 +2849,42 @@ def job_monitor(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[job] job monitor thread has finished')
+    logger.info('[job] job monitor thread has finished')
 
 
-def download_new_proxy():
+def download_new_proxy(role='production', proxy_type='', workdir=''):
     """
     The production proxy has expired, try to download a new one.
 
     If it fails to download and verify a new proxy, return the NOVOMSPROXY error.
 
+    :param role: role, 'production' or 'user' (string).
+    :param proxy_type: proxy type, e.g. unified (string).
+    :param workdir: payload work directory (string).
     :return: exit code (int).
     """
 
     exit_code = 0
     x509 = os.environ.get('X509_USER_PROXY', '')
-    logger.warning('VOMS proxy is about to expire - attempt to download a new proxy')
+    logger.info(f'attempt to download a new proxy (proxy_type={proxy_type})')
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
 
-    ec, diagnostics, x509 = user.get_and_verify_proxy(x509, voms_role='atlas:/atlas/Role=production')
+    voms_role = user.get_voms_role(role=role)
+    ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
         exit_code == errors.NOVOMSPROXY
+    else:
+        if new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
+            os.environ['X509_UNIFIED_DISPATCH'] = new_x509
+            logger.debug(f'set X509_UNIFIED_DISPATCH to {new_x509}')
+            cmd = f'export X509_USER_PROXY={os.environ.get("X509_UNIFIED_DISPATCH")};echo $X509_USER_PROXY; voms-proxy-info -all'
+            _, stdout, _ = execute(cmd)
+            logger.debug(f'cmd={cmd}:\n{stdout}')
+        else:
+            logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_x509}, x509={x509}, os.path.exists(new_x509)={os.path.exists(new_x509)}')
 
     return exit_code
 

@@ -19,7 +19,7 @@ from os import environ, getpid, getuid
 from subprocess import Popen, PIPE
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
-from pilot.util.auxiliary import check_for_final_server_update
+from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
@@ -60,7 +60,7 @@ def control(queues, traces, args):
 
         while not args.graceful_stop.is_set():
             # every seconds, run the monitoring checks
-            if args.graceful_stop.wait(1) or args.graceful_stop.is_set():  # 'or' added for 2.6 compatibility
+            if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
                 logger.warning('aborting monitor loop since graceful_stop has been set')
                 break
 
@@ -73,15 +73,12 @@ def control(queues, traces, args):
             # check if the pilot has run out of time (stop ten minutes before PQ limit)
             time_since_start = get_time_since_start(args)
             grace_time = 10 * 60
+            if time_since_start - grace_time < 0:
+                grace_time = 0
             if time_since_start - grace_time > max_running_time:
-                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been exceeded - must abort pilot')
-                logger.info('setting REACHED_MAXTIME and graceful stop')
-                environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
-                logger.debug(f"REACHED_MAXTIME={environ.get('REACHED_MAXTIME', None)}")
-                # do not set graceful stop if pilot has not finished sending the final job update
-                # i.e. wait until SERVER_UPDATE is FINAL_DONE
-                check_for_final_server_update(args.update_server)
-                args.graceful_stop.set()
+                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
+                             f'exceeded - time to abort pilot')
+                reached_maxtime_abort(args)
                 break
             else:
                 if niter % 60 == 0:
@@ -117,6 +114,35 @@ def control(queues, traces, args):
         raise PilotException(error)
 
     logger.info('[monitor] control thread has ended')
+
+
+def reached_maxtime_abort(args):
+    """
+    Max time has been reached, set REACHED_MAXTIME and graceful_stop, close any ActiveMQ connections.
+    Wait for final server update before setting graceful_stop.
+
+    :param args: pilot args.
+    :return:
+    """
+
+    logger.info('setting REACHED_MAXTIME and graceful stop')
+    environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
+    if args.amq:
+        logger.debug('closing ActiveMQ connections')
+        args.amq.close_connections()
+    else:
+        logger.debug('No ActiveMQ connections to close')
+
+    # do not set graceful stop if pilot has not finished sending the final job update
+    # i.e. wait until SERVER_UPDATE is FINAL_DONE
+    # note: if args.update_server is False, the function will return immediately. In that case, make sure
+    # that the heartbeat file has been updated (write_heartbeat_to_file() is called from job::send_state())
+
+    # args.update_server = False
+    set_pilot_state(state='failed')
+    check_for_final_server_update(args.update_server)
+    args.graceful_stop.set()
+
 
 #def log_lifetime(sig, frame, traces):
 #    logger.info('lifetime: %i used, %i maximum', int(time.time() - traces.pilot['lifetime_start']), traces.pilot['lifetime_max'])

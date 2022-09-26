@@ -110,6 +110,7 @@ class JobData(BaseData):
     looping_check = True           # perform looping payload check
     checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
     subprocesses = []              # list of PIDs for payload subprocesses
+    prodproxy = ""                 # to keep track of production proxy on unified queues
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -166,7 +167,7 @@ class JobData(BaseData):
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets'],
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
@@ -314,8 +315,8 @@ class JobData(BaseData):
         """
         Construct validated FileSpec objects for output and log files from raw dict `data`
         Note: final preparation for output files can only be done after the payload has finished in case the payload
-        has produced a job report with e.g. output file guids. This is verified in
-        pilot/control/payload/process_job_report().
+        has produced a job report with e.g. output file guids. For ATLAS, this is verified in
+        pilot/user/atlas/diagnose/process_job_report().
 
         :param data:
         :return: (list of `FileSpec` for output, list of `FileSpec` for log)
@@ -804,8 +805,7 @@ class JobData(BaseData):
                 else:
                     total_size += os.path.getsize(pfn)
 
-            _label = 'input+output' if self.checkinputsize else 'output'
-            logger.info(f'total size of present {_label} files: {total_size} B (workdir size: {workdir_size} B)')
+            logger.info(f'total size of present files: {total_size} B (workdir size: {workdir_size} B)')
             workdir_size -= total_size
 
         self.workdirsizes.append(workdir_size)

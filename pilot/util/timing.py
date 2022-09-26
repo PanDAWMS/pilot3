@@ -345,7 +345,7 @@ def timing_report(job_id, args):
     time_getjob = get_getjob_time(job_id, args)
     time_initial_setup = get_initial_setup_time(job_id, args)
     time_setup = get_setup_time(job_id, args)
-    time_total_setup = time_initial_setup + time_setup
+    #time_total_setup = time_initial_setup + time_setup
     time_stagein = get_stagein_time(job_id, args)
     time_payload = get_payload_execution_time(job_id, args)
     time_stageout = get_stageout_time(job_id, args)
@@ -354,13 +354,13 @@ def timing_report(job_id, args):
     logger.info(f'. get job = {time_getjob} s')
     logger.info(f'. initial setup = {time_initial_setup} s')
     logger.info(f'. payload setup = {time_setup} s')
-    logger.info(f'. total setup = {time_total_setup} s')
+    #logger.info(f'. total setup = {time_total_setup} s')
     logger.info(f'. stage-in = {time_stagein} s')
     logger.info(f'. payload execution = {time_payload} s')
     logger.info(f'. stage-out = {time_stageout} s')
     logger.info('.' * 30)
 
-    return time_getjob, time_stagein, time_payload, time_stageout, time_total_setup
+    return time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup
 
 
 def time_stamp():

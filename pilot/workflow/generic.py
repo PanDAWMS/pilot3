@@ -79,7 +79,7 @@ def interrupt(args, signum, frame):
     logger.warning('setting graceful stop (in case it was not set already)')
     args.graceful_stop.set()
     logger.warning('waiting for threads to finish')
-    args.job_aborted.wait()
+    args.job_aborted.wait(timeout=180)
 
 
 def register_signals(signals, args):
@@ -113,7 +113,7 @@ def run(args):
                                    'validated_jobs', 'validated_payloads', 'monitored_payloads',
                                    'finished_jobs', 'finished_payloads', 'finished_data_in', 'finished_data_out',
                                    'failed_jobs', 'failed_payloads', 'failed_data_in', 'failed_data_out',
-                                   'completed_jobs', 'completed_jobids', 'realtimelog_payloads'])
+                                   'completed_jobs', 'completed_jobids', 'realtimelog_payloads', 'messages'])
 
     queues.jobs = queue.Queue()
     queues.payloads = queue.Queue()
@@ -138,6 +138,7 @@ def run(args):
     queues.completed_jobs = queue.Queue()
     queues.completed_jobids = queue.Queue()
     queues.realtimelog_payloads = queue.Queue()
+    queues.messages = queue.Queue()
 
     # queues.interceptor_messages = queue.Queue()
 

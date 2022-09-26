@@ -64,6 +64,7 @@ def main():
     # perform https setup
     if args.use_https:
         https_setup(args, get_pilot_version())
+    args.amq = None
 
     # let the server know that the worker has started
     if args.update_server:
@@ -80,8 +81,8 @@ def main():
         logger.fatal(error)
         return error.get_error_code()
 
-    # set the site name for rucio  ## is it really used?
-    environ['PILOT_RUCIO_SITENAME'] = infosys.queuedata.site
+    # set the site name for rucio
+    environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', None) or infosys.queuedata.site
 
     # store the site name as set with a pilot option
     environ['PILOT_SITENAME'] = infosys.queuedata.resource  #args.site  # TODO: replace with singleton
@@ -190,7 +191,7 @@ def get_args():
                             default='PR',
                             help='Version tag (default: PR, optional: RC)')
 
-    arg_parser.add_argument('-z', '--updateserver',
+    arg_parser.add_argument('-z', '--noserverupdate',
                             dest='update_server',
                             action='store_false',
                             default=True,
@@ -222,6 +223,13 @@ def get_args():
                             required=False,
                             type=int,
                             help='Maximum number of getjob request failures in Harvester mode')
+
+    arg_parser.add_argument('--subscribe-to-msgsvc',
+                            dest='subscribe_to_msgsvc',
+                            action='store_true',
+                            default=False,
+                            required=False,
+                            help='Ask Pilot to receive job/task info from ActiveMQ')
 
     # SSL certificates
     arg_parser.add_argument('--cacert',
@@ -256,6 +264,10 @@ def get_args():
                             dest='rucio_host',
                             default='',
                             help='URL for the Rucio host (optional)')
+    arg_parser.add_argument('--redirect-stdout',
+                            dest='redirectstdout',
+                            default='',
+                            help='Redirect all stdout to given file, or /dev/null (optional)')
 
     # Country group
     arg_parser.add_argument('--country-group',
@@ -572,6 +584,39 @@ def send_worker_status(status, queue, url, port, logger):
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
+def set_lifetime(args):
+    """
+    Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
+
+    :param args: pilot args.
+    :return:
+    """
+
+    lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
+    if lifetime:
+        try:
+            lifetime = int(lifetime)
+        except (ValueError, TypeError):
+            pass
+        else:
+            args.lifetime = lifetime
+
+
+def set_redirectall(args):
+    """
+
+    """
+
+    redirectall = os.environ.get('PANDAPILOT_REDIRECTALL', False)
+    if not redirectall:
+        try:
+            redirectall = bool(redirectall)
+        except (ValueError, TypeError):
+            pass
+        else:
+            args.redirectall = redirectall
+
+
 if __name__ == '__main__':
     """
     Main function of pilot module.
@@ -591,6 +636,11 @@ if __name__ == '__main__':
     # initialize job status dictionary (e.g. used to keep track of log transfers)
     args.job_status = {}  # TODO: move to singleton or to job object directly?
 
+    #if 'BNL_OSG_SPHENIX_TEST' in args.queue:
+    #    args.lifetime = 3600
+    #    args.subscribe_to_msgsvc = True
+    #    args.redirectstdout = '/dev/null'
+
     # store T0 time stamp
     add_to_pilot_timing('0', PILOT_START_TIME, time.time(), args)
     add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
@@ -602,8 +652,10 @@ if __name__ == '__main__':
     if exit_code != 0:
         sys.exit(exit_code)
 
+    set_lifetime(args)
+
     # setup and establish standard logging
-    establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
+    establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, redirectstdout=args.redirectstdout)
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()

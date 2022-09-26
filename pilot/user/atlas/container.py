@@ -18,7 +18,7 @@ import logging
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
-from pilot.user.atlas.proxy import get_and_verify_proxy
+from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
 from pilot.util.filehandling import write_file
@@ -83,11 +83,11 @@ def wrapper(executable, **kwargs):
     if workdir == '.' and pilot_home != '':
         workdir = pilot_home
 
-    # if job.imagename (from --containerimage <image>) is set, then always use raw singularity
+    # if job.imagename (from --containerimage <image>) is set, then always use raw singularity/apptainer
     if config.Container.setup_type == "ALRB":  # and job and not job.imagename:
         fctn = alrb_wrapper
     else:
-        fctn = singularity_wrapper
+        fctn = container_wrapper
     return fctn(executable, workdir, job=job)
 
 
@@ -112,9 +112,9 @@ def extract_platform_and_os(platform):
     return ret
 
 
-def get_grid_image_for_singularity(platform):
+def get_grid_image(platform):
     """
-    Return the full path to the singularity grid image
+    Return the full path to the singularity/apptainer grid image
 
     :param platform: E.g. "x86_64-slc6" (string).
     :return: full path to grid image (string).
@@ -126,7 +126,10 @@ def get_grid_image_for_singularity(platform):
 
     arch_and_os = extract_platform_and_os(platform)
     image = arch_and_os + ".img"
-    _path = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/singularity")
+    _path1 = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/apptainer")
+    _path2 = os.path.join(get_file_system_root_path(), "atlas.cern.ch/repo/containers/images/singularity")
+    paths = [path for path in [_path1, _path2] if os.path.isdir(path)]
+    _path = paths[0]
     path = os.path.join(_path, image)
     if not os.path.exists(path):
         image = 'x86_64-centos7.img'
@@ -259,7 +262,7 @@ def update_alrb_setup(cmd, use_release_setup):
     return updated_cmd
 
 
-def update_for_user_proxy(_cmd, cmd, is_analysis=False):
+def update_for_user_proxy(_cmd, cmd, is_analysis=False, queue_type=''):
     """
     Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
     Try to receive payload proxy and update X509_USER_PROXY in container setup command
@@ -268,27 +271,31 @@ def update_for_user_proxy(_cmd, cmd, is_analysis=False):
     :param _cmd: container setup command (string).
     :param cmd: command the container will execute (string).
     :param is_analysis: True for user job (Boolean).
+    :param queue_type: queue type (e.g. 'unified') (string).
     :return: exit_code (int), diagnostics (string), updated _cmd (string), updated cmd (string).
     """
 
     exit_code = 0
     diagnostics = ""
 
-    x509 = os.environ.get('X509_USER_PROXY', '')
+    #x509 = os.environ.get('X509_USER_PROXY', '')
+    x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+    logger.debug(f'using X509_USER_PROXY={x509}')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
-        cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, '')
+        cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
         # add it instead to the container setup command:
 
         # download and verify payload proxy from the server if desired
         proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
-        if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis:
-            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role='atlas', proxy_type='payload')
+        if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis and queue_type != 'unified':
+            voms_role = get_voms_role(role='user')
+            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
             if exit_code != 0:  # do not return non-zero exit code if only download fails
                 logger.warning('payload proxy verification failed')
 
         # add X509_USER_PROXY setting to the container setup command
-        _cmd = "export X509_USER_PROXY=%s;" % x509 + _cmd
+        _cmd = f"export X509_USER_PROXY={x509};" + _cmd
 
     return exit_code, diagnostics, _cmd, cmd
 
@@ -326,7 +333,7 @@ def get_container_options(container_options):
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
 
     opts = ''
-    # Set the singularity options
+    # Set the singularity/apptainer options
     if container_options:
         # the event service payload cannot use -C/--containall since it will prevent yampl from working
         if is_raythena:
@@ -361,7 +368,7 @@ def alrb_wrapper(cmd, workdir, job=None):
     :param cmd (string): command to be executed in a container.
     :param workdir: (not used)
     :param job: job object.
-    :return: prepended command with singularity execution command (string).
+    :return: prepended command with singularity/apptainer execution command (string).
     """
 
     if not job:
@@ -400,7 +407,7 @@ def alrb_wrapper(cmd, workdir, job=None):
         # -> if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
 
         # add user proxy if necessary (actually it should also be removed from cmd)
-        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis())
+        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis(), queue_type=job.infosys.queuedata.type)
         if exit_code:
             job.piloterrordiag = diagnostics
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
@@ -568,7 +575,11 @@ def create_release_setup(cmd, atlas_setup, full_atlas_setup, release, workdir, i
         if not content:
             content = full_atlas_setup
 
+    # add timing info (hours:minutes:seconds in UTC)
+    # this is used to get a better timing info about setup
+    content += '\ndate +\"%H:%M:%S %Y/%m/%d\"'  # e.g. 07:36:27 2022/06/29
     content += '\nreturn $?'
+
     logger.debug('command to be written to release setup file:\n\n%s:\n\n%s\n', release_setup_name, content)
     try:
         write_file(os.path.join(workdir, os.path.basename(release_setup_name)), content, mute=False)
@@ -598,13 +609,15 @@ def remove_container_string(job_params):
     return job_params, container_path
 
 
-def singularity_wrapper(cmd, workdir, job=None):
+def container_wrapper(cmd, workdir, job=None):
     """
-    Prepend the given command with the singularity execution command
+    Prepend the given command with the singularity/apptainer execution command
     E.g. cmd = /bin/bash hello_world.sh
     -> singularity_command = singularity exec -B <bindmountsfromcatchall> <img> /bin/bash hello_world.sh
     singularity exec -B <bindmountsfromcatchall>  /cvmfs/atlas.cern.ch/repo/images/singularity/x86_64-slc6.img <script>
     Note: if the job object is not set, then it is assumed that the middleware container is to be used.
+    Note 2: if apptainer is specified in CRIC in the container type, it is assumes that the executable is called
+    apptainer.
 
     :param cmd: command to be prepended (string).
     :param workdir: explicit work directory where the command should be executed (needs to be set for Singularity) (string).
@@ -622,36 +635,39 @@ def singularity_wrapper(cmd, workdir, job=None):
     container_name = queuedata.container_type.get("pilot")  # resolve container name for user=pilot
     logger.debug("resolved container_name from queuedata.container_type: %s", container_name)
 
-    if container_name == 'singularity':
-        logger.info("singularity has been requested")
+    if container_name == 'singularity' or container_name == 'apptainer':
+        logger.info("singularity/apptainer has been requested")
 
-        # Get the singularity options
-        singularity_options = queuedata.container_options
-        if singularity_options != "":
-            singularity_options += ","
+        # Get the container options
+        options = queuedata.container_options
+        if options != "":
+            options += ","
         else:
-            singularity_options = "-B "
-        singularity_options += "/cvmfs,${workdir},/home"
-        logger.debug("using singularity_options: %s", singularity_options)
+            options = "-B "
+        options += "/cvmfs,${workdir},/home"
+        logger.debug("using options: %s", options)
 
         # Get the image path
         if job:
-            image_path = job.imagename or get_grid_image_for_singularity(job.platform)
+            image_path = job.imagename or get_grid_image(job.platform)
         else:
             image_path = config.Container.middleware_container
 
         # Does the image exist?
         if image_path:
             # Prepend it to the given command
-            cmd = "export workdir=" + workdir + "; singularity --verbose exec " + singularity_options + " " + image_path + \
-                  " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
+            quote = pipes.quote(f'cd $workdir;pwd;{cmd}')
+            cmd = f"export workdir={workdir}; {container_name} --verbose exec {options} {image_path} " \
+                  f"/bin/bash -c {quote}"
+            #cmd = "export workdir=" + workdir + "; singularity --verbose exec " + options + " " + image_path + \
+            #      " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
 
             # for testing user containers
             # singularity_options = "-B $PWD:/data --pwd / "
             # singularity_cmd = "singularity exec " + singularity_options + image_path
             # cmd = re.sub(r'-p "([A-Za-z0-9.%/]+)"', r'-p "%s\1"' % urllib.pathname2url(singularity_cmd), cmd)
         else:
-            logger.warning("singularity options found but image does not exist")
+            logger.warning("singularity/apptainer options found but image does not exist")
 
         logger.info("updated command: %s", cmd)
 
@@ -677,7 +693,7 @@ def create_root_container_command(workdir, cmd):
     else:
         if status:
             # generate the final container command
-            x509 = os.environ.get('X509_USER_PROXY', '')
+            x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
             if x509:
                 command += 'export X509_USER_PROXY=%s;' % x509
             command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name

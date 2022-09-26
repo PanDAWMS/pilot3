@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 
 """
@@ -180,14 +180,17 @@ class QueueData(BaseData):
         # validate es_stageout_gap value
         if not self.es_stageout_gap:
             is_opportunistic = self.pledgedcpu and self.pledgedcpu == -1
-            self.es_stageout_gap = 600 if is_opportunistic else 7200  ## 10 munites for opportunistic or 5 hours for normal resources
+            self.es_stageout_gap = 600 if is_opportunistic else 7200  ## 10 mins for opportunistic or 5 hours for normal resources
 
         # validate container_options: extract from the catchall if not set
-        if not self.container_options and self.catchall:  ## container_options is considered for the singularity container, FIX ME LATER IF NEED
+        if not self.container_options and self.catchall:
             # expected format
             # of catchall = "singularity_options=\'-B /etc/grid-security/certificates,/cvmfs,${workdir} --contain\'"
             pattern = re.compile("singularity_options=['\"]?([^'\"]+)['\"]?")  ### FIX ME LATER: move to proper args parsing via shlex at Job class
             found = re.findall(pattern, self.catchall)
+            if not found:
+                pattern = re.compile("apptainer_options=['\"]?([^'\"]+)['\"]?")
+                found = re.findall(pattern, self.catchall)
             if found:
                 self.container_options = found[0]
                 logger.info('container_options extracted from catchall: %s' % self.container_options)
@@ -196,7 +199,7 @@ class QueueData(BaseData):
         if self.container_options:
             if "${workdir}" not in self.container_options and " --contain" in self.container_options:  ## reimplement with shlex later
                 self.container_options = self.container_options.replace(" --contain", ",${workdir} --contain")
-                logger.info("Note: added missing ${workdir} to container_options/singularity_options: %s" % self.container_options)
+                logger.info("Note: added missing ${workdir} to container_options: %s" % self.container_options)
 
         pass
 
@@ -218,7 +221,7 @@ class QueueData(BaseData):
         """
             Parse and prepare value for the container_type key
             Expected raw data in format 'container_name:user_name;'
-            E.g. container_type = 'singularity:pilot;docker:wrapper'
+            E.g. container_type = 'singularity:pilot;docker:wrapper', 'apptainer:pilot;docker:wrapper'
 
             :return: dict of container names by user as a key
         """

@@ -87,7 +87,7 @@ def control(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] control thread has finished')
+    logger.info('[data] control thread has finished')
 
 
 def skip_special_files(job):
@@ -100,7 +100,7 @@ def skip_special_files(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
     try:
         user.update_stagein(job)
     except Exception as error:
@@ -211,10 +211,11 @@ def _stage_in(args, job):
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             # get the proper input file destination (normally job.workdir unless stager workflow)
+            jobworkdir = job.workdir  # there is a distinction for mv copy tool on ND vs non-ATLAS
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
             kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
                           input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall,
-                          checkinputsize=True, rucio_host=args.rucio_host)
+                          checkinputsize=True, rucio_host=args.rucio_host, jobworkdir=jobworkdir)
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
@@ -227,7 +228,11 @@ def _stage_in(args, job):
             logger.error('failed to stage-in: error=%s', error)
         else:
             # only the data API will know if the input file sizes should be included in size checks
-            job.checkinputsize = kwargs.get('checkinputsize')
+            for fspec in job.indata:
+                if not fspec.checkinputsize:
+                    job.checkinputsize = False
+                    break  # it's enough to check one file
+            logger.debug(f'checkinputsize={job.checkinputsize}')
 
     logger.info('summary of transferred files:')
     for infile in job.indata:
@@ -584,7 +589,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] copytool_in thread has finished')
+    logger.info('[data] copytool_in thread has finished')
 
 
 def copytool_out(queues, traces, args):
@@ -669,7 +674,7 @@ def copytool_out(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] copytool_out thread has finished')
+    logger.info('[data] copytool_out thread has finished')
 
 
 def is_already_processed(queues, processed_jobs):
@@ -834,6 +839,17 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
 
+    # switch the X509_USER_PROXY on unified dispatch queues (restore later in this function)
+    x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')
+    x509_org = os.environ.get('X509_USER_PROXY', '')
+    if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
+        os.environ['X509_USER_PROXY'] = x509_unified_dispatch
+        logger.info(f'switched proxy on unified dispatch queue: X509_USER_PROXY={x509_unified_dispatch}')
+    else:
+        logger.debug(f'will not switch proxy since X509_UNIFIED_DISPATCH={x509_unified_dispatch}, '
+                     f'os.path.exists(x509_unified_dispatch)={os.path.exists(x509_unified_dispatch)}, '
+                     f'X509_USER_PROXY={x509_org}')
+
     if use_container:
         logger.info('stage-out will be done in a container')
         try:
@@ -874,6 +890,10 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
             # error = PilotException("stageOut failed with error=%s" % e, code=ErrorCodes.STAGEOUTFAILED)
         else:
             logger.debug('stage-out client completed')
+
+    if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
+        os.environ['X509_USER_PROXY'] = x509_org
+        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org}')
 
     logger.info('summary of transferred files:')
     for iofile in xdata:
@@ -1061,4 +1081,4 @@ def queue_monitoring(queues, traces, args):
     else:
         logger.debug('will not set job_aborted yet')
 
-    logger.debug('[data] queue_monitor thread has finished')
+    logger.info('[data] queue_monitor thread has finished')

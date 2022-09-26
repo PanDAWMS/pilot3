@@ -605,7 +605,7 @@ def process_job_report(job):
                     diagnostics = 'Invalid memory reference or a segmentation fault in payload: %s (job report)' % \
                                   job.exitmsg
                     logger.warning(diagnostics)
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADSIGSEGV)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADSIGSEGV, msg=diagnostics)
                     job.piloterrorcode = errors.PAYLOADSIGSEGV
                     job.piloterrordiag = diagnostics
                 else:
