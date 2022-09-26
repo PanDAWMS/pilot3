@@ -57,9 +57,13 @@ def get_distinguished_name():
 
 def get_proxy(proxy_outfile_name, voms_role):
     """
+    Download and store a proxy.
+    E.g. on read-only file systems (K8), the default path is not available, in which case the new proxy
+    will be stored in the workdir (return the updated path).
+
     :param proxy_outfile_name: specify the file to store proxy (string).
     :param voms_role: what proxy (role) to request, e.g. 'atlas' (string).
-    :return: True on success (Boolean).
+    :return: result (Boolean), updated proxy path (string).
     """
     try:
         # it assumes that https_setup() was done already
@@ -68,29 +72,45 @@ def get_proxy(proxy_outfile_name, voms_role):
 
         if res is None:
             logger.error(f"unable to get proxy with role '{voms_role}' from panda server")
-            return False
+            return False, proxy_outfile_name
 
         if res['StatusCode'] != 0:
             logger.error(f"panda server returned: \'{res['errorDialog']}\' for proxy role \'{voms_role}\'")
-            return False
+            return False, proxy_outfile_name
 
         proxy_contents = res['userProxy']
 
     except Exception as exc:
         logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
-        return False
+        return False, proxy_outfile_name
 
-    res = False
+    def create_file(filename, contents):
+        """
+        Internally used helper function to create proxy file.
+        """
+        _file = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(_file)
+        return write_file(filename, contents, mute=False)  # returns True on success
+
+    result = False
     try:
         # pre-create empty proxy file with secure permissions. Prepare it for write_file() which can not
         # set file permission mode, it will writes to the existing file with correct permissions.
-        _file = os.open(proxy_outfile_name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.close(_file)
-        res = write_file(proxy_outfile_name, proxy_contents, mute=False)  # returns True on success
+        result = create_file(proxy_outfile_name, proxy_contents)
     except (IOError, OSError, FileHandlingFailure) as exc:
         logger.error(f"exception caught:\n{exc},\ntraceback: {traceback.format_exc()}")
+        if 'Read-only file system' in exc:
+            proxy_outfile_name = os.path.join(os.getenv('PILOT_HOME'), os.path.basename(proxy_outfile_name))  # e.g. '/path/x509up_u25606_prod-unified.proxy'
+            logger.info(f'attempting writing proxy to alternative path: {proxy_outfile_name}')
+            try:  # can we bypass a problem with read-only file systems by writing the proxy to the pilot home dir instead?
+                result = create_file(proxy_outfile_name, proxy_contents)
+            except (IOError, OSError, FileHandlingFailure) as exc:
+                logger.error(f"exception caught:\n{exc},\ntraceback: {traceback.format_exc()}")
+            else:
+                logger.debug('updating X509_USER_PROXY to alternative path {path} (valid until end of current job)')
+                os.environ['X509_USER_PROXY'] = proxy_outfile_name
 
-    return res
+    return result, proxy_outfile_name
 
 
 def create_cert_files(from_proxy, workdir):

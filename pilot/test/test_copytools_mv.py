@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Pavlo Svirin, pavlo.svirin@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 import unittest
 import string
@@ -40,6 +40,7 @@ class TestCopytoolMv(unittest.TestCase):
         self.tmp_dst_dir = os.path.join(self.tmp_src_dir, 'dest')
         os.mkdir(self.tmp_dst_dir)
 
+        os.environ['PILOT_USER'] = 'atlas'
         #self.filelist = []
 
         # need a job data object, but we will overwrite some of its info
@@ -47,12 +48,15 @@ class TestCopytoolMv(unittest.TestCase):
         jdata = JobData(res)
 
         infiles = ""
+        #outfiles = ""
         fsize = ""
         realdatasetsin = ""
+        dispatchdblocktokenforout = ""
         guid = ""
         checksum = ""
         scope = ""
         ddmendpointin = ""
+        ddmendpointout = ""
         turl = ""
         """ Create temp files in source dir """
         for i in range(0, self.numfiles):
@@ -87,7 +91,15 @@ class TestCopytoolMv(unittest.TestCase):
             if ddmendpointin == "":
                 ddmendpointin = "ep1"
             else:
-                ddmendpointin = ",ep1"
+                ddmendpointin += ",ep1"
+            if ddmendpointout == "":
+                ddmendpointout = "ep1"
+            else:
+                ddmendpointout += ",ep1"
+            if dispatchdblocktokenforout == "":
+                dispatchdblocktokenforout = "NULL"
+            else:
+                dispatchdblocktokenforout += ",NULL"
             _data = [random.randint(0, 255) for x in range(0, filesize)]
             fname = os.path.join(self.tmp_src_dir, fname)
             if turl == "":
@@ -100,6 +112,15 @@ class TestCopytoolMv(unittest.TestCase):
             # add to list
             #self.filelist.append({'name': fname, 'source': self.tmp_src_dir, 'destination': self.tmp_dst_dir})
 
+        # add a 'log file'
+        #lfname = 'name.job.log.tgz'
+        #filesize = random.randint(1, self.maxfilesize)
+        #_data = [random.randint(0, 255) for x in range(0, filesize)]
+        #lfname = os.path.join(self.tmp_src_dir, lfname)
+        #new_file = open(lfname, "wb")
+        #new_file.write(str(_data).encode('utf-8'))
+        #new_file.close()
+
         # overwrite
         #data = {'inFiles': infiles, 'realDatasetsIn': realdatasetsin, 'GUID': guid,
         #        'fsize': fsize, 'checksum': checksum, 'scopeIn': scope,
@@ -108,11 +129,22 @@ class TestCopytoolMv(unittest.TestCase):
                 'fsize': fsize, 'checksum': checksum, 'scopeIn': scope,
                 'ddmEndPointIn': ddmendpointin}
         self.indata = jdata.prepare_infiles(data)
-        for f in self.indata:
-            f.workdir = self.tmp_dst_dir
-            f.turl = os.path.join(self.tmp_src_dir, f.lfn)
+        for _file in self.indata:
+            _file.workdir = self.tmp_dst_dir
+            _file.turl = os.path.join(self.tmp_src_dir, _file.lfn)
 
-        self.outdata = []  # jdata.prepare_outfiles(data)
+        #infiles += f',{lfname}'
+        data = {'outFiles': infiles, 'dispatchDBlockTokenForOut': dispatchdblocktokenforout, 'logGUID': 'abcdefaaaaaa',
+                'scopeOut': scope, 'ddmEndPointOut': ddmendpointout}
+
+        #self.outdata = []  # jdata.prepare_outfiles(data)
+        self.outdata, self.logdata = jdata.prepare_outfiles(data)
+        for _file in self.outdata:
+            _file.workdir = self.tmp_src_dir
+            subdir = 'abc/def'
+            _file.turl = os.path.join(os.path.join(self.tmp_dst_dir, subdir), _file.lfn)
+            _file.checksum = {'adler32': 'abcdef'}
+            _file.fsize = 'abcdef'
 
     def test_copy_in_mv(self):
         _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
@@ -129,19 +161,19 @@ class TestCopytoolMv(unittest.TestCase):
         # here check files linked
         self.assertEqual(self.__dirs_content_equal(self.tmp_src_dir, self.tmp_dst_dir), 0)
         # check dst files are links
-        _, stdout, _ = execute(r'find %s -type l -exec echo -n l \;' % self.tmp_dst_dir)  # Python 3 (added r)
+        _, stdout, _ = execute(r'find %s -type l -exec echo -n l \;' % self.tmp_dst_dir)
         self.assertEqual(stdout, ''.join('l' for i in range(self.numfiles)))
 
     def test_copy_in_invalid(self):
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': ''})
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': None})
 
-    def test_copy_out_mv(self):
-        pass
-        # _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir]))
-        # copy_out(self.outdata)
-        # here check files linked
-        # self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, self.tmp_dst_dir, dir1_expected_content='', dir2_expected_content=stdout1), 0)
+    #def test_copy_out_mv(self):
+    #    _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
+    #    copy_out(self.outdata, workdir=self.tmp_src_dir)
+    #    # for testing: _, stdout2, stderr2 = execute(' '.join(['ls', os.path.join(self.tmp_dst_dir, 'abc/def')]))
+    #    # here check files linked
+    #    self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, os.path.join(self.tmp_dst_dir, 'abc/def'), dir2_expected_content=stdout1), 0)
 
     def test_copy_out_cp(self):
         pass

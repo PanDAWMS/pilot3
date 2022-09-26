@@ -25,8 +25,6 @@ from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
 
-#from .queuedata import QueueData
-
 from pilot.common.exception import PilotException
 from collections import namedtuple
 
@@ -42,7 +40,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
 
     raise PilotException in case of errors.
 
-    :param args: input (shared) agruments
+    :param args: input (shared) arguments
     :return: None
     """
 
@@ -60,7 +58,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
 
     # check if queue is ACTIVE
     if infosys.queuedata.state != 'ACTIVE':
-        logger.critical('specified queue is NOT ACTIVE: %s -- aborting' % infosys.queuedata.name)
+        logger.critical(f'specified queue is NOT ACTIVE: {infosys.queuedata.name} -- aborting')
         raise PilotException("Panda Queue is NOT ACTIVE")
 
     # do we need explicit varible declaration (queuedata)?
@@ -76,10 +74,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     #args.location.storages_info = infosys.storages_info
 
     # find all enabled storages at site
-    try:
-        args.info.storages = [ddm for ddm, dat in infosys.storages_info.iteritems() if dat.site == infosys.queuedata.site]  # Python 2
-    except Exception:
-        args.info.storages = [ddm for ddm, dat in list(infosys.storages_info.items()) if dat.site == infosys.queuedata.site]  # Python 3
+    args.info.storages = [ddm for ddm, dat in list(infosys.storages_info.items()) if dat.site == infosys.queuedata.site]
 
     #args.info.sites_info = infosys.sites_info
 

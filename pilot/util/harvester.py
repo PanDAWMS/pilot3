@@ -111,11 +111,12 @@ def get_initial_work_report():
     :return: work report dictionary.
     """
 
+    hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
     work_report = {'jobStatus': 'starting',
                    'messageLevel': logging.getLevelName(logger.getEffectiveLevel()),
                    'cpuConversionFactor': 1.0,
                    'cpuConsumptionTime': '',
-                   'node': socket.gethostname(),
+                   'node': hostname,
                    'workdir': '',
                    'timestamp': time_stamp(),
                    'endTime': '',
@@ -272,7 +273,7 @@ def publish_work_report(work_report=None, worker_attributes_file="worker_attribu
         try:
             work_report['timestamp'] = time_stamp()
             if "outputfiles" in work_report:
-                del(work_report["outputfiles"])
+                del (work_report["outputfiles"])
             if "inputfiles" in work_report:
                 del (work_report["inputfiles"])
             if "xml" in work_report:

@@ -6,7 +6,7 @@
 
 2. Fork the ``PanDAWMS/pilot3`` repository into your private account as ``origin``. Clone it and set the ``PanDAWMS/pilot3`` repository as ``upstream``.
 
-3. Make new code contributions only to a new branch in your repository, push to ``origin`` and make a pull request into ``upstream``. Depending on the type of contribution this should go yo either ``upstream/next`` or ``upstream/hotfix``. 
+3. Make new code contributions only to a new branch in your repository, push to ``origin`` and make a pull request into ``upstream``. Depending on the type of contribution this should go to either ``upstream/next`` or ``upstream/hotfix``. 
    Any pull requests directly to the master branch will be rejected since that would trigger the automatic pilot tarball creation.
 ## Verifying code correctness
 
@@ -28,7 +28,11 @@ where ``PANDA_QUEUE`` correspond to the ATLAS PandaQueue as defined in AGIS. Thi
 
 The test cases are implemented as standard Python unittests under directory ``pilot/test/``. They can be discovered and executed automatically:
 
-    unit2 -v
+    python3 -m unittest
+
+To run the unit test on an individual module, use e.g.
+
+    python3 -m unittest -v pilot/test/test_copytools_mv.py
 
 ## Building and viewing docs
 

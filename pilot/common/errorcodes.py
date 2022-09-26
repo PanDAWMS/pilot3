@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 import re
@@ -19,6 +19,10 @@ class ErrorCodes:
     Note 2: Add error codes as they are needed in other modules. Do not import the full Pilot 1 list at once as there
     might very well be codes that can be reassigned/removed.
     """
+
+    # global variables shared by all modules/jobs
+    pilot_error_codes = []
+    pilot_error_diags = []
 
     # Error code constants (from Pilot 1)
     GENERALERROR = 1008
@@ -153,6 +157,9 @@ class ErrorCodes:
     REMOTEFILEOPENTIMEDOUT = 1368
     FRONTIER = 1369
     VOMSPROXYABOUTTOEXPIRE = 1370  # note, not a failure but an internal 'error' code used to download a new proxy
+    BADOUTPUTFILENAME = 1371
+    APPTAINERNOTINSTALLED = 1372
+    CERTIFICATEHASEXPIRED = 1373
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -189,7 +196,7 @@ class ErrorCodes:
         NOPAYLOADMETADATA: "Payload metadata does not exist",
         LFNTOOLONG: "LFN too long (exceeding limit of 255 characters)",
         ZEROFILESIZE: "File size cannot be zero",
-        MKDIR: "Failed to create local directory",
+        MKDIR: "Failed to create directory",
         KILLSIGNAL: "Job terminated by unknown kill signal",
         SIGTERM: "Job killed by signal: SIGTERM",
         SIGQUIT: "Job killed by signal: SIGQUIT",
@@ -220,11 +227,12 @@ class ErrorCodes:
         CONVERSIONFAILURE: "Failed to convert object data",
         FILEHANDLINGFAILURE: "Failed during file handling",
         PAYLOADEXECUTIONFAILURE: "Failed to execute payload",
-        SINGULARITYGENERALFAILURE: "Singularity: general failure",
-        SINGULARITYNOLOOPDEVICES: "Singularity: No more available loop devices",
-        SINGULARITYBINDPOINTFAILURE: "Singularity: Not mounting requested bind point",
-        SINGULARITYIMAGEMOUNTFAILURE: "Singularity: Failed to mount image",
+        SINGULARITYGENERALFAILURE: "Singularity/Apptainer: general failure",
+        SINGULARITYNOLOOPDEVICES: "Singularity/Apptainer: No more available loop devices",
+        SINGULARITYBINDPOINTFAILURE: "Singularity/Apptainer: Not mounting requested bind point",
+        SINGULARITYIMAGEMOUNTFAILURE: "Singularity/Apptainer: Failed to mount image",
         SINGULARITYNOTINSTALLED: "Singularity: not installed",
+        APPTAINERNOTINSTALLED: "Apptainer: not installed",
         PAYLOADEXECUTIONEXCEPTION: "Exception caught during payload execution",
         NOTDEFINED: "Not defined",
         NOTSAMELENGTH: "Not same length",
@@ -254,15 +262,15 @@ class ErrorCodes:
         BADMEMORYMONITORJSON: "Memory monitor produced bad output",
         STAGEINAUTHENTICATIONFAILURE: "Authentication failure during stage-in",
         DBRELEASEFAILURE: "Local DBRelease handling failed (consult Pilot log)",
-        SINGULARITYNEWUSERNAMESPACE: "Singularity: Failed invoking the NEWUSER namespace runtime",
+        SINGULARITYNEWUSERNAMESPACE: "Singularity/Apptainer: Failed invoking the NEWUSER namespace runtime",
         BADQUEUECONFIGURATION: "Bad queue configuration detected",
         MIDDLEWAREIMPORTFAILURE: "Failed to import middleware (consult Pilot log)",
         NOOUTPUTINJOBREPORT: "Found no output in job report",
         RESOURCEUNAVAILABLE: "Resource temporarily unavailable",
-        SINGULARITYFAILEDUSERNAMESPACE: "Singularity: Failed to create user namespace",
+        SINGULARITYFAILEDUSERNAMESPACE: "Singularity/Apptainer: Failed to create user namespace",
         TRANSFORMNOTFOUND: "Transform not found",
         UNSUPPORTEDSL5OS: "Unsupported SL5 OS",
-        SINGULARITYRESOURCEUNAVAILABLE: "Singularity: Resource temporarily unavailable",  # not the same as RESOURCEUNAVAILABLE
+        SINGULARITYRESOURCEUNAVAILABLE: "Singularity/Apptainer: Resource temporarily unavailable",  # not the same as RESOURCEUNAVAILABLE
         UNRECOGNIZEDTRFARGUMENTS: "Unrecognized transform arguments",
         EMPTYOUTPUTFILE: "Empty output file detected",
         UNRECOGNIZEDTRFSTDERR: "Unrecognized fatal error in transform stderr",
@@ -284,11 +292,20 @@ class ErrorCodes:
         COMMANDTIMEDOUT: "Command timed out",
         REMOTEFILEOPENTIMEDOUT: "Remote file open timed out",
         FRONTIER: "Frontier error",
-        VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire"
+        VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
+        BADOUTPUTFILENAME: "Output file name contains illegal characters",
+        CERTIFICATEHASEXPIRED: "Certificate has expired"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
     recoverable_error_codes = [0] + put_error_codes
+
+    def reset_pilot_errors(self):
+        """
+        Reset the class static variables related with pilot errors.
+        """
+        ErrorCodes.pilot_error_codes = []
+        ErrorCodes.pilot_error_diags = []
 
     def get_kill_signal_error_code(self, signal):
         """
@@ -317,7 +334,7 @@ class ErrorCodes:
 
         return self._error_messages.get(errorcode, "Unknown error code: %d" % errorcode)
 
-    def add_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[], priority=False, msg=None):
+    def add_error_code(self, errorcode, priority=False, msg=None):
         """
         Add pilot error code to list of error codes.
         This function adds the given error code to the list of all errors that have occurred. This is needed since
@@ -334,6 +351,8 @@ class ErrorCodes:
         """
 
         # do nothing if the error code has already been added
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode not in pilot_error_codes:
             error_msg = msg if msg else self.get_error_message(errorcode)
             if priority:
@@ -345,7 +364,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode, pilot_error_codes=[], pilot_error_diags=[]):
+    def remove_error_code(self, errorcode):
         """
         Silently remove an error code and its diagnostics from the internal error lists.
         There is no warning or exception thrown in case the error code is not present in the lists.
@@ -354,6 +373,8 @@ class ErrorCodes:
         :return: pilot_error_codes, pilot_error_diags
         """
 
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode in pilot_error_codes:
             try:
                 index = pilot_error_codes.index(errorcode)
@@ -366,7 +387,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def report_errors(self, pilot_error_codes, pilot_error_diags):
+    def report_errors(self):
         """
         Report all errors that occurred during running.
         The function should be called towards the end of running a job.
@@ -377,6 +398,8 @@ class ErrorCodes:
         """
 
         i = 0
+        pilot_error_codes = ErrorCodes.pilot_error_codes
+        pilot_error_diags = ErrorCodes.pilot_error_diags
         if pilot_error_codes == []:
             report = "no pilot errors were reported"
         else:
@@ -407,6 +430,8 @@ class ErrorCodes:
             exit_code = self.SINGULARITYGENERALFAILURE
         elif "Singularity is not installed" in stderr:  # exit code should be 64 but not always?
             exit_code = self.SINGULARITYNOTINSTALLED
+        elif "Apptainer is not installed" in stderr:  # exit code should be 64 but not always?
+            exit_code = self.APPTAINERNOTINSTALLED
         elif exit_code == 64 and "cannot create directory" in stderr:
             exit_code = self.MKDIR
         elif exit_code == -1:

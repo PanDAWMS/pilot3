@@ -433,7 +433,8 @@ if __name__ == '__main__':
                   'direct_access_wan': replica_dictionary[lfn]['directaccesswan'],
                   'is_tar': replica_dictionary[lfn]['istar'],
                   'accessmode': replica_dictionary[lfn]['accessmode'],
-                  'storage_token': replica_dictionary[lfn]['storagetoken']}]
+                  'storage_token': replica_dictionary[lfn]['storagetoken'],
+                  'checkinputsize': True}]
 
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
         _xfiles = [FileSpec(type='input', **f) for f in files]

@@ -1044,7 +1044,7 @@ class StageOutClient(StagingClient):
             if not os.path.exists(pfn) or not os.access(pfn, os.R_OK):
                 msg = "output pfn file/directory does not exist: %s" % pfn
                 self.logger.error(msg)
-                self.trace_report.update(clientState='MISSINGOUTPUTFILE', stateReason=msg)
+                self.trace_report.update(clientState='MISSINGOUTPUTFILE', stateReason=msg, filename=fspec.lfn)
                 self.trace_report.send()
                 raise PilotException(msg, code=ErrorCodes.MISSINGOUTPUTFILE, state="FILE_INFO_FAIL")
             if not fspec.filesize:

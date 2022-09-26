@@ -110,7 +110,7 @@ def update_job_data(job):
     pass
 
 
-def remove_redundant_files(workdir, outputfiles=[], piloterrors=[], debugmode=False):
+def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
     """
     Remove redundant files and directories prior to creating the log file.
 
@@ -145,7 +145,7 @@ def get_utility_commands(order=None, job=None):
     return {}
 
 
-def get_utility_command_setup(name, setup=None):
+def get_utility_command_setup(name, job, setup=None):
     """
     Return the proper setup for the given utility command.
     If a payload setup is specified

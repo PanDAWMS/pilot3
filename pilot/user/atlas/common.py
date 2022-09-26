@@ -780,7 +780,13 @@ def get_analysis_run_command(job, trf_name):
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        cmd += 'export X509_USER_PROXY=%s;' % os.environ.get('X509_USER_PROXY')
+        logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
+        x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+        cmd += f'export X509_USER_PROXY={x509};'
+    if 'PANDA_AUTH_TOKEN' in os.environ:
+        cmd += 'unset PANDA_AUTH_TOKEN;'
+    if 'PANDA_AUTH_ORIGIN' in os.environ:
+        cmd += 'unset PANDA_AUTH_ORIGIN;'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
@@ -838,82 +844,6 @@ def get_analysis_run_command(job, trf_name):
             cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
 
     show_memory_usage()
-
-    return cmd
-
-
-## SHOULD NOT BE USED since payload cmd should be properly generated
-## from the beginning (consider final directio settings) (anisyonk)
-## DEPRECATE ME (anisyonk)
-def update_forced_accessmode(log, cmd, transfertype, jobparams, trf_name):
-    """
-    Update the payload command for forced accessmode.
-    accessmode is an option that comes from HammerCloud and is used to
-    force a certain input file access mode; i.e. copy-to-scratch or direct access.
-
-    :param log: logging object.
-    :param cmd: payload command.
-    :param transfertype: transfer type (.e.g 'direct') from the job
-    definition with priority over accessmode (string).
-    :param jobparams: job parameters (string).
-    :param trf_name: transformation name (string).
-    :return: updated payload command string.
-    """
-
-    if "accessmode" in cmd and transfertype != 'direct':
-        accessmode_usect = None
-        accessmode_directin = None
-        _accessmode_dic = {"--accessmode=copy": ["copy-to-scratch mode", ""],
-                           "--accessmode=direct": ["direct access mode", " --directIn"]}
-
-        # update run_command according to jobPars
-        for _mode in list(_accessmode_dic.keys()):  # Python 2/3
-            if _mode in jobparams:
-                # any accessmode set in jobPars should overrule schedconfig
-                logger.info("enforcing %s", _accessmode_dic[_mode][0])
-                if _mode == "--accessmode=copy":
-                    # make sure direct access is turned off
-                    accessmode_usect = True
-                    accessmode_directin = False
-                elif _mode == "--accessmode=direct":
-                    # make sure copy-to-scratch gets turned off
-                    accessmode_usect = False
-                    accessmode_directin = True
-                else:
-                    accessmode_usect = False
-                    accessmode_directin = False
-
-                # update run_command (do not send the accessmode switch to runAthena)
-                cmd += _accessmode_dic[_mode][1]
-                if _mode in cmd:
-                    cmd = cmd.replace(_mode, "")
-
-        # force usage of copy tool for stage-in or direct access
-        if accessmode_usect:
-            logger.info('forced copy tool usage selected')
-            # remove again the "--directIn"
-            if "directIn" in cmd:
-                cmd = cmd.replace(' --directIn', ' ')
-        elif accessmode_directin:
-            logger.info('forced direct access usage selected')
-            if "directIn" not in cmd:
-                cmd += ' --directIn'
-        else:
-            logger.warning('neither forced copy tool usage nor direct access was selected')
-
-        if "directIn" in cmd and "usePFCTurl" not in cmd:
-            cmd += ' --usePFCTurl'
-
-        # need to add proxy if not there already
-        if "--directIn" in cmd and "export X509_USER_PROXY" not in cmd:
-            if 'X509_USER_PROXY' in os.environ:
-                cmd = cmd.replace("./%s" % trf_name, "export X509_USER_PROXY=%s;./%s" %
-                                  (os.environ.get('X509_USER_PROXY'), trf_name))
-
-    # if both direct access and the accessmode loop added a
-    # directIn switch, remove the first one from the string
-    if cmd.count("directIn") > 1:
-        cmd = cmd.replace(' --directIn', ' ', 1)
 
     return cmd
 
@@ -1066,10 +996,26 @@ def update_job_data(job):
             # remove the files listed in allowNoOutput if they don't exist
             remove_no_output_files(job)
 
+    validate_output_data(job)
+
+
+def validate_output_data(job):
+    """
+    Validate output data.
+    Set any missing GUIDs and make sure the output file names follow the ATLAS naming convention - if not, set the
+    error code.
+
+    :param job: job object.
+    :return:
+    """
+
     ## validate output data (to be moved into the JobData)
     ## warning: do no execute this code unless guid lookup in job report
     # has failed - pilot should only generate guids
     ## if they are not present in job report
+
+    pattern = re.compile(naming_convention_pattern())
+    bad_files = []
     for dat in job.outdata:
         if not dat.guid:
             dat.guid = get_guid()
@@ -1078,6 +1024,42 @@ def update_job_data(job):
                 dat.guid,
                 dat.lfn
             )
+        # is the output file following the naming convention?
+        found = re.findall(pattern, dat.lfn)
+        if found:
+            logger.info(f'verified that {dat.lfn} follows the naming convention')
+        else:
+            bad_files.append(dat.lfn)
+
+    # make sure there are no illegal characters in the file names
+    for bad_file_name in bad_files:
+        diagnostic = f'{bad_file_name} does not follow the naming convention: {naming_convention_pattern()}'
+        try:
+            bad_file_name.encode('ascii')
+        except UnicodeEncodeError as exc:
+            diagnostic += f' and contains illegal characters: {exc}'
+            # only fail the job in this case (otherwise test jobs would fail!), and only report on the first file
+            if errors.BADOUTPUTFILENAME not in job.piloterrorcodes:
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADOUTPUTFILENAME, msg=diagnostic)
+        logger.warning(diagnostic)
+
+    if not bad_files:
+        logger.debug('verified that all output files follow the ATLAS naming convention')
+
+
+def naming_convention_pattern():
+    """
+    Return a regular expression pattern in case the output file name should be verified.
+
+    pattern=re.compile(r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,250}$')
+    re.findall(pattern, 'AOD.29466419._001462.pool.root.1')
+    ['AOD.29466419._001462.pool.root.1']
+
+    :return: raw string.
+    """
+
+    max_filename_size = 250
+    return r'^[A-Za-z0-9][A-Za-z0-9\\.\\-\\_]{1,%s}$' % max_filename_size
 
 
 def get_stageout_label(job):

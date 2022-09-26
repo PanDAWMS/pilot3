@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
 
 
 """
@@ -50,7 +50,7 @@ class InfoService(object):
 
         def inner(self, *args, **kwargs):
             if getattr(self, key, None) is None:
-                raise PilotException("failed to call %s(): InfoService instance is not initialized. Call init() first!" % func.__name__)
+                raise PilotException(f"failed to call {func.__name__}(): InfoService instance is not initialized. Call init() first!")
             return func(self, *args, **kwargs)
 
         return inner
@@ -80,7 +80,7 @@ class InfoService(object):
         self.pandaqueue = pandaqueue
 
         if not self.pandaqueue:
-            raise PilotException('Failed to initialize InfoService: panda queue name is not set')
+            raise PilotException('failed to initialize InfoService: panda queue name is not set')
 
         self.queues_info = {}     ##  reset cache data
         self.storages_info = {}   ##  reset cache data
@@ -89,7 +89,7 @@ class InfoService(object):
         self.queuedata = self.resolve_queuedata(self.pandaqueue)
 
         if not self.queuedata or not self.queuedata.name:
-            raise QueuedataFailure("Failed to resolve queuedata for queue=%s, wrong PandaQueue name?" % self.pandaqueue)
+            raise QueuedataFailure(f"failed to resolve queuedata for queue={self.pandaqueue}, wrong PandaQueue name?")
 
         self.resolve_storage_data()  ## prefetch details for all storages
 
@@ -124,8 +124,8 @@ class InfoService(object):
                     if not merge:
                         return r
                     ret = merge_dict_data(ret or {}, r or {})
-                except Exception as e:
-                    logger.warning("failed to resolve data (%s) from provider=%s .. skipped, error=%s" % (fcall.__name__, provider, e))
+                except Exception as exc:
+                    logger.warning(f"failed to resolve data ({fcall.__name__}) from provider={provider} .. skipped, error={exc}")
                     import traceback
                     logger.warning(traceback.format_exc())
 
@@ -160,12 +160,8 @@ class InfoService(object):
             :return: dict of DDMEndpoint settings by DDMEndpoint name as a key
         """
 
-        try:
-            if isinstance(ddmendpoints, basestring):  # Python 2  # noqa: F821
-                ddmendpoints = [ddmendpoints]
-        except Exception:
-            if isinstance(ddmendpoints, str):  # Python 3
-                ddmendpoints = [ddmendpoints]
+        if isinstance(ddmendpoints, str):
+            ddmendpoints = [ddmendpoints]
 
         cache = self.storages_info
 
@@ -239,10 +235,10 @@ class InfoService(object):
 
         if ddmendpoint in self.ddmendpoint2storage_id:
             storage_id = self.ddmendpoint2storage_id[ddmendpoint]
-            logger.info("Found storage id for ddmendpoint(%s): %s" % (ddmendpoint, storage_id))
+            logger.info(f"found storage id for ddmendpoint({ddmendpoint}): {storage_id}")
             return storage_id
         else:
-            raise NotDefined("Cannot find the storage id for ddmendpoint: %s" % ddmendpoint)
+            raise NotDefined(f"cannot find the storage id for ddmendpoint: {ddmendpoint}")
 
     def get_ddmendpoint(self, storage_id):
         """
@@ -258,8 +254,8 @@ class InfoService(object):
 
         if storage_id in self.storage_id2ddmendpoint:
             ddmendpoint = self.storage_id2ddmendpoint[storage_id]
-            logger.info("Found ddmendpoint for storage id(%s): %s" % (storage_id, ddmendpoint))
+            logger.info(f"found ddmendpoint for storage id({storage_id}): {ddmendpoint}")
             return ddmendpoint
         else:
             self.resolve_storage_data()
-            raise NotDefined("Cannot find ddmendpoint for storage id: %s" % storage_id)
+            raise NotDefined(f"cannot find ddmendpoint for storage id: {storage_id}")

@@ -20,7 +20,7 @@ from time import time
 from copy import deepcopy
 
 from .common import resolve_common_transfer_errors, verify_catalog_checksum, get_timeout
-from pilot.common.exception import PilotException, StageOutFailure, ErrorCodes
+from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.timer import timeout, TimedThread
 
 logger = logging.getLogger(__name__)
@@ -38,18 +38,6 @@ def is_valid_for_copy_in(files):
 
 def is_valid_for_copy_out(files):
     return True  ## FIX ME LATER
-
-
-def verify_stage_out(fspec):
-    """
-    Checks that the uploaded file is physically at the destination.
-    :param fspec: file specifications
-    """
-    from rucio.rse import rsemanager as rsemgr
-    rse_settings = rsemgr.get_rse_info(fspec.ddmendpoint)
-    uploaded_file = {'name': fspec.lfn, 'scope': fspec.scope}
-    logger.info('Checking file: %s', str(fspec.lfn))
-    return rsemgr.exists(rse_settings, [uploaded_file], domain='lan')
 
 
 #@timeout(seconds=10800)
@@ -337,6 +325,7 @@ def copy_out(files, **kwargs):  # noqa: C901
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
+    logger.info(f'rucio stage-out: X509_USER_PROXY={os.environ.get("X509_USER_PROXY", "")}')
 
     summary = kwargs.pop('summary', True)
     ignore_errors = kwargs.pop('ignore_errors', False)
@@ -638,7 +627,7 @@ def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, tra
         logger.info('*** rucio API uploading file (taking over logging) ***')
         logger.debug('summary_file_path=%s' % summary_file_path)
         logger.debug('trace_report_out=%s' % trace_report_out)
-        result = upload_client.upload([f], summary_file_path=summary_file_path, traces_copy_out=trace_report_out)
+        result = upload_client.upload([f], summary_file_path=summary_file_path, traces_copy_out=trace_report_out, ignore_availability=True)
     except Exception as error:
         logger.warning('*** rucio API upload client failed ***')
         logger.warning('caught exception: %s', error)
@@ -656,15 +645,5 @@ def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, tra
     else:
         logger.warning('*** rucio API upload client finished ***')
         logger.debug('client returned %s', result)
-
-    try:
-        file_exists = verify_stage_out(fspec)
-        logger.info('file exists at the storage: %s' % str(file_exists))
-        if not file_exists:
-            raise StageOutFailure('physical check after upload failed')
-    except Exception as error:
-        msg = 'file existence verification failed with: %s' % error
-        logger.info(msg)
-        raise StageOutFailure(msg)
 
     return ec, trace_report_out
