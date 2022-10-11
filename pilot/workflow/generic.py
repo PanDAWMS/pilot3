@@ -194,6 +194,7 @@ def run(args):
             # has all threads finished?
             abort = threads_aborted(abort_at=1)
             if abort:
+                logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
                 break
 
         sleep(1)

@@ -623,11 +623,19 @@ def threads_aborted(abort_at=2):
     # count all non-daemon threads
     daemon_threads = 0
     for thread in threading.enumerate():
+        _thr = ''
         if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
+            if abort_at == 1:
+                _thr = f'thread={thread} (daemon)'
             daemon_threads += 1
-
+        else:
+            if abort_at == 1:
+                _thr = f'thread={thread}'
+        if _thr:
+            _thr += f' (thread_count={thread_count}, daemon_threads={daemon_threads})'
+            logger.debug(_thr)
     if thread_count - daemon_threads == abort_at:
-        logger.debug('aborting since the last relevant thread is about to finish')
+        logger.debug(f'aborting since the last relevant thread is about to finish ({thread_count} - {daemon_threads} = {abort_at})')
         aborted = True
 
     return aborted

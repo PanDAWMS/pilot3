@@ -240,7 +240,7 @@ class StagingClient(object):
             raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm'],
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
             'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
         }
         query.update(sort='geoip', client_location=location)
