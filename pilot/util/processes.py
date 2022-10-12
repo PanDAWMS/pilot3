@@ -632,7 +632,7 @@ def threads_aborted(abort_at=2):
             if abort_at == 1:
                 _thr = f'thread={thread}'
         if _thr:
-            _thr += f' (thread_count={thread_count}, daemon_threads={daemon_threads})'
+            _thr += f' (thread_count={thread_count}, daemon_threads={daemon_threads}, abort_at={abort_at})'
             logger.debug(_thr)
     if thread_count - daemon_threads == abort_at:
         logger.debug(f'aborting since the last relevant thread is about to finish ({thread_count} - {daemon_threads} = {abort_at})')
