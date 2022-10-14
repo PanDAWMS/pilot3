@@ -176,8 +176,10 @@ def run(args):
 
     # the thread_count is the total number of threads, not just the ExcThreads above
     thread_count = threading.activeCount()
-    while threading.activeCount() > 1:
-        # Note: this loops only looks at ExcThreads, not MainThread or Thread
+    abort = False
+    while threading.activeCount() > 1 or not abort:
+        # Note: this loop only includes at ExcThreads, not MainThread or Thread
+        # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
         for thread in threads:
             bucket = thread.get_bucket()
             try:
@@ -192,20 +194,20 @@ def run(args):
             thread.join(0.1)
 
         # additional break for lingering threads (like google logging)
-        abort = False
-        if threading.activeCount() == 2:  # MainThread + Thread(google.cloud.logging.Worker
-            for thread in threading.enumerate():
-                logger.debug(f'found thread: {thread.name}')
-                if 'google.cloud.logging.Worker' in thread.name:
-                    abort = True
-        if abort:
-            logger.debug(f'all relevant threads have aborted')
-            break
+        #if threading.activeCount() == 2:  # MainThread + Thread(google.cloud.logging.Worker
+        #    for thread in threading.enumerate():
+        #        logger.debug(f'found thread: {thread.name}')
+        #        if 'google.cloud.logging.Worker' in thread.name:
+        #            abort = True
+        #if abort:
+        #    logger.debug(f'all relevant threads have aborted')
+        #    break
 
         if thread_count != threading.activeCount():
             # has all threads finished?
-            logger.debug(f'calling threads_aborted(abort_at=1), thread_count={thread_count}, threading.activeCount()={threading.activeCount()}')
-            abort = threads_aborted(abort_at=1)
+            logger.debug(f'calling threads_aborted(), thread_count={thread_count}, threading.activeCount()={threading.activeCount()}')
+            #abort = threads_aborted(abort_at=1)
+            abort = threads_aborted()
             if abort:
                 logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
                 break
