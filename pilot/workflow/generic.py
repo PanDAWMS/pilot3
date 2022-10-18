@@ -203,14 +203,14 @@ def run(args):
         #    logger.debug(f'all relevant threads have aborted')
         #    break
 
-        if thread_count != threading.activeCount():
-            # has all threads finished?
-            logger.debug(f'calling threads_aborted(), thread_count={thread_count}, threading.activeCount()={threading.activeCount()}')
-            #abort = threads_aborted(abort_at=1)
-            abort = threads_aborted()
-            if abort:
-                logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
-                break
+#        if thread_count != threading.activeCount():
+        # have all threads finished?
+        logger.debug(f'calling threads_aborted(), thread_count={thread_count}, threading.activeCount()={threading.activeCount()}')
+        #abort = threads_aborted(abort_at=1)
+        abort = threads_aborted()
+        if abort:
+            logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
+            break
 
         sleep(1)
 
