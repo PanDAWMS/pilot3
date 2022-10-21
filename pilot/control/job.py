@@ -1173,8 +1173,9 @@ def store_jobid(jobid, init_dir):
     """
 
     try:
-        path = os.path.join(os.path.join(init_dir, 'pilot3'), config.Pilot.jobid_file)
-        path = path.replace('pilot3/pilot3', 'pilot3')  # dirty fix for bad paths
+#        path = os.path.join(os.path.join(init_dir, 'pilot3'), config.Pilot.jobid_file)
+#        path = path.replace('pilot3/pilot3', 'pilot3')  # dirty fix for bad paths
+        path = os.path.join(os.environ.get('PILOT_SOURCE_DIR'), config.Pilot.jobid_file)
         mode = 'a' if os.path.exists(path) else 'w'
         write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)
     except Exception as error:
