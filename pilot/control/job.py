@@ -338,7 +338,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('skipping job update for fake test job')
         return True
 
-    res = https.send_update('updateJob', data, args.url, args.port, job=job)
+    res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()

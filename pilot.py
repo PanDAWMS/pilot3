@@ -68,7 +68,7 @@ def main():
 
     # let the server know that the worker has started
     if args.update_server:
-        send_worker_status('started', args.queue, args.url, args.port, logger)
+        send_worker_status('started', args.queue, args.url, args.port, logger, args.internet_protocol_version)
 
     # initialize InfoService
     try:
@@ -105,7 +105,7 @@ def main():
 
     # let the server know that the worker has finished
     if args.update_server:
-        send_worker_status('finished', args.queue, args.url, args.port, logger)
+        send_worker_status('finished', args.queue, args.url, args.port, logger, args.internet_protocol_version)
 
     return exitcode
 
@@ -562,7 +562,7 @@ def get_pilot_source_dir():
         return cwd
 
 
-def send_worker_status(status, queue, url, port, logger):
+def send_worker_status(status, queue, url, port, logger, internet_protocol_version):
     """
     Send worker info to the server to let it know that the worker has started
     Note: the function can fail, but if it does, it will be ignored.
@@ -572,6 +572,7 @@ def send_worker_status(status, queue, url, port, logger):
     :param url: server url (string).
     :param port: server port (string).
     :param logger: logging object.
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (string).
     :return:
     """
 
@@ -584,7 +585,7 @@ def send_worker_status(status, queue, url, port, logger):
 
     # attempt to send the worker info to the server
     if data['workerID'] and data['harvesterID']:
-        send_update('updateWorkerPilotStatus', data, url, port)
+        send_update('updateWorkerPilotStatus', data, url, port, ipv=internet_protocol_version)
     else:
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 

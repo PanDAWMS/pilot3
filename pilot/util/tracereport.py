@@ -165,8 +165,11 @@ class TraceReport(dict):
             ssl_certificate = self.get_ssl_certificate()
 
             # create the command
-            cmd = 'curl --connect-timeout 20 --max-time 120 --cacert %s -v -k -d \"%s\" %s' % \
-                  (ssl_certificate, data, url)
+            command = 'curl'
+            if self.ipv == 'IPv4':
+                command += ' -4'
+            logger.debug(f'trace report ipv={self.ipv}')
+            cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"%{data}\" {url}'
             exit_code, stdout, stderr = execute(cmd, mute=True)
             if exit_code:
                 logger.warning('failed to send traces to rucio: %s' % stdout)

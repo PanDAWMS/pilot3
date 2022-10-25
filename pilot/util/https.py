@@ -160,7 +160,7 @@ def https_setup(args=None, version=None):
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url, data=None, plain=False, secure=True):
+def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     """
     This function sends a request using HTTPS.
     Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
@@ -171,10 +171,11 @@ def request(url, data=None, plain=False, secure=True):
     Treats the request as JSON unless a parameter ``plain`` is `True`.
     If JSON is expected, sends ``Accept: application/json`` header.
 
-    :param string url: the URL of the resource
-    :param dict data: data to send
+    :param string url: the URL of the resource.
+    :param dict data: data to send.
     :param boolean plain: if true, treats the response as a plain text.
-    :param secure: Boolean (default: True, ie use certificates)
+    :param secure: Boolean (default: True, ie use certificates).
+    :param ipv: internet protocol version (string).
     Usage:
 
     .. code-block:: python
@@ -205,7 +206,7 @@ def request(url, data=None, plain=False, secure=True):
     dat = get_curl_config_option(writestatus, url, data, filename)
 
     if _ctx.ssl_context is None and secure:
-        req, obscure = get_curl_command(plain, dat)
+        req, obscure = get_curl_command(plain, dat, ipv)
         if not req:
             logger.warning('failed to construct valid curl command')
             return None
@@ -251,12 +252,13 @@ def update_ctx():
         _ctx.cacert = x509
 
 
-def get_curl_command(plain, dat):
+def get_curl_command(plain, dat, ipv):
     """
     Get the curl command.
 
     :param plain:
     :param dat: curl config option (string).
+    :param ipv: internet protocol version (string).
     :return: curl command (string), sensitive string to be obscured before dumping to log (string).
     """
 
@@ -264,6 +266,9 @@ def get_curl_command(plain, dat):
     auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)  # file name of the token
     auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)  # origin of the token (panda_dev.pilot)
 
+    command = 'curl'
+    if ipv == 'IPv4':
+        command += ' -4'
     if auth_token and auth_origin:
         # curl --silent --capath
         # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
@@ -281,14 +286,14 @@ def get_curl_command(plain, dat):
         if not auth_token_content:
             logger.warning('PANDA_AUTH_TOKEN content could not be read')
             return None
-        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
               f'-H "Authorization: Bearer {pipes.quote(auth_token_content)}" ' \
               f'-H {pipes.quote("Accept: application/json") if not plain else ""} ' \
               f'-H "Origin: {pipes.quote(auth_origin)}" {dat}'
     else:
-        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
               f'--cert {pipes.quote(_ctx.cacert or "")} ' \
@@ -409,7 +414,7 @@ def get_urlopen_output(req, context):
     return exitcode, output
 
 
-def send_update(update_function, data, url, port, job=None):
+def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
     """
     Send the update to the server using the given function and data.
 
@@ -418,6 +423,7 @@ def send_update(update_function, data, url, port, job=None):
     :param url: server url (string).
     :param port: server port (string).
     :param job: job object.
+    :param ipv: internet protocol version, IPv4 or IPv6 (string).
     :return: server response (dictionary).
     """
 
@@ -449,7 +455,7 @@ def send_update(update_function, data, url, port, job=None):
             continue
         # send the heartbeat
         try:
-            res = request(f'{pandaserver}/server/panda/{update_function}', data=data)
+            res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
         else:
