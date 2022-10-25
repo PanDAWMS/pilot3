@@ -1172,7 +1172,7 @@ def store_jobid(jobid, init_dir):
     :return:
     """
 
-    pilot_source_dir = os.environ.get('PILOT_SOURCE_DIR', '')
+    pilot_source_dir = os.environ.get('PANDA_PILOT_SOURCE', '')
     if pilot_source_dir:
         path = os.path.join(pilot_source_dir, config.Pilot.jobid_file)
     else:
