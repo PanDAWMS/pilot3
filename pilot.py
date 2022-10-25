@@ -82,11 +82,9 @@ def main():
         return error.get_error_code()
 
     # handle special CRIC variables via params
-    args.internet_protocol_version = 'IPv6'  # can be overridden via CRIC PQ.params.internet_protocol_version
-    if infosys.queuedata.params:
-        logger.debug(f'params={infosys.queuedata.params}')
-    else:
-        logger.debug('no params in queuedata')
+    # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
+    # (must be defined per PQ if wanted). The pilot default is IPv6
+    args.internet_protocol_version = infosys.queuedata.params.get('internet_protocol_version', 'IPv6') if infosys.queuedata.params else 'IPv6'
 
     # set the site name for rucio
     environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', None) or infosys.queuedata.site

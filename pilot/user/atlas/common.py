@@ -344,8 +344,6 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if fspec.turl in not_opened_turls:
                         base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
                     else:
-                        logger.debug(f'get_sm_a:{base_trace_report.get("eventType", "not found")}')
-                        logger.debug(f'surl={fspec.surl}')
                         protocol = get_protocol(fspec.surl, base_trace_report.get('eventType', ''))
                         logger.debug(f'protocol={protocol}')
                         if protocol:
@@ -371,11 +369,9 @@ def get_protocol(surl, event_type):
 
     protocol = ''
     if event_type != 'get_sm_a':
-        logger.debug(f'returning immediately since event_type={event_type}')
         return ''
     if surl:
         protocols = re.findall(r'(\w+)://', surl)  # use raw string to avoid flake8 warning W605 invalid escape sequence '\w'
-        logger.debug(f'protocols={protocols}')
         if protocols:
             protocol = protocols[0]
 
