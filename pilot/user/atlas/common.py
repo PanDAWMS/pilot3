@@ -344,6 +344,12 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if fspec.turl in not_opened_turls:
                         base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
                     else:
+                        protocol = get_protocol(fspec.surl)
+                        if protocol:
+                            base_trace_report.update(protocol=protocol)
+                            logger.debug(f'added protocol={protocol} to trace report')
+                        else:
+                            logger.warning(f'protocol could not be extracted from surl={fspec.surl}, cannot add to trace report')
                         base_trace_report.update(clientState='FOUND_ROOT')
 
                     # copy the base trace report (only a dictionary) into a real trace report object
@@ -352,6 +358,23 @@ def process_remote_file_traces(path, job, not_opened_turls):
                         trace_report.send()
                     else:
                         logger.warning('failed to create trace report for turl=%s', fspec.turl)
+
+
+def get_protocol(surl):
+    """
+    Extract the protocol from the surl.
+
+    :param surl: SURL (string).
+    :return: protocol (string).
+    """
+
+    protocol = ''
+    if surl:
+        protocols = re.findall(r'(\w+)://', surl)  # use raw string to avoid flake8 warning W605 invalid escape sequence '\w'
+        if protocols:
+            protocol = protocols[0]
+
+    return protocol
 
 
 def get_nthreads(catchall):
