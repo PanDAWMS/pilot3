@@ -344,12 +344,10 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if fspec.turl in not_opened_turls:
                         base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
                     else:
-                        protocol = get_protocol(fspec.surl)
+                        protocol = get_protocol(fspec.surl, base_trace_report.get('get_sm_a', ''))
                         if protocol:
                             base_trace_report.update(protocol=protocol)
                             logger.debug(f'added protocol={protocol} to trace report')
-                        else:
-                            logger.warning(f'protocol could not be extracted from surl={fspec.surl}, cannot add to trace report')
                         base_trace_report.update(clientState='FOUND_ROOT')
 
                     # copy the base trace report (only a dictionary) into a real trace report object
@@ -360,15 +358,17 @@ def process_remote_file_traces(path, job, not_opened_turls):
                         logger.warning('failed to create trace report for turl=%s', fspec.turl)
 
 
-def get_protocol(surl):
+def get_protocol(surl, event_type):
     """
-    Extract the protocol from the surl.
+    Extract the protocol from the surl for event type get_sm_a.
 
     :param surl: SURL (string).
     :return: protocol (string).
     """
 
     protocol = ''
+    if event_type != 'get_sm_a':
+        return ''
     if surl:
         protocols = re.findall(r'(\w+)://', surl)  # use raw string to avoid flake8 warning W605 invalid escape sequence '\w'
         if protocols:
