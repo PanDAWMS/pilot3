@@ -68,7 +68,7 @@ def main():
 
     # let the server know that the worker has started
     if args.update_server:
-        send_worker_status('started', args.queue, args.url, args.port, logger, args.internet_protocol_version)
+        send_worker_status('started', args.queue, args.url, args.port, logger, 'IPv6')  # note: assuming IPv6, fallback in place
 
     # initialize InfoService
     try:
