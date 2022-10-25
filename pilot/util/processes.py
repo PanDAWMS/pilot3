@@ -667,7 +667,7 @@ def threads_aborted():
         else:  # only count threads spawned by the main thread, no the main thread itself or any daemon threads
             tag = 'pilot?'
             pilot_thread_count += 1
-        logger.debug(f'thread={thread}, pilot_thread_count={pilot_thread_count}, daemon_thread_count={daemon_threads}, tag={tag}')
+        #logger.debug(f'thread={thread}, pilot_thread_count={pilot_thread_count}, daemon_thread_count={daemon_threads}, tag={tag}')
     if pilot_thread_count == 0:
         logger.debug(f'aborting since only the main Pilot thread is still running '
                      f'(total thread count={thread_count} with {daemon_threads} daemon thread(s)')

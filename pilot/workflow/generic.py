@@ -193,20 +193,7 @@ def run(args):
 
             thread.join(0.1)
 
-        # additional break for lingering threads (like google logging)
-        #if threading.activeCount() == 2:  # MainThread + Thread(google.cloud.logging.Worker
-        #    for thread in threading.enumerate():
-        #        logger.debug(f'found thread: {thread.name}')
-        #        if 'google.cloud.logging.Worker' in thread.name:
-        #            abort = True
-        #if abort:
-        #    logger.debug(f'all relevant threads have aborted')
-        #    break
-
-#        if thread_count != threading.activeCount():
         # have all threads finished?
-        logger.debug(f'calling threads_aborted(), thread_count={thread_count}, threading.activeCount()={threading.activeCount()}')
-        #abort = threads_aborted(abort_at=1)
         abort = threads_aborted()
         if abort:
             logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
