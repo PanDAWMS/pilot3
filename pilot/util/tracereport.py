@@ -59,7 +59,8 @@ class TraceReport(dict):
             'stateReason': None,
             'uuid': None,
             'taskid': '',
-            'pq': environ.get('PILOT_SITENAME', '')
+            'pq': environ.get('PILOT_SITENAME', ''),
+            'ipv': 'IPv6'
         }
 
         super(TraceReport, self).__init__(defs)
