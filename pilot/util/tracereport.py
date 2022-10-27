@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 class TraceReport(dict):
 
+    ipv = 'IPv6'
+
     def __init__(self, *args, **kwargs):
 
         event_version = "%s+%s" % (get_pilot_version(), get_rucio_client_version())
@@ -60,7 +62,7 @@ class TraceReport(dict):
             'uuid': None,
             'taskid': '',
             'pq': environ.get('PILOT_SITENAME', ''),
-            'ipv': 'IPv6'
+            'ipv': 'IPv6'  # the ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
         }
 
         super(TraceReport, self).__init__(defs)
@@ -158,10 +160,9 @@ class TraceReport(dict):
 
         try:
             # take care of the encoding
-            #data = {'API': '0_3_0', 'operation': 'addReport', 'report': self}
             data = dumps(self).replace('"', '\\"')
-            #loaded = loads(data)
-            #logger.debug('self object converted to json dictionary: %s' % loaded)
+            # remove the ipv item since it's for internal pilot use only
+            data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
 
             ssl_certificate = self.get_ssl_certificate()
 
@@ -169,15 +170,10 @@ class TraceReport(dict):
             command = 'curl'
             if self.ipv == 'IPv4':
                 command += ' -4'
-            logger.debug(f'trace report ipv={self.ipv}')
             cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"%{data}\" {url}'
             exit_code, stdout, stderr = execute(cmd, mute=True)
             if exit_code:
                 logger.warning('failed to send traces to rucio: %s' % stdout)
-            #request(url, loaded)
-            #if status is not None:
-            #    logger.warning('failed to send traces to rucio: %s' % status)
-            #    raise Exception(status)
         except Exception:
             # if something fails, log it but ignore
             logger.error('tracing failed: %s' % str(exc_info()))

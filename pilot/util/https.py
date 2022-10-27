@@ -205,20 +205,30 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     # get the config option for the curl command
     dat = get_curl_config_option(writestatus, url, data, filename)
 
+    # loop over internet protocol versions since proper value might be known yet (ie before downloading queuedata)
+    ipvs = ['IPv6', 'IPv4'] if ipv == 'IPv6' else ['IPv4']
     if _ctx.ssl_context is None and secure:
-        req, obscure = get_curl_command(plain, dat, ipv)
-        if not req:
-            logger.warning('failed to construct valid curl command')
+        failed = False
+        for _ipv in ipvs:
+            req, obscure = get_curl_command(plain, dat, _ipv)
+            if not req:
+                logger.warning('failed to construct valid curl command')
+                failed = True
+                break
+            try:
+                status, output, stderr = execute(req, obscure=obscure)
+            except Exception as exc:
+                logger.warning(f'exception: {exc}')
+                failed = True
+                break
+            else:
+                if status == 0:
+                    break
+                else:
+                    logger.warning(f'request failed for IPv={_ipv} ({status}): stdout={output}, stderr={stderr}')
+                    continue
+        if failed:
             return None
-        try:
-            status, output, stderr = execute(req, obscure=obscure)
-        except Exception as exc:
-            logger.warning(f'exception: {exc}')
-            return None
-        else:
-            if status != 0:
-                logger.warning(f'request failed ({status}): stdout={output}, stderr={stderr}')
-                return None
 
         # return output if plain otherwise return json.loads(output)
         if plain:
@@ -279,13 +289,13 @@ def get_curl_command(plain, dat, ipv):
             auth_token_content = read_file(path)
             if not auth_token_content:
                 logger.warning(f'failed to read file {path}')
-                return None
+                return None, ''
         else:
             logger.warning(f'path does not exist: {path}')
-            return None
+            return None, ''
         if not auth_token_content:
             logger.warning('PANDA_AUTH_TOKEN content could not be read')
-            return None
+            return None, ''
         req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
