@@ -259,16 +259,16 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             perform_initial_payload_error_analysis(job, exit_code)
 
             # was an error already found?
-            #if job.piloterrorcodes:
-            #    exit_code_interpret = 1
-            #else:
             user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
                 logger.warning(f'exception caught: {error}')
-                #exit_code_interpret = -1
-                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM)
+                if 'error code:' in error and 'message:' in error:
+                    error_code, diagnostics = extract_error_info(error)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                else:
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
 
             if job.piloterrorcodes:
                 exit_code_interpret = 1
@@ -292,7 +292,6 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             logger.fatal(f'execute payloads caught an exception (cannot recover): {error}, {traceback.format_exc()}')
             if job:
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONEXCEPTION)
-                #queues.failed_payloads.put(job)
                 put_in_queue(job, queues.failed_payloads)
             while not args.graceful_stop.is_set():
                 # let stage-out of log finish, but stop running payloads as there should be a problem with the pilot
@@ -306,6 +305,29 @@ def execute_payloads(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] execute_payloads thread has finished')
+
+
+def extract_error_info(error):
+    """
+    Extract the error code and diagnostics from an error exception.
+
+    :param error: exception string.
+    :return: error code (int), diagnostics (string).
+    """
+
+    error_code = errors.INTERNALPILOTPROBLEM
+    diagnostics = f'full exception: {error}'
+
+    pattern = r'error\ code\:\ ([0-9]+)\,\ message\:\ (.+)'
+    errinfo = findall(pattern, error)
+    if errinfo:  # e.g. [('1303', 'Failed during file handling')]
+        try:
+            error_code = errinfo[0][0]
+            diagnostics = errinfo[0][1]
+        except Exception as exc:
+            logger.warning(f'failed to extract error info from exception error={error}, exc={exc}')
+
+    return error_code, diagnostics
 
 
 def get_transport(catchall):
