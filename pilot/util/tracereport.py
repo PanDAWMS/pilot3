@@ -61,12 +61,12 @@ class TraceReport(dict):
             'stateReason': None,
             'uuid': None,
             'taskid': '',
-            'pq': environ.get('PILOT_SITENAME', ''),
-            'ipv': 'IPv6'  # the ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
+            'pq': environ.get('PILOT_SITENAME', '')
         }
 
         super(TraceReport, self).__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
+        self.ipv = kwargs.get('ipv', 'IPv6')  # the ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
 
     # sitename, dsname, eventType
     def init(self, job):
@@ -162,7 +162,7 @@ class TraceReport(dict):
             # take care of the encoding
             data = dumps(self).replace('"', '\\"')
             # remove the ipv item since it's for internal pilot use only
-            data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
+            data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
 
             ssl_certificate = self.get_ssl_certificate()
 
