@@ -75,7 +75,7 @@ def control(queues, traces, args):
             grace_time = 10 * 60
             if time_since_start - grace_time < 0:
                 grace_time = 0
-            if time_since_start - grace_time > max_running_time:
+            if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
