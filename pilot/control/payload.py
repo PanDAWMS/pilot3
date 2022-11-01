@@ -583,7 +583,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
         msg = scan_for_memory_errors(job.subprocesses)
         if msg:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
-    elif exit_code != 0:
+    if exit_code != 0:
         msg = ""
 
         # are there any critical errors in the stdout?
