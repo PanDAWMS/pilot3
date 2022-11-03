@@ -424,7 +424,7 @@ def get_payload_command(job):
     if cmd:
         exitcode, diagnostics = resource.verify_setup_command(cmd)
         if exitcode != 0:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
             raise PilotException(diagnostics, code=exitcode)
 
     # make sure that remote file can be opened before executing payload
