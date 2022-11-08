@@ -61,9 +61,9 @@ class QueueData(BaseData):
     ## e.g. {'pr':['root', 'srm'], 'pw':['webdav'], 'default':['root']}
     ##      {'pr': {'gfalcopy':['webdav'], 'pw':{'lsm':['root']}}}
     acopytools_schemas = {}
-
     astorages = None
     aprotocols = None
+    params = {}
 
     state = None  # AGIS PQ state, e.g. ACTIVE
     status = ""   # PQ status, e.g. online
@@ -96,7 +96,7 @@ class QueueData(BaseData):
                    'corecount', 'maxrss', 'maxtime', 'maxinputsize'],
              str: ['name', 'type', 'appdir', 'catchall', 'platform', 'container_options', 'container_type',
                    'resource', 'state', 'status', 'site', 'environ'],
-             dict: ['copytools', 'acopytools', 'astorages', 'aprotocols', 'acopytools_schemas'],
+             dict: ['copytools', 'acopytools', 'astorages', 'aprotocols', 'acopytools_schemas', 'params'],
              bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'is_cvmfs', 'use_pcache']
              }
 

@@ -207,7 +207,7 @@ def _stage_in(args, job):
                 client = StageInESClient(job.infosys, logger=logger, trace_report=trace_report)
                 activity = 'es_events_read'
             else:
-                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report)
+                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report, ipv=args.internet_protocol_version)
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             # get the proper input file destination (normally job.workdir unless stager workflow)
@@ -816,7 +816,7 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         logger.warning(f'caught exception when copying tarball: {exc}')
 
 
-def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host=''):
+def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='', ipv='IPv6'):
     """
     Use the `StageOutClient` in the Data API to perform stage-out.
 
@@ -830,6 +830,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     :param title: type of stage-out (output, log) (string).
     :param output_dir: optional output directory (string).
     :param rucio_host: optional rucio host (string).
+    :param ipv: internet protocol version (string).
     :return: True in case of success transfers
     """
 
@@ -870,7 +871,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
             # create the trace report
             trace_report = create_trace_report(job, label=label)
 
-            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report)
+            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv)
             kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job, output_dir=output_dir,
                           catchall=job.infosys.queuedata.catchall, rucio_host=rucio_host)  #, mode='stage-out')
             # prod analy unification: use destination preferences from PanDA server for unified queues
@@ -932,7 +933,8 @@ def _stage_out_new(job, args):
         job.stageout = 'log'
 
     if job.stageout != 'log':  ## do stage-out output files
-        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir, rucio_host=args.rucio_host):
+        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir,
+                            rucio_host=args.rucio_host, ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('transfer of output file(s) failed')
 
@@ -959,7 +961,8 @@ def _stage_out_new(job, args):
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOGFILECREATIONFAILURE)
             return False
 
-        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir, rucio_host=args.rucio_host):
+        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir,
+                            rucio_host=args.rucio_host, ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('log transfer failed')
             job.status['LOG_TRANSFER'] = LOG_TRANSFER_FAILED

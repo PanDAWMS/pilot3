@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
 from __future__ import print_function  # Python 2, 2to3 complains about this
@@ -152,7 +152,7 @@ def run(args):
     # initial sanity check defined by pilot user
     try:
         user = __import__('pilot.user.%s.common' % args.pilot_user.lower(), globals(), locals(),
-                          [args.pilot_user.lower()], 0)  # Python 2/3
+                          [args.pilot_user.lower()], 0)
         exit_code = user.sanity_check()
     except Exception as exc:
         logger.info(f'skipping sanity check since: {exc}')
@@ -167,15 +167,19 @@ def run(args):
     # define the threads
     targets = {'job': job.control, 'payload': payload.control, 'data': data.control, 'monitor': monitor.control}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
-                         name=name) for name, target in list(targets.items())]  # Python 2/3
+                         name=name) for name, target in list(targets.items())]
 
     logger.info('starting threads')
     [thread.start() for thread in threads]
 
     logger.info('waiting for interrupts')
 
+    # the thread_count is the total number of threads, not just the ExcThreads above
     thread_count = threading.activeCount()
-    while threading.activeCount() > 1:
+    abort = False
+    while threading.activeCount() > 1 or not abort:
+        # Note: this loop only includes at ExcThreads, not MainThread or Thread
+        # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
         for thread in threads:
             bucket = thread.get_bucket()
             try:
@@ -189,12 +193,11 @@ def run(args):
 
             thread.join(0.1)
 
-        abort = False
-        if thread_count != threading.activeCount():
-            # has all threads finished?
-            abort = threads_aborted(abort_at=1)
-            if abort:
-                break
+        # have all threads finished?
+        abort = threads_aborted()
+        if abort:
+            logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
+            break
 
         sleep(1)
 

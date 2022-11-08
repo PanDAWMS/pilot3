@@ -36,6 +36,7 @@ class StagingClient(object):
         Base Staging Client
     """
 
+    ipv = "IPv6"
     mode = ""  # stage-in/out, set by the inheritor of the class
     copytool_modules = {'rucio': {'module_name': 'rucio'},
                         'gfal': {'module_name': 'gfal'},
@@ -55,12 +56,13 @@ class StagingClient(object):
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
-    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None):
+    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None, ipv='IPv6'):
         """
             If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys` requires initialization.
             :param acopytools: dict of copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed.
             :param logger: logging.Logger object to use for logging (None means no logging)
             :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value.
+            :param ipv: internet protocol version (string).
         """
 
         super(StagingClient, self).__init__()
@@ -71,6 +73,7 @@ class StagingClient(object):
 
         self.logger = logger
         self.infosys = infosys_instance or infosys
+        self.ipv = ipv
 
         if isinstance(acopytools, str):
             acopytools = {'default': [acopytools]} if acopytools else {}
@@ -87,7 +90,7 @@ class StagingClient(object):
             self.acopytools['default'] = self.get_default_copytools(default_copytools)
 
         # get an initialized trace report (has to be updated for get/put if not defined before)
-        self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''))
+        self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), ipv=self.ipv)
 
         if not self.acopytools:
             msg = 'failed to initilize StagingClient: no acopytools options found, acopytools=%s' % self.acopytools
@@ -240,7 +243,7 @@ class StagingClient(object):
             raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm'],
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
             'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
         }
         query.update(sort='geoip', client_location=location)

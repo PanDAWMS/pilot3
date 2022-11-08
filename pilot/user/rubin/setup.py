@@ -135,7 +135,9 @@ def download_transform(url, transform_name, workdir):
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
-    cmd = 'curl -sS \"%s\" > %s' % (url, path)
+    ip_version = os.environ.get('PILOT_IP_VERSION', 'IPv6')
+    command = 'curl' if ip_version == 'IPv6' else 'curl -4'
+    cmd = f'{command} -sS \"%s\" > %s' % (url, path)
     trial = 1
     max_trials = 3
 

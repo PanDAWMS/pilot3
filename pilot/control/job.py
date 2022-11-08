@@ -338,7 +338,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('skipping job update for fake test job')
         return True
 
-    res = https.send_update('updateJob', data, args.url, args.port, job=job)
+    res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()
@@ -1172,9 +1172,14 @@ def store_jobid(jobid, init_dir):
     :return:
     """
 
-    try:
+    pilot_source_dir = os.environ.get('PANDA_PILOT_SOURCE', '')
+    if pilot_source_dir:
+        path = os.path.join(pilot_source_dir, config.Pilot.jobid_file)
+    else:
         path = os.path.join(os.path.join(init_dir, 'pilot3'), config.Pilot.jobid_file)
         path = path.replace('pilot3/pilot3', 'pilot3')  # dirty fix for bad paths
+
+    try:
         mode = 'a' if os.path.exists(path) else 'w'
         write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)
     except Exception as error:

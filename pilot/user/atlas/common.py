@@ -344,6 +344,11 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if fspec.turl in not_opened_turls:
                         base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
                     else:
+                        protocol = get_protocol(fspec.surl, base_trace_report.get('eventType', ''))
+                        logger.debug(f'protocol={protocol}')
+                        if protocol:
+                            base_trace_report.update(protocol=protocol)
+                            logger.debug(f'added protocol={protocol} to trace report')
                         base_trace_report.update(clientState='FOUND_ROOT')
 
                     # copy the base trace report (only a dictionary) into a real trace report object
@@ -352,6 +357,25 @@ def process_remote_file_traces(path, job, not_opened_turls):
                         trace_report.send()
                     else:
                         logger.warning('failed to create trace report for turl=%s', fspec.turl)
+
+
+def get_protocol(surl, event_type):
+    """
+    Extract the protocol from the surl for event type get_sm_a.
+
+    :param surl: SURL (string).
+    :return: protocol (string).
+    """
+
+    protocol = ''
+    if event_type != 'get_sm_a':
+        return ''
+    if surl:
+        protocols = re.findall(r'(\w+)://', surl)  # use raw string to avoid flake8 warning W605 invalid escape sequence '\w'
+        if protocols:
+            protocol = protocols[0]
+
+    return protocol
 
 
 def get_nthreads(catchall):
@@ -400,7 +424,7 @@ def get_payload_command(job):
     if cmd:
         exitcode, diagnostics = resource.verify_setup_command(cmd)
         if exitcode != 0:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
             raise PilotException(diagnostics, code=exitcode)
 
     # make sure that remote file can be opened before executing payload
