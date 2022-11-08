@@ -66,7 +66,7 @@ class TraceReport(dict):
 
         super(TraceReport, self).__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
-        self.ipv = kwargs.get('ipv', 'IPv6')  # the ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
+        self.ipv = kwargs.get('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
 
     # sitename, dsname, eventType
     def init(self, job):
