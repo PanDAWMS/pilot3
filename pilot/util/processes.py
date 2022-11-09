@@ -609,7 +609,7 @@ def cleanup(job, args):
     #del job
 
 
-def threads_aborted(abort_at=2):
+def threads_aborted_deprecated(abort_at=2):
     """
     Have the threads been aborted?
 
@@ -623,14 +623,57 @@ def threads_aborted(abort_at=2):
     # count all non-daemon threads
     daemon_threads = 0
     for thread in threading.enumerate():
+        _thr = ''
         if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
+            if abort_at == 1:
+                _thr = f'thread={thread} (daemon)'
             daemon_threads += 1
-
+        else:
+            if abort_at == 1:
+                _thr = f'thread={thread}'
+        if _thr:
+            _thr += f' (thread_count={thread_count}, daemon_threads={daemon_threads}, abort_at={abort_at})'
+            logger.debug(_thr)
     if thread_count - daemon_threads == abort_at:
-        logger.debug('aborting since the last relevant thread is about to finish')
+        logger.debug(f'aborting since the last relevant thread is about to finish ({thread_count} - {daemon_threads} = {abort_at})')
         aborted = True
 
     return aborted
+
+
+def threads_aborted():
+    """
+    Have the Pilot threads been aborted?
+    This function will count all the threads still running, but will only return True if all
+    threads started by the Pilot's main thread, i.e. not including the main thread itself or
+    any daemon threads (which might be created by Rucio or Google Logging).
+
+    :return: True if number of running threads is zero (Boolean).
+    """
+
+    abort = False
+    thread_count = threading.activeCount()
+    pilot_thread_count = 0
+    daemon_threads = 0
+
+    # count all threads still alive
+    for thread in threading.enumerate():
+        if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
+            daemon_threads += 1
+            #tag = 'daemon'
+        elif thread == threading.main_thread():
+            #tag = 'main'
+            pass
+        else:  # only count threads spawned by the main thread, no the main thread itself or any daemon threads
+            #tag = 'pilot?'
+            pilot_thread_count += 1
+        #logger.debug(f'thread={thread}, pilot_thread_count={pilot_thread_count}, daemon_thread_count={daemon_threads}, tag={tag}')
+    if pilot_thread_count == 0:
+        logger.debug(f'aborting since only the main Pilot thread is still running '
+                     f'(total thread count={thread_count} with {daemon_threads} daemon thread(s)')
+        abort = True
+
+    return abort
 
 
 def convert_ps_to_dict(output, pattern=r'(\d+) (\d+) (\d+) (.+)'):

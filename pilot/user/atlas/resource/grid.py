@@ -25,7 +25,6 @@ def verify_setup_command(cmd):
     :return: pilot error code (int), diagnostics (string).
     """
 
-    ec = 0
     diagnostics = ""
 
     exit_code, stdout, stderr = execute(cmd, timeout=5 * 60)
@@ -34,10 +33,12 @@ def verify_setup_command(cmd):
             logger.info('exit_code=%d' % exit_code)
             logger.info('stdout=%s' % stdout)
             logger.info('stderr=%s' % stderr)
-            ec = errors.NORELEASEFOUND
+            exit_code = errors.NORELEASEFOUND
             diagnostics = stdout + stderr
+        elif stderr != '':
+            diagnostics = stderr
 
-    return ec, diagnostics
+    return exit_code, diagnostics
 
 
 def get_setup_command(job, prepareasetup):
