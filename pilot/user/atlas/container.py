@@ -186,16 +186,23 @@ def extract_atlas_setup(asetup, swrelease):
     :return: extracted asetup command, cleaned up full asetup command without asetup.sh (string).
     """
 
+    logger.debug(f'swrelease={swrelease}')
     if not swrelease:
         return '', ''
 
     try:
         # source $AtlasSetup/scripts/asetup.sh
-        atlas_setup = asetup.split(';')[-1]
+        logger.debug(f'3. asetup={asetup}')
+        asetup = asetup.strip()
+        logger.debug(f'4. asetup={asetup}')
+        atlas_setup = asetup.split(';')[-1] if not asetup.endswith(';') else asetup.split(';')[-2]
+        logger.debug(f'5. atlas_setup={atlas_setup}')
         # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         #   source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
-        cleaned_atlas_setup = asetup.replace(atlas_setup, '')
+        cleaned_atlas_setup = asetup.replace(atlas_setup, '').replace(';;', ';')
+        logger.debug(f'5. cleaned_atlas_setup={cleaned_atlas_setup}')
         atlas_setup = atlas_setup.replace('source ', '')
+        logger.debug(f'5. atlas_setup={atlas_setup}')
     except AttributeError as exc:
         logger.debug('exception caught while extracting asetup command: %s', exc)
         atlas_setup = ''
@@ -216,6 +223,8 @@ def extract_full_atlas_setup(cmd, atlas_setup):
 
     updated_cmds = []
     extracted_asetup = ""
+
+    logger.debug(f'cmd={cmd}, atlas_setup={atlas_setup}')
 
     if not atlas_setup:
         return extracted_asetup, cmd
@@ -380,7 +389,9 @@ def alrb_wrapper(cmd, workdir, job=None):
     if container_name:
         # first get the full setup, which should be removed from cmd (or ALRB setup won't work)
         _asetup = get_asetup()
+        logger.debug(f'1. asetup={_asetup}')
         _asetup = fix_asetup(_asetup)
+        logger.debug(f'2. asetup={_asetup}')
         # get_asetup()
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh
         #     --quiet;source $AtlasSetup/scripts/asetup.sh
@@ -718,7 +729,7 @@ def fix_asetup(asetup):
     :return: updated asetup (string).
     """
 
-    if not asetup.strip().endswith(';'):
+    if asetup and not asetup.strip().endswith(';'):
         asetup += '; '
 
     return asetup
@@ -775,10 +786,6 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
                 command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
             _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
             _asetup = fix_asetup(_asetup)
-
-            # make sure that asetup ends with a ;-sign
-            if not _asetup.strip().endswith(';'):
-                _asetup += '; '
             command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
             command += ' ' + get_container_options(container_options)
