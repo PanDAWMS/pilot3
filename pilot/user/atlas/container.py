@@ -380,6 +380,7 @@ def alrb_wrapper(cmd, workdir, job=None):
     if container_name:
         # first get the full setup, which should be removed from cmd (or ALRB setup won't work)
         _asetup = get_asetup()
+        _asetup = fix_asetup(_asetup)
         # get_asetup()
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh
         #     --quiet;source $AtlasSetup/scripts/asetup.sh
@@ -401,6 +402,8 @@ def alrb_wrapper(cmd, workdir, job=None):
 
         # get simplified ALRB setup (export)
         alrb_setup = get_asetup(alrb=True, add_if=True)
+        alrb_setup = fix_asetup(alrb_setup)
+
         # get_asetup(alrb=True)
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         # get_asetup(alrb=True, add_if=True)
@@ -697,12 +700,28 @@ def create_root_container_command(workdir, cmd):
             if x509:
                 command += 'export X509_USER_PROXY=%s;' % x509
             command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
-            command += get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = fix_asetup(_asetup)
+            command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c CentOS7'
 
     logger.debug('container command: %s', command)
 
     return command
+
+
+def fix_asetup(asetup):
+    """
+    Make sure that the command returned by get_asetup() contains a trailing ;-sign.
+
+    :param asetup: asetup (string).
+    :return: updated asetup (string).
+    """
+
+    if not asetup.strip().endswith(';'):
+        asetup += '; '
+
+    return asetup
 
 
 def create_middleware_container_command(workdir, cmd, container_options, label='stagein', proxy=True):
@@ -754,7 +773,13 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
             command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
             if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
                 command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
-            command += get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = fix_asetup(_asetup)
+
+            # make sure that asetup ends with a ;-sign
+            if not _asetup.strip().endswith(';'):
+                _asetup += '; '
+            command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
             command += ' ' + get_container_options(container_options)
             command = command.replace('  ', ' ')
@@ -800,7 +825,9 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
-            content += get_asetup(asetup=False)
+            _asetup = get_asetup(asetup=False)
+            _asetup = fix_asetup(_asetup)
+            content += _asetup
         if label == 'stagein' or label == 'stageout':
             content += sitename + 'lsetup rucio davix xrootd; '
             content += 'python3 %s ' % cmd
