@@ -19,7 +19,7 @@ errors = ErrorCodes()
 
 def verify_setup_command(cmd):
     """
-    Verify the setup command.
+    Verify the setup command (containerised).
 
     :param cmd: command string to be verified (string).
     :return: pilot error code (int), diagnostics (string).

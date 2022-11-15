@@ -737,10 +737,10 @@ def fix_asetup(asetup):
 
 def create_middleware_container_command(workdir, cmd, container_options, label='stagein', proxy=True):
     """
-    Create the stage-in/out container command.
+    Create the container command for stage-in/out or other middleware.
 
-    The function takes the isolated stage-in/out command, adds bits and pieces needed for the containerisation and stores
-    it in a stage[in|out].sh script file. It then generates the actual command that will execute the stage-in/out script in a
+    The function takes the isolated middleware command, adds bits and pieces needed for the containerisation and stores
+    it in a script file. It then generates the actual command that will execute the middleware script in a
     container.
 
     new cmd:
@@ -751,9 +751,10 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     create container command and return it
 
     :param workdir: working directory where script will be stored (string).
-    :param cmd: isolated stage-in/out command (string).
+    :param cmd: command to be containerised (string).
     :param container_options: container options from queuedata (string).
-    :param label: 'stage-[in|out]' (string).
+    :param label: 'stage-[in|out]|setup' (string).
+    :param proxy: add proxy export command (Boolean).
     :return: container command to be executed (string).
     """
 
@@ -762,6 +763,7 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     # add bits and pieces for the containerisation
     middleware_container = get_middleware_container(label=label)
     content = get_middleware_container_script(middleware_container, cmd, label=label)
+
     # store it in setup.sh
     if label == 'stage-in':
         script_name = 'stagein.sh'
@@ -788,6 +790,8 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
             _asetup = fix_asetup(_asetup)
             command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
+            #if label == 'setup':
+            #    command += ' -s '
             command += ' ' + get_container_options(container_options)
             command = command.replace('  ', ' ')
 
@@ -823,7 +827,10 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
     """
 
     sitename = 'export PILOT_RUCIO_SITENAME=%s; ' % os.environ.get('PILOT_RUCIO_SITENAME')
-    if 'rucio' in middleware_container:
+    if label == 'setup':
+        # source $AtlasSetup/scripts/asetup.sh AtlasOffline,21.0.16,notest --platform x86_64-slc6-gcc49-opt --makeflags='$MAKEFLAGS'
+        content = cmd[cmd.find('source $AtlasSetup'):]
+    elif 'rucio' in middleware_container:
         content = sitename
         content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
         content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
@@ -859,7 +866,9 @@ def get_middleware_container(label=None):
     if label and label == 'general':
         return 'CentOS7'
 
-    if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
+    if label == 'setup':
+        path = '$thePlatform'
+    elif 'ALRB_CONT_UNPACKEDDIR' in os.environ:
         path = config.Container.middleware_container_no_path
     else:
         path = config.Container.middleware_container
