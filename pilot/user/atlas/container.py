@@ -21,7 +21,7 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import write_file, dump
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -735,7 +735,7 @@ def fix_asetup(asetup):
     return asetup
 
 
-def create_middleware_container_command(workdir, cmd, container_options, label='stagein', proxy=True):
+def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     """
     Create the container command for stage-in/out or other middleware.
 
@@ -750,15 +750,15 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     write new cmd to stage[in|out].sh script
     create container command and return it
 
-    :param workdir: working directory where script will be stored (string).
+    :param job: job object.
     :param cmd: command to be containerised (string).
-    :param container_options: container options from queuedata (string).
     :param label: 'stage-[in|out]|setup' (string).
     :param proxy: add proxy export command (Boolean).
     :return: container command to be executed (string).
     """
 
-    command = 'cd %s;' % workdir
+
+    command = 'cd %s;' % job.workdir
 
     # add bits and pieces for the containerisation
     middleware_container = get_middleware_container(label=label)
@@ -772,8 +772,16 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     else:
         script_name = 'general.sh'
 
+    # for setup container
+    container_script_name = 'container_script.sh'
     try:
-        status = write_file(os.path.join(workdir, script_name), content)
+        logger.debug('command to be written to container setup file \n\n%s:\n\n%s\n', script_name, content)
+        status = write_file(os.path.join(job.workdir, script_name), content)
+        if status:
+            content = 'echo \"Done\"'
+            logger.debug('command to be written to container command file \n\n%s:\n\n%s\n', container_script_name,
+                         content)
+            status = write_file(os.path.join(job.workdir, container_script_name), content)
     except PilotException as exc:
         raise exc
     else:
@@ -783,16 +791,19 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
                 x509 = os.environ.get('X509_USER_PROXY', '')
                 if x509:
                     command += 'export X509_USER_PROXY=%s;' % x509
-            command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
-            if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
-                command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
-            _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
-            _asetup = fix_asetup(_asetup)
-            command += _asetup
+            if not label == 'setup':  # only for stage-in/out; for setup verification, use -s .. -r .. below
+                command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
+                if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
+                    command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
+            command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            if label == 'setup':
+                # set the platform info
+                command = set_platform(job, command)
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
-            #if label == 'setup':
-            #    command += ' -s '
-            command += ' ' + get_container_options(container_options)
+            if label == 'setup':
+                command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
+            else:
+                command += ' ' + get_container_options(job.infosys.queuedata.container_options)
             command = command.replace('  ', ' ')
 
     logger.debug('container command: %s', command)

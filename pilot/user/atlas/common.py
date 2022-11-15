@@ -422,12 +422,14 @@ def get_payload_command(job):
     # get the general setup command and then verify it if required
     cmd = resource.get_setup_command(job, preparesetup)
     if cmd:
-        # containerise command
-        cmd = create_middleware_container_command(job.workdir, cmd, job.infosys.queuedata.container_options, label='setup', proxy=False)
-        exitcode, diagnostics = resource.verify_setup_command(cmd)
+        # containerise command for payload setup verification
+        _cmd = create_middleware_container_command(job, cmd, label='setup', proxy=False)
+        exitcode, diagnostics = resource.verify_setup_command(_cmd)
         if exitcode != 0:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
             raise PilotException(diagnostics, code=exitcode)
+        else:
+            logger.info('payload setup verified (in a container)')
 
     # make sure that remote file can be opened before executing payload
     catchall = job.infosys.queuedata.catchall.lower() if job.infosys.queuedata.catchall else ''
