@@ -28,14 +28,13 @@ def verify_setup_command(cmd):
     diagnostics = ""
 
     exit_code, stdout, stderr = execute(cmd, timeout=5 * 60)
+    # note: any apptainer related failures must be identified here
     if exit_code != 0:
         if "No release candidates found" in stdout:
-            logger.info('exit_code=%d' % exit_code)
-            logger.info('stdout=%s' % stdout)
-            logger.info('stderr=%s' % stderr)
             exit_code = errors.NORELEASEFOUND
             diagnostics = stdout + stderr
         elif stderr != '':
+            exit_code = errors.resolve_transform_error(exit_code, stderr)
             diagnostics = stderr
 
     return exit_code, diagnostics
