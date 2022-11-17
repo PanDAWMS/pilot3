@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from .container import create_root_container_command
+from .container import create_root_container_command, create_middleware_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -228,6 +228,11 @@ def open_remote_files(indata, workdir, nthreads):
             if exitcode:
                 logger.warning('script %s finished with ec=%d', script, exitcode)
 
+                # first check for apptainer errors
+                _exitcode = errors.resolve_transform_error(exitcode, stderr)
+                if _exitcode != exitcode:  # a better error code was found
+                    return _exitcode, stderr, not_opened
+
                 # note: ignore any time-out errors if the remote files could still be opened
                 _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
                 if not _exitcode:
@@ -422,10 +427,14 @@ def get_payload_command(job):
     # get the general setup command and then verify it if required
     cmd = resource.get_setup_command(job, preparesetup)
     if cmd:
-        exitcode, diagnostics = resource.verify_setup_command(cmd)
+        # containerise command for payload setup verification
+        _cmd = create_middleware_container_command(job, cmd, label='setup', proxy=False)
+        exitcode, diagnostics = resource.verify_setup_command(_cmd)
         if exitcode != 0:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
             raise PilotException(diagnostics, code=exitcode)
+        else:
+            logger.info('payload setup verified (in a container)')
 
     # make sure that remote file can be opened before executing payload
     catchall = job.infosys.queuedata.catchall.lower() if job.infosys.queuedata.catchall else ''

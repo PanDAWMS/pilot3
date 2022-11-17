@@ -186,16 +186,23 @@ def extract_atlas_setup(asetup, swrelease):
     :return: extracted asetup command, cleaned up full asetup command without asetup.sh (string).
     """
 
+    logger.debug(f'swrelease={swrelease}')
     if not swrelease:
         return '', ''
 
     try:
         # source $AtlasSetup/scripts/asetup.sh
-        atlas_setup = asetup.split(';')[-1]
+        logger.debug(f'3. asetup={asetup}')
+        asetup = asetup.strip()
+        logger.debug(f'4. asetup={asetup}')
+        atlas_setup = asetup.split(';')[-1] if not asetup.endswith(';') else asetup.split(';')[-2]
+        logger.debug(f'5. atlas_setup={atlas_setup}')
         # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         #   source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
-        cleaned_atlas_setup = asetup.replace(atlas_setup, '')
+        cleaned_atlas_setup = asetup.replace(atlas_setup, '').replace(';;', ';')
+        logger.debug(f'5. cleaned_atlas_setup={cleaned_atlas_setup}')
         atlas_setup = atlas_setup.replace('source ', '')
+        logger.debug(f'5. atlas_setup={atlas_setup}')
     except AttributeError as exc:
         logger.debug('exception caught while extracting asetup command: %s', exc)
         atlas_setup = ''
@@ -216,6 +223,8 @@ def extract_full_atlas_setup(cmd, atlas_setup):
 
     updated_cmds = []
     extracted_asetup = ""
+
+    logger.debug(f'cmd={cmd}, atlas_setup={atlas_setup}')
 
     if not atlas_setup:
         return extracted_asetup, cmd
@@ -380,6 +389,9 @@ def alrb_wrapper(cmd, workdir, job=None):
     if container_name:
         # first get the full setup, which should be removed from cmd (or ALRB setup won't work)
         _asetup = get_asetup()
+        logger.debug(f'1. asetup={_asetup}')
+        _asetup = fix_asetup(_asetup)
+        logger.debug(f'2. asetup={_asetup}')
         # get_asetup()
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh
         #     --quiet;source $AtlasSetup/scripts/asetup.sh
@@ -401,6 +413,8 @@ def alrb_wrapper(cmd, workdir, job=None):
 
         # get simplified ALRB setup (export)
         alrb_setup = get_asetup(alrb=True, add_if=True)
+        alrb_setup = fix_asetup(alrb_setup)
+
         # get_asetup(alrb=True)
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         # get_asetup(alrb=True, add_if=True)
@@ -697,7 +711,9 @@ def create_root_container_command(workdir, cmd):
             if x509:
                 command += 'export X509_USER_PROXY=%s;' % x509
             command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
-            command += get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            _asetup = fix_asetup(_asetup)
+            command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c CentOS7'
 
     logger.debug('container command: %s', command)
@@ -705,12 +721,26 @@ def create_root_container_command(workdir, cmd):
     return command
 
 
-def create_middleware_container_command(workdir, cmd, container_options, label='stagein', proxy=True):
+def fix_asetup(asetup):
     """
-    Create the stage-in/out container command.
+    Make sure that the command returned by get_asetup() contains a trailing ;-sign.
 
-    The function takes the isolated stage-in/out command, adds bits and pieces needed for the containerisation and stores
-    it in a stage[in|out].sh script file. It then generates the actual command that will execute the stage-in/out script in a
+    :param asetup: asetup (string).
+    :return: updated asetup (string).
+    """
+
+    if asetup and not asetup.strip().endswith(';'):
+        asetup += '; '
+
+    return asetup
+
+
+def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
+    """
+    Create the container command for stage-in/out or other middleware.
+
+    The function takes the isolated middleware command, adds bits and pieces needed for the containerisation and stores
+    it in a script file. It then generates the actual command that will execute the middleware script in a
     container.
 
     new cmd:
@@ -720,18 +750,19 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     write new cmd to stage[in|out].sh script
     create container command and return it
 
-    :param workdir: working directory where script will be stored (string).
-    :param cmd: isolated stage-in/out command (string).
-    :param container_options: container options from queuedata (string).
-    :param label: 'stage-[in|out]' (string).
+    :param job: job object.
+    :param cmd: command to be containerised (string).
+    :param label: 'stage-[in|out]|setup' (string).
+    :param proxy: add proxy export command (Boolean).
     :return: container command to be executed (string).
     """
 
-    command = 'cd %s;' % workdir
+    command = 'cd %s;' % job.workdir
 
     # add bits and pieces for the containerisation
     middleware_container = get_middleware_container(label=label)
     content = get_middleware_container_script(middleware_container, cmd, label=label)
+
     # store it in setup.sh
     if label == 'stage-in':
         script_name = 'stagein.sh'
@@ -740,8 +771,16 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
     else:
         script_name = 'general.sh'
 
+    # for setup container
+    container_script_name = 'container_script.sh'
     try:
-        status = write_file(os.path.join(workdir, script_name), content)
+        logger.debug('command to be written to container setup file \n\n%s:\n\n%s\n', script_name, content)
+        status = write_file(os.path.join(job.workdir, script_name), content)
+        if status:
+            content = 'echo \"Done\"'
+            logger.debug('command to be written to container command file \n\n%s:\n\n%s\n', container_script_name,
+                         content)
+            status = write_file(os.path.join(job.workdir, container_script_name), content)
     except PilotException as exc:
         raise exc
     else:
@@ -751,12 +790,19 @@ def create_middleware_container_command(workdir, cmd, container_options, label='
                 x509 = os.environ.get('X509_USER_PROXY', '')
                 if x509:
                     command += 'export X509_USER_PROXY=%s;' % x509
-            command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
-            if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
-                command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
-            command += get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            if not label == 'setup':  # only for stage-in/out; for setup verification, use -s .. -r .. below
+                command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
+                if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
+                    command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
+            command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
+            if label == 'setup':
+                # set the platform info
+                command = set_platform(job, command)
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
-            command += ' ' + get_container_options(container_options)
+            if label == 'setup':
+                command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
+            else:
+                command += ' ' + get_container_options(job.infosys.queuedata.container_options)
             command = command.replace('  ', ' ')
 
     logger.debug('container command: %s', command)
@@ -791,7 +837,10 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
     """
 
     sitename = 'export PILOT_RUCIO_SITENAME=%s; ' % os.environ.get('PILOT_RUCIO_SITENAME')
-    if 'rucio' in middleware_container:
+    if label == 'setup':
+        # source $AtlasSetup/scripts/asetup.sh AtlasOffline,21.0.16,notest --platform x86_64-slc6-gcc49-opt --makeflags='$MAKEFLAGS'
+        content = cmd[cmd.find('source $AtlasSetup'):]
+    elif 'rucio' in middleware_container:
         content = sitename
         content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
         content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
@@ -800,7 +849,9 @@ def get_middleware_container_script(middleware_container, cmd, asetup=False, lab
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
-            content += get_asetup(asetup=False)
+            _asetup = get_asetup(asetup=False)
+            _asetup = fix_asetup(_asetup)
+            content += _asetup
         if label == 'stagein' or label == 'stageout':
             content += sitename + 'lsetup rucio davix xrootd; '
             content += 'python3 %s ' % cmd
@@ -825,7 +876,9 @@ def get_middleware_container(label=None):
     if label and label == 'general':
         return 'CentOS7'
 
-    if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
+    if label == 'setup':
+        path = '$thePlatform'
+    elif 'ALRB_CONT_UNPACKEDDIR' in os.environ:
         path = config.Container.middleware_container_no_path
     else:
         path = config.Container.middleware_container

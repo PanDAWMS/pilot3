@@ -418,16 +418,18 @@ class ErrorCodes:
         :return: pilot error code (int)
         """
 
-        if exit_code == 251 and "Not mounting requested bind point" in stderr:
+        if exit_code and "Not mounting requested bind point" in stderr:
             exit_code = self.SINGULARITYBINDPOINTFAILURE
         elif exit_code == 251:
             exit_code = self.UNKNOWNTRFFAILURE
-        elif exit_code == 255 and "No more available loop devices" in stderr:
+        elif exit_code and "No more available loop devices" in stderr:
             exit_code = self.SINGULARITYNOLOOPDEVICES
-        elif exit_code == 255 and "Failed to mount image" in stderr:
+        elif exit_code and ("Failed to mount image" in stderr or "error: while mounting" in stderr):
             exit_code = self.SINGULARITYIMAGEMOUNTFAILURE
-        elif exit_code == 255 and "Operation not permitted" in stderr:
+        elif exit_code and "Operation not permitted" in stderr:
             exit_code = self.SINGULARITYGENERALFAILURE
+        elif exit_code and "Failed to create user namespace" in stderr:
+            exit_code = self.SINGULARITYFAILEDUSERNAMESPACE
         elif "Singularity is not installed" in stderr:  # exit code should be 64 but not always?
             exit_code = self.SINGULARITYNOTINSTALLED
         elif "Apptainer is not installed" in stderr:  # exit code should be 64 but not always?
