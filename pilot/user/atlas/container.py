@@ -21,7 +21,7 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
-from pilot.util.filehandling import write_file, dump
+from pilot.util.filehandling import write_file
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -756,7 +756,6 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     :param proxy: add proxy export command (Boolean).
     :return: container command to be executed (string).
     """
-
 
     command = 'cd %s;' % job.workdir
 
