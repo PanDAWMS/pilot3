@@ -39,7 +39,7 @@ def containerise_general_command(job, container_options, label='command', contai
         pilot_user = environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)
         try:
-            cmd = user.create_middleware_container_command(job.workdir, job.debug_command, container_options, label=label, proxy=False)
+            cmd = user.create_middleware_container_command(job, job.debug_command, label=label, proxy=False)
         except PilotException as exc:
             raise exc
     else:
@@ -102,7 +102,7 @@ def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite,
         pilot_user = environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.container' % pilot_user, globals(), locals(), [pilot_user], 0)
         try:
-            cmd = user.create_middleware_container_command(job.workdir, cmd, container_options, label=label)
+            cmd = user.create_middleware_container_command(job, cmd, label=label)
         except PilotException as exc:
             raise exc
     else:
