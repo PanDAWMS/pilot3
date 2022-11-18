@@ -197,13 +197,6 @@ class JobData(BaseData):
         self.outdata, self.logdata = self.prepare_outfiles(self._rawdata)
 
         # overwrites
-
-        self.imagename_jobdef = 'atlas/athena:21.0.15.sw6-0'
-        logger.debug(f'hardcoded imagename={self.imagename_jobdef}')
-
-
-
-
         if self.imagename_jobdef and not self.imagename:
             logger.debug(f'using imagename_jobdef as imagename (\"{self.imagename_jobdef}\")')
             self.imagename = self.imagename_jobdef
