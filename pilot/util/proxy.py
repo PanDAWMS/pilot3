@@ -99,6 +99,11 @@ def get_proxy(proxy_outfile_name, voms_role):
     except Exception as exc:
         logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
         return False, proxy_outfile_name
+    else:
+        # dump voms-proxy-info -all to log
+        if res and res['StatusCode'] == 0:
+            _, _, _ = vomsproxyinfo(options='-all')
+
 
     def create_file(filename, contents):
         """
