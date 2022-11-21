@@ -38,8 +38,7 @@ def get_distinguished_name():
             logger.warning("arcproxy experienced a problem (will try voms-proxy-info instead)")
 
             # Default to voms-proxy-info
-            executable = 'voms-proxy-info -subject'
-            exit_code, stdout, stderr = execute(executable)
+            exit_code, stdout, stderr = vomsproxyinfo(options='-subject', mute=True)
 
     if exit_code == 0:
         dn = stdout
@@ -53,6 +52,23 @@ def get_distinguished_name():
         logger.warning("user=self set but cannot get proxy: %d, %s" % (exit_code, stdout))
 
     return dn
+
+
+def vomsproxyinfo(options='-all', mute=False):
+    """
+    Execute voms-proxy-info with the given options.
+
+    :param options: command options (string).
+    :param mute: should command output be printed (mute=False).
+    :return: exit code (int), stdout (string), stderr (string).
+    """
+
+    executable = f'voms-proxy-info {options}'
+    exit_code, stdout, stderr = execute(executable)
+    if not mute:
+        logger.info(stdout + stderr)
+
+    return exit_code, stdout, stderr
 
 
 def get_proxy(proxy_outfile_name, voms_role):
