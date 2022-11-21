@@ -797,7 +797,7 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
             command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
             if label == 'setup':
                 # set the platform info
-                command = set_platform(job, command)
+                command += 'export thePlatform=\"%s\";' % job.platform
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
             if label == 'setup':
                 command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
