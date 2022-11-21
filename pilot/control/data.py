@@ -894,7 +894,9 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
 
     if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
         os.environ['X509_USER_PROXY'] = x509_org
-        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org}')
+        os.environ['X509_UNIFIED_DISPATCH'] = ''
+        remove(x509_unified_dispatch)
+        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org} (reset X509_UNIFIED_DISPATCH)')
 
     logger.info('summary of transferred files:')
     for iofile in xdata:
