@@ -424,18 +424,6 @@ def get_payload_command(job):
     modname = 'pilot.user.atlas.resource.%s' % resource_name
     resource = __import__(modname, globals(), locals(), [resource_name], 0)
 
-    # get the general setup command and then verify it if required
-    cmd = resource.get_setup_command(job, preparesetup)
-    if cmd:
-        # containerise command for payload setup verification
-        _cmd = create_middleware_container_command(job, cmd, label='setup', proxy=False)
-        exitcode, diagnostics = resource.verify_setup_command(_cmd)
-        if exitcode != 0:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
-            raise PilotException(diagnostics, code=exitcode)
-        else:
-            logger.info('payload setup verified (in a container)')
-
     # make sure that remote file can be opened before executing payload
     catchall = job.infosys.queuedata.catchall.lower() if job.infosys.queuedata.catchall else ''
     if config.Pilot.remotefileverification_log and 'remoteio_test=false' not in catchall:
@@ -465,6 +453,23 @@ def get_payload_command(job):
         logger.debug('no remote file open verification')
 
     os.environ['INDS'] = 'unknown'  # reset in case set by earlier job
+
+    # get the general setup command
+    cmd = resource.get_setup_command(job, preparesetup)
+    # do not verify the command at this point, since it is best to run in a container (ie do it further down)
+
+    # move this until the final command is ready to prevent double work and complications
+    #if cmd:
+    #    # containerise command for payload setup verification
+    #    _cmd = create_middleware_container_command(job, cmd, label='setup', proxy=False)
+    #    exitcode, diagnostics = resource.verify_setup_command(_cmd)
+    #    if exitcode != 0:
+    #        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
+    #        raise PilotException(diagnostics, code=exitcode)
+    #    else:
+    #        logger.info('payload setup verified (in a container)')
+    #########################
+
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")

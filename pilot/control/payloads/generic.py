@@ -603,6 +603,17 @@ class Executor(object):
 
         return exit_code
 
+    def should_verify_setup(self):
+        """
+        Should the setup command be verified?
+
+        :return: Boolean.
+        """
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        return user.should_verify_setup()
+
     def run(self):  # noqa: C901
         """
         Run all payload processes (including pre- and post-processes, and utilities).
@@ -614,9 +625,36 @@ class Executor(object):
         # get the payload command from the user specific code
         self.pre_setup(self.__job)
 
+        # get the user defined payload command
         cmd = self.get_payload_command(self.__job)
+
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
+        logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
+        # should the setup be verified? (user defined)
+        verify_setup = self.should_verify_setup()
+        if verify_setup:
+            try:
+                _cmd = self.__job.setup
+                out = open(os.path.join(self.__job.workdir, "setup.stdout"), 'wb')
+                err = open(os.path.join(self.__job.workdir, "setup.stderr"), 'wb')
+                # remove any trailing spaces and ;-signs
+                _cmd = _cmd.strip()
+                trail = ';' if not _cmd.endswith(';') else ''
+
+
+                _cmd = _cmd.replace('20.1.4.14', 'XXX20.1.4.14')
+                _cmd += trail + 'echo \"Done.\"'
+                exit_code, _, _ = execute(_cmd, workdir=self.__job.workdir, returnproc=False, usecontainer=True,
+                                          stdout=out, stderr=err, cwd=self.__job.workdir, job=self.__job)
+                if exit_code:
+                    # can only set a general setup failure
+                    logger.warning(f'setup returned exit code={exit_code}')
+                    return errors.SETUPFAILURE
+            except Exception as error:
+                logger.error('could not execute: %s', error)
+                return None
+
         self.post_setup(self.__job)
 
         # a loop is needed for HPO jobs
