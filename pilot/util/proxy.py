@@ -54,16 +54,19 @@ def get_distinguished_name():
     return dn
 
 
-def vomsproxyinfo(options='-all', mute=False):
+def vomsproxyinfo(options='-all', mute=False, path=''):
     """
     Execute voms-proxy-info with the given options.
 
     :param options: command options (string).
     :param mute: should command output be printed (mute=False).
+    :param path: use given path if specified for proxy (string).
     :return: exit code (int), stdout (string), stderr (string).
     """
 
     executable = f'voms-proxy-info {options}'
+    if path:
+        executable += f' --file={path}'
     exit_code, stdout, stderr = execute(executable)
     if not mute:
         logger.info(stdout + stderr)
@@ -102,7 +105,7 @@ def get_proxy(proxy_outfile_name, voms_role):
     else:
         # dump voms-proxy-info -all to log
         if res and res['StatusCode'] == 0:
-            _, _, _ = vomsproxyinfo(options='-all')
+            _, _, _ = vomsproxyinfo(options='-all', path=proxy_outfile_name)
 
     def create_file(filename, contents):
         """
