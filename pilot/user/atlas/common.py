@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from .container import create_root_container_command, create_middleware_container_command
+from .container import create_root_container_command  #, create_middleware_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,

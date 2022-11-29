@@ -104,7 +104,6 @@ def get_proxy(proxy_outfile_name, voms_role):
         if res and res['StatusCode'] == 0:
             _, _, _ = vomsproxyinfo(options='-all')
 
-
     def create_file(filename, contents):
         """
         Internally used helper function to create proxy file.
