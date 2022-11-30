@@ -192,17 +192,12 @@ def extract_atlas_setup(asetup, swrelease):
 
     try:
         # source $AtlasSetup/scripts/asetup.sh
-        logger.debug(f'3. asetup={asetup}')
         asetup = asetup.strip()
-        logger.debug(f'4. asetup={asetup}')
         atlas_setup = asetup.split(';')[-1] if not asetup.endswith(';') else asetup.split(';')[-2]
-        logger.debug(f'5. atlas_setup={atlas_setup}')
         # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         #   source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
         cleaned_atlas_setup = asetup.replace(atlas_setup, '').replace(';;', ';')
-        logger.debug(f'5. cleaned_atlas_setup={cleaned_atlas_setup}')
         atlas_setup = atlas_setup.replace('source ', '')
-        logger.debug(f'5. atlas_setup={atlas_setup}')
     except AttributeError as exc:
         logger.debug('exception caught while extracting asetup command: %s', exc)
         atlas_setup = ''
@@ -389,9 +384,7 @@ def alrb_wrapper(cmd, workdir, job=None):
     if container_name:
         # first get the full setup, which should be removed from cmd (or ALRB setup won't work)
         _asetup = get_asetup()
-        logger.debug(f'1. asetup={_asetup}')
         _asetup = fix_asetup(_asetup)
-        logger.debug(f'2. asetup={_asetup}')
         # get_asetup()
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh
         #     --quiet;source $AtlasSetup/scripts/asetup.sh
@@ -588,11 +581,16 @@ def create_release_setup(cmd, atlas_setup, full_atlas_setup, release, workdir, i
         content, cmd = extract_full_atlas_setup(cmd, atlas_setup)
         if not content:
             content = full_atlas_setup
+        content = 'retCode=0\n' + content
 
+    content += '\nretCode=$?'
     # add timing info (hours:minutes:seconds in UTC)
     # this is used to get a better timing info about setup
     content += '\ndate +\"%H:%M:%S %Y/%m/%d\"'  # e.g. 07:36:27 2022/06/29
-    content += '\nreturn $?'
+    content += '\nif [ $? -ne 0 ]; then'
+    content += '\n    retCode=$?'
+    content += '\nfi'
+    content += '\nreturn $retCode'
 
     logger.debug('command to be written to release setup file:\n\n%s:\n\n%s\n', release_setup_name, content)
     try:

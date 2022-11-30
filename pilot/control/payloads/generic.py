@@ -603,6 +603,17 @@ class Executor(object):
 
         return exit_code
 
+    def should_verify_setup(self):
+        """
+        Should the setup command be verified?
+
+        :return: Boolean.
+        """
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        return user.should_verify_setup()
+
     def run(self):  # noqa: C901
         """
         Run all payload processes (including pre- and post-processes, and utilities).
@@ -611,12 +622,40 @@ class Executor(object):
         :return:
         """
 
+        diagnostics = ''
+
         # get the payload command from the user specific code
         self.pre_setup(self.__job)
 
+        # get the user defined payload command
         cmd = self.get_payload_command(self.__job)
+
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
+        logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
+        # should the setup be verified? (user defined)
+        verify_setup = self.should_verify_setup()
+        if verify_setup:
+            try:
+                _cmd = self.__job.setup
+                out = open(os.path.join(self.__job.workdir, "setup.stdout"), 'wb')
+                err = open(os.path.join(self.__job.workdir, "setup.stderr"), 'wb')
+                # remove any trailing spaces and ;-signs
+                _cmd = _cmd.strip()
+                trail = ';' if not _cmd.endswith(';') else ''
+                _cmd += trail + 'echo \"Done.\"'
+                exit_code, stdout, stderr = execute(_cmd, workdir=self.__job.workdir, returnproc=False, usecontainer=True,
+                                                    stdout=out, stderr=err, cwd=self.__job.workdir, job=self.__job)
+                if exit_code:
+                    # can only set a general setup failure
+                    logger.warning(f'setup returned exit code={exit_code}')
+                    diagnostics = stdout + stderr if stdout and stderr else 'General payload setup verification error (check setup logs)'
+                    return errors.SETUPFAILURE, diagnostics
+            except Exception as error:
+                diagnostics = f'could not execute: {error}'
+                logger.error(diagnostics)
+                return None, diagnostics
+
         self.post_setup(self.__job)
 
         # a loop is needed for HPO jobs
@@ -648,11 +687,6 @@ class Executor(object):
             # now run the main payload, when it finishes, run the postprocess (if necessary)
             # note: no need to run any main payload in HPO Horovod jobs on Kubernetes
             if os.environ.get('HARVESTER_HOROVOD', '') == '':
-
-                #exit_code, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[before payload start] stdout=%s', _stdout)
-                #logger.debug('[before payload start] stderr=%s', _stderr)
-
                 proc = self.run_payload(self.__job, cmd, self.__out, self.__err)
             else:
                 proc = None
@@ -699,10 +733,6 @@ class Executor(object):
                 set_pilot_state(job=self.__job, state=state)
                 logger.info('\n\nfinished pid=%s exit_code=%s state=%s\n', proc.pid, exit_code, self.__job.state)
 
-                #exit_code, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[after payload finish] stdout=%s', _stdout)
-                #logger.debug('[after payload finish] stderr=%s', _stderr)
-
                 # stop the utility command (e.g. a coprocess if necessary
                 if proc_co:
                     logger.debug('stopping utility command: %s', utility_cmd)
@@ -733,7 +763,7 @@ class Executor(object):
             else:
                 break
 
-        return exit_code
+        return exit_code, diagnostics
 
     def run_utility_after_payload_finished(self, exit_code, state, order):
         """
