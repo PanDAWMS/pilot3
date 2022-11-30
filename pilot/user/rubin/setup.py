@@ -239,3 +239,13 @@ def get_ddm_source_priority():
     """
 
     return ['LOCAL', 'USER', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def should_verify_setup():
+    """
+    Should the setup command be verified?
+
+    :return: Boolean.
+    """
+
+    return False
