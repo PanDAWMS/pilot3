@@ -612,7 +612,7 @@ class Executor(object):
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
-        return user.should_verify_setup()
+        return user.should_verify_setup(self.__job)
 
     def run(self):  # noqa: C901
         """
@@ -632,10 +632,10 @@ class Executor(object):
 
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
-        logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
         # should the setup be verified? (user defined)
         verify_setup = self.should_verify_setup()
         if verify_setup:
+            logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
             try:
                 _cmd = self.__job.setup
                 out = open(os.path.join(self.__job.workdir, "setup.stdout"), 'wb')
