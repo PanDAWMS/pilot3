@@ -239,10 +239,11 @@ def get_ddm_source_priority():
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def should_verify_setup():
+def should_verify_setup(job):
     """
     Should the setup command be verified?
 
+    :param job: job object.
     :return: Boolean.
     """
 

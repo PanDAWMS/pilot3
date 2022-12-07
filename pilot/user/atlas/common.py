@@ -456,6 +456,8 @@ def get_payload_command(job):
 
     # get the general setup command
     cmd = resource.get_setup_command(job, preparesetup)
+    logger.debug(f'get_setup_command: cmd={cmd}')
+
     # do not verify the command at this point, since it is best to run in a container (ie do it further down)
 
     # move this until the final command is ready to prevent double work and complications
