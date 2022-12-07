@@ -85,8 +85,6 @@ class ErrorCodes:
     NORELEASEFOUND = 1244
     NOUSERTARBALL = 1246
     BADXML = 1247
-
-    # Error code constants (new since Pilot 2)
     NOTIMPLEMENTED = 1300
     UNKNOWNEXCEPTION = 1301
     CONVERSIONFAILURE = 1302
@@ -436,6 +434,8 @@ class ErrorCodes:
             exit_code = self.APPTAINERNOTINSTALLED
         elif exit_code == 64 and "cannot create directory" in stderr:
             exit_code = self.MKDIR
+        elif exit_code and "General payload setup verification error":
+            exit_code = self.SETUPFAILURE
         elif exit_code == -1:
             exit_code = self.UNKNOWNTRFFAILURE
         elif exit_code != 0:

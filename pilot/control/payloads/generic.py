@@ -24,7 +24,7 @@ from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
     UTILITY_AFTER_PAYLOAD_FINISHED, PILOT_PRE_SETUP, PILOT_POST_SETUP, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, \
     UTILITY_AFTER_PAYLOAD_STARTED2, UTILITY_AFTER_PAYLOAD_FINISHED2
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import write_file, read_file
 from pilot.util.processes import kill_processes
 from pilot.util.timing import add_to_pilot_timing, get_time_measurement
 from pilot.common.exception import PilotException
@@ -612,7 +612,7 @@ class Executor(object):
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
-        return user.should_verify_setup()
+        return user.should_verify_setup(self.__job)
 
     def run(self):  # noqa: C901
         """
@@ -632,14 +632,16 @@ class Executor(object):
 
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
-        logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
         # should the setup be verified? (user defined)
         verify_setup = self.should_verify_setup()
         if verify_setup:
+            logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
             try:
                 _cmd = self.__job.setup
-                out = open(os.path.join(self.__job.workdir, "setup.stdout"), 'wb')
-                err = open(os.path.join(self.__job.workdir, "setup.stderr"), 'wb')
+                stdout_filename = os.path.join(self.__job.workdir, "setup.stdout")
+                stderr_filename = os.path.join(self.__job.workdir, "setup.stderr")
+                out = open(stdout_filename, 'wb')
+                err = open(stderr_filename, 'wb')
                 # remove any trailing spaces and ;-signs
                 _cmd = _cmd.strip()
                 trail = ';' if not _cmd.endswith(';') else ''
@@ -647,10 +649,21 @@ class Executor(object):
                 exit_code, stdout, stderr = execute(_cmd, workdir=self.__job.workdir, returnproc=False, usecontainer=True,
                                                     stdout=out, stderr=err, cwd=self.__job.workdir, job=self.__job)
                 if exit_code:
-                    # can only set a general setup failure
                     logger.warning(f'setup returned exit code={exit_code}')
-                    diagnostics = stdout + stderr if stdout and stderr else 'General payload setup verification error (check setup logs)'
-                    return errors.SETUPFAILURE, diagnostics
+                    diagnostics = stderr + stdout if stdout and stderr else ''
+                    if not diagnostics:
+                        stdout = read_file(stdout_filename)
+                        stderr = read_file(stderr_filename)
+                    diagnostics = stderr + stdout if stdout and stderr else 'General payload setup verification error (check setup logs)'
+                    # check for special errors in thw output
+                    exit_code = errors.resolve_transform_error(exit_code, diagnostics)
+                    return exit_code, diagnostics
+                if out:
+                    out.close()
+                    logger.debug(f'closed {stdout_filename}')
+                if err:
+                    err.close()
+                    logger.debug(f'closed {stderr_filename}')
             except Exception as error:
                 diagnostics = f'could not execute: {error}'
                 logger.error(diagnostics)
