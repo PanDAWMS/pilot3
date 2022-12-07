@@ -443,7 +443,7 @@ class ESProcess(threading.Thread):
                     found = re.findall(pattern, message)
                     event_range = found[0][1]
                     if "eventRangeID" in event_range:
-                        pattern = re.compile(r"eventRangeID\'\:\ ?.?\'([0-9\-]+)")
+                        pattern = re.compile(r"eventRangeID\'\:\ ?.?\'([0-9A-Za-z._\-]+)")
                         found = re.findall(pattern, event_range)
                         event_range_id = found[0]
                         ret = {'id': event_range_id, 'status': 'failed', 'message': message}
@@ -451,7 +451,7 @@ class ESProcess(threading.Thread):
                     else:
                         raise Exception("Failed to parse %s" % message)
                 else:
-                    pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9\-]+)\:\ ?(.+)")
+                    pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9A-Za-z._\-]+)\:\ ?(.+)")
                     found = re.findall(pattern, message)
                     event_range_id = found[0][1]
                     ret = {'id': event_range_id, 'status': 'failed', 'message': message}
