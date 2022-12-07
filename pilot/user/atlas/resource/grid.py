@@ -35,7 +35,7 @@ def verify_setup_command(cmd):
             diagnostics = stdout + stderr
         elif stderr != '':
             exit_code = errors.resolve_transform_error(exit_code, stderr)
-            diagnostics = stderr
+            diagnostics = errors.format_diagnostics(exit_code, stderr)
 
     return exit_code, diagnostics
 
