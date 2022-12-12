@@ -434,7 +434,7 @@ class ErrorCodes:
             exit_code = self.APPTAINERNOTINSTALLED
         elif exit_code == 64 and "cannot create directory" in stderr:
             exit_code = self.MKDIR
-        elif exit_code and "General payload setup verification error":
+        elif exit_code and "General payload setup verification error" in stderr:
             exit_code = self.SETUPFAILURE
         elif exit_code == -1:
             exit_code = self.UNKNOWNTRFFAILURE
