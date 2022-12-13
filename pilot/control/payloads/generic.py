@@ -629,6 +629,9 @@ class Executor(object):
 
         # get the user defined payload command
         cmd = self.get_payload_command(self.__job)
+        if not cmd:
+            logger.warning('aborting run() since payload command could not be defined')
+            return errors.UNKNOWNPAYLOADFAILURE, 'undefined payload command'
 
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
