@@ -226,10 +226,8 @@ def open_remote_files(indata, workdir, nthreads):
 
             # error handling
             if exitcode:
-                logger.warning('script %s finished with ec=%d', script, exitcode)
-
                 # first check for apptainer errors
-                _exitcode = errors.resolve_transform_error(exitcode, stderr)
+                _exitcode = errors.resolve_transform_error(exitcode, stdout + stderr)
                 if _exitcode != exitcode:  # a better error code was found
                     return _exitcode, stderr, not_opened
 
