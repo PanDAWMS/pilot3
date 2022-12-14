@@ -215,7 +215,7 @@ def open_remote_files(indata, workdir, nthreads):
 
             show_memory_usage()
 
-            timeout = len(indata) * 120 + 180
+            timeout = len(indata) * 30 + 600
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
