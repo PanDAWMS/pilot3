@@ -104,7 +104,7 @@ def try_open_file(turl, queues):
     """
 
     turl_opened = False
-    _timeout = 120 * 1000  # 120 s
+    _timeout = 30 * 1000  # 30 s per file
     try:
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
         message("internal TFile.Open() time-out set to %d ms" % _timeout)
