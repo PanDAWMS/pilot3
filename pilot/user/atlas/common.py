@@ -215,7 +215,7 @@ def open_remote_files(indata, workdir, nthreads):
 
             show_memory_usage()
 
-            timeout = len(indata) * 120 + 180
+            timeout = len(indata) * 30 + 600
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
@@ -226,27 +226,27 @@ def open_remote_files(indata, workdir, nthreads):
 
             # error handling
             if exitcode:
-                logger.warning('script %s finished with ec=%d', script, exitcode)
-
                 # first check for apptainer errors
-                _exitcode = errors.resolve_transform_error(exitcode, stderr)
-                if _exitcode != exitcode:  # a better error code was found
+                _exitcode = errors.resolve_transform_error(exitcode, stdout + stderr)
+                if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
                     return _exitcode, stderr, not_opened
 
-                # note: ignore any time-out errors if the remote files could still be opened
+                # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
                 _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
                 if not _exitcode:
-                    logger.info('ignoring time-out error since remote file could still be opened')
-                    exitcode = 0
+                    logger.info('remote file could still be opened in spite of previous error')
                 elif _exitcode:
-                    exitcode = _exitcode
-                if exitcode == errors.COMMANDTIMEDOUT:
-                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                    if exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILECOULDNOTBEOPENED:
+                        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                    else:  # REMOTEFILECOULDNOTBEOPENED
+                        exitcode = _exitcode
             else:
                 exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
 
+    if exitcode:
+        logger.warning(f'remote file open exit code: {exitcode}')
     return exitcode, diagnostics, not_opened
 
 

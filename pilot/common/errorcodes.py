@@ -438,6 +438,8 @@ class ErrorCodes:
             exit_code = self.SETUPFAILURE
         elif exit_code == -1:
             exit_code = self.UNKNOWNTRFFAILURE
+        elif exit_code == self.COMMANDTIMEDOUT:
+            pass
         elif exit_code != 0:
             exit_code = self.PAYLOADEXECUTIONFAILURE
 
