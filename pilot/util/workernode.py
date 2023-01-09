@@ -74,7 +74,7 @@ def get_meminfo():
     return mem
 
 
-def get_cpuinfo():
+def get_cpu_frequency():
     """
     Return the CPU frequency (in MHz).
 
@@ -105,7 +105,7 @@ def collect_workernode_info(path=None):
     """
 
     mem = get_meminfo()
-    cpu = get_cpuinfo()
+    cpu = get_cpu_frequency()
     try:
         disk = get_local_disk_space(path)
     except PilotException as exc:
