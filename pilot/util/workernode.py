@@ -95,6 +95,27 @@ def get_cpu_frequency():
     return cpu
 
 
+def get_cpu_flags():
+    """
+    Return the CPU flags.
+
+    :return: cpu flags (string).
+    """
+
+    flags = ''
+    with open("/proc/cpuinfo", "r") as _fd:
+        lines = _fd.readlines()
+        for line in lines:
+            if line.find("flags") != -1:
+                try:
+                    flags = line.split(":")[1].strip()
+                except ValueError as error:
+                    logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
+                break  # command info is the same for all cores, so break here
+
+    return flags
+
+
 def collect_workernode_info(path=None):
     """
     Collect node information (cpu, memory and disk space).
