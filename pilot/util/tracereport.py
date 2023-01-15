@@ -170,8 +170,10 @@ class TraceReport(dict):
             command = 'curl'
             if self.ipv == 'IPv4':
                 command += ' -4'
-            cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"%{data}\" {url}'
-            exit_code, stdout, stderr = execute(cmd, mute=True)
+
+            cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
+            exit_code, stdout, stderr = execute(cmd, mute=False)
+            logger.debug(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
             if exit_code:
                 logger.warning('failed to send traces to rucio: %s' % stdout)
         except Exception:
