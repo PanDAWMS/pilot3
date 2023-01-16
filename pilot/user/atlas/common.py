@@ -823,6 +823,10 @@ def get_analysis_run_command(job, trf_name):
         logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
         x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
+    if 'OIDC_AUTH_TOKEN' in os.environ:
+        cmd += 'unset OIDC_AUTH_TOKEN;'
+    if 'OIDC_AUTH_ORIGIN' in os.environ:
+        cmd += 'unset OIDC_AUTH_ORIGIN;'
     if 'PANDA_AUTH_TOKEN' in os.environ:
         cmd += 'unset PANDA_AUTH_TOKEN;'
     if 'PANDA_AUTH_ORIGIN' in os.environ:
