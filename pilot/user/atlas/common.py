@@ -794,7 +794,7 @@ def add_makeflags(job_core_count, cmd):
     return cmd
 
 
-def get_analysis_run_command(job, trf_name):
+def get_analysis_run_command(job, trf_name):  # noqa: C901
     """
     Return the proper run command for the user job.
 
