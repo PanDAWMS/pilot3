@@ -273,8 +273,8 @@ def get_curl_command(plain, dat, ipv):
     """
 
     auth_token_content = ''
-    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)  # file name of the token
-    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)  # origin of the token (panda_dev.pilot)
+    auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN', None))  # file name of the token
+    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN', None))  # origin of the token (panda_dev.pilot)
 
     command = 'curl'
     if ipv == 'IPv4':
@@ -294,7 +294,7 @@ def get_curl_command(plain, dat, ipv):
             logger.warning(f'path does not exist: {path}')
             return None, ''
         if not auth_token_content:
-            logger.warning('PANDA_AUTH_TOKEN content could not be read')
+            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
             return None, ''
         req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
@@ -324,7 +324,7 @@ def locate_token(auth_token):
     :return: path to token (string).
     """
 
-    _primary = os.path.dirname(os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', '')))
+    _primary = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(_primary, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]

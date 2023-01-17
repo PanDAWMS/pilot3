@@ -591,7 +591,6 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     :return: data structure (dictionary).
     """
 
-    logger.debug(f'state={state}')
     data = {'jobId': job.jobid,
             'state': state,
             'timestamp': time_stamp(),

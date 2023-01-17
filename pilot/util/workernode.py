@@ -74,7 +74,7 @@ def get_meminfo():
     return mem
 
 
-def get_cpuinfo():
+def get_cpu_frequency():
     """
     Return the CPU frequency (in MHz).
 
@@ -95,6 +95,27 @@ def get_cpuinfo():
     return cpu
 
 
+def get_cpu_flags():
+    """
+    Return the CPU flags.
+
+    :return: cpu flags (string).
+    """
+
+    flags = ''
+    with open("/proc/cpuinfo", "r") as _fd:
+        lines = _fd.readlines()
+        for line in lines:
+            if line.find("flags") != -1:
+                try:
+                    flags = line.split(":")[1].strip()
+                except ValueError as error:
+                    logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
+                break  # command info is the same for all cores, so break here
+
+    return flags
+
+
 def collect_workernode_info(path=None):
     """
     Collect node information (cpu, memory and disk space).
@@ -105,7 +126,7 @@ def collect_workernode_info(path=None):
     """
 
     mem = get_meminfo()
-    cpu = get_cpuinfo()
+    cpu = get_cpu_frequency()
     try:
         disk = get_local_disk_space(path)
     except PilotException as exc:
