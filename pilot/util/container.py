@@ -9,8 +9,8 @@
 
 import subprocess
 import logging
-from os import environ, getcwd, setpgrp  #, getpgid  #setsid
-
+from os import environ, getcwd, setpgrp, getpgid, killpg  #, getpgid  #setsid
+from signal import SIGTERM
 from pilot.common.errorcodes import ErrorCodes
 
 logger = logging.getLogger(__name__)
@@ -70,9 +70,15 @@ def execute(executable, **kwargs):
             _stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(_stderr)
             exit_code = errors.COMMANDTIMEDOUT
+            logger.debug('XXX executing process.kill()')
             process.kill()
+            logger.debug('XXX executing process.communicate()')
             stdout, stderr = process.communicate()
             stderr += '\n' + _stderr
+            #
+            logger.debug('XXX executing killpg()')
+            killpg(getpgid(process.pid), SIGTERM)
+            logger.debug('XXX done killing')
         else:
             exit_code = process.poll()
 
