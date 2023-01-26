@@ -52,7 +52,7 @@ from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
-from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model
+from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model, get_cpu_flags
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -650,6 +650,11 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
             data['cpuConsumptionUnit'] = instruction_sets
         if product and vendor:
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
+
+    # add CPU flags
+    cpu_flags = get_cpu_flags()
+    if cpu_flags:
+        logger.debug(f'could have added CPU flags: {cpu_flags}')
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
