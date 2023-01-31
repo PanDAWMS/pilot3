@@ -322,7 +322,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for updateJob
-    data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
+    data = get_data_structure(job, state, args, xml=xml, metadata=metadata, final=final)
     logger.debug(f'data={data}')
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -579,7 +579,7 @@ def add_data_structure_ids(data, version_tag, job):
     return data
 
 
-def get_data_structure(job, state, args, xml=None, metadata=None):
+def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
     """
     Build the data structure needed for updateJob.
 
@@ -588,6 +588,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     :param args: Pilot args object.
     :param xml: optional XML string.
     :param metadata: job report metadata read as a string.
+    :param final: is this for the final server update? (Boolean).
     :return: data structure (dictionary).
     """
 
@@ -651,12 +652,14 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
         if product and vendor:
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
-    # add CPU flags
-    cpu_flags = get_cpu_flags(sorted=True)
-    if cpu_flags:
-        logger.debug(f'could have added CPU flags: {cpu_flags}')
+    # add CPU flags for the final server update
+    if final:
+        cpu_flags = get_cpu_flags(sorted=True)
+        if cpu_flags:
+            logger.debug(f'could have added CPU flags: {cpu_flags}')
+            # data['cpuFlags'] = cpu_flags
 
-    # add memory information if available
+     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
     if state == 'finished' or state == 'failed':
         add_timing_and_extracts(data, job, state, args)
