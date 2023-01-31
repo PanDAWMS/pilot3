@@ -1019,5 +1019,9 @@ class JobData(BaseData):
         self.subprocesses = []
 
     def to_json(self):
+        """
+        Convert class to dictionary.
+        """
+
         from json import dumps
         return dumps(self, default=lambda par: par.__dict__)
