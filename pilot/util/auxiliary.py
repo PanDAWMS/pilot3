@@ -637,3 +637,23 @@ def find_pattern_in_list(input_list, pattern):
             break
 
     return found
+
+
+def sort_words(input_str):
+    """
+    Sort the words in a given string.
+    E.g. input_str = 'bbb fff aaa' -> output_str = 'aaa bbb fff'
+
+    :param input_str: input string.
+    :return: sorted output string.
+    """
+
+    output_str = input_str
+    try:
+        tmp = output_str.split()
+        tmp.sort()
+        output_str = ' '.join(tmp)
+    except (AttributeError, TypeError) as exc:
+        logger.warning(f'failed to sort input string: {input_str}, exc={exc}')
+
+    return output_str

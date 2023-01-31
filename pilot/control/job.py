@@ -652,7 +652,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
     # add CPU flags
-    cpu_flags = get_cpu_flags()
+    cpu_flags = get_cpu_flags(sorted=True)
     if cpu_flags:
         logger.debug(f'could have added CPU flags: {cpu_flags}')
 

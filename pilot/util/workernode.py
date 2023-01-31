@@ -13,6 +13,7 @@ import logging
 
 #from subprocess import getoutput
 
+from pilot.util.auxiliary import sort_words
 from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.container import execute
 from pilot.info import infosys
@@ -95,10 +96,11 @@ def get_cpu_frequency():
     return cpu
 
 
-def get_cpu_flags():
+def get_cpu_flags(sorted=True):
     """
     Return the CPU flags.
 
+    :param sorted: should the CPU flags be sorted? (Boolean)
     :return: cpu flags (string).
     """
 
@@ -113,6 +115,8 @@ def get_cpu_flags():
                     logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
                 break  # command info is the same for all cores, so break here
 
+    if flags and sorted:
+        flags = sort_words(flags)
     return flags
 
 
