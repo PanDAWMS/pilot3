@@ -21,7 +21,7 @@ class Features(object):
 
     def __init__(self):
         """
-
+        Default init.
         """
 
         pass
@@ -38,17 +38,40 @@ class Features(object):
     def get(self):
         """
         Convert class to dictionary.
+
+        :return: class dictionary.
         """
 
         from json import dumps
         return dumps(self, default=lambda par: par.__dict__)
 
+    def set(self, path, label):
+        """
+        Set all values.
+
+        :param path: path to job or machine features directory.
+        :param label: machine or job string.
+        :return:
+        """
+
+        if path and os.path.exists(path):
+            data_members = self.get_data_members()
+            for member in data_members:
+                value = read_file(os.path.join(path, member))
+                if value:
+                    value = value[:-1] if value.endswith('\n') else value
+                    setattr(self, member, value)
+        else:
+            logger.info(f'{label} features path does not exist (path=\"{path}\")')
 
 class MachineFeatures(Features):
 
     def __init__(self):
+        """
+        Default init.
+        """
 
-        # treat float and int values as strings
+        super().__init__()
 
         # machine features
         self.hs06 = ""
@@ -57,22 +80,16 @@ class MachineFeatures(Features):
         self.grace_secs = ""
 
         logger.info('collecting machine features')
-        path = os.environ.get('MACHINEFEATURES', '')
-        if path and os.path.exists(path):
-            data_members = self.get_data_members()
-            for member in data_members:
-                value = read_file(os.path.join(path, member))
-                if value:
-                    setattr(self, member, value)
-        else:
-            logger.info('machine features path does not exist (path=\"{path}\")')
-
+        self.set(os.environ.get('MACHINEFEATURES', ''), 'machine')
 
 class JobFeatures(Features):
 
     def __init__(self):
+        """
+        Default init.
+        """
 
-        # treat float and int values as strings
+        super().__init__()
 
         # job features
         self.allocated_cpu = ""
@@ -88,12 +105,4 @@ class JobFeatures(Features):
         self.scratch_limit_bytes = ""
 
         logger.info('collecting job features')
-        path = os.environ.get('JOBFEATURES', '')
-        if path and os.path.exists(path):
-            data_members = self.get_data_members()
-            for member in data_members:
-                value = read_file(os.path.join(path, member))
-                if value:
-                    setattr(self, member, value)
-        else:
-            logger.info('job features path does not exist (path=\"{path}\")')
+        self.set(os.environ.get('JOBFEATURES', ''), 'machine')
