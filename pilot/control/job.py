@@ -52,7 +52,8 @@ from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
-from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model, get_cpu_flags
+from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model, get_cpu_flags, \
+    get_cpu_cores
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -640,7 +641,11 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + get_cpu_model()
+    cpumodel = get_cpu_model()
+    logger.debug(f'cpumode={cpumodel}')
+    cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
+    logger.debug(f'updated cpumode={cpumodel}')
+    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
     instruction_sets = has_instruction_sets(['AVX2'])
     product, vendor = get_display_info()

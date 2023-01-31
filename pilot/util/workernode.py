@@ -253,6 +253,43 @@ def get_cpu_model():
     return modelstring
 
 
+def get_cpu_cores(modelstring):
+    """
+    Get core count from /proc/cpuinfo and update modelstring (CPU model).
+    E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
+         -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
+    :param modelstring: CPU model string.
+    :return: updated cpu model (string).
+    """
+
+    number_of_cores = 0
+    re_cores = re.compile(r'^cpu cores\s+:\s+(\d+)')
+
+    with open("/proc/cpuinfo", "r") as _fp:
+
+        # loop over all lines in cpuinfo
+        for line in _fp.readlines():
+
+            # try to grab core count from current line
+            cores = re_cores.search(line)
+            if cores:
+                # found core count
+                try:
+                    number_of_cores += int(cores.group(1))
+                except Exception:
+                    pass
+
+        if number_of_cores > 0 and '-Core' not in modelstring:
+            if 'Core Processor' in modelstring:
+                modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
+            elif 'Processor' in modelstring:
+                modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
+            else:
+                modelstring += ' %d-Core Processor'
+
+    return modelstring
+
+
 def check_hz():
     """
     Try to read the SC_CLK_TCK and write it to the log.
