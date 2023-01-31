@@ -1020,4 +1020,4 @@ class JobData(BaseData):
 
     def to_json(self):
         from json import dumps
-        return dumps(self, default=lambda o: o.__dict__)
+        return dumps(self, default=lambda par: par.__dict__)
