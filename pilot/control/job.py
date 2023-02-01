@@ -661,8 +661,8 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
     if final:
         cpu_flags = get_cpu_flags(sorted=True)
         if cpu_flags:
-            logger.debug(f'could have added CPU flags: {cpu_flags}')
-            # data['cpuFlags'] = cpu_flags
+            logger.debug(f'adding CPU flags: {cpu_flags}')
+            data['cpu_flags'] = cpu_flags
 
      # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
