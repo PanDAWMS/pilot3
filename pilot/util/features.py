@@ -13,6 +13,7 @@ import logging
 import os
 
 from pilot.util.filehandling import read_file
+from pilot.common.exception import FileHandlingFailure
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,12 @@ class Features(object):
         if path and os.path.exists(path):
             data_members = self.get_data_members()
             for member in data_members:
-                value = read_file(os.path.join(path, member))
+                try:
+                    value = read_file(os.path.join(path, member))
+                except FileHandlingFailure as exc:
+                    logger.warning(f'failed to process {member}: {exc}')
+                    value = None
+
                 if value:
                     value = value[:-1] if value.endswith('\n') else value
                     setattr(self, member, value)

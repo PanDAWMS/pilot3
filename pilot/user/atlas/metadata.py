@@ -58,10 +58,6 @@ def create_input_file_metadata(file_dictionary, workdir, filename="PoolFileCatal
     xml = ElementTree.tostring(data, encoding='utf8')
     xml = minidom.parseString(xml).toprettyxml(indent="  ")
 
-    # add escape character for & (needed for google turls)
-    if '&' in xml:
-        xml = xml.replace('&', '&#038;')
-
     # stitch in the DOCTYPE
     xml = xml.replace('<POOLFILECATALOG>', '<!DOCTYPE POOLFILECATALOG SYSTEM "InMemory">\n<POOLFILECATALOG>')
 
