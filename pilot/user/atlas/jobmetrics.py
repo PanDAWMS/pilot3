@@ -119,7 +119,10 @@ def add_features(job_metrics, corecount, add=[]):
     if hs06 and total_cpu:
         perf_scale = 1
         try:
-            machinefeatures['hs06'] = int(int(hs06) * perf_scale / (int(total_cpu) * corecount))
+            logger.debug(f'hs06={hs06}')
+            logger.debug(f'total_cpu={total_cpu}')
+            logger.debug(f'corecount={corecount}')
+            machinefeatures['hs06'] = int(hs06)  # int(int(hs06) * perf_scale / (int(total_cpu) * corecount))
         except (TypeError, ValueError) as exc:
             logger.warning(f'cannot process hs06 machine feature: {exc}')
     features_list = [machinefeatures, jobfeatures]
