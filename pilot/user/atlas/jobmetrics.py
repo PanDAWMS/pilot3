@@ -73,7 +73,11 @@ def get_job_metrics_string(job):
 
     # add job and machine feature data if available
     _job_metrics = add_features(job_metrics, corecount, add=['hs06'])
-    logger.debug(f'could have added: {_job_metrics}')
+    if _job_metrics:
+        logger.debug(f'could have added: {_job_metrics}')
+    from pilot.util.container import execute
+    _ec, _out, _ = execute('echo $MACHINEFEATURES; ls -lF $MACHINEFEATURES')
+    logger.debug(f"ls={_out}")
 
     # get analytics data
     job_metrics = add_analytics_data(job_metrics, job.workdir, job.state)

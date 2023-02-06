@@ -43,8 +43,10 @@ class Features(object):
         :return: class dictionary.
         """
 
-        from json import dumps
-        return dumps(self, default=lambda par: par.__dict__)
+        from json import dumps, loads
+        # convert class data members to a dictionary string (dumps), then to a dictionary (loads)
+        # note that all data members will remain as strings
+        return loads(dumps(self, default=lambda par: par.__dict__))
 
     def set(self, path, label):
         """
@@ -111,4 +113,4 @@ class JobFeatures(Features):
         self.scratch_limit_bytes = ""
 
         logger.info('collecting job features')
-        self.set(os.environ.get('JOBFEATURES', ''), 'machine')
+        self.set(os.environ.get('JOBFEATURES', ''), 'job')
