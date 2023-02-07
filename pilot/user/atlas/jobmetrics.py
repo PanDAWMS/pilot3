@@ -73,12 +73,7 @@ def get_job_metrics_string(job):
             logger.info("will not add max space = %d B to job metrics", max_space)
 
     # add job and machine feature data if available
-    _job_metrics = add_features(job_metrics, corecount, add=['hs06'])
-    if _job_metrics:
-        logger.debug(f'could have added: {_job_metrics}')
-    from pilot.util.container import execute
-    _ec, _out, _ = execute('echo $MACHINEFEATURES; ls -lF $MACHINEFEATURES')
-    logger.debug(f"ls={_out}")
+    job_metrics = add_features(job_metrics, corecount, add=['hs06'])
 
     # get analytics data
     job_metrics = add_analytics_data(job_metrics, job.workdir, job.state)
@@ -120,7 +115,7 @@ def add_features(job_metrics, corecount, add=[]):
     if hs06 and total_cpu:
         perf_scale = 1
         try:
-            machinefeatures_hs06 = 1.0 * int(hs06) * perf_scale / (1.0 * int(total_cpu) * corecount)
+            machinefeatures_hs06 = 1.0 * int(hs06) * perf_scale * corecount / (1.0 * int(total_cpu))
             machinefeatures['hs06'] = float_to_rounded_string(machinefeatures_hs06, precision=2)
             logger.info(f"hs06={machinefeatures.get('hs06')} ({hs06}) total_cpu={total_cpu} corecount={corecount} perf_scale={perf_scale}")
         except (TypeError, ValueError) as exc:
