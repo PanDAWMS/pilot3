@@ -71,18 +71,13 @@ def execute(executable, **kwargs):
             stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
-            logger.debug('XXX executing process.kill()')
             process.kill()
             #logger.debug('XXX executing process.communicate()')
             #stdout, stderr = process.communicate()
             #stderr += '\n' + _stderr
-            #
-            logger.debug('XXX executing killpg()')
             killpg(getpgid(process.pid), SIGTERM)
-            logger.debug('XXX executing kill()')
             kill(process.pid, SIGTERM)
-            logger.debug('XXX done killing')
-
+            logger.debug('Sent soft kill signals')
         else:
             exit_code = process.poll()
 
