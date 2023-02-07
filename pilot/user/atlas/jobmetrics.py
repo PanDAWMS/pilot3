@@ -15,6 +15,7 @@ from pilot.api import analytics
 from pilot.util.jobmetrics import get_job_metrics_entry
 from pilot.util.features import MachineFeatures, JobFeatures
 from pilot.util.filehandling import find_last_line
+from pilot.util.math import float_to_rounded_string
 
 from .cpu import get_core_count
 from .common import get_db_info, get_resimevents
@@ -119,10 +120,9 @@ def add_features(job_metrics, corecount, add=[]):
     if hs06 and total_cpu:
         perf_scale = 1
         try:
-            logger.debug(f'hs06={hs06}')
-            logger.debug(f'total_cpu={total_cpu}')
-            logger.debug(f'corecount={corecount}')
-            machinefeatures['hs06'] = int(hs06)  # int(int(hs06) * perf_scale / (int(total_cpu) * corecount))
+            machinefeatures_hs06 = 1.0 * int(hs06) * perf_scale / (1.0 * int(total_cpu) * corecount)
+            machinefeatures['hs06'] = float_to_rounded_string(machinefeatures_hs06, precision=2)
+            logger.info(f"hs06={machinefeatures.get('hs06')} ({hs06}) total_cpu={total_cpu} corecount={corecount} perf_scale={perf_scale}")
         except (TypeError, ValueError) as exc:
             logger.warning(f'cannot process hs06 machine feature: {exc}')
     features_list = [machinefeatures, jobfeatures]
