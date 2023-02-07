@@ -72,6 +72,7 @@ class Features(object):
         else:
             logger.info(f'{label} features path does not exist (path=\"{path}\")')
 
+
 class MachineFeatures(Features):
 
     def __init__(self):
@@ -89,6 +90,7 @@ class MachineFeatures(Features):
 
         logger.info('collecting machine features')
         self.set(os.environ.get('MACHINEFEATURES', ''), 'machine')
+
 
 class JobFeatures(Features):
 

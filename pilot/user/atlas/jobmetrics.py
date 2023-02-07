@@ -83,6 +83,7 @@ def get_job_metrics_string(job):
 
     return job_metrics
 
+
 def add_features(job_metrics, corecount, add=[]):
     """
     Add job and machine feature data to the job metrics if available
@@ -127,6 +128,7 @@ def add_features(job_metrics, corecount, add=[]):
             job_metrics += features_str
 
     return job_metrics
+
 
 def add_analytics_data(job_metrics, workdir, state):
     """

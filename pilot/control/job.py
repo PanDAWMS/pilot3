@@ -580,7 +580,7 @@ def add_data_structure_ids(data, version_tag, job):
     return data
 
 
-def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
+def get_data_structure(job, state, args, xml=None, metadata=None, final=False):  # noqa: C901
     """
     Build the data structure needed for updateJob.
 
@@ -623,7 +623,6 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
     # add the core count
     if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
         data['coreCount'] = job.corecount
-        #data['coreCount'] = mean(job.corecounts) if job.corecounts else job.corecount
     if job.corecounts:
         _mean = mean(job.corecounts)
         logger.info(f'mean actualcorecount: {_mean}')
@@ -636,15 +635,13 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
     else:
         logger.info("payload/TRF did not report the number of read events")
 
-    # get the CU consumption time
+    # get the CPU consumption time
     constime = get_cpu_consumption_time(job.cpuconsumptiontime)
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
     cpumodel = get_cpu_model()
-    logger.debug(f'cpumode={cpumodel}')
     cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
-    logger.debug(f'updated cpumode={cpumodel}')
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
     instruction_sets = has_instruction_sets(['AVX2'])
@@ -664,7 +661,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False):
             logger.debug(f'adding CPU flags: {cpu_flags}')
             data['cpu_flags'] = cpu_flags
 
-     # add memory information if available
+    # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
     if state == 'finished' or state == 'failed':
         add_timing_and_extracts(data, job, state, args)
