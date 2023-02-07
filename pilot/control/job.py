@@ -575,7 +575,7 @@ def add_data_structure_ids(data, version_tag, job):
         else:
             data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
     else:
-        logger.debug('no pilotid')
+        logger.warning('pilotid not available')
 
     return data
 
