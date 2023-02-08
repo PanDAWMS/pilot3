@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -69,6 +69,7 @@ class JobData(BaseData):
     realtimelogging = False        # True for real-time logging (set by server/job definition/args)
     pandasecrets = ""              # User defined secrets
     pilotsecrets = {}              # Real-time logging secrets
+    requestid = None               # Request ID
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job
@@ -160,7 +161,8 @@ class JobData(BaseData):
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
-                   'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount'],
+                   'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
+                   'requestid'],
              str: ['jobid', 'taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
                    'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
@@ -302,7 +304,7 @@ class JobData(BaseData):
             # 'internal_name': 'ext_key_structure'
             'lfn': 'inFiles',
             ##'??': 'dispatchDblock', '??define_proper_internal_name': 'dispatchDBlockToken',
-            'dataset': 'realDatasetsIn', 'guid': 'GUID',
+            'dataset': 'realDatasetsIn', 'guid': 'GUID', 'requestid': 'reqID',
             'filesize': 'fsize', 'checksum': 'checksum', 'scope': 'scopeIn',
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
