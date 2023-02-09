@@ -201,8 +201,6 @@ class RealTimeLogger(Logger):
             self.jobinfo["Harvester_ID"] = os.environ.get('HARVESTER_ID')
         if job.requestid:
             self.jobinfo["RequestID"] = job.requestid
-        else:
-            logger.warning('job.requestid not set - cannot add to message')
 
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),
