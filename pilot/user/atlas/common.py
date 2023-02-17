@@ -243,6 +243,7 @@ def open_remote_files(indata, workdir, nthreads):
                         exitcode = errors.REMOTEFILEOPENTIMEDOUT
                     elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILEDICTDOESNOTEXIST:
                         exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                        diagnostics = f'remote file open command was timed-out and: {diagnostics}'  # cannot give further info
                     else:  # REMOTEFILECOULDNOTBEOPENED
                         exitcode = _exitcode
             else:
