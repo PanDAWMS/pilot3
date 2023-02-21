@@ -155,7 +155,7 @@ class FileSpec(BaseData):
         is_rootfile = True
         exclude_pattern = ['.tar.gz', '.lib.tgz', '.raw.']
         for e in exclude_pattern:
-            if e in filename:
+            if e in filename or filename.startswith('raw.'):
                 is_rootfile = False
                 break
 

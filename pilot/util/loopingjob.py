@@ -11,7 +11,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
 from pilot.util.config import config
 from pilot.util.container import execute
-from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy
+from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import kill_processes
 from pilot.util.timing import time_stamp
@@ -52,7 +52,7 @@ def looping_job(job, montime):
     elif job.state == 'running':
         # get the time when the files in the workdir were last touched. in case no file was touched since the last
         # check, the returned value will be the same as the previous time
-        time_last_touched = get_time_for_last_touch(job, montime, looping_limit)
+        time_last_touched, recent_files = get_time_for_last_touch(job, montime, looping_limit)
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
@@ -62,6 +62,8 @@ def looping_job(job, montime):
             logger.info(f'looping limit: {looping_limit} s')
             if currenttime - time_last_touched > looping_limit:
                 try:
+                    # which were the considered files?
+                    list_mod_files(recent_files)
                     # first produce core dump and copy it
                     create_core_dump(pid=job.pid, workdir=job.workdir)
                     # set debug mode to prevent core file from being removed before log creation
@@ -108,9 +110,10 @@ def get_time_for_last_touch(job, montime, looping_limit):
     :param job: job object.
     :param montime: `MonitoringTime` object.
     :param looping_limit: looping limit in seconds.
-    :return: time in seconds since epoch (int) (or None in case of failure).
+    :return: time in seconds since epoch (int) (or None in case of failure), recent files (list).
     """
 
+    updated_files = []
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions',
                                         globals(), locals(), [pilot_user], 0)
@@ -135,7 +138,7 @@ def get_time_for_last_touch(job, montime, looping_limit):
                     logger.info(f"file {latest_modified_file} is the most recently updated file (at time={mtime})")
                 else:
                     logger.warning('looping job algorithm failed to identify latest updated file')
-                    return montime.ct_looping_last_touched
+                    return montime.ct_looping_last_touched, updated_files
 
                 # store the time of the last file modification
                 montime.update('ct_looping_last_touched', modtime=mtime)
@@ -149,7 +152,7 @@ def get_time_for_last_touch(job, montime, looping_limit):
         stderr = cut_output(stderr)
         logger.warning(f'find command failed: exitcode={exit_code}, stdout={stdout}, stderr={stderr}')
 
-    return montime.ct_looping_last_touched
+    return montime.ct_looping_last_touched, updated_files
 
 
 def kill_looping_job(job):

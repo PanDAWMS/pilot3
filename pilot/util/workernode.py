@@ -13,6 +13,7 @@ import logging
 
 #from subprocess import getoutput
 
+from pilot.util.auxiliary import sort_words
 from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.container import execute
 from pilot.info import infosys
@@ -95,10 +96,11 @@ def get_cpu_frequency():
     return cpu
 
 
-def get_cpu_flags():
+def get_cpu_flags(sorted=True):
     """
     Return the CPU flags.
 
+    :param sorted: should the CPU flags be sorted? (Boolean)
     :return: cpu flags (string).
     """
 
@@ -113,6 +115,8 @@ def get_cpu_flags():
                     logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
                 break  # command info is the same for all cores, so break here
 
+    if flags and sorted:
+        flags = sort_words(flags)
     return flags
 
 
@@ -245,6 +249,43 @@ def get_cpu_model():
     # default return string if no info was found
     if not modelstring:
         modelstring = "UNKNOWN"
+
+    return modelstring
+
+
+def get_cpu_cores(modelstring):
+    """
+    Get core count from /proc/cpuinfo and update modelstring (CPU model).
+    E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
+         -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
+    :param modelstring: CPU model string.
+    :return: updated cpu model (string).
+    """
+
+    number_of_cores = 0
+    re_cores = re.compile(r'^cpu cores\s+:\s+(\d+)')
+
+    with open("/proc/cpuinfo", "r") as _fp:
+
+        # loop over all lines in cpuinfo
+        for line in _fp.readlines():
+
+            # try to grab core count from current line
+            cores = re_cores.search(line)
+            if cores:
+                # found core count
+                try:
+                    number_of_cores += int(cores.group(1))
+                except Exception:
+                    pass
+
+        if number_of_cores > 0 and '-Core' not in modelstring:
+            if 'Core Processor' in modelstring:
+                modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
+            elif 'Processor' in modelstring:
+                modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
+            else:
+                modelstring += ' %d-Core Processor'
 
     return modelstring
 

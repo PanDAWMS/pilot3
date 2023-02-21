@@ -158,6 +158,7 @@ class ErrorCodes:
     BADOUTPUTFILENAME = 1371
     APPTAINERNOTINSTALLED = 1372
     CERTIFICATEHASEXPIRED = 1373
+    REMOTEFILEDICTDOESNOTEXIST = 1374
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -292,7 +293,8 @@ class ErrorCodes:
         FRONTIER: "Frontier error",
         VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
         BADOUTPUTFILENAME: "Output file name contains illegal characters",
-        CERTIFICATEHASEXPIRED: "Certificate has expired"
+        CERTIFICATEHASEXPIRED: "Certificate has expired",
+        REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

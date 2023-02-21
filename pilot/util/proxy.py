@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import logging
 import os
@@ -87,8 +87,12 @@ def get_proxy(proxy_outfile_name, voms_role):
     try:
         # it assumes that https_setup() was done already
         url = os.environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-        res = https.request('{pandaserver}/server/panda/getProxy'.format(pandaserver=url), data={'role': voms_role})
 
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+        data = user.getproxy_dictionary(voms_role)
+
+        res = https.request('{pandaserver}/server/panda/getProxy'.format(pandaserver=url), data=data)
         if res is None:
             logger.error(f"unable to get proxy with role '{voms_role}' from panda server")
             return False, proxy_outfile_name

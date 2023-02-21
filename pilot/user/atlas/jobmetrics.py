@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 import os
 import re
@@ -13,7 +13,9 @@ import logging
 
 from pilot.api import analytics
 from pilot.util.jobmetrics import get_job_metrics_entry
+from pilot.util.features import MachineFeatures, JobFeatures
 from pilot.util.filehandling import find_last_line
+from pilot.util.math import float_to_rounded_string
 
 from .cpu import get_core_count
 from .common import get_db_info, get_resimevents
@@ -70,11 +72,60 @@ def get_job_metrics_string(job):
         else:
             logger.info("will not add max space = %d B to job metrics", max_space)
 
+    # add job and machine feature data if available
+    job_metrics = add_features(job_metrics, corecount, add=['hs06'])
+
     # get analytics data
     job_metrics = add_analytics_data(job_metrics, job.workdir, job.state)
 
     # extract event number from file and add to job metrics if it exists
     job_metrics = add_event_number(job_metrics, job.workdir)
+
+    return job_metrics
+
+
+def add_features(job_metrics, corecount, add=[]):
+    """
+    Add job and machine feature data to the job metrics if available
+    If a non-empty add list is specified, only include the corresponding features. If empty/not specified, add all.
+
+    :param job_metrics: job metrics (string).
+    :param corecount: core count (int).
+    :param add: features to be added (list).
+    :return: updated job metrics (string).
+    """
+
+    if job_metrics and not job_metrics.endswith(' '):
+        job_metrics += ' '
+
+    def add_sub_features(job_metrics, features_dic, add=[]):
+        features_str = ''
+        for key in features_dic.keys():
+            if add and key not in add:
+                continue
+            value = features_dic.get(key, None)
+            if value:
+                features_str += f'{key}={value} '
+        return features_str
+
+    machinefeatures = MachineFeatures().get()
+    jobfeatures = JobFeatures().get()
+    # correct hs06 for corecount: hs06*perf_scale/total_cpu*corecount
+    hs06 = machinefeatures.get('hs06', 0)
+    total_cpu = machinefeatures.get('total_cpu', 0)
+    if hs06 and total_cpu:
+        perf_scale = 1
+        try:
+            machinefeatures_hs06 = 1.0 * int(float(hs06)) * perf_scale * corecount / (1.0 * int(float(total_cpu)))
+            machinefeatures['hs06'] = float_to_rounded_string(machinefeatures_hs06, precision=2)
+            logger.info(f"hs06={machinefeatures.get('hs06')} ({hs06}) total_cpu={total_cpu} corecount={corecount} perf_scale={perf_scale}")
+        except (TypeError, ValueError) as exc:
+            logger.warning(f'cannot process hs06 machine feature: {exc} (hs06={hs06}, total_cpu={total_cpu}, corecount={corecount})')
+    features_list = [machinefeatures, jobfeatures]
+    for feature_item in features_list:
+        features_str = add_sub_features(job_metrics, feature_item, add=add)
+        if features_str:
+            job_metrics += features_str
 
     return job_metrics
 

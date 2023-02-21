@@ -199,6 +199,8 @@ class RealTimeLogger(Logger):
             self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
         if 'HARVESTER_ID' in os.environ:
             self.jobinfo["Harvester_ID"] = os.environ.get('HARVESTER_ID')
+        if job.requestid:
+            self.jobinfo["RequestID"] = job.requestid
 
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),

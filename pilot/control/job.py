@@ -52,7 +52,7 @@ from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
-from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model
+from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model, get_cpu_cores
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -322,7 +322,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for updateJob
-    data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
+    data = get_data_structure(job, state, args, xml=xml, metadata=metadata, final=final)
     logger.debug(f'data={data}')
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -574,12 +574,12 @@ def add_data_structure_ids(data, version_tag, job):
         else:
             data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
     else:
-        logger.debug('no pilotid')
+        logger.warning('pilotid not available')
 
     return data
 
 
-def get_data_structure(job, state, args, xml=None, metadata=None):
+def get_data_structure(job, state, args, xml=None, metadata=None, final=False):  # noqa: C901
     """
     Build the data structure needed for updateJob.
 
@@ -588,6 +588,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     :param args: Pilot args object.
     :param xml: optional XML string.
     :param metadata: job report metadata read as a string.
+    :param final: is this for the final server update? (Boolean).
     :return: data structure (dictionary).
     """
 
@@ -621,7 +622,6 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     # add the core count
     if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
         data['coreCount'] = job.corecount
-        #data['coreCount'] = mean(job.corecounts) if job.corecounts else job.corecount
     if job.corecounts:
         _mean = mean(job.corecounts)
         logger.info(f'mean actualcorecount: {_mean}')
@@ -634,12 +634,14 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     else:
         logger.info("payload/TRF did not report the number of read events")
 
-    # get the CU consumption time
+    # get the CPU consumption time
     constime = get_cpu_consumption_time(job.cpuconsumptiontime)
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + get_cpu_model()
+    cpumodel = get_cpu_model()
+    cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
+    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
     instruction_sets = has_instruction_sets(['AVX2'])
     product, vendor = get_display_info()
