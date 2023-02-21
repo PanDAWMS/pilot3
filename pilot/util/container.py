@@ -9,8 +9,8 @@
 
 import subprocess
 import logging
-from os import environ, getcwd, setpgrp  #, getpgid  #setsid
-
+from os import environ, getcwd, setpgrp, getpgid, killpg, kill  #, getpgid  #setsid
+from signal import SIGTERM
 from pilot.common.errorcodes import ErrorCodes
 
 logger = logging.getLogger(__name__)
@@ -67,12 +67,17 @@ def execute(executable, **kwargs):
         try:
             stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
-            _stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
-            logger.warning(_stderr)
+            stdout = ''
+            stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
+            logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
             process.kill()
-            stdout, stderr = process.communicate()
-            stderr += '\n' + _stderr
+            #logger.debug('XXX executing process.communicate()')
+            #stdout, stderr = process.communicate()
+            #stderr += '\n' + _stderr
+            killpg(getpgid(process.pid), SIGTERM)
+            kill(process.pid, SIGTERM)
+            logger.debug('Sent soft kill signals')
         else:
             exit_code = process.poll()
 

@@ -52,3 +52,13 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     diagnostics = ""
 
     return exit_code, diagnostics, x509
+
+
+def getproxy_dictionary(voms_role):
+    """
+    Prepare the dictionary for the getProxy call.
+
+    :param voms_role: VOMS role (string).
+    """
+
+    return {'role': voms_role}

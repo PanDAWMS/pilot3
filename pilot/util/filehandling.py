@@ -931,6 +931,25 @@ def find_latest_modified_file(list_of_files):
     return latest_file, mtime
 
 
+def list_mod_files(file_list):
+    """
+    List file names along with the mod times.
+    Called before looping killer is executed.
+
+    :param file_list: list of files with full paths.
+    :return:
+    """
+
+    if file_list:
+        logger.info('dumping info for recently modified files prior to looping job kill')
+        for _file in file_list:
+            try:
+                size = int(os.path.getmtime(_file))
+            except Exception as exc:
+                size = f'unknown (exc={exc})'
+            logger.info(f'file name={_file} : mod_time={size}')
+
+
 def dump(path, cmd="cat"):
     """
     Dump the content of the file in the given path to the log.

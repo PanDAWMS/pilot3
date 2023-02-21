@@ -214,7 +214,6 @@ def open_remote_files(indata, workdir, nthreads):
             cmd = create_root_container_command(workdir, _cmd)
 
             show_memory_usage()
-
             timeout = len(indata) * 30 + 600
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
@@ -238,6 +237,9 @@ def open_remote_files(indata, workdir, nthreads):
                 elif _exitcode:
                     if exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILECOULDNOTBEOPENED:
                         exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                    elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILEDICTDOESNOTEXIST:
+                        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                        diagnostics = f'remote file open command was timed-out and: {diagnostics}'  # cannot give further info
                     else:  # REMOTEFILECOULDNOTBEOPENED
                         exitcode = _exitcode
             else:
@@ -267,6 +269,11 @@ def parse_remotefileverification_dictionary(workdir):
         workdir,
         config.Pilot.remotefileverification_dictionary
     )
+
+    if not os.path.exists(dictionary_path):
+        diagnostics = f'file {dictionary_path} does not exist'
+        logger.warning(diagnostics)
+        return errors.REMOTEFILEDICTDOESNOTEXIST, diagnostics, not_opened
 
     file_dictionary = read_json(dictionary_path)
     if not file_dictionary:

@@ -17,7 +17,7 @@ jobs:
             FLAKE8_CONFIG: ".flake8"
         steps:
             - name: Checkout Pilot3 repo
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
 
               # - name: Hack me some python
               # run: |
@@ -27,7 +27,7 @@ jobs:
                 # fi
 
             - name: Setup Python3
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                 python-version: ${{ matrix.python-version }}
                 architecture: x64
