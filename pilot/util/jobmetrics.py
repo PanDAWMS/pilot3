@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def get_job_metrics_entry(name, value):
     """
     Get a formatted job metrics entry.
-    Return a a job metrics substring with the format 'name=value ' (return empty entry if value is not set).
+    Return a job metrics substring with the format 'name=value ' (return empty entry if value is not set).
 
     :param name: job metrics parameter name (string).
     :param value: job metrics parameter value (string).
