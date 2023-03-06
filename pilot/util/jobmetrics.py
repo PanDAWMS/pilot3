@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 from os import environ
 
