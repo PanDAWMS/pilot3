@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import os
 import re
@@ -285,7 +285,7 @@ def get_cpu_cores(modelstring):
             elif 'Processor' in modelstring:
                 modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
             else:
-                modelstring += ' %d-Core Processor'
+                modelstring += ' %d-Core Processor' % number_of_cores
 
     return modelstring
 
