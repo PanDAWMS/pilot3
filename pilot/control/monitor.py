@@ -88,7 +88,7 @@ def control(queues, traces, args):
 
             # every minute run the following check
             if time.time() - last_minute_check > 60:
-                reached_maxtime = run_shutdowntime_minute_check()
+                reached_maxtime = run_shutdowntime_minute_check(time_since_start)
                 if reached_maxtime:
                     reached_maxtime_abort(args)
                     break
@@ -128,10 +128,11 @@ def control(queues, traces, args):
     logger.info('[monitor] control thread has ended')
 
 
-def run_shutdowntime_minute_check():
+def run_shutdowntime_minute_check(time_since_start):
     """
     Run checks on machine features shutdowntime once a minute.
 
+    :param time_since_start: how many seconds have lapsed since the pilot started (int).
     :return: True if reached max time, False it not (or if shutdowntime not known) (Boolean).
     """
 
@@ -156,9 +157,10 @@ def run_shutdowntime_minute_check():
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored
 
-        # ignore shutdowntime if in the past
-        if shutdowntime < now:
-            logger.debug(f'shutdowntime ({shutdowntime}) is in the past - ignore it (now={now})')
+        # ignore shutdowntime if in the past (= set before the pilot started)
+        if shutdowntime < (now - time_since_start):
+            logger.debug(f'shutdowntime ({shutdowntime}) was set before pilot started - ignore it '
+                         f'(now - time since start = {now - time_since_start})')
             return False  # will be ignored
 
         # did we pass, or are we close to the shutdowntime?
