@@ -263,29 +263,52 @@ def get_cpu_cores(modelstring):
     """
 
     number_of_cores = 0
-    re_cores = re.compile(r'^cpu cores\s+:\s+(\d+)')
 
-    with open("/proc/cpuinfo", "r") as _fp:
+    import re
+    from shutil import which
 
-        # loop over all lines in cpuinfo
-        for line in _fp.readlines():
+    cmd = 'lscpu'
+    if not which(cmd):
+        logger.warning('command={cmd} does not exist - cannot check number of available cores')
+        return modelstring
 
-            # try to grab core count from current line
-            cores = re_cores.search(line)
-            if cores:
-                # found core count
-                try:
-                    number_of_cores += int(cores.group(1))
-                except Exception:
-                    pass
+    ec, stdout, stderr = execute(cmd)
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8")
 
-        if number_of_cores > 0 and '-Core' not in modelstring:
-            if 'Core Processor' in modelstring:
-                modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
-            elif 'Processor' in modelstring:
-                modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
-            else:
-                modelstring += ' %d-Core Processor' % number_of_cores
+    cores_per_socket = 0
+    sockets = 0
+    for line in stdout.split('\n'):
+
+        try:
+            pattern = r'Core\(s\)\ per\ socket\:\ +(\d+)'
+            _cores = re.findall(pattern, line)
+            if _cores:
+                cores_per_socket = int(_cores[0])
+                continue
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
+
+        try:
+            pattern = r'Socket\(s\)\:\ +(\d+)'
+            _sockets = re.findall(pattern, line)
+            if _sockets:
+                sockets = int(_sockets[0])
+                break
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
+
+    if cores_per_socket and sockets:
+        number_of_cores = cores_per_socket * sockets
+        logger.info(f'found {number_of_cores} using cmd={cmd}')
+
+    if number_of_cores > 0 and '-Core' not in modelstring:
+        if 'Core Processor' in modelstring:
+            modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
+        elif 'Processor' in modelstring:
+            modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
+        else:
+            modelstring += ' %d-Core Processor' % number_of_cores
 
     return modelstring
 
