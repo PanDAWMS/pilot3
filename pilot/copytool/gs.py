@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
 # - Shuwei
 
 import os
@@ -18,7 +18,10 @@ from glob import glob
 try:
     from google.cloud import storage
 except Exception:
-    pass
+    storage_client = storage.Client()
+else:
+    storage_client = None
+
 try:
     import pathlib  # Python 3
 except Exception:
@@ -127,10 +130,9 @@ def download_file(path, surl, object_name=None):
         object_name = os.path.basename(path)
 
     try:
-        client = storage.Client()
         target = pathlib.Path(object_name)
         with target.open(mode="wb") as downloaded_file:
-            client.download_blob_to_file(surl, downloaded_file)
+            storage_client.download_blob_to_file(surl, downloaded_file)
     except Exception as error:
         diagnostics = 'exception caught in gs client: %s' % error
         logger.critical(diagnostics)
@@ -234,8 +236,7 @@ def upload_file(file_name, bucket, object_name=None, content_type=None):
 
     # upload the file
     try:
-        client = storage.Client()
-        gs_bucket = client.get_bucket(bucket)
+        gs_bucket = storage_client.get_bucket(bucket)
         # remove any leading slash(es) in object_name
         object_name = object_name.lstrip('/')
         logger.info('uploading a file to bucket=%s in full path=%s in content_type=%s', bucket, object_name, content_type)
