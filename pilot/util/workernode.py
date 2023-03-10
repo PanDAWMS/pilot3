@@ -276,6 +276,8 @@ def get_cpu_cores(modelstring):
     if isinstance(stdout, bytes):
         stdout = stdout.decode("utf-8")
 
+    logger.debug(f'lsrun:\n{stdout}')
+
     cores_per_socket = 0
     sockets = 0
     for line in stdout.split('\n'):
@@ -300,8 +302,9 @@ def get_cpu_cores(modelstring):
 
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} using cmd={cmd}')
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets)')
 
+    logger.debug(f'current model string: {modelstring}')
     if number_of_cores > 0 and '-Core' not in modelstring:
         if 'Core Processor' in modelstring:
             modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
@@ -309,6 +312,7 @@ def get_cpu_cores(modelstring):
             modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
         else:
             modelstring += ' %d-Core Processor' % number_of_cores
+        logger.debug(f'updated model string: {modelstring}')
 
     return modelstring
 
