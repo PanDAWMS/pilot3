@@ -306,6 +306,8 @@ def get_cpu_cores(modelstring):
 
     logger.debug(f'current model string: {modelstring}')
     if number_of_cores > 0 and '-Core' not in modelstring:
+        #if '-Core Processor' in modelstring:  # NN-Core info already in string - update it
+        #    modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
         if 'Core Processor' in modelstring:
             modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
         elif 'Processor' in modelstring:
