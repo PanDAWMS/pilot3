@@ -10,6 +10,7 @@
 import os
 import re
 import logging
+from shutil import which
 
 #from subprocess import getoutput
 
@@ -253,6 +254,27 @@ def get_cpu_model():
     return modelstring
 
 
+def lscpu():
+    """
+    Execute lscpu command.
+
+    :return: exit code (int), stdout (string).
+    """
+
+    cmd = 'lscpu'
+    if not which(cmd):
+        logger.warning('command={cmd} does not exist - cannot check number of available cores')
+        return 1, ""
+
+    ec, stdout, _ = execute(cmd)
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8")
+
+    logger.debug(f'lscpu:\n{stdout}')
+
+    return ec, stdout
+
+
 def get_cpu_cores(modelstring):
     """
     Get core count from /proc/cpuinfo and update modelstring (CPU model).
@@ -264,19 +286,9 @@ def get_cpu_cores(modelstring):
 
     number_of_cores = 0
 
-    import re
-    from shutil import which
-
-    cmd = 'lscpu'
-    if not which(cmd):
-        logger.warning('command={cmd} does not exist - cannot check number of available cores')
+    ec, stdout = lscpu()
+    if ec:
         return modelstring
-
-    ec, stdout, stderr = execute(cmd)
-    if isinstance(stdout, bytes):
-        stdout = stdout.decode("utf-8")
-
-    logger.debug(f'lsrun:\n{stdout}')
 
     cores_per_socket = 0
     sockets = 0
