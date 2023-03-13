@@ -260,9 +260,8 @@ def get_timeout_for_remoteio(indata):
     :return: timeout in seconds (int).
     """
 
-    remote_io_files = [fspec.status == 'remote_io' for fspec in indata]
-    logger.debug(f'remote i/o files: {remote_io_files} (len={len(remote_io_files)})')
-    return len(remote_io_files) * 30 + 600
+    remote_io = [fspec.status == 'remote_io' for fspec in indata]
+    return len(remote_io) * 30 + 600
 
 
 def parse_remotefileverification_dictionary(workdir):
