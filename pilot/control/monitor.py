@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Monitoring of threads functions
 
-def control(queues, traces, args):
+def control(queues, traces, args):  # noqa: C901
     """
     Main control function, run from the relevant workflow module.
 
