@@ -5,11 +5,12 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import os
 import re
 import logging
+from shutil import which
 
 #from subprocess import getoutput
 
@@ -253,6 +254,27 @@ def get_cpu_model():
     return modelstring
 
 
+def lscpu():
+    """
+    Execute lscpu command.
+
+    :return: exit code (int), stdout (string).
+    """
+
+    cmd = 'lscpu'
+    if not which(cmd):
+        logger.warning('command={cmd} does not exist - cannot check number of available cores')
+        return 1, ""
+
+    ec, stdout, _ = execute(cmd)
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8")
+
+    logger.debug(f'lscpu:\n{stdout}')
+
+    return ec, stdout
+
+
 def get_cpu_cores(modelstring):
     """
     Get core count from /proc/cpuinfo and update modelstring (CPU model).
@@ -263,29 +285,51 @@ def get_cpu_cores(modelstring):
     """
 
     number_of_cores = 0
-    re_cores = re.compile(r'^cpu cores\s+:\s+(\d+)')
 
-    with open("/proc/cpuinfo", "r") as _fp:
+    ec, stdout = lscpu()
+    if ec:
+        return modelstring
 
-        # loop over all lines in cpuinfo
-        for line in _fp.readlines():
+    cores_per_socket = 0
+    sockets = 0
+    for line in stdout.split('\n'):
 
-            # try to grab core count from current line
-            cores = re_cores.search(line)
-            if cores:
-                # found core count
-                try:
-                    number_of_cores += int(cores.group(1))
-                except Exception:
-                    pass
+        try:
+            pattern = r'Core\(s\)\ per\ socket\:\ +(\d+)'
+            _cores = re.findall(pattern, line)
+            if _cores:
+                cores_per_socket = int(_cores[0])
+                continue
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
 
-        if number_of_cores > 0 and '-Core' not in modelstring:
-            if 'Core Processor' in modelstring:
-                modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
-            elif 'Processor' in modelstring:
-                modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
-            else:
-                modelstring += ' %d-Core Processor'
+        try:
+            pattern = r'Socket\(s\)\:\ +(\d+)'
+            _sockets = re.findall(pattern, line)
+            if _sockets:
+                sockets = int(_sockets[0])
+                break
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
+
+    if cores_per_socket and sockets:
+        number_of_cores = cores_per_socket * sockets
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets)')
+
+    logger.debug(f'current model string: {modelstring}')
+    if number_of_cores > 0 and '-Core' not in modelstring:
+        if '-Core Processor' in modelstring:  # NN-Core info already in string - update it
+            pattern = r'(\d+)\-Core Processor'
+            _nn = re.findall(pattern, modelstring)
+            if _nn:
+                modelstring = modelstring.replace(f'{_nn[0]}-Core', f'{number_of_cores}-Core')
+        if 'Core Processor' in modelstring:
+            modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
+        elif 'Processor' in modelstring:
+            modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
+        else:
+            modelstring += ' %d-Core Processor' % number_of_cores
+        logger.debug(f'updated model string: {modelstring}')
 
     return modelstring
 

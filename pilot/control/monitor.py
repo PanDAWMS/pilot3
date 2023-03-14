@@ -23,6 +23,7 @@ from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
+from pilot.util.features import MachineFeatures
 from pilot.util.queuehandling import get_queuedata_from_job, abort_jobs_in_queues
 from pilot.util.timing import get_time_since_start
 
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Monitoring of threads functions
 
-def control(queues, traces, args):
+def control(queues, traces, args):  # noqa: C901
     """
     Main control function, run from the relevant workflow module.
 
@@ -50,6 +51,7 @@ def control(queues, traces, args):
     # for CPU usage debugging
     cpuchecktime = int(config.Pilot.cpu_check)
     tcpu = t_0
+    last_minute_check = t_0
 
     queuedata = get_queuedata_from_job(queues)
     max_running_time = get_max_running_time(args.lifetime, queuedata)
@@ -59,7 +61,7 @@ def control(queues, traces, args):
         niter = 0
 
         while not args.graceful_stop.is_set():
-            # every seconds, run the monitoring checks
+            # every few seconds, run the monitoring checks
             if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
                 logger.warning('aborting monitor loop since graceful_stop has been set')
                 break
@@ -83,6 +85,16 @@ def control(queues, traces, args):
             else:
                 if niter % 60 == 0:
                     logger.info(f'{time_since_start}s have passed since pilot start')
+
+            # every minute run the following check
+            if time.time() - last_minute_check > 60:
+                reached_maxtime = run_shutdowntime_minute_check(time_since_start)
+                if reached_maxtime:
+                    reached_maxtime_abort(args)
+                    break
+                last_minute_check = time.time()
+
+            # take a nap
             time.sleep(1)
 
             # time to check the CPU usage?
@@ -114,6 +126,50 @@ def control(queues, traces, args):
         raise PilotException(error)
 
     logger.info('[monitor] control thread has ended')
+
+
+def run_shutdowntime_minute_check(time_since_start):
+    """
+    Run checks on machine features shutdowntime once a minute.
+
+    :param time_since_start: how many seconds have lapsed since the pilot started (int).
+    :return: True if reached max time, False it not (or if shutdowntime not known) (Boolean).
+    """
+
+    # check machine features if present for shutdowntime
+    machinefeatures = MachineFeatures().get()
+    if machinefeatures:
+        grace_time = 10 * 60
+        try:
+            now = int(time.time())
+        except (TypeError, ValueError) as exc:
+            logger.warning(f'failed to read current time: {exc}')
+            return False  # will be ignored
+
+        # ignore shutdowntime if not known
+        try:
+            shutdowntime = int(machinefeatures.get('shutdowntime'))
+        except (TypeError, ValueError) as exc:
+            logger.debug(f'failed to convert shutdowntime: {exc}')
+            return False  # will be ignored
+        logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
+        if not shutdowntime:
+            logger.debug('ignoring shutdowntime since it is not set')
+            return False  # will be ignored
+
+        # ignore shutdowntime if in the past (= set before the pilot started)
+        if shutdowntime < (now - time_since_start):
+            logger.debug(f'shutdowntime ({shutdowntime}) was set before pilot started - ignore it '
+                         f'(now - time since start = {now - time_since_start})')
+            return False  # will be ignored
+
+        # did we pass, or are we close to the shutdowntime?
+        if now > shutdowntime - grace_time:
+            logger.fatal(f'now={now}s - shutdowntime ({shutdowntime}s) minus grace time ({grace_time}s) has been '
+                         f'exceeded - time to abort pilot')
+            return True
+
+    return False
 
 
 def reached_maxtime_abort(args):
