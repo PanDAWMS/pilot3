@@ -272,7 +272,7 @@ def get_time_since(job_id, timing_constant, args):
         if time_measurement_dictionary:
             time_measurement = get_time_measurement(timing_constant, time_measurement_dictionary, args.timing)
             if time_measurement:
-                diff = time.time() - time_measurement
+                diff = int(time.time() - time_measurement)
         else:
             logger.warning(f'failed to extract time measurement dictionary from {args.timing}')
     else:

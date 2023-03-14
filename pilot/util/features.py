@@ -60,8 +60,12 @@ class Features(object):
         if path and os.path.exists(path):
             data_members = self.get_data_members()
             for member in data_members:
+                # ignore if file doesn't exist
+                filename = os.path.join(path, member)
+                if not os.path.exists(filename):
+                    continue
                 try:
-                    value = read_file(os.path.join(path, member))
+                    value = read_file(filename)
                 except FileHandlingFailure as exc:
                     logger.warning(f'failed to process {member}: {exc}')
                     value = None

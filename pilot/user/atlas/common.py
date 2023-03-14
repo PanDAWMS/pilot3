@@ -214,7 +214,7 @@ def open_remote_files(indata, workdir, nthreads):
             cmd = create_root_container_command(workdir, _cmd)
 
             show_memory_usage()
-            timeout = len(indata) * 30 + 600
+            timeout = get_timeout_for_remoteio(indata)
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
@@ -250,6 +250,18 @@ def open_remote_files(indata, workdir, nthreads):
     if exitcode:
         logger.warning(f'remote file open exit code: {exitcode}')
     return exitcode, diagnostics, not_opened
+
+
+def get_timeout_for_remoteio(indata):
+    """
+    Calculate a proper timeout to be used for remote i/o files.
+
+    :param indata: indata object.
+    :return: timeout in seconds (int).
+    """
+
+    remote_io = [fspec.status == 'remote_io' for fspec in indata]
+    return len(remote_io) * 30 + 600
 
 
 def parse_remotefileverification_dictionary(workdir):

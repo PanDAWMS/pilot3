@@ -113,7 +113,7 @@ def add_features(job_metrics, corecount, add=[]):
     # correct hs06 for corecount: hs06*perf_scale/total_cpu*corecount
     hs06 = machinefeatures.get('hs06', 0)
     total_cpu = machinefeatures.get('total_cpu', 0)
-    if hs06 and total_cpu:
+    if hs06 and total_cpu and (total_cpu != '0' or total_cpu != 0):
         perf_scale = 1
         try:
             machinefeatures_hs06 = 1.0 * int(float(hs06)) * perf_scale * corecount / (1.0 * int(float(total_cpu)))
