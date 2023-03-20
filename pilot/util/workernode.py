@@ -17,6 +17,7 @@ from shutil import which
 from pilot.util.auxiliary import sort_words
 from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.container import execute
+from pilot.util.filehandling import copy_pilot_source, copy
 from pilot.info import infosys
 from pilot.util.disk import disk_usage
 
@@ -119,6 +120,61 @@ def get_cpu_flags(sorted=True):
     if flags and sorted:
         flags = sort_words(flags)
     return flags
+
+
+def get_cpu_arch(workdir):
+    """
+    Return the CPU architecture string.
+
+    The CPU architecture string is determined by a script (pilot/scripts/cpu_arch.py), run by the pilot.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :param workdir: job workdir (string).
+    :return: CPU arch (string).
+    """
+
+    cpu_arch = ''
+
+    # copy pilot source into container directory, unless it is already there
+    script = 'cpu_arch.py'
+    script_path = os.path.join('pilot/scripts', script)
+
+    diagnostics = copy_pilot_source(workdir, filename=script_path)
+    if diagnostics:
+        logger.warning('failed to read CPU architecture string')
+        return ""
+
+    final_script_path = os.path.join(workdir, script)
+    if workdir not in os.environ['PYTHONPATH']:
+        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
+
+    dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
+    dir2 = os.path.join(workdir, script_path)
+    full_script_path = dir1 if os.path.exists(dir1) else dir2
+    if not os.path.exists(full_script_path):
+        logger.warning(f'failed to locate CPU architecture script: {full_script_path} does not exist')
+        return ""
+
+    if os.path.exists(final_script_path):
+        logger.debug('CPU arch script already copied')
+    else:
+        try:
+            copy(full_script_path, final_script_path)
+        except PilotException as exc:
+            # do not set ec since this will be a pilot issue rather than site issue
+            diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
+            logger.warning(diagnostics)
+            return ""
+
+    # CPU arch script has now been copied, time to execute it
+    ec, stdout, stderr = execute('python3 cpu_arch.py --alg gcc')
+    if ec:
+        logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
+    else:
+        cpu_arch = stdout
+        logger.debug(f'CPU arch script returned: {cpu_arch}')
+
+    return cpu_arch
 
 
 def collect_workernode_info(path=None):

@@ -1093,19 +1093,26 @@ def get_valid_path_from_list(paths):
     return valid_path
 
 
-def copy_pilot_source(workdir):
+def copy_pilot_source(workdir, filename=None):
     """
     Copy the pilot source into the work directory.
+    If a filename is specified, only that file will be copied.
 
     :param workdir: working directory (string).
+    :param filename: specific filename (string).
     :return: diagnostics (string).
     """
 
     diagnostics = ""
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
+
+    if filename:
+        srcdir = os.path.join(srcdir, filename)
+
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
-        cmd = 'cp -r %s/* %s' % (srcdir, workdir)
+        # cmd = 'cp -r %s/* %s' % (srcdir, workdir)
+        cmd = 'cp -r %s %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = f'file copy failed: {exit_code}, {stdout}'

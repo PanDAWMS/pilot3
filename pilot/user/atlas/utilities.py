@@ -176,7 +176,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         logger.debug('ps:\n%s' % ps)
 
         # lookup the process id using ps aux
-        logger.debug('attempting to identify pid from job id')
+        logger.debug(f'attempting to identify pid from job id ({jobid})')
         _pid = get_pid_for_jobid(ps, jobid)
         if _pid:
             logger.debug('discovered pid=%d for job id %s' % (_pid, jobid))

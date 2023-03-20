@@ -179,13 +179,14 @@ def open_remote_files(indata, workdir, nthreads):
         # execute file open script which will attempt to open each file
 
         # copy pilot source into container directory, unless it is already there
+        script = 'open_remote_file.py'
         diagnostics = copy_pilot_source(workdir)
         if diagnostics:
             raise PilotException(diagnostics)
 
-        script = 'open_remote_file.py'
         final_script_path = os.path.join(workdir, script)
-        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
+        if workdir not in os.environ['PYTHONPATH']:
+            os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
         dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
