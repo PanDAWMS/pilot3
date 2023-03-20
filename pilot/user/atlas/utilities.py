@@ -156,8 +156,9 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     #_cmd = get_trf_command(command, transformation=transformation)
     # get ps info using group id
     ps = get_ps_info(pgrp)
-    if dump_ps:
-        logger.debug('ps:\n%s' % ps)
+    #if dump_ps:
+    #    logger.debug('ps:\n%s' % ps)
+    #logger.debug('ps:\n%s' % ps)
     #logger.debug('attempting to identify pid for Singularity (v.3) runtime parent process')
     #_pid = get_pid_for_command(ps, command="Singularity runtime parent")
     #if _pid:
@@ -172,7 +173,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
             return -1
 
         ps = get_ps_info(pgrp)
-        #logger.debug('ps:\n%s' % ps)
+        logger.debug('ps:\n%s' % ps)
 
         # lookup the process id using ps aux
         logger.debug('attempting to identify pid from job id')
