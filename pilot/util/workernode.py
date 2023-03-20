@@ -137,37 +137,38 @@ def get_cpu_arch(workdir):
 
     # copy pilot source into container directory, unless it is already there
     script = 'cpu_arch.py'
-    script_path = os.path.join('pilot/scripts', script)
+    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
+    script_dir = os.path.join(srcdir, 'pilot/scripts')
 
-    diagnostics = copy_pilot_source(workdir, filename=script_path)
-    if diagnostics:
-        logger.warning('failed to read CPU architecture string')
-        return ""
+    #diagnostics = copy_pilot_source(workdir, filename=script_path)
+    #if diagnostics:
+    #    logger.warning('failed to read CPU architecture string')
+    #    return ""
 
-    final_script_path = os.path.join(workdir, script)
-    if workdir not in os.environ['PYTHONPATH']:
-        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
+    #final_script_path = os.path.join(workdir, script)
+    if script_dir not in os.environ['PYTHONPATH']:
+        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + script_dir
 
-    dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
-    dir2 = os.path.join(workdir, script_path)
-    full_script_path = dir1 if os.path.exists(dir1) else dir2
-    if not os.path.exists(full_script_path):
-        logger.warning(f'failed to locate CPU architecture script: {full_script_path} does not exist')
-        return ""
+    #dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
+    #dir2 = os.path.join(workdir, script_path)
+    #full_script_path = dir1 if os.path.exists(dir1) else dir2
+    #if not os.path.exists(full_script_path):
+    #    logger.warning(f'failed to locate CPU architecture script: {full_script_path} does not exist')
+    #    return ""
 
-    if os.path.exists(final_script_path):
-        logger.debug('CPU arch script already copied')
-    else:
-        try:
-            copy(full_script_path, final_script_path)
-        except PilotException as exc:
-            # do not set ec since this will be a pilot issue rather than site issue
-            diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
-            logger.warning(diagnostics)
-            return ""
+    #if os.path.exists(final_script_path):
+    #    logger.debug('CPU arch script already copied')
+    #else:
+    #    try:
+    #        copy(full_script_path, final_script_path)
+    #    except PilotException as exc:
+    #        # do not set ec since this will be a pilot issue rather than site issue
+    #        diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
+    #        logger.warning(diagnostics)
+    #        return ""
 
     # CPU arch script has now been copied, time to execute it
-    ec, stdout, stderr = execute('python3 cpu_arch.py --alg gcc')
+    ec, stdout, stderr = execute(f'python3 {script_dir}/{script} --alg gcc')
     if ec:
         logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
