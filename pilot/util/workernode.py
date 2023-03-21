@@ -17,7 +17,7 @@ from shutil import which
 from pilot.util.auxiliary import sort_words
 from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.container import execute
-from pilot.util.filehandling import copy_pilot_source, copy
+#from pilot.util.filehandling import copy_pilot_source, copy
 from pilot.info import infosys
 from pilot.util.disk import disk_usage
 
