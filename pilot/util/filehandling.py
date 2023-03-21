@@ -1111,8 +1111,8 @@ def copy_pilot_source(workdir, filename=None):
 
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
-        # cmd = 'cp -r %s/* %s' % (srcdir, workdir)
-        cmd = 'cp -r %s %s' % (srcdir, workdir)
+        pat = '%s' if filename else '%s/*'
+        cmd = f'cp -r {pat} %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = f'file copy failed: {exit_code}, {stdout}'

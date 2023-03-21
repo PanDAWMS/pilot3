@@ -185,8 +185,7 @@ def open_remote_files(indata, workdir, nthreads):
             raise PilotException(diagnostics)
 
         final_script_path = os.path.join(workdir, script)
-        if workdir not in os.environ['PYTHONPATH']:
-            os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
+        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
         dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
         dir2 = os.path.join(workdir, script_path)
