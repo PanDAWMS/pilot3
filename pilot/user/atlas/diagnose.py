@@ -726,7 +726,7 @@ def is_bad_alloc(job_report_errors):
 
 def get_log_extracts(job, state):
     """
-    Extract special warnings and other other info from special logs.
+    Extract special warnings and other info from special logs.
     This function also discovers if the payload had any outbound connections.
 
     :param job: job object.
