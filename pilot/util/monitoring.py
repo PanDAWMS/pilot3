@@ -530,7 +530,7 @@ def check_payload_stdout(job):
                 localsizelimit_stdout = get_local_size_limit_stdout()
                 if fsize > localsizelimit_stdout:
                     exit_code = errors.STDOUTTOOBIG
-                    diagnostics = f"Payload stdout file too big: {fsize} B (larger than limit {localsizelimit_stdout} B)"
+                    diagnostics = f"log file {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B)"
                     logger.warning(diagnostics)
 
                     # kill the job
