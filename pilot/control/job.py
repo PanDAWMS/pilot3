@@ -346,7 +346,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
 
-        if final:
+        if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
         return True
 
@@ -508,6 +508,9 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
                 logger.debug(f'exception caught in get_debug_command(): {error}')
         elif 'tobekilled' in cmd:
             logger.info(f'pilot received a panda server signal to kill job {job.jobid} at {time_stamp()}')
+            if not os.path.exists(job.workdir):  # jobUpdate might be delayed - do not cause problems for new downloaded job
+                logger.warning(f'job.workdir ({job.workdir}) does not exist - ignore kill instruction')
+                return
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
             if job.pid:
