@@ -25,6 +25,7 @@ from shutil import copy2, rmtree
 from zlib import adler32
 from functools import partial
 from mmap import mmap
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
@@ -1241,3 +1242,32 @@ def find_file(filename, startdir):
         break
 
     return _path
+
+
+def zip_files(archivename, files):
+    """
+    Zip a list of files with standard compression level.
+
+    :param archivename: archive name (string).
+    :param files: list of files.
+    :return: status (Boolean)
+    """
+
+    status = False
+    try:
+
+        zipped = False
+        with ZipFile(archivename, 'w', ZIP_DEFLATED) as zip:
+            for _file in files:
+                if os.path.exists(_file):
+                    zip.write(_file)
+                    zipped = True
+        if not zipped:
+            print('nothing was zipped')
+        else:
+            status = True
+
+    except Exception as exc:
+        print(f'failed to create archive {archivename}: {exc}')
+
+    return status

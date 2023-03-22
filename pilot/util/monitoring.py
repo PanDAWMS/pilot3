@@ -20,7 +20,7 @@ from pilot.util.auxiliary import set_pilot_state, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
-from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file
+from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file, zip_files
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
@@ -512,6 +512,7 @@ def check_payload_stdout(job):
     logger.debug(f'file list={file_list}')
 
     # now loop over all files and check each individually (any large enough file will fail the job)
+    to_be_zipped = []
     for filename in file_list:
 
         logger.debug(f'check_payload_stdout: filename={filename}')
@@ -530,25 +531,31 @@ def check_payload_stdout(job):
                 localsizelimit_stdout = get_local_size_limit_stdout()
                 if fsize > localsizelimit_stdout:
                     exit_code = errors.STDOUTTOOBIG
-                    diagnostics = f"log file {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B)"
+                    diagnostics = f"log file {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
                     logger.warning(diagnostics)
-
-                    # kill the job
-                    set_pilot_state(job=job, state="failed")
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
-                    kill_processes(job.pid)
-
-                    # remove the payload stdout file after the log extracts have been created
+                    to_be_zipped.append(filename)
 
                     # remove any lingering input files from the work dir
                     lfns, guids = job.get_lfns_and_guids()
                     if lfns:
                         # remove any lingering input files from the work dir
-                        exit_code = remove_files(job.workdir, lfns)
+                        remove_files(job.workdir, lfns)
                 else:
                     logger.info(f"payload log ({os.path.basename(filename)}) within allowed size limit ({localsizelimit_stdout} B): {fsize} B")
         else:
             logger.info(f"skipping file size check of payload stdout file ({filename}) since it has not been created yet")
+
+    if to_be_zipped:
+        logger.warning(f'the following files will be zipped: {to_be_zipped}')
+        archivename = os.path.join(job.workdir, 'oversized_files.zip')
+        status = zip_files(archivename, to_be_zipped)
+        if status:
+            logger.info(f'created archive {archivename}')
+
+        # kill the job
+        set_pilot_state(job=job, state="failed")
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+        kill_processes(job.pid)  # will not return
 
     return exit_code, diagnostics
 
