@@ -502,10 +502,7 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
         cmd = res.get('command')
         # is it a 'command options'-type? debug_command=tail .., ls .., gdb .., ps .., du ..
         if ' ' in cmd and 'tobekilled' not in cmd:
-            try:
-                job.debug, job.debug_command = get_debug_command(cmd)
-            except Exception as error:
-                logger.debug(f'exception caught in get_debug_command(): {error}')
+            job.debug, job.debug_command = get_debug_command(cmd)
         elif 'tobekilled' in cmd:
             logger.info(f'pilot received a panda server signal to kill job {job.jobid} at {time_stamp()}')
             if not os.path.exists(job.workdir):  # jobUpdate might be delayed - do not cause problems for new downloaded job
@@ -516,8 +513,6 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
             if job.pid:
                 logger.debug('killing payload process')
                 kill_process(job.pid)
-            else:
-                logger.debug('no pid to kill')
             args.abort_job.set()
         elif 'softkill' in cmd:
             logger.info(f'pilot received a panda server signal to softkill job {job.jobid} at {time_stamp()}')
