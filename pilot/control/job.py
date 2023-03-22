@@ -658,7 +658,8 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
 
     cpu_arch = get_cpu_arch(job.workdir)
     if cpu_arch:
-        logger.debug(f'cpuConsumptionUnit: could have added: {cpu_arch}')
+        # data['architecture_version'] = cpu_arch
+        logger.debug(f'architecture_version: could have added: {cpu_arch}')
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
