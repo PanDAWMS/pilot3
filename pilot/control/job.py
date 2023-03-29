@@ -2781,6 +2781,18 @@ def job_monitor(queues, traces, args):  # noqa: C901
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
 
+                # if abort_job and signal was set
+                if abort_job and args.signal:
+                    error_code = get_signal_error(args.signal)
+                    jobs[i].state = 'failed'
+                    jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
+                    jobs[i].completed = True
+                    # update server immediately
+                    send_state(jobs[i], args, jobs[i].state)
+                    if jobs[i].pid:
+                        logger.debug('killing payload processes')
+                        kill_processes(jobs[i].pid)
+
                 if os.environ.get('REACHED_MAXTIME', None):
                     # the batch system max time has been reached, time to abort (in the next step)
                     jobs[i].state = 'failed'
@@ -2815,7 +2827,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         break
 
                 # run this check again in case job_monitor_tasks() takes a long time to finish (and the job object
-                # has expired in the mean time)
+                # has expired in the meantime)
                 try:
                     _job = jobs[i]
                 except Exception:
@@ -2858,6 +2870,26 @@ def job_monitor(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.info('[job] job monitor thread has finished')
+
+
+def get_signal_error(sig):
+    """
+    Return a corresponding pilot error code for the given signal.
+
+    :param sig: signal.
+    :return: pilot error code (int).
+    """
+
+    _sig = str(sig)  # e.g. 'SIGTERM'
+    codes = {'SIGBUS': errors.SIGBUS,
+             'SIGQUIT': errors.SIGQUIT,
+             'SIGSEGV': errors.SIGSEGV,
+             'SIGTERM': errors.SIGTERM,
+             'SIGXCPU': errors.SIGXCPU,
+             'SIGUSR1': errors.SIGUSR1,
+             'USERKILL': errors.USERKILL}
+    ret = codes.get(_sig) if _sig in codes else errors.KILLSIGNAL
+    return ret
 
 
 def download_new_proxy(role='production', proxy_type='', workdir=''):
