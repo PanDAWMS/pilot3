@@ -122,14 +122,13 @@ def get_cpu_flags(sorted=True):
     return flags
 
 
-def get_cpu_arch(workdir):
+def get_cpu_arch():
     """
     Return the CPU architecture string.
 
     The CPU architecture string is determined by a script (pilot/scripts/cpu_arch.py), run by the pilot.
     For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
 
-    :param workdir: job workdir (string).
     :return: CPU arch (string).
     """
 
@@ -140,32 +139,8 @@ def get_cpu_arch(workdir):
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     script_dir = os.path.join(srcdir, 'pilot/scripts')
 
-    #diagnostics = copy_pilot_source(workdir, filename=script_path)
-    #if diagnostics:
-    #    logger.warning('failed to read CPU architecture string')
-    #    return ""
-
-    #final_script_path = os.path.join(workdir, script)
     if script_dir not in os.environ['PYTHONPATH']:
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + script_dir
-
-    #dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
-    #dir2 = os.path.join(workdir, script_path)
-    #full_script_path = dir1 if os.path.exists(dir1) else dir2
-    #if not os.path.exists(full_script_path):
-    #    logger.warning(f'failed to locate CPU architecture script: {full_script_path} does not exist')
-    #    return ""
-
-    #if os.path.exists(final_script_path):
-    #    logger.debug('CPU arch script already copied')
-    #else:
-    #    try:
-    #        copy(full_script_path, final_script_path)
-    #    except PilotException as exc:
-    #        # do not set ec since this will be a pilot issue rather than site issue
-    #        diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
-    #        logger.warning(diagnostics)
-    #        return ""
 
     # CPU arch script has now been copied, time to execute it
     ec, stdout, stderr = execute(f'python3 {script_dir}/{script} --alg gcc')
