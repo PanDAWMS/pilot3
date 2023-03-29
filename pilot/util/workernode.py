@@ -144,7 +144,7 @@ def get_cpu_arch():
 
     # CPU arch script has now been copied, time to execute it
     ec, stdout, stderr = execute(f'python3 {script_dir}/{script} --alg gcc')
-    if ec:
+    if ec or stderr:
         logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
         cpu_arch = stdout
