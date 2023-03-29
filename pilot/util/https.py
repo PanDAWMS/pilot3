@@ -447,6 +447,7 @@ def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
         data['state'] = 'failed'
         if job:
             job.state = 'failed'
+            job.completed = True
             msg = 'the max batch system time limit has been reached'
             logger.warning(msg)
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
@@ -455,8 +456,8 @@ def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
     # do not allow any delayed heartbeat messages for running state, if the job has completed (ie another call to this
     # function was already made by another thread for finished/failed state)
     if job:  # ignore for updateWorkerPilotStatus calls
-        if job.completed and job.state == 'running':
-            logger.warning('will not send job update for running state since the job has already completed')
+        if job.completed and (job.state == 'running' or job.state == 'starting'):
+            logger.warning(f'will not send job update for {job.state} state since the job has already completed')
             return None  # should be ignored
 
     while attempt < max_attempts and not done:

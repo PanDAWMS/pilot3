@@ -313,6 +313,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         job.state = state
 
     state = get_proper_state(job, state)
+    if state == 'finished' or state == 'holding' or state == 'failed':
+        logger.info(f'this job has now completed (state={state})')
+        job.completed = True
 
     # should the pilot make any server updates?
     if not args.update_server:
