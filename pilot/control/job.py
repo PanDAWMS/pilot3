@@ -313,6 +313,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         job.state = state
 
     state = get_proper_state(job, state)
+    if state == 'finished' or state == 'holding' or state == 'failed':
+        logger.info(f'this job has now completed (state={state})')
+        job.completed = True
 
     # should the pilot make any server updates?
     if not args.update_server:
@@ -651,7 +654,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
         if product and vendor:
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
-    cpu_arch = get_cpu_arch(job.workdir)
+    cpu_arch = get_cpu_arch()
     if cpu_arch:
         data['cpu_architecture_level'] = cpu_arch
 
@@ -2941,7 +2944,11 @@ def send_heartbeat_if_time(job, args, update_time):
     """
 
     if int(time.time()) - update_time >= get_heartbeat_period(job.debug and job.debug_command):
-        if job.serverstate != 'finished' and job.serverstate != 'failed':
+        # check for state==running here, and send explicit 'running' in send_state, rather than sending job.state
+        # since the job state can actually change in the meantime by another thread
+        # job.completed will anyway be checked in https::send_update()
+        if job.serverstate != 'finished' and job.serverstate != 'failed' and job.state == 'running':
+            logger.info('will send heartbeat for job in \'running\' state')
             send_state(job, args, 'running')
             update_time = int(time.time())
 
