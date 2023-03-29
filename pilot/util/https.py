@@ -454,9 +454,10 @@ def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
 
     # do not allow any delayed heartbeat messages for running state, if the job has completed (ie another call to this
     # function was already made by another thread for finished/failed state)
-    if job.completed and job.state == 'running':
-        logger.warning('will not send job update for running state since the job has already completed')
-        return None  # should be ignored
+    if job:  # ignore for updateWorkerPilotStatus calls
+        if job.completed and job.state == 'running':
+            logger.warning('will not send job update for running state since the job has already completed')
+            return None  # should be ignored
 
     while attempt < max_attempts and not done:
         logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
