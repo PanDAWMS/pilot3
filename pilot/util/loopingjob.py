@@ -188,7 +188,7 @@ def kill_looping_job(job):
     # remove any lingering input files from the work dir
     lfns, _ = job.get_lfns_and_guids()
     if lfns:
-        _ec = remove_files(job.workdir, lfns)
+        _ec = remove_files(lfns, workdir=job.workdir)
         if _ec != 0:
             logger.warning('failed to remove all files')
 

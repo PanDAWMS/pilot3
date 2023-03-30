@@ -515,35 +515,23 @@ def check_payload_stdout(job):
     to_be_zipped = []
     for filename in file_list:
 
-        logger.debug(f'check_payload_stdout: filename={filename}')
         if "job.log.tgz" in filename:
-            logger.info(f"skipping file size check of file ({filename}) since it is a special log file")
+            logger.debug(f"skipping file size check of file ({filename}) since it is a special log file")
             continue
 
         if os.path.exists(filename):
-            try:
-                # get file size in bytes
-                fsize = os.path.getsize(filename)
-            except Exception as error:
-                logger.warning(f"could not read file size of {filename}: {error}")
-            else:
-                # is the file too big?
-                localsizelimit_stdout = get_local_size_limit_stdout()
-                if fsize > localsizelimit_stdout:
-                    exit_code = errors.STDOUTTOOBIG
-                    diagnostics = f"log file {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
-                    logger.warning(diagnostics)
-                    to_be_zipped.append(filename)
-
-                    # remove any lingering input files from the work dir
-                    lfns, guids = job.get_lfns_and_guids()
-                    if lfns:
-                        # remove any lingering input files from the work dir
-                        remove_files(job.workdir, lfns)
-                else:
-                    logger.info(f"payload log ({os.path.basename(filename)}) within allowed size limit ({localsizelimit_stdout} B): {fsize} B")
+            _exit_code, to_be_zipped = check_log_size(filename, to_be_zipped=to_be_zipped)
+            if _exit_code:  # do not break loop so that other logs can get zipped if necessary
+                exit_code = _exit_code
         else:
             logger.info(f"skipping file size check of payload stdout file ({filename}) since it has not been created yet")
+
+    if exit_code:
+        # remove any lingering input files from the work dir
+        lfns, guids = job.get_lfns_and_guids()
+        if lfns:
+            # remove any lingering input files from the work dir
+            remove_files(lfns, workdir=job.workdir)
 
     if to_be_zipped:
         logger.warning(f'the following files will be zipped: {to_be_zipped}')
@@ -551,6 +539,14 @@ def check_payload_stdout(job):
         status = zip_files(archivename, to_be_zipped)
         if status:
             logger.info(f'created archive {archivename}')
+            # verify that the new file size is not too big (ignore exit code, should already be set above)
+            _exit_code, to_be_zipped = check_log_size(archivename, to_be_zipped=None)
+            if _exit_code:
+                logger.warning('also the archive was too large - will be removed')
+                remove_files([archivename])
+
+        # remove logs
+        remove_files(to_be_zipped)
 
         # kill the job
         set_pilot_state(job=job, state="failed")
@@ -558,6 +554,44 @@ def check_payload_stdout(job):
         kill_processes(job.pid)  # will not return
 
     return exit_code, diagnostics
+
+
+def check_log_size(filename, to_be_zipped=None, archive=False):
+    """
+    Check the payload log file size.
+    The log will be added to the list of files to be zipped, if too large.
+
+    :param filename: file path (string)
+    :param to_be_zipped: list of files to be zipped
+    :param archive: is this file an archive? (boolean)
+    :return: exit code (int), to_be_zipped (list)
+    """
+
+    exit_code = 0
+
+    try:
+        # get file size in bytes
+        fsize = os.path.getsize(filename)
+    except Exception as error:
+        logger.warning(f"could not read file size of {filename}: {error}")
+    else:
+        # is the file too big?
+        localsizelimit_stdout = get_local_size_limit_stdout()
+
+
+        lim = 10 if not archive else localsizelimit_stdout
+        if fsize > lim:  #localsizelimit_stdout:
+            exit_code = errors.STDOUTTOOBIG
+            label = 'archive' if archive else 'log file'
+            diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
+            logger.warning(diagnostics)
+            if not to_be_zipped == None:
+                to_be_zipped.append(filename)
+        else:
+            logger.info(
+                f"payload log ({os.path.basename(filename)}) within allowed size limit ({localsizelimit_stdout} B): {fsize} B")
+
+    return exit_code, to_be_zipped
 
 
 def check_local_space(initial=True):
@@ -637,7 +671,7 @@ def check_work_dir(job):
                 # remove any lingering input files from the work dir
                 lfns, guids = job.get_lfns_and_guids()
                 if lfns:
-                    remove_files(job.workdir, lfns)
+                    remove_files(lfns, workdir=job.workdir)
 
                     # remeasure the size of the workdir at this point since the value is stored below
                     workdirsize = get_disk_usage(job.workdir)

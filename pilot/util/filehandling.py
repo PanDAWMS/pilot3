@@ -467,12 +467,13 @@ def remove_dir_tree(path):
     return 0
 
 
-def remove_files(workdir, files):
+def remove_files(files, workdir=None):
     """
     Remove all given files from workdir.
+    If workdir is set, it will be used as base path.
 
-    :param workdir: working directory (string).
-    :param files: file list.
+    :param files: file list
+    :param workdir: optional working directory (string)
     :return: exit code (0 if all went well, -1 otherwise)
     """
 
