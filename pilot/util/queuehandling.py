@@ -113,6 +113,7 @@ def get_queuedata_from_job(queues):
 
     return queuedata
 
+
 def abort_jobs_in_queues(queues, sig):
     """
     Find all jobs in the queues and abort them.

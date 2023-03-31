@@ -351,9 +351,13 @@ def verify_disk_usage(current_time, mt, job):
         # time to check the disk space
 
         # check the size of the payload stdout
-        exit_code, diagnostics = check_payload_stdout(job)
-        if exit_code != 0:
-            return exit_code, diagnostics
+        try:
+            exit_code, diagnostics = check_payload_stdout(job)
+        except Exception as exc:
+            logger.warning(f'caught exception: {exc}')
+        else:
+            if exit_code != 0:
+                return exit_code, diagnostics
 
         # check the local space, if it's enough left to keep running the job
         exit_code, diagnostics = check_local_space(initial=False)
@@ -582,7 +586,7 @@ def check_log_size(filename, to_be_zipped=None, archive=False):
             label = 'archive' if archive else 'log file'
             diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
             logger.warning(diagnostics)
-            if not to_be_zipped is None:
+            if to_be_zipped is not None:
                 to_be_zipped.append(filename)
         else:
             logger.info(

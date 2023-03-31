@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
@@ -333,10 +333,14 @@ def get_max_running_time(lifetime, queuedata, queues, push):
 
     # for push queues: try to get the walltime from the job object first, in case it exists and is set
     if push:
-        max_running_time = get_maxwalltime_from_job()
-        if max_running_time:
-            logger.debug(f'using max running time from job: {max_running_time}s')
-            return max_running_time
+        try:
+            max_running_time = get_maxwalltime_from_job()
+        except Exception as exc:
+            logger.warning(f'caught exception: {exc}')
+        else:
+            if max_running_time:
+                logger.debug(f'using max running time from job: {max_running_time}s')
+                return max_running_time
 
     max_running_time = lifetime
 
