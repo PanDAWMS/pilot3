@@ -86,6 +86,9 @@ def get_maxwalltime_from_job(queues):
         for job in jobs:
             if current_job_id == job.jobid:
                 maxwalltime = job.maxwalltime if job.maxwalltime else None
+                # make sure maxwalltime is an int (might be 'NULL')
+                if not isinstance(maxwalltime, int):
+                    maxwalltime = None
                 break
 
     return maxwalltime
