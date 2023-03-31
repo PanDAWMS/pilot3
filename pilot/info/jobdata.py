@@ -145,6 +145,7 @@ class JobData(BaseData):
     # coprocess = {u'args': u'coprocess', u'command': u'echo'}
     containeroptions = {}          #
     use_vp = False                 # True for VP jobs
+    maxwalltime = 0                # maxWalltime in s
 
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
@@ -163,7 +164,7 @@ class JobData(BaseData):
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
                    'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
-                   'requestid'],
+                   'requestid', 'maxwalltime'],
              str: ['jobid', 'taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
                    'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
@@ -309,7 +310,7 @@ class JobData(BaseData):
             'filesize': 'fsize', 'checksum': 'checksum', 'scope': 'scopeIn',
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
-            'ddmendpoint': 'ddmEndPointIn',
+            'ddmendpoint': 'ddmEndPointIn', 'maxwalltime': 'maxWalltime'
         }
 
         return kmap

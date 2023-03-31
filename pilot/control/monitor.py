@@ -24,7 +24,7 @@ from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
-from pilot.util.queuehandling import get_queuedata_from_job, abort_jobs_in_queues
+from pilot.util.queuehandling import get_queuedata_from_job, get_maxwalltime_from_job, abort_jobs_in_queues
 from pilot.util.timing import get_time_since_start
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,7 @@ def control(queues, traces, args):  # noqa: C901
     last_minute_check = t_0
 
     queuedata = get_queuedata_from_job(queues)
-    max_running_time = get_max_running_time(args.lifetime, queuedata)
-
+    push = args.harvester and args.harvester_submitmode.lower() == 'push'
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
         niter = 0
@@ -77,6 +76,8 @@ def control(queues, traces, args):  # noqa: C901
             grace_time = 10 * 60
             if time_since_start - grace_time < 0:
                 grace_time = 0
+            # get the current max_running_time (can change with job)
+            max_running_time = get_max_running_time(args.lifetime, queuedata, queues, push)
             if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
@@ -318,22 +319,31 @@ def run_checks(queues, args):
             raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime, queuedata):
+def get_max_running_time(lifetime, queuedata, queues, push):
     """
     Return the maximum allowed running time for the pilot.
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
 
     :param lifetime: optional pilot option time in seconds (int).
     :param queuedata: queuedata object
-    :return: max running time in seconds (int).
+    :param queues:
+    :param push: push mode (boolean)
+    :return: max running time in seconds (int)
     """
+
+    # for push queues: try to get the walltime from the job object first, in case it exists and is set
+    if push:
+        max_running_time = get_maxwalltime_from_job()
+        if max_running_time:
+            logger.debug(f'using max running time from job: {max_running_time}s')
+            return max_running_time
 
     max_running_time = lifetime
 
     # use the schedconfig value if set, otherwise use the pilot option lifetime value
     if not queuedata:
         logger.warning(f'queuedata could not be extracted from queues, will use default for max running time '
-                       f'({max_running_time} s)')
+                       f'({max_running_time}s)')
     else:
         if queuedata.maxtime:
             try:
@@ -341,12 +351,12 @@ def get_max_running_time(lifetime, queuedata):
             except Exception as error:
                 logger.warning(f'exception caught: {error}')
                 logger.warning(f'failed to convert maxtime from queuedata, will use default value for max running time '
-                               f'({max_running_time} s)')
+                               f'({max_running_time}s)')
             else:
                 if max_running_time == 0:
                     max_running_time = lifetime  # fallback to default value
-                    logger.info(f'will use default value for max running time: {max_running_time} s')
+                    logger.info(f'will use default value for max running time: {max_running_time}s')
                 else:
-                    logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time} s')
+                    logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time}s')
 
     return max_running_time

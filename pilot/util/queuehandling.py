@@ -5,8 +5,8 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
-
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+import os
 import time
 
 from pilot.common.errorcodes import ErrorCodes
@@ -66,6 +66,31 @@ def scan_for_jobs(queues):
     return jobs
 
 
+def get_maxwalltime_from_job(queues):
+    """
+    Return the maxwalltime from the job object.
+    The algorithm requires a set PANDAID environmental variable, in order to find the correct walltime.
+
+    :param queues:
+    :return: job object variable
+    """
+
+    maxwalltime = None
+    current_job_id = os.environ.get('PANDAID', None)
+    if not current_job_id:
+        return None
+
+    # extract jobs from the queues
+    jobs = scan_for_jobs(queues)
+    if jobs:
+        for job in jobs:
+            if current_job_id == job.jobid:
+                maxwalltime = job.maxwalltime if job.maxwalltime else None
+                break
+
+    return maxwalltime
+
+
 def get_queuedata_from_job(queues):
     """
     Return the queuedata object from a job in the given queues object.
@@ -87,7 +112,6 @@ def get_queuedata_from_job(queues):
             break
 
     return queuedata
-
 
 def abort_jobs_in_queues(queues, sig):
     """
