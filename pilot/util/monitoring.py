@@ -585,7 +585,7 @@ def check_log_size(filename, to_be_zipped=None, archive=False):
             label = 'archive' if archive else 'log file'
             diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
             logger.warning(diagnostics)
-            if not to_be_zipped == None:
+            if not to_be_zipped is None:
                 to_be_zipped.append(filename)
         else:
             logger.info(
