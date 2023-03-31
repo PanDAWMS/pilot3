@@ -540,7 +540,7 @@ def check_payload_stdout(job):
         if status:
             logger.info(f'created archive {archivename}')
             # verify that the new file size is not too big (ignore exit code, should already be set above)
-            _exit_code, to_be_zipped = check_log_size(archivename, to_be_zipped=None)
+            _exit_code, _ = check_log_size(archivename, to_be_zipped=None, archive=True)
             if _exit_code:
                 logger.warning('also the archive was too large - will be removed')
                 remove_files([archivename])
@@ -577,15 +577,12 @@ def check_log_size(filename, to_be_zipped=None, archive=False):
     else:
         # is the file too big?
         localsizelimit_stdout = get_local_size_limit_stdout()
-
-
-        lim = 10 if not archive else localsizelimit_stdout
-        if fsize > lim:  #localsizelimit_stdout:
+        if fsize > localsizelimit_stdout:
             exit_code = errors.STDOUTTOOBIG
             label = 'archive' if archive else 'log file'
             diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
             logger.warning(diagnostics)
-            if not to_be_zipped == None:
+            if not to_be_zipped is None:
                 to_be_zipped.append(filename)
         else:
             logger.info(

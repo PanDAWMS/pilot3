@@ -479,11 +479,12 @@ def remove_files(files, workdir=None):
 
     exitcode = 0
     if not isinstance(files, list):
-        logger.warning(f'files parameter not a list: {type(list)}')
+        logger.warning(f'files parameter not a list: {type(files)}')
         exitcode = -1
     else:
         for _file in files:
-            _ec = remove(os.path.join(workdir, _file))
+            path = os.path.join(workdir, _file) if workdir else _file
+            _ec = remove(path)
             if _ec != 0 and exitcode == 0:
                 exitcode = _ec
 
