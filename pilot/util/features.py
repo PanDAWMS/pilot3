@@ -74,7 +74,8 @@ class Features(object):
                     value = value[:-1] if value.endswith('\n') else value
                     setattr(self, member, value)
         else:
-            logger.info(f'{label} features path does not exist (path=\"{path}\")')
+            if path:
+                logger.warning(f'{label} features path does not exist (path=\"{path}\")')
 
 
 class MachineFeatures(Features):
