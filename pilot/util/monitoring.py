@@ -581,10 +581,7 @@ def check_log_size(filename, to_be_zipped=None, archive=False):
     else:
         # is the file too big?
         localsizelimit_stdout = get_local_size_limit_stdout()
-
-
-
-        if fsize > 10:  #localsizelimit_stdout:
+        if fsize > localsizelimit_stdout:
             exit_code = errors.STDOUTTOOBIG
             label = 'archive' if archive else 'log file'
             diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"

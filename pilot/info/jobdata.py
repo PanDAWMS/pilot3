@@ -171,8 +171,10 @@ class JobData(BaseData):
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy'],
-             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses'],
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
+                   'debug_command'],
+             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
+                    'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
@@ -306,11 +308,11 @@ class JobData(BaseData):
             # 'internal_name': 'ext_key_structure'
             'lfn': 'inFiles',
             ##'??': 'dispatchDblock', '??define_proper_internal_name': 'dispatchDBlockToken',
-            'dataset': 'realDatasetsIn', 'guid': 'GUID', 'requestid': 'reqID',
+            'dataset': 'realDatasetsIn', 'guid': 'GUID',
             'filesize': 'fsize', 'checksum': 'checksum', 'scope': 'scopeIn',
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
-            'ddmendpoint': 'ddmEndPointIn', 'maxwalltime': 'maxWalltime'
+            'ddmendpoint': 'ddmEndPointIn'
         }
 
         return kmap
@@ -482,7 +484,9 @@ class JobData(BaseData):
             'containeroptions': 'containerOptions',
             'looping_check': 'loopingCheck',
             'pandasecrets': 'secrets',
-            'pilotsecrets': 'pilotSecrets'
+            'pilotsecrets': 'pilotSecrets',
+            'requestid': 'reqID',
+            'maxwalltime': 'maxWalltime'
         } if use_kmap else {}
 
         self._load_data(data, kmap)
