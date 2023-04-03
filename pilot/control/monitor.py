@@ -347,7 +347,7 @@ def get_max_running_time(lifetime, queuedata, queues, push):
     # for push queues: try to get the walltime from the job object first, in case it exists and is set
     if push or True:
         try:
-            _max_running_time = get_maxwalltime_from_job(queues, queuedata.get('params', None))
+            _max_running_time = get_maxwalltime_from_job(queues, queuedata.params)
         except Exception as exc:
             logger.warning(f'caught exception: {exc}')
         else:
