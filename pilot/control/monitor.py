@@ -73,11 +73,17 @@ def control(queues, traces, args):  # noqa: C901
 
             # check if the pilot has run out of time (stop ten minutes before PQ limit)
             time_since_start = get_time_since_start(args)
-            grace_time = 10 * 60
+            grace_time = 3 * 60
             if time_since_start - grace_time < 0:
                 grace_time = 0
             # get the current max_running_time (can change with job)
-            max_running_time = get_max_running_time(args.lifetime, queuedata, queues, push)
+            try:
+                max_running_time = get_max_running_time(args.lifetime, queuedata, queues, push)
+            except Exception as exc:
+                logger.warning(f'caught exception: {exc}')
+                max_running_time = args.lifetime
+
+            max_running_time = 4 * 60
             if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
@@ -331,36 +337,37 @@ def get_max_running_time(lifetime, queuedata, queues, push):
     :return: max running time in seconds (int)
     """
 
-    # for push queues: try to get the walltime from the job object first, in case it exists and is set
-    if push:
-        try:
-            max_running_time = get_maxwalltime_from_job(queues)
-        except Exception as exc:
-            logger.warning(f'caught exception: {exc}')
-        else:
-            if max_running_time:
-                logger.debug(f'using max running time from job: {max_running_time}s')
-                return max_running_time
-
     max_running_time = lifetime
 
-    # use the schedconfig value if set, otherwise use the pilot option lifetime value
     if not queuedata:
         logger.warning(f'queuedata could not be extracted from queues, will use default for max running time '
                        f'({max_running_time}s)')
-    else:
-        if queuedata.maxtime:
-            try:
-                max_running_time = int(queuedata.maxtime)
-            except Exception as error:
-                logger.warning(f'exception caught: {error}')
-                logger.warning(f'failed to convert maxtime from queuedata, will use default value for max running time '
-                               f'({max_running_time}s)')
+        return max_running_time
+
+    # for push queues: try to get the walltime from the job object first, in case it exists and is set
+    if push or True:
+        try:
+            _max_running_time = get_maxwalltime_from_job(queues, queuedata.get('params', None))
+        except Exception as exc:
+            logger.warning(f'caught exception: {exc}')
+        else:
+            if _max_running_time:
+                logger.debug(f'using max running time from job: {_max_running_time}s')
+                return _max_running_time
+
+    # use the schedconfig value if set, otherwise use the pilot option lifetime value
+    if queuedata.maxtime:
+        try:
+            max_running_time = int(queuedata.maxtime)
+        except Exception as error:
+            logger.warning(f'exception caught: {error}')
+            logger.warning(f'failed to convert maxtime from queuedata, will use default value for max running time '
+                           f'({max_running_time}s)')
+        else:
+            if max_running_time == 0:
+                max_running_time = lifetime  # fallback to default value
+                logger.info(f'will use default value for max running time: {max_running_time}s')
             else:
-                if max_running_time == 0:
-                    max_running_time = lifetime  # fallback to default value
-                    logger.info(f'will use default value for max running time: {max_running_time}s')
-                else:
-                    logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time}s')
+                logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time}s')
 
     return max_running_time

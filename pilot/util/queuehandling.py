@@ -66,26 +66,34 @@ def scan_for_jobs(queues):
     return jobs
 
 
-def get_maxwalltime_from_job(queues):
+def get_maxwalltime_from_job(queues, params):
     """
     Return the maxwalltime from the job object.
     The algorithm requires a set PANDAID environmental variable, in order to find the correct walltime.
 
     :param queues:
+    :param params: queuedata.params (dictionary)
     :return: job object variable
     """
 
     maxwalltime = None
+    use_job_maxwalltime = False
     current_job_id = os.environ.get('PANDAID', None)
     if not current_job_id:
         return None
+
+    # on push queues, one can set params.use_job_maxwalltime to decide if job.maxwalltime should be used to check
+    # job running time
+    if params:
+        use_job_maxwalltime = params.get('job_maxwalltime', False)
+        logger.debug(f'use_job_maxwalltime={use_job_maxwalltime} (type={type(use_job_maxwalltime)}, current job id={current_job_id})')
 
     # extract jobs from the queues
     jobs = scan_for_jobs(queues)
     if jobs:
         for job in jobs:
             if current_job_id == job.jobid:
-                maxwalltime = job.maxwalltime if job.maxwalltime else None
+                maxwalltime = job.maxwalltime if job.maxwalltime and use_job_maxwalltime else None
                 # make sure maxwalltime is an int (might be 'NULL')
                 if not isinstance(maxwalltime, int):
                     maxwalltime = None
