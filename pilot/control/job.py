@@ -2803,6 +2803,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
+                    abort = True
                     break
 
                 # perform the monitoring tasks
