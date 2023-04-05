@@ -127,15 +127,34 @@ def get_batchsystem_jobid():
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
         try:
-            with open(os.environ.get("_CONDOR_JOB_AD"), 'r') as _fp:
-                for line in _fp:
-                    res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
-                    if res is None:
-                        continue
-                    return "Condor", res.group(1)
+            ret = get_globaljobid()
         except OSError as exc:
-            logger.warning("failed to read HTCondor job classAd: %s", exc)
+            logger.warning(f"failed to read HTCondor job classAd: {exc}")
+        else:
+            return "Condor", ret
     return None, ""
+
+
+def get_globaljobid():
+    """
+    Return the GlobalJobId value from the condor class ad.
+
+    :return: GlobalJobId value (string).
+    """
+
+    ret = ""
+    with open(os.environ.get("_CONDOR_JOB_AD"), 'r') as _fp:
+        for line in _fp:
+            res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
+            if res is None:
+                continue
+            try:
+                ret = res.group(1)
+            except Exception as exc:
+                logger.warning(f'failed to interpret GlobalJobId: {exc}')
+            break
+
+    return ret
 
 
 def get_job_scheduler_id():

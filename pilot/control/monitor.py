@@ -83,7 +83,7 @@ def control(queues, traces, args):  # noqa: C901
                 logger.warning(f'caught exception: {exc}')
                 max_running_time = args.lifetime
 
-            max_running_time = 4 * 60
+            # for testing: max_running_time = 4 * 60
             if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
@@ -345,7 +345,7 @@ def get_max_running_time(lifetime, queuedata, queues, push):
         return max_running_time
 
     # for push queues: try to get the walltime from the job object first, in case it exists and is set
-    if push or True:
+    if push:
         try:
             _max_running_time = get_maxwalltime_from_job(queues, queuedata.params)
         except Exception as exc:
