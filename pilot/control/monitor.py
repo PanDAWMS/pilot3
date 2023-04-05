@@ -276,6 +276,7 @@ def run_checks(queues, args):
         logger.warning(diagnostics)
         logger.warning('aborting pilot - no need to wait for job to finish - kill everything')
         args.job_aborted.set()
+        args.graceful_stop.set()
         args.abort_job.clear()
         raise ExceededMaxWaitTime(diagnostics)
     #else:
