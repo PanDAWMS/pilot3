@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from __future__ import print_function  # Python 2
@@ -30,7 +30,7 @@ from pilot.util import https
 from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
-    has_instruction_sets, locate_core_file, get_display_info
+    has_instruction_sets, locate_core_file, get_display_info, encode_globaljobid
 from pilot.util.config import config
 from pilot.util.common import should_abort, was_pilot_killed
 from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, PILOT_KILL_SIGNAL, LOG_TRANSFER_NOT_DONE, \
@@ -2005,6 +2005,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
+                # for debugging on HTCondor purposes, set special env var
+                htcondor_envvar(job.jobid, job.processingtype)
+
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
                 put_in_queue(job, queues.jobs)
@@ -2039,6 +2042,24 @@ def retrieve(queues, traces, args):  # noqa: C901
         logger.debug('will not set job_aborted yet')
 
     logger.info('[job] retrieve thread has finished')
+
+
+def htcondor_envvar(jobid, processingtype):
+    """
+    On HTCondor nodes, set special env var (HTCondor_JOB_ID) for debugging Lustre.
+
+    :param jobid: PanDA job id (string)
+    :param processingtype: PanDA processing type (string)
+    :return:
+    """
+
+    # only proceed if there is a condor class ad
+    if os.environ.get('_CONDOR_JOB_AD', None):
+        globaljobid = encode_globaljobid(jobid, processingtype)
+        if globaljobid:
+            os.environ['HTCondor_JOB_ID'] = globaljobid
+    else:
+        logger.debug('not a condor batch system - will not set HTCondor_JOB_ID')  # REMOVE ME
 
 
 def handle_proxy(job):
