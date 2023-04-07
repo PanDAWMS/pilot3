@@ -693,7 +693,6 @@ def encode_globaljobid(jobid, processingtype, maxsize=31):
     :param processingtype: panda processing type (string)
     :return: encoded global job id (string).
     """
-    ret = ""
 
     def reformat(num, maxsize=8):
         # can handle clusterid=4294967297, ie larger than 0xffffffff
