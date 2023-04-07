@@ -15,7 +15,6 @@ import logging
 from collections.abc import Set, Mapping
 from collections import deque, OrderedDict
 from numbers import Number
-from signal import SIGTERM, SIGKILL
 from time import sleep
 
 from pilot.util.constants import (
