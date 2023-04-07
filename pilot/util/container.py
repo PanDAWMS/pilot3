@@ -9,9 +9,11 @@
 
 import subprocess
 import logging
-from os import environ, getcwd, setpgrp, getpgid, killpg, kill  #, getpgid  #setsid
-from signal import SIGTERM
+from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
+from time import sleep
+from signal import SIGTERM, SIGKILL
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.processes import kill_process_group
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -72,12 +74,20 @@ def execute(executable, **kwargs):
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
             process.kill()
-            #logger.debug('XXX executing process.communicate()')
-            #stdout, stderr = process.communicate()
-            #stderr += '\n' + _stderr
-            killpg(getpgid(process.pid), SIGTERM)
-            kill(process.pid, SIGTERM)
-            logger.debug('Sent soft kill signals')
+            try:
+                logger.warning('killing lingering process group')
+                kill_process_group(getpgid(process.pid))
+            except ProcessLookupError as exc:
+                stderr += f'\n(kill process group) ProcessLookupError={exc}'
+            try:
+                logger.warning('killing lingering process')
+                kill(process.pid, SIGTERM)
+                logger.warning('sleeping a bit before sending SIGKILL')
+                sleep(10)
+                kill(process.pid, SIGKILL)
+            except ProcessLookupError as exc:
+                stderr += f'\n(kill process) ProcessLookupError={exc}'
+            logger.warning(f'sent soft kill signals - final stderr: {stderr}')
         else:
             exit_code = process.poll()
 

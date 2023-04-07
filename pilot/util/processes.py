@@ -224,7 +224,7 @@ def kill_process_group(pgrp):
     Kill the process group.
 
     :param pgrp: process group id (int).
-    :return: boolean (True if SIGMTERM followed by SIGKILL signalling was successful)
+    :return: boolean (True if SIGTERM followed by SIGKILL signalling was successful)
     """
 
     status = False
