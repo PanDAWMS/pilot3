@@ -89,18 +89,19 @@ def display_architecture_info():
     """
 
     logger.info("architecture information:")
+    dump("/etc/os-release")
 
-    _, stdout, stderr = execute("lsb_release -a", mute=True)
-    if 'command not found' in stdout or 'command not found' in stderr:
-        # Dump standard architecture info files if available
-        dump("/etc/lsb-release")
-        dump("/etc/SuSE-release")
-        dump("/etc/redhat-release")
-        dump("/etc/debian_version")
-        dump("/etc/issue")
-        dump("$MACHTYPE", cmd="echo")
-    else:
-        logger.info("\n%s", stdout)
+    #_, stdout, stderr = execute("lsb_release -a", mute=True)
+    #if 'command not found' in stdout or 'command not found' in stderr:
+    #    # Dump standard architecture info files if available
+    #    dump("/etc/lsb-release")
+    #    dump("/etc/SuSE-release")
+    #    dump("/etc/redhat-release")
+    #    dump("/etc/debian_version")
+    #    dump("/etc/issue")
+    #    dump("$MACHTYPE", cmd="echo")
+    #else:
+    #    logger.info("\n%s", stdout)
 
 
 def get_batchsystem_jobid():
