@@ -14,7 +14,7 @@ import re
 import threading
 
 from pilot.util.container import execute
-from pilot.util.auxiliary import whoami
+from pilot.util.auxiliary import whoami, kill_process_group
 from pilot.util.filehandling import read_file, remove_dir_tree
 
 import logging
@@ -217,43 +217,6 @@ def kill_child_processes(pid):
 
                 # kill the process gracefully
                 kill_process(i)
-
-
-def kill_process_group(pgrp):
-    """
-    Kill the process group.
-
-    :param pgrp: process group id (int).
-    :return: boolean (True if SIGTERM followed by SIGKILL signalling was successful)
-    """
-
-    status = False
-    _sleep = True
-
-    # kill the process gracefully
-    logger.info("killing group process %d", pgrp)
-    try:
-        os.killpg(pgrp, signal.SIGTERM)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process under SIGTERM: %s", error)
-        _sleep = False
-    else:
-        logger.info("SIGTERM sent to process group %d", pgrp)
-
-    if _sleep:
-        _t = 30
-        logger.info("sleeping %d s to allow processes to exit", _t)
-        time.sleep(_t)
-
-    try:
-        os.killpg(pgrp, signal.SIGKILL)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process with SIGKILL: %s", error)
-    else:
-        logger.info("SIGKILL sent to process group %d", pgrp)
-        status = True
-
-    return status
 
 
 def kill_process(pid):

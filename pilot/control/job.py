@@ -2055,9 +2055,12 @@ def htcondor_envvar(jobid, processingtype):
 
     # only proceed if there is a condor class ad
     if os.environ.get('_CONDOR_JOB_AD', None):
-        globaljobid = encode_globaljobid(jobid, processingtype)
-        if globaljobid:
-            os.environ['HTCondor_JOB_ID'] = globaljobid
+        try:
+            globaljobid = encode_globaljobid(jobid, processingtype)
+            if globaljobid:
+                os.environ['HTCondor_JOB_ID'] = globaljobid
+        except Exception as exc:
+            logger.warning(f'caught exception: {exc}')
     else:
         logger.debug('not a condor batch system - will not set HTCondor_JOB_ID')  # REMOVE ME
 

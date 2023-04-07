@@ -13,7 +13,7 @@ from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.processes import kill_process_group
+from pilot.util.auxiliary import kill_process_group
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
