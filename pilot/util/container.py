@@ -13,7 +13,7 @@ from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.auxiliary import kill_process_group
+from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -73,9 +73,9 @@ def execute(executable, **kwargs):
             stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
-            process.kill()
             try:
-                logger.warning('killing lingering process group')
+                logger.warning('killing lingering subprocess and process group')
+                process.kill()
                 kill_process_group(getpgid(process.pid))
             except ProcessLookupError as exc:
                 stderr += f'\n(kill process group) ProcessLookupError={exc}'

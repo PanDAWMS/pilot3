@@ -14,8 +14,9 @@ import re
 import threading
 
 from pilot.util.container import execute
-from pilot.util.auxiliary import whoami, kill_process_group
+from pilot.util.auxiliary import whoami
 from pilot.util.filehandling import read_file, remove_dir_tree
+from pilot.util.processgroups import kill_process_group
 
 import logging
 logger = logging.getLogger(__name__)

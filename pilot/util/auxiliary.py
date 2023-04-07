@@ -15,6 +15,7 @@ import logging
 from collections.abc import Set, Mapping
 from collections import deque, OrderedDict
 from numbers import Number
+from signal import SIGTERM, SIGKILL
 from time import sleep
 
 from pilot.util.constants import (
@@ -751,40 +752,3 @@ def encode_globaljobid(jobid, processingtype, maxsize=31):
         logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
 
     return global_name
-
-
-def kill_process_group(pgrp):
-    """
-    Kill the process group.
-    DO NOT MOVE TO PROCESSES.PY - will lead to circular import since execute() needs it as well.
-    :param pgrp: process group id (int).
-    :return: boolean (True if SIGTERM followed by SIGKILL signalling was successful)
-    """
-
-    status = False
-    _sleep = True
-
-    # kill the process gracefully
-    logger.info("killing group process %d", pgrp)
-    try:
-        os.killpg(pgrp, signal.SIGTERM)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process under SIGTERM: %s", error)
-        _sleep = False
-    else:
-        logger.info("SIGTERM sent to process group %d", pgrp)
-
-    if _sleep:
-        _t = 30
-        logger.info("sleeping %d s to allow processes to exit", _t)
-        time.sleep(_t)
-
-    try:
-        os.killpg(pgrp, signal.SIGKILL)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process with SIGKILL: %s", error)
-    else:
-        logger.info("SIGKILL sent to process group %d", pgrp)
-        status = True
-
-    return status
