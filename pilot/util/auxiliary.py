@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import os
 import re
@@ -676,3 +676,79 @@ def sort_words(input_str):
         logger.warning(f'failed to sort input string: {input_str}, exc={exc}')
 
     return output_str
+
+
+def encode_globaljobid(jobid, processingtype, maxsize=31):
+    """
+    Encode the global job id on HTCondor.
+    To be used as an environmental variable on HTCondor nodes to facilitate debugging.
+
+    Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
+
+    Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
+    characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
+    to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
+
+    :param jobid: panda job id (string)
+    :param processingtype: panda processing type (string)
+    :return: encoded global job id (string).
+    """
+    ret = ""
+
+    def reformat(num, maxsize=8):
+        # can handle clusterid=4294967297, ie larger than 0xffffffff
+        try:
+            num_hex = hex(int(num)).replace('0x', '')
+            if len(num_hex) > maxsize:  # i.e. larger than 'ffffffff' or 'ff'
+                num_hex = num_hex[-maxsize:]  # take the least significant bits
+            num_hex = '0x' + num_hex
+            num_int = int(num_hex, base=16)
+            size = "{0:0" + str(maxsize) + "x}"  # e.g. "{0:08x}"
+            num_hex = size.format(num_int)
+        except Exception as exc:
+            logger.warning(exc)
+            num_hex = ""
+        return num_hex
+
+    def get_schedd_id(host):
+        # spce03.sdcc.bnl.gov -> spce03 -> 3
+        try:
+            schedd_id = host.split('.')[0][-1]
+        except Exception as exc:
+            logger.warning(f'failed to extract schedd from host={host}: {exc}')
+            schedd_id = None
+        return schedd_id
+
+    globaljobid = get_globaljobid()
+    if not globaljobid:
+        return ""
+
+    try:
+        _globaljobid = globaljobid.split('#')
+        host = _globaljobid[0]
+        tmp = _globaljobid[1].split('.')
+        # timestamp = _globaljobid[2] - ignore this one
+        clusterid = tmp[0]
+        processid = tmp[1]
+    except Exception as exc:
+        logger.warning(exc)
+        return ""
+
+    logger.debug(f'clusterid={clusterid}')
+    logger.debug(f'host name={host}')
+    clusterid_hex = reformat(clusterid, maxsize=8)  # 00283984
+    processid_hex = reformat(processid, maxsize=2)  # 00
+    schedd_id = get_schedd_id(host)  # 3
+    if clusterid_hex and processid_hex and schedd_id:
+        global_name = f'{jobid}:{processingtype}:{clusterid_hex}.{processid_hex}_{schedd_id}'
+    else:
+        global_name = ''
+
+    if len(global_name) > maxsize:
+        logger.warning(f'HTCondor: global name is exceeding maxsize({maxsize}), will be truncated: {global_name}')
+        global_name = global_name[-maxsize:]
+        logger.debug(f'HTCondor: final global name={global_name}')
+    else:
+        logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
+
+    return global_name
