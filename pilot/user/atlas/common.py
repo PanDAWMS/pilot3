@@ -307,7 +307,7 @@ def parse_remotefileverification_dictionary(workdir):
     return exitcode, diagnostics, not_opened
 
 
-def get_file_open_command(script_path, turls, nthreads):
+def get_file_open_command(script_path, turls, nthreads, stdout='remote_open.stdout', stderr='remote_open.stderr'):
     """
 
     :param script_path: path to script (string).
@@ -316,7 +316,10 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
+    if stdout and stderr:
+        cmd + f' 1>{stdout} 2>{stderr}'
+    return cmd
 
 
 def extract_turls(indata):
