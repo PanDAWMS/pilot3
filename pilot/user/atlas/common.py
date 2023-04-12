@@ -318,7 +318,7 @@ def get_file_open_command(script_path, turls, nthreads, stdout='remote_open.stdo
 
     cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
     if stdout and stderr:
-        cmd + f' 1>{stdout} 2>{stderr}'
+        cmd += f' 1>{stdout} 2>{stderr}'
     return cmd
 
 
