@@ -12,6 +12,7 @@
 
 from __future__ import print_function  # Python 2
 
+import json
 import os
 import time
 import hashlib
@@ -1950,6 +1951,19 @@ def retrieve(queues, traces, args):  # noqa: C901
             check_for_final_server_update(args.update_server)
             args.graceful_stop.set()
             break
+
+        # reformat res on dask queue
+        if res and os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
+            # res = {'{"5816670699": {"StatusCode": 0, ..
+            tmp = ''
+            for _res in res:
+                tmp = _res  # tmp = '{"5816670699": {"StatusCode": 0, ..
+                break
+            tmp = json.loads(tmp)
+            for _res in tmp:
+                res = tmp[_res]
+                break
+            # res = {"StatusCode": 0, ..
 
         if not res:
             getjob_failures += 1
