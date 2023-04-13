@@ -311,7 +311,7 @@ def get_args():
     # Kubernetes (pilot running in a pod)
     arg_parser.add_argument('--pod',
                             dest='pod',
-                            type=str2bool,
+                            action='store_true',
                             default=False,
                             help='Pilot running in a Kubernetes pod')
 
