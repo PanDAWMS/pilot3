@@ -79,7 +79,7 @@ def control(queues, traces, args):  # noqa: C901
                 grace_time = 0
             # get the current max_running_time (can change with job)
             try:
-                max_running_time = get_max_running_time(args.lifetime, queuedata, queues, push)
+                max_running_time = get_max_running_time(args.lifetime, queuedata, queues, push, args.pod)
             except Exception as exc:
                 logger.warning(f'caught exception: {exc}')
                 max_running_time = args.lifetime
@@ -331,17 +331,22 @@ def run_checks(queues, args):
             raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime, queuedata, queues, push):
+def get_max_running_time(lifetime, queuedata, queues, push, pod):
     """
     Return the maximum allowed running time for the pilot.
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
+    If running in a Kubernetes pod, always use the args.lifetime as maxtime (it will be determined by the harvester submitter).
 
     :param lifetime: optional pilot option time in seconds (int).
     :param queuedata: queuedata object
     :param queues:
     :param push: push mode (boolean)
+    :param pod: pod mode (boolean)
     :return: max running time in seconds (int)
     """
+
+    if pod:
+        return lifetime
 
     max_running_time = lifetime
 
