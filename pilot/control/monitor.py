@@ -59,7 +59,7 @@ def control(queues, traces, args):  # noqa: C901
         # overall loop counter (ignoring the fact that more than one job may be running)
         niter = 0
 
-        max_running_time_old = args.lifetime
+        max_running_time_old = 0
         while not args.graceful_stop.is_set():
             # every few seconds, run the monitoring checks
             if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
