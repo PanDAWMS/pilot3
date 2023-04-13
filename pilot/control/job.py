@@ -1952,26 +1952,6 @@ def retrieve(queues, traces, args):  # noqa: C901
             args.graceful_stop.set()
             break
 
-        # reformat res on dask queue
-        if res and os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
-            # res = {'{"5816670699": {"StatusCode": 0, ..
-            logger.debug(f'res={res}')
-            tmp = ''
-            for _res in res:
-                tmp = _res  # tmp = '{"5816670699": {"StatusCode": 0, ..
-                break
-            logger.debug(f'tmp={tmp}')
-            try:
-                tmp = json.loads(tmp)
-            except Exception as exc:
-                logger.debug(f'exc={exc}')
-                res = None
-            else:
-                for _res in tmp:
-                    res = tmp[_res]
-                    break
-            # res = {"StatusCode": 0, ..
-
         if not res:
             getjob_failures += 1
             if getjob_failures >= args.getjob_failures:
