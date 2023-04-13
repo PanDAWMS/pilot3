@@ -1054,7 +1054,8 @@ def validate(queues, traces, args):
                 logger.warning(f'exception caught: {error}')
 
             # store the PanDA job id for the wrapper to pick up
-            store_jobid(job.jobid, args.sourcedir)
+            if not args.pod:
+                store_jobid(job.jobid, args.sourcedir)
 
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
