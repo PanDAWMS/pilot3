@@ -59,6 +59,7 @@ def control(queues, traces, args):  # noqa: C901
         # overall loop counter (ignoring the fact that more than one job may be running)
         niter = 0
 
+        max_running_time_old = 0
         while not args.graceful_stop.is_set():
             # every few seconds, run the monitoring checks
             if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
@@ -82,6 +83,10 @@ def control(queues, traces, args):  # noqa: C901
             except Exception as exc:
                 logger.warning(f'caught exception: {exc}')
                 max_running_time = args.lifetime
+            else:
+                if max_running_time != max_running_time_old:
+                    max_running_time_old = max_running_time
+                    logger.info(f'using max running time = {max_running_time}s')
 
             # for testing: max_running_time = 4 * 60
             if time_since_start > max_running_time - grace_time:
@@ -353,7 +358,7 @@ def get_max_running_time(lifetime, queuedata, queues, push):
             logger.warning(f'caught exception: {exc}')
         else:
             if _max_running_time:
-                logger.debug(f'using max running time from job: {_max_running_time}s')
+                #logger.debug(f'using max running time from job: {_max_running_time}s')
                 return _max_running_time
 
     # use the schedconfig value if set, otherwise use the pilot option lifetime value
@@ -367,8 +372,8 @@ def get_max_running_time(lifetime, queuedata, queues, push):
         else:
             if max_running_time == 0:
                 max_running_time = lifetime  # fallback to default value
-                logger.info(f'will use default value for max running time: {max_running_time}s')
-            else:
-                logger.info(f'will use queuedata.maxtime value for max running time: {max_running_time}s')
+            #    logger.debug(f'will use default value for max running time: {max_running_time}s')
+            #else:
+            #    logger.debug(f'will use queuedata.maxtime value for max running time: {max_running_time}s')
 
     return max_running_time
