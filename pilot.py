@@ -308,6 +308,13 @@ def get_args():
                             required=True,
                             help='Pilot user (e.g. name of experiment corresponding to pilot plug-in)')
 
+    # Kubernetes (pilot running in a pod)
+    arg_parser.add_argument('--pod',
+                            dest='pod',
+                            type=str2bool,
+                            default=False,
+                            help='Pilot running in a Kubernetes pod')
+
     # Harvester specific options (if any of the following options are used, args.harvester will be set to True)
     arg_parser.add_argument('--harvester-workdir',
                             dest='harvester_workdir',

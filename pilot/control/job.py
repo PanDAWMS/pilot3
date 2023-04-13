@@ -1458,19 +1458,21 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     return True
 
 
-def get_job_definition_from_file(path, harvester):
+def get_job_definition_from_file(path, harvester, pod):
     """
     Get a job definition from a pre-placed file.
     In Harvester mode, also remove any existing job request files since it is no longer needed/wanted.
 
-    :param path: path to job definition file.
+    :param path: path to job definition file
     :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False
+    :param pod: True if pilot is running in a pod, otherwise False
     :return: job definition dictionary.
     """
 
     # remove any existing Harvester job request files (silent in non-Harvester mode) and read the JSON
-    if harvester:
-        remove_job_request_file()
+    if harvester or pod:
+        if harvester:
+            remove_job_request_file()
         if is_json(path):
             job_definition_list = parse_job_definition_file(path)
             if not job_definition_list:
@@ -1579,7 +1581,7 @@ def get_job_definition(queues, args):
         res = get_fake_job()
     elif os.path.exists(path):
         logger.info(f'will read job definition from file: {path}')
-        res = get_job_definition_from_file(path, args.harvester)
+        res = get_job_definition_from_file(path, args.harvester, args.pod)
     else:
         if args.harvester and args.harvester_submitmode.lower() == 'push':
             pass  # local job definition file not found (go to sleep)
