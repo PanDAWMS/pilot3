@@ -1057,11 +1057,12 @@ def validate(queues, traces, args):
             if not args.pod:
                 store_jobid(job.jobid, args.sourcedir)
 
+                # make sure that ctypes is available (needed at the end by orphan killer)
+                verify_ctypes(queues, job)
+
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
 
-            # make sure that ctypes is available (needed at the end by orphan killer)
-            verify_ctypes(queues, job)
         else:
             logger.debug(f'failed to validate job={job.jobid}')
             put_in_queue(job, queues.failed_jobs)
@@ -2372,6 +2373,8 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     # scan queues until at least one queue has a job object. abort if it takes too long time
     if not scan_for_jobs(queues):
         logger.warning('queues are still empty of jobs - will begin queue monitoring anyway')
+
+    logger.debug('starting queue_monitor()')
 
     job = None
     while True:  # will abort when graceful_stop has been set or if enough time has passed after kill signal
