@@ -317,6 +317,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     if state == 'finished' or state == 'holding' or state == 'failed':
         logger.info(f'this job has now completed (state={state})')
         job.completed = True
+    #elif args.pod and args.workflow == 'stager' and state == 'running':
+    #    logger.info(f'this job has now completed (state={state})')
+    #    job.completed = True
 
     # should the pilot make any server updates?
     if not args.update_server:
@@ -1226,6 +1229,13 @@ def create_data_payload(queues, traces, args):
             # if the job does not have any input data, then pretend that stage-in has finished and put the job
             # in the finished_data_in queue
             put_in_queue(job, queues.finished_data_in)
+            # for stager jobs in pod mode, let the server know the job is running, then terminate the pilot as it is no longer needed
+            if args.pod and args.workflow == 'stager':
+                set_pilot_state(job=job, state='running')
+                send_state(job, args, 'running')
+                logger.info('pilot is no longer needed - terminating')
+                args.job_aborted.set()
+                args.graceful_stop.set()
 
         # only in normal workflow; in the stager workflow there is no payloads queue
         if not args.workflow == 'stager':
