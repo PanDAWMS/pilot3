@@ -2374,8 +2374,6 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     if not scan_for_jobs(queues):
         logger.warning('queues are still empty of jobs - will begin queue monitoring anyway')
 
-    logger.debug('starting queue_monitor()')
-
     job = None
     while True:  # will abort when graceful_stop has been set or if enough time has passed after kill signal
         time.sleep(1)

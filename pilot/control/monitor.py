@@ -159,12 +159,16 @@ def run_shutdowntime_minute_check(time_since_start):
             return False  # will be ignored
 
         # ignore shutdowntime if not known
-        try:
-            shutdowntime = int(machinefeatures.get('shutdowntime'))
-        except (TypeError, ValueError) as exc:
-            logger.debug(f'failed to convert shutdowntime: {exc}')
-            return False  # will be ignored
-        logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
+        shutdowntime = None
+        _shutdowntime = machinefeatures.get('shutdowntime', None)
+        if _shutdowntime:
+            try:
+                shutdowntime = int(_shutdowntime)
+            except (TypeError, ValueError) as exc:
+                logger.debug(f'failed to convert shutdowntime: {exc}')
+                return False  # will be ignored
+            else:
+                logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
         if not shutdowntime:
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored
