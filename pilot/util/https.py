@@ -7,7 +7,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import json
 import os
@@ -43,7 +43,7 @@ _ctx.cacert = None
 # anisyonk: public copy of `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
 # anisyonk: public instance, should be properly initialized by `https_setup()`
 # anisyonk: use lightweight class definition instead of namedtuple since tuple is immutable and we don't need/use any tuple features here
-ctx = type('ctx', (object,), dict(ssl_context=None, user_agent='Pilot2 client', capath=None, cacert=None))
+ctx = type('ctx', (object,), dict(ssl_context=None, user_agent='Pilot3 client', capath=None, cacert=None))
 
 
 def _tester(func, *args):
@@ -260,6 +260,9 @@ def update_ctx():
     x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
     if x509 != _ctx.cacert and os.path.exists(x509):
         _ctx.cacert = x509
+    certdir = os.environ.get('X509_CERT_DIR', _ctx.capath)
+    if certdir != _ctx.capath and os.path.exists(certdir):
+        _ctx.capath = certdir
 
 
 def get_curl_command(plain, dat, ipv):
