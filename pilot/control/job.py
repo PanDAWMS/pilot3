@@ -305,7 +305,6 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     """
 
     # insert out of batch time error code if MAXTIME has been reached
-    logger.debug(f"REACHED_MAXTIME={os.environ.get('REACHED_MAXTIME', None)}")
     if os.environ.get('REACHED_MAXTIME', None):
         msg = 'the max batch system time limit has been reached'
         logger.warning(msg)
@@ -317,8 +316,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     if state == 'finished' or state == 'holding' or state == 'failed':
         logger.info(f'this job has now completed (state={state})')
         job.completed = True
-    #elif args.pod and args.workflow == 'stager' and state == 'running':
-    #    logger.info(f'this job has now completed (state={state})')
+    elif args.pod and args.workflow == 'stager':
+        state = 'running'  # stager pods should only send 'running' since harvester already has set the 'starting' state
+        job.state = state
     #    job.completed = True
 
     # should the pilot make any server updates?
