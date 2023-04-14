@@ -263,7 +263,10 @@ def update_ctx():
     certdir = os.environ.get('X509_CERT_DIR', _ctx.capath)
     if certdir != _ctx.capath and os.path.exists(certdir):
         _ctx.capath = certdir
-
+    logger.debug(f"X509_CERT_DIR={os.environ.get('X509_CERT_DIR')}")
+    logger.debug(f"_ctx.capath={_ctx.capath}")
+    logger.debug(f"certdir={certdir}")
+    logger.debug(f"os.path.exists(certdir)={os.path.exists(certdir)}")
 
 def get_curl_command(plain, dat, ipv):
     """
