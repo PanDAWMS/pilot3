@@ -216,7 +216,7 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
                 failed = True
                 break
             try:
-                status, output, stderr = execute(req, obscure=obscure)
+                status, output, stderr = execute(req, obscure=obscure, timeout=130)
             except Exception as exc:
                 logger.warning(f'exception: {exc}')
                 failed = True

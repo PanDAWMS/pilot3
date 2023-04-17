@@ -1234,9 +1234,6 @@ def create_data_payload(queues, traces, args):
                 set_pilot_state(job=job, state='running')
                 ret = send_state(job, args, 'running')
                 if not ret:
-                    job.state = 'failed'
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COMMUNICATIONFAILURE)
-                    put_in_queue(job, queues.failed_jobs)
                     traces.pilot['error_code'] = errors.COMMUNICATIONFAILURE
                 logger.info('pilot is no longer needed - terminating')
                 args.job_aborted.set()
