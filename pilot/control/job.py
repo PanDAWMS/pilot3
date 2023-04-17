@@ -1232,7 +1232,12 @@ def create_data_payload(queues, traces, args):
             # for stager jobs in pod mode, let the server know the job is running, then terminate the pilot as it is no longer needed
             if args.pod and args.workflow == 'stager':
                 set_pilot_state(job=job, state='running')
-                send_state(job, args, 'running')
+                ret = send_state(job, args, 'running')
+                if not ret:
+                    job.state = 'failed'
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COMMUNICATIONFAILURE)
+                    put_in_queue(job, queues.failed_jobs)
+                    traces.pilot['error_code'] = errors.COMMUNICATIONFAILURE
                 logger.info('pilot is no longer needed - terminating')
                 args.job_aborted.set()
                 args.graceful_stop.set()
