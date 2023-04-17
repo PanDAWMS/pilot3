@@ -204,6 +204,7 @@ def get_error_code_translation_dictionary():
         errors.MIDDLEWAREIMPORTFAILURE: [76, "Failed to import middleware module"],  # added to traces object
         errors.MISSINGINPUTFILE: [77, "Missing input file in SE"],  # should pilot report this type of error to wrapper?
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
+        errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
