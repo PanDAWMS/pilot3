@@ -547,10 +547,11 @@ def wrap_up():
         logging.warning(f'failed to convert exit code to int: {exitcode}, {exc}')
         exitcode = 1008
 
-    logging.info('pilot has finished')
+    sec = shell_exit_code(exitcode)
+    logging.info(f'pilot has finished (exit code={exitcode}, shell exit code={sec})')
     logging.shutdown()
 
-    return shell_exit_code(exitcode)
+    return sec
 
 
 def get_pilot_source_dir():
