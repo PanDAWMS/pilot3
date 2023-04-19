@@ -12,7 +12,6 @@
 
 from __future__ import print_function  # Python 2
 
-import json
 import os
 import time
 import hashlib
