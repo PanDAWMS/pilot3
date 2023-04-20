@@ -12,7 +12,7 @@ import time
 from re import search
 
 # from pilot.info import infosys
-from .setup import get_asetup
+# from .setup import get_asetup
 from pilot.util.container import execute
 from pilot.util.filehandling import read_json, copy, write_json, remove
 from pilot.util.parameters import convert_to_int
@@ -73,17 +73,22 @@ def get_memory_monitor_setup(pid, pgrp, jobid, workdir, command, setup="", use_c
         logger.warning('process id was not identified before payload finished - will not launch memory monitor')
         return "", pid
 
-    if not setup:
-        setup = get_asetup(asetup=False)
-        setup += 'lsetup prmon;'
-    if not setup.endswith(';'):
-        setup += ';'
+    #if not setup:
+    #    setup = get_asetup(asetup=False)
+    #    setup += 'lsetup prmon;'
+    #if not setup.endswith(';'):
+    #    setup += ';'
 
-    cmd = "prmon"
+    path = os.environ.get('ATLAS_LOCAL_ROOT', '')
+    if path:
+        path = os.path.join(path, 'prmon/current/bin')
+        path += '/'
+    cmd = f"{path}prmon"
     interval = 60
     options = " --pid %d --filename %s --json-summary %s --interval %d" %\
               (pid, get_memory_monitor_output_filename(), get_memory_monitor_summary_filename(), interval)
-    cmd = "cd " + workdir + ";" + setup + cmd + options
+    #cmd = "cd " + workdir + ";" + setup + cmd + options
+    cmd = "cd " + workdir + ";" + cmd + options
 
     return cmd, pid
 
