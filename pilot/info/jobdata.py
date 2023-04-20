@@ -146,6 +146,8 @@ class JobData(BaseData):
     containeroptions = {}          #
     use_vp = False                 # True for VP jobs
     maxwalltime = 0                # maxWalltime in s
+    dask_scheduler_ip = ''         # enhanced job definition for DASK jobs
+    jupyter_session_ip = ''        # enhanced job definition for DASK jobs
 
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
@@ -172,7 +174,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
-                   'debug_command'],
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
@@ -486,7 +488,9 @@ class JobData(BaseData):
             'pandasecrets': 'secrets',
             'pilotsecrets': 'pilotSecrets',
             'requestid': 'reqID',
-            'maxwalltime': 'maxWalltime'
+            'maxwalltime': 'maxWalltime',
+            'dask_scheduler_ip': 'scheduler_ip',
+            'jupyter_session_ip': 'session_ip'
         } if use_kmap else {}
 
         self._load_data(data, kmap)
