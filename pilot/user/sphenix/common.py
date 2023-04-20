@@ -224,7 +224,7 @@ def get_utility_command_setup(name, job, setup=None):
     if name == 'MemoryMonitor':
         # must know if payload is running in a container or not
         # (enables search for pid in ps output)
-        use_container = job.usecontainer or 'runcontainer' in job.transformation
+        use_container = False  #job.usecontainer or 'runcontainer' in job.transformation
         dump_ps = ("PRMON_DEBUG" in job.infosys.queuedata.catchall)
 
         setup, pid = get_memory_monitor_setup(
