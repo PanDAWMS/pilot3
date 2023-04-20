@@ -122,9 +122,9 @@ def get_cpu_flags(sorted=True):
     return flags
 
 
-def get_cpu_arch():
+def get_cpu_arch_internal():
     """
-    Return the CPU architecture string.
+    Return the CPU architecture string (using internal script).
 
     The CPU architecture string is determined by a script (pilot/scripts/cpu_arch.py), run by the pilot.
     For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
@@ -149,6 +149,27 @@ def get_cpu_arch():
     else:
         cpu_arch = stdout
         logger.debug(f'CPU arch script returned: {cpu_arch}')
+
+    return cpu_arch
+
+# export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLo\
+# > calSetup.sh --quiet;lsetup cpu_flags; cpu_arch.py --alg gcc
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :return: CPU arch (string).
+    """
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+    cpu_arch = user.get_cpu_arch()
+    if not cpu_arch:
+        cpu_arch = get_cpu_arch_internal()
 
     return cpu_arch
 

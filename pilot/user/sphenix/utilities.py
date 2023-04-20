@@ -818,3 +818,15 @@ def precleanup():
     if os.path.exists(path):
         logger.info('removing no longer needed file: %s' % path)
         remove(path)
+
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
+
+    :return: CPU arch (string).
+    """
+
+    return ""

@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
 import os
 import time
@@ -537,3 +537,15 @@ def precleanup():
     """
 
     pass
+
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
+
+    :return: CPU arch (string).
+    """
+
+    return ""

@@ -852,3 +852,31 @@ def precleanup():
     if os.path.exists(path):
         logger.info('removing no longer needed file: %s' % path)
         remove(path)
+
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :return: CPU arch (string).
+    """
+
+    cpu_arch = ''
+
+    # copy pilot source into container directory, unless it is already there
+    setup = get_asetup(asetup=False)
+    script = 'cpu_arch.py --alg gcc'
+    cmd = setup + '; ' + script
+
+    # CPU arch script has now been copied, time to execute it
+    ec, stdout, stderr = execute(cmd)
+    if ec or stderr:
+        logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
+    else:
+        cpu_arch = stdout
+        logger.debug(f'CPU arch script returned: {cpu_arch}')
+
+    return cpu_arch
