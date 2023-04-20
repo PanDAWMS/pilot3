@@ -52,6 +52,9 @@ def scan_for_jobs(queues):
 
     while time.time() - _t0 < 30:
         for queue in queues._fields:
+            # ignore queues with no job objects
+            if queue == 'completed_jobids' or queue == 'messages':
+                continue
             _queue = getattr(queues, queue)
             jobs = list(_queue.queue)
             if len(jobs) > 0:
