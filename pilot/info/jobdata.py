@@ -146,8 +146,8 @@ class JobData(BaseData):
     containeroptions = {}          #
     use_vp = False                 # True for VP jobs
     maxwalltime = 0                # maxWalltime in s
-    dask_scheduler_ip = ''         # enhanced job definition for DASK jobs
-    jupyter_session_ip = ''        # enhanced job definition for DASK jobs
+    dask_scheduler_ip = ''         # enhanced job definition for Dask jobs
+    jupyter_session_ip = ''        # enhanced job definition for Dask jobs
 
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
