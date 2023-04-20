@@ -355,8 +355,8 @@ def get_max_running_time(lifetime, queuedata, queues, push, pod):
     max_running_time = lifetime
 
     if not queuedata:
-        logger.warning(f'queuedata could not be extracted from queues, will use default for max running time '
-                       f'({max_running_time}s)')
+        #logger.warning(f'queuedata could not be extracted from queues, will use default for max running time '
+        #               f'({max_running_time}s)')
         return max_running_time
 
     # for push queues: try to get the walltime from the job object first, in case it exists and is set
