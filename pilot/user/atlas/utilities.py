@@ -866,8 +866,18 @@ def get_cpu_arch():
 
     cpu_arch = ''
 
+    def filter_output(stdout):
+        """ Remove lsetup info """
+        if stdout:
+            if stdout.endswith('\n'):
+                stdout = stdout[:-1]
+        tmp = stdout.split('\n')
+        stdout = tmp[-1]
+
+        return stdout
+
     # copy pilot source into container directory, unless it is already there
-    setup = get_asetup(asetup=False)
+    setup = get_asetup(asetup=False) + 'lsetup cpu_flags; '
     script = 'cpu_arch.py --alg gcc'
     cmd = setup + '; ' + script
 
@@ -876,6 +886,8 @@ def get_cpu_arch():
     if ec or stderr:
         logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
+        logger.debug(stdout)
+        stdout = filter_output(stdout)
         cpu_arch = stdout
         logger.debug(f'CPU arch script returned: {cpu_arch}')
 
