@@ -81,6 +81,11 @@ def get_job_metrics_string(job):
     # extract event number from file and add to job metrics if it exists
     job_metrics = add_event_number(job_metrics, job.workdir)
 
+    # add DASK IPs if set
+    if job.dask_scheduler_ip and job.jupyter_session_ip:
+        job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
+        job_metrics += get_job_metrics_entry("sessionIP", job.jupyter_session_ip)
+
     return job_metrics
 
 
