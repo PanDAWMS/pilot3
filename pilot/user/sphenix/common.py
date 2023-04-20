@@ -207,6 +207,7 @@ def get_utility_after_payload_started():
     else:
         if cmd:
             com = {'command': cmd, 'args': '', 'label': cmd.lower(), 'ignore_failure': True}
+    return com
 
 
 def get_utility_command_setup(name, job, setup=None):

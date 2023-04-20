@@ -152,8 +152,6 @@ def get_cpu_arch_internal():
 
     return cpu_arch
 
-# export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLo\
-# > calSetup.sh --quiet;lsetup cpu_flags; cpu_arch.py --alg gcc
 
 def get_cpu_arch():
     """
