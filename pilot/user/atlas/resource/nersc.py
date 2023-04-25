@@ -65,7 +65,11 @@ def get_setup_command(job, prepareasetup):
         if os.environ.get('HARVESTER_PYTHONPATH', '') != "":
             cmd += "export PYTHONPATH=$HARVESTER_PYTHONPATH:$PYTHONPATH;"
         #set FRONTIER_SERVER for NERSC
-        cmd += "export FRONTIER_SERVER=\"(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)(serverurl=http://atlasfrontier2-ai.cern.ch:8000/atlr)(serverurl=http://atlasfrontier1-ai.cern.ch:8000/atlr)(proxyurl=http://frontiercache.nersc.gov:3128)\""
+        cmd += ("export FRONTIER_SERVER="
+                "\"(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)"
+                "(serverurl=http://atlasfrontier2-ai.cern.ch:8000/atlr)"
+                "(serverurl=http://atlasfrontier1-ai.cern.ch:8000/atlr)"
+                "(proxyurl=http://frontiercache.nersc.gov:3128)\"")
 
         logger.debug('get_setup_command return value: {0}'.format(str(cmd)))
 
