@@ -879,7 +879,7 @@ def get_cpu_arch():
     # copy pilot source into container directory, unless it is already there
     setup = get_asetup(asetup=False) + 'lsetup cpu_flags; '
     script = 'cpu_arch.py --alg gcc'
-    cmd = setup + '; ' + script
+    cmd = setup + script
 
     # CPU arch script has now been copied, time to execute it
     ec, stdout, stderr = execute(cmd)
