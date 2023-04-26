@@ -314,7 +314,8 @@ class JobData(BaseData):
             'filesize': 'fsize', 'checksum': 'checksum', 'scope': 'scopeIn',
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
-            'ddmendpoint': 'ddmEndPointIn'
+            'ddmendpoint': 'ddmEndPointIn',
+            'requestid': 'reqID'
         }
 
         return kmap
