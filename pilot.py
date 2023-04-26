@@ -455,7 +455,8 @@ def set_environment_variables():
     environ['PILOT_HOME'] = mainworkdir  # TODO: replace with singleton
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
-    environ['PILOT_SOURCE_DIR'] = args.sourcedir  # TODO: replace with singleton
+    if not environ.get('PILOT_SOURCE_DIR', None):
+        environ['PILOT_SOURCE_DIR'] = args.sourcedir  # TODO: replace with singleton
 
     # set the pilot user (e.g. ATLAS)
     environ['PILOT_USER'] = args.pilot_user  # TODO: replace with singleton
