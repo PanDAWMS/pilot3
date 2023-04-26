@@ -126,11 +126,10 @@ class ESProcess(threading.Thread):
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
         elif "--preExec" not in executable:
-            pre_exec_param = " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
             executable = executable().strip()
             if executable.endswith(";"):
                 executable = executable[:-1]
-            executable += pre_exec_param
+            executable += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
         else:
             if "import jobproperties as jps" in executable:
                 executable = executable.replace("import jobproperties as jps;",
