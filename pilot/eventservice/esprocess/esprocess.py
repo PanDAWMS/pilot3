@@ -126,9 +126,9 @@ class ESProcess(threading.Thread):
 
         is_ca = "--CA" in executable
         if is_ca:
-            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\'" % (socket_name)
+            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\' " % (socket_name)
         else:
-            preexec_socket_config = " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
+            preexec_socket_config = " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % (socket_name)
 
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
