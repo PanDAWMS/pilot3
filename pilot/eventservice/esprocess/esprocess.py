@@ -123,21 +123,29 @@ class ESProcess(threading.Thread):
 
     def init_yampl_socket(self, executable):
         socket_name = self.__message_thread.get_yampl_socket_name()
+
+        is_ca = "--CA" in executable
+        if is_ca:
+            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\'" % (socket_name)
+        else:
+            preexec_socket_config = " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
+
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
         elif "--preExec" not in executable:
             executable = executable().strip()
             if executable.endswith(";"):
                 executable = executable[:-1]
-            executable += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
+            executable += preexec_socket_config
         else:
             if "import jobproperties as jps" in executable:
                 executable = executable.replace("import jobproperties as jps;",
                                                 "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % (socket_name))
+                if is_ca:
+                    logger.warning("Found jobproperties config in CA job")
             else:
                 if "--preExec " in executable:
-                    new_str = "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % socket_name
-                    executable = executable.replace("--preExec ", new_str)
+                    executable = executable.replace("--preExec ", preexec_socket_config)
                 else:
                     logger.warn("--preExec has an unknown format - expected \'--preExec \"\' or \"--preExec \'\", got: %s" % (executable))
 
