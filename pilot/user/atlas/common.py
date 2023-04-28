@@ -548,7 +548,7 @@ def get_payload_command(job):
     cmd = add_athena_proc_number(cmd)
 
     if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
-        cmd = 'export PYTHONPATH=/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
+        cmd = 'export PYTHONPATH=/usr/lib64/python3.6:/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
 
     show_memory_usage()
     logger.info('payload run command: %s', cmd)
