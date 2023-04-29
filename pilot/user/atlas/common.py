@@ -550,6 +550,9 @@ def get_payload_command(job):
     #if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
     #    cmd = 'export PYTHONPATH=/usr/lib64/python3.6:/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
 
+    if job.dask_scheduler_ip:
+        cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
+
     show_memory_usage()
     logger.info('payload run command: %s', cmd)
 
