@@ -232,6 +232,13 @@ class StagingClient(object):
         if not xfiles:  # no files for replica look-up
             return files
 
+        # loop over rucio_client.list_replicas() in case of many input files
+        # replicas = list_replicas(xfiles)
+
+
+
+        # def list_replicas(xfiles):
+
         # load replicas from Rucio
         from rucio.client import Client
         c = Client()
@@ -266,6 +273,10 @@ class StagingClient(object):
 
         replicas = list(replicas)
         logger.debug("replicas received from Rucio: %s", replicas)
+
+        ### end of list_replicas() function
+
+
 
         files_lfn = dict(((e.scope, e.lfn), e) for e in xfiles)
         for replica in replicas:
