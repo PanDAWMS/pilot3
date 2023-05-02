@@ -496,6 +496,9 @@ def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
                 res['pilotSecrets'] = pilotsecrets
 
         attempt += 1
+        if not done:
+            sleep(config.Pilot.update_sleep)
+
     return res
 
 
