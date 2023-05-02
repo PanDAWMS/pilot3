@@ -24,6 +24,7 @@ from shutil import rmtree
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
+from pilot.util.config import config
 from pilot.info import infosys
 from pilot.util.auxiliary import pilot_version_banner, shell_exit_code
 from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIME, PILOT_END_TIME, get_pilot_version, \
@@ -69,6 +70,9 @@ def main():
     # let the server know that the worker has started
     if args.update_server:
         send_worker_status('started', args.queue, args.url, args.port, logger, 'IPv6')  # note: assuming IPv6, fallback in place
+
+    if not args.rucio_host:
+        args.rucio_host = config.Rucio.host
 
     # initialize InfoService
     try:
@@ -641,7 +645,6 @@ if __name__ == '__main__':
     # get the args from the arg parser
     args = get_args()
     args.last_heartbeat = time.time()
-    # args.rucio_host = 'https://voatlasrucio-server-prod.cern.ch:443'
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)
