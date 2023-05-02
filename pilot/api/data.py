@@ -215,7 +215,7 @@ class StagingClient(object):
 
         :param files: list of `FileSpec` objects.
         :param use_vp: True for VP jobs (boolean).
-        :return: `files`
+        :return: files object.
         """
 
         logger = self.logger
@@ -224,7 +224,7 @@ class StagingClient(object):
         show_memory_usage()
 
         for fdat in files:
-            ## skip fdat if need for further workflow (e.g. to properly handle OS ddms)
+            # skip fdat if need for further workflow (e.g. to properly handle OS ddms)
             xfiles.append(fdat)
 
         show_memory_usage()
@@ -232,51 +232,11 @@ class StagingClient(object):
         if not xfiles:  # no files for replica look-up
             return files
 
-        # loop over rucio_client.list_replicas() in case of many input files
-        # replicas = list_replicas(xfiles)
-
-
-
-        # def list_replicas(xfiles):
-
-        # load replicas from Rucio
-        from rucio.client import Client
-        c = Client()
-
-        show_memory_usage()
-
-        location = self.detect_client_location()
-        if not location:
-            raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
-
-        query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
-        }
-        query.update(sort='geoip', client_location=location)
-        # reset the schemas for VP jobs
-        if use_vp:
-            query['schemes'] = ['root']
-            query['rse_expression'] = 'istape=False\\type=SPECIAL'
-
-        # add signature lifetime for signed URL storages
-        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
-
-        logger.info('calling rucio.list_replicas() with query=%s', query)
-
+        # get the list of replicas
         try:
-            replicas = c.list_replicas(**query)
+            replicas = self.list_replicas(xfiles, use_vp)
         except Exception as exc:
-            raise PilotException("Failed to get replicas from Rucio: %s" % exc, code=ErrorCodes.RUCIOLISTREPLICASFAILED)
-
-        show_memory_usage()
-
-        replicas = list(replicas)
-        logger.debug("replicas received from Rucio: %s", replicas)
-
-        ### end of list_replicas() function
-
-
+            raise exc
 
         files_lfn = dict(((e.scope, e.lfn), e) for e in xfiles)
         for replica in replicas:
@@ -320,6 +280,52 @@ class StagingClient(object):
                                % (f.lfn, len(f.replicas or []), f.is_directaccess(ensure_replica=False)) for f in files]))
 
         return files
+
+    def list_replicas(self, xfiles, use_vp):
+        """
+        Wrapper around rucio_client.list_replicas()
+
+        :param xfiles: files object.
+        :param use_vp: True for VP jobs (boolean).
+        :return: replicas (list).
+        """
+
+        # load replicas from Rucio
+        from rucio.client import Client
+        rucio_client = Client()
+
+        show_memory_usage()
+
+        location = self.detect_client_location()
+        if not location:
+            raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
+
+        query = {
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
+            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
+        }
+        query.update(sort='geoip', client_location=location)
+        # reset the schemas for VP jobs
+        if use_vp:
+            query['schemes'] = ['root']
+            query['rse_expression'] = 'istape=False\\type=SPECIAL'
+
+        # add signature lifetime for signed URL storages
+        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
+
+        self.logger.info(f'calling rucio.list_replicas() with query={query}')
+
+        try:
+            replicas = rucio_client.list_replicas(**query)
+        except Exception as exc:
+            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED)
+
+        show_memory_usage()
+
+        replicas = list(replicas)
+        self.logger.debug(f"replicas received from Rucio: {replicas}")
+
+        return replicas
 
     def add_replicas(self, fdat, replica):
         """
