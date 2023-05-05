@@ -823,11 +823,24 @@ class StageInClient(StagingClient):
         kwargs['trace_report'] = self.trace_report
         self.logger.info('ready to transfer (stage-in) files: %s', remain_files)
 
+        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
+        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
+
         # use bulk downloads if necessary
         # if kwargs['use_bulk_transfer']
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
+    def allow_mvfinaldest(self, catchall):
+        """
+        Is there an override in catchall to allow mv to final destination?
+
+        :param catchall: catchall from queuedata (string)
+        :return: True if 'mv_final_destination' is present in catchall, otherwise False (Boolean)
+        """
+        
+        return True if catchall and 'mv_final_destination' in catchall else False
+    
     def set_status_for_direct_access(self, files, workdir):
         """
         Update the FileSpec status with 'remote_io' for direct access mode.
@@ -1108,6 +1121,9 @@ class StageOutClient(StagingClient):
 
         # add the trace report
         kwargs['trace_report'] = self.trace_report
+
+        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
+        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
 
         return copytool.copy_out(files, **kwargs)
 
