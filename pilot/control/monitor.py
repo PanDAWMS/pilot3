@@ -291,12 +291,12 @@ def run_checks(queues, args):
     #else:
     #    logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
 
-    if args.abort_job.is_set():
+    if args.graceful_stop.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module
         abort_jobs_in_queues(queues, args.signal)
 
         t_max = 2 * 60
-        logger.warning('pilot monitor received instruction that abort_job has been requested')
+        logger.warning('pilot monitor received instruction that args.graceful_stop has been set')
         logger.warning(f'will wait for a maximum of {t_max} s for threads to finish')
         t_0 = time.time()
         ret = False
@@ -309,10 +309,6 @@ def run_checks(queues, args):
             time.sleep(1)
         if ret:
             return
-
-        if not args.graceful_stop.is_set():
-            logger.warning('setting graceful_stop')
-            args.graceful_stop.set()
 
         if not args.job_aborted.is_set():
             t_max = 60
