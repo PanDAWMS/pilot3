@@ -539,14 +539,16 @@ def copytool_in(queues, traces, args):  # noqa: C901
                 traces.pilot['command'] = 'abort'
                 logger.warning('copytool_in detected a set abort_job pre stage-in (due to a kill signal)')
                 declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                break
+                if args.graceful_stop.is_set():
+                    break
 
             if _stage_in(args, job):
                 if args.abort_job.is_set():
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_in detected a set abort_job post stage-in (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                    break
+                    if args.graceful_stop.is_set():
+                        break
 
                 put_in_queue(job, queues.finished_data_in)
                 # remove the job from the current stage-in queue
@@ -604,9 +606,8 @@ def copytool_out(queues, traces, args):
     """
 
     cont = True
-    logger.debug('entering copytool_out loop')
     if args.graceful_stop.is_set():
-        logger.debug('graceful_stop already set')
+        logger.debug('graceful_stop already set - do not start copytool_out thread')
 
     processed_jobs = []
     while cont:
@@ -638,14 +639,16 @@ def copytool_out(queues, traces, args):
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_out detected a set abort_job pre stage-out (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                    break
+                    if abort:
+                        break
 
                 if _stage_out_new(job, args):
                     if args.abort_job.is_set():
                         traces.pilot['command'] = 'abort'
                         logger.warning('copytool_out detected a set abort_job post stage-out (due to a kill signal)')
                         #declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                        break
+                        if args.graceful_stop.is_set():
+                            break
 
                     #queues.finished_data_out.put(job)
                     processed_jobs.append(job.jobid)
