@@ -3026,11 +3026,11 @@ def check_job_monitor_waiting_time(args, peeking_time, abort_override=False):
         logger.warning(msg)
     else:
         print(msg)
-    if abort or abort_override:
-        # do not set graceful stop if pilot has not finished sending the final job update
-        # i.e. wait until SERVER_UPDATE is DONE_FINAL
-        check_for_final_server_update(args.update_server)
-        args.graceful_stop.set()
+    #if abort or abort_override:
+    #    # do not set graceful stop if pilot has not finished sending the final job update
+    #    # i.e. wait until SERVER_UPDATE is DONE_FINAL
+    #    check_for_final_server_update(args.update_server)
+    #    args.graceful_stop.set()
 
 
 def fail_monitored_job(job, exit_code, diagnostics, queues, traces):
