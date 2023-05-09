@@ -100,6 +100,16 @@ class StagingClient(object):
             raise PilotException("failed to resolve acopytools settings")
         logger.info('configured copytools per activity: acopytools=%s', self.acopytools)
 
+    def allow_mvfinaldest(self, catchall):
+        """
+        Is there an override in catchall to allow mv to final destination?
+
+        :param catchall: catchall from queuedata (string)
+        :return: True if 'mv_final_destination' is present in catchall, otherwise False (Boolean)
+        """
+
+        return True if catchall and 'mv_final_destination' in catchall else False
+
     def set_acopytools(self):
         """
         Set the internal acopytools.
@@ -831,16 +841,6 @@ class StageInClient(StagingClient):
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
-    def allow_mvfinaldest(self, catchall):
-        """
-        Is there an override in catchall to allow mv to final destination?
-
-        :param catchall: catchall from queuedata (string)
-        :return: True if 'mv_final_destination' is present in catchall, otherwise False (Boolean)
-        """
-        
-        return True if catchall and 'mv_final_destination' in catchall else False
-    
     def set_status_for_direct_access(self, files, workdir):
         """
         Update the FileSpec status with 'remote_io' for direct access mode.
