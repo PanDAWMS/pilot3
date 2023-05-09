@@ -519,7 +519,7 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
             if job.pid:
                 logger.debug('killing payload process')
                 kill_process(job.pid)
-            #args.abort_job.set()
+            args.abort_job.set()
         elif 'softkill' in cmd:
             logger.info(f'pilot received a panda server signal to softkill job {job.jobid} at {time_stamp()}')
             # event service kill instruction
@@ -2564,7 +2564,6 @@ def check_for_abort_job(args, caller=''):
     abort_job = False
     if args.abort_job.is_set():
         logger.warning('%s detected an abort_job request (signal=%s)', caller, args.signal)
-        logger.warning('in case pilot is running more than one job, all jobs will be aborted')
         abort_job = True
 
     return abort_job
@@ -2756,7 +2755,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
     Monitoring of job parameters.
     This function monitors certain job parameters, such as job looping, at various time intervals. The main loop
     is executed once a minute, while individual verifications may be executed at any time interval (>= 1 minute). E.g.
-    looping jobs are checked once per ten minutes (default) and the heartbeat is send once per 30 minutes. Memory
+    looping jobs are checked once every ten minutes (default) and the heartbeat is sent once every 30 minutes. Memory
     usage is checked once a minute.
 
     :param queues: internal queues for job handling.
@@ -2775,17 +2774,14 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
-    while not args.graceful_stop.is_set():
+    cont = True
+    while cont:
         time.sleep(0.5)
-
-        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
-        # (abort at the end of the loop)
-        abort = should_abort(args, label='job:job_monitor')
 
         if traces.pilot.get('command') == 'abort':
             logger.warning('job monitor received an abort command')
 
-        # check for any abort_job requests
+        # check for any abort_job requests (either kill signal or tobekilled command)
         abort_job = check_for_abort_job(args, caller='job monitor')
         if not abort_job:
             if not queues.current_data_in.empty():
@@ -2816,8 +2812,6 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 time.sleep(1)
                 continue
 
-            time.sleep(60)
-
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
         jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
         if jobs:
@@ -2826,26 +2820,37 @@ def job_monitor(queues, traces, args):  # noqa: C901
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
 
-                # if abort_job and signal was set
+                error_code = None
                 if abort_job and args.signal:
+                    # if abort_job and a kill signal was set
                     error_code = get_signal_error(args.signal)
+                elif abort_job:  # i.e. no kill signal
+                    logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
+                elif os.environ.get('REACHED_MAXTIME', None):
+                    # the batch system max time has been reached, time to abort (in the next step)
+                    logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
+                    if not args.graceful_stop.is_set():
+                        logger.info('setting graceful_stop since it was not set already')
+                        args.graceful_stop.set()
+                    error_code = errors.REACHEDMAXTIME
+                sent_update = False
+                if error_code:
                     jobs[i].state = 'failed'
                     jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
                     jobs[i].completed = True
-                    # update server immediately
-                    send_state(jobs[i], args, jobs[i].state)
+                    status = send_state(jobs[i], args, jobs[i].state)
+                    if status:
+                        sent_update = True
                     if jobs[i].pid:
                         logger.debug('killing payload processes')
                         kill_processes(jobs[i].pid)
-
-                if os.environ.get('REACHED_MAXTIME', None):
-                    # the batch system max time has been reached, time to abort (in the next step)
-                    jobs[i].state = 'failed'
 
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                     # abort = True - do not set abort here as it will abort the entire thread, not just the current monitor loop
+                    if not sent_update:  # e.g. this is the case for tobekilled (error code not set in this function)
+                        send_state(jobs[i], args, jobs[i].state)
                     break
 
                 # perform the monitoring tasks
@@ -2905,8 +2910,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
         n += 1
 
-        if abort or abort_job:
-            break
+        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
+        abort = should_abort(args, label='job:job_monitor')
+        if abort:
+            cont = False
 
     # proceed to set the job_aborted flag?
     if threads_aborted():

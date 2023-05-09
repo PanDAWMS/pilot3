@@ -129,7 +129,7 @@ def dump_stack_trace(pid):
 
 def kill_processes(pid):
     """
-    Kill process beloging to given process group.
+    Kill process belonging to the process group that the given pid belongs to.
 
     :param pid: process id (int).
     :return:
