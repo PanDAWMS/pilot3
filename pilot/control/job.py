@@ -2839,7 +2839,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.info('setting graceful_stop since it was not set already')
                         args.graceful_stop.set()
                     error_code = errors.REACHEDMAXTIME
-                sent_update = job.completed  # job.completed gets set to True after a successful final server update
+                sent_update = jobs[i].completed  # job.completed gets set to True after a successful final server update
                 if error_code:
                     jobs[i].state = 'failed'
                     jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
