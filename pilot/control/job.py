@@ -2856,7 +2856,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                     # abort = True - do not set abort here as it will abort the entire thread, not just the current monitor loop
-                    if not sent_update:  # e.g. this is the case for tobekilled (error code not set in this function)
+                    if not jobs[i].completed:  # e.g. this is the case for tobekilled (error code not set in this function)
                         send_state(jobs[i], args, jobs[i].state)
                     break
 
