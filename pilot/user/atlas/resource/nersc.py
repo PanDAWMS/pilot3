@@ -64,8 +64,12 @@ def get_setup_command(job, prepareasetup):
         # test if HARVESTER_PYTHONPATH is defined
         if os.environ.get('HARVESTER_PYTHONPATH', '') != "":
             cmd += "export PYTHONPATH=$HARVESTER_PYTHONPATH:$PYTHONPATH;"
-        #unset FRONTIER_SERVER variable
-        cmd += "unset FRONTIER_SERVER"
+        #set FRONTIER_SERVER for NERSC
+        cmd += ("export FRONTIER_SERVER="
+                "\"(serverurl=http://atlasfrontier-ai.cern.ch:8000/atlr)"
+                "(serverurl=http://atlasfrontier2-ai.cern.ch:8000/atlr)"
+                "(serverurl=http://atlasfrontier1-ai.cern.ch:8000/atlr)"
+                "(proxyurl=http://frontiercache.nersc.gov:3128)\"")
 
         logger.debug('get_setup_command return value: {0}'.format(str(cmd)))
 
