@@ -81,7 +81,7 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -585,7 +585,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
             continue
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_in'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -671,7 +671,7 @@ def copytool_out(queues, traces, args):  # noqa: C901
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_out'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -1083,7 +1083,7 @@ def queue_monitoring(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='queue_monitoring'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:

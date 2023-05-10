@@ -605,7 +605,7 @@ def threads_aborted_deprecated(abort_at=2):
     return aborted
 
 
-def threads_aborted():
+def threads_aborted(caller=''):
     """
     Have the Pilot threads been aborted?
     This function will count all the threads still running, but will only return True if all
@@ -643,6 +643,10 @@ def threads_aborted():
         logger.debug(f'aborting since only the main Pilot thread is still running '
                      f'(total thread count={thread_count} with {daemon_threads} daemon thread(s)')
         abort = True
+    elif pilot_thread_count == 1 and caller:
+        if caller in names[0]:
+            logger.info(f'caller={caller} is remaining thread - safe to abort')
+            abort = True
 
     return abort
 

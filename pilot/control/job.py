@@ -108,7 +108,7 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -1075,7 +1075,7 @@ def validate(queues, traces, args):
             put_in_queue(job, queues.failed_jobs)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -1248,7 +1248,7 @@ def create_data_payload(queues, traces, args):
             put_in_queue(job, queues.payloads)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='create_data_payload'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -2059,7 +2059,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                     time.sleep(0.5)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='retrieve'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -2458,7 +2458,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='queue_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -2611,7 +2611,7 @@ def interceptor(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='interceptor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -2676,7 +2676,7 @@ def message_listener(queues, traces, args):
 
     # proceed to set the job_aborted flag?
     if args.subscribe_to_msgsvc:
-        if threads_aborted():
+        if threads_aborted(caller='message_listener'):
             logger.debug('will proceed to set job_aborted')
             args.job_aborted.set()
         else:
@@ -2748,7 +2748,7 @@ def fast_job_monitor(queues, traces, args):
                         logger.debug('fast monitoring reported an error: %d', exit_code)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='fast_job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -2924,7 +2924,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
             cont = False
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:

@@ -85,7 +85,7 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -120,7 +120,7 @@ def validate_pre(queues, traces, args):
             put_in_queue(job, queues.failed_payloads)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate_pre'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -300,7 +300,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
                 time.sleep(5)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='execute_payloads'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -534,7 +534,7 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
         realtime_logger.sending_logs(args, job)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='run_realtimelog'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -729,7 +729,7 @@ def validate_post(queues, traces, args):
         put_in_queue(job, queues.data_out)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
@@ -766,7 +766,7 @@ def failed_post(queues, traces, args):
         put_in_queue(job, queues.data_out)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='failed_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
     else:
