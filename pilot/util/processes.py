@@ -622,6 +622,7 @@ def threads_aborted():
     main_thread_count = 0
 
     # count all threads still alive
+    names = []
     for thread in threading.enumerate():
         if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
             daemon_threads += 1
@@ -632,6 +633,7 @@ def threads_aborted():
         else:  # only count threads spawned by the main thread, no the main thread itself or any daemon threads
             #tag = 'pilot?'
             pilot_thread_count += 1
+            names.append(f'{thread}')
         #logger.debug(f'thread={thread},'
         #             f'pilot_thread_count={pilot_thread_count}, '
         #             f'daemon_thread_count={daemon_threads}, '

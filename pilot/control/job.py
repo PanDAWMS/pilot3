@@ -1955,6 +1955,7 @@ def retrieve(queues, traces, args):  # noqa: C901
             check_for_final_server_update(args.update_server)
             logger.warning('setting graceful_stop since proceed_with_getjob() returned False (pilot will end)')
             args.graceful_stop.set()
+            args.abort_job.set()
             break
 
         # store time stamp
