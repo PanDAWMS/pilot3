@@ -3024,8 +3024,8 @@ def check_job_monitor_waiting_time(args, peeking_time, abort_override=False):
     waiting_time = int(time.time()) - peeking_time
     msg = 'no jobs in monitored_payloads queue (waited for %d s)' % waiting_time
     if waiting_time > 60 * 60:
-    #    abort = True
         msg += ' - aborting'
+    #    abort = True
     #else:
     #    abort = False
     if logger:
