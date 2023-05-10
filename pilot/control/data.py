@@ -594,7 +594,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
     logger.info('[data] copytool_in thread has finished')
 
 
-def copytool_out(queues, traces, args):
+def copytool_out(queues, traces, args):  # noqa: C901
     """
     Main stage-out thread.
     Perform stage-out as soon as a job object can be extracted from the data_out queue.

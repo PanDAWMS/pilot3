@@ -164,7 +164,7 @@ def run_shutdowntime_minute_check(time_since_start):
         if _shutdowntime:
             try:
                 shutdowntime = int(_shutdowntime)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError):  # as exc:
                 #logger.debug(f'failed to convert shutdowntime: {exc}')
                 return False  # will be ignored
             else:

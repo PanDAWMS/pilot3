@@ -2909,10 +2909,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')
-        else:
-            # check the waiting time in the job monitor. set global graceful_stop if necessary
-            if args.workflow != 'stager':
-                check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
+        #else:
+        #    # check the waiting time in the job monitor. set global graceful_stop if necessary
+        #    if args.workflow != 'stager':
+        #        check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
 
         n += 1
 
@@ -3024,10 +3024,10 @@ def check_job_monitor_waiting_time(args, peeking_time, abort_override=False):
     waiting_time = int(time.time()) - peeking_time
     msg = 'no jobs in monitored_payloads queue (waited for %d s)' % waiting_time
     if waiting_time > 60 * 60:
-        abort = True
+    #    abort = True
         msg += ' - aborting'
-    else:
-        abort = False
+    #else:
+    #    abort = False
     if logger:
         logger.warning(msg)
     else:
