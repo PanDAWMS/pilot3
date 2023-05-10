@@ -314,11 +314,10 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     state = get_proper_state(job, state)
     if state == 'finished' or state == 'holding' or state == 'failed':
         logger.info(f'this job has now completed (state={state})')
-        job.completed = True
+        # job.completed = True  - do not set that here (only after the successful final server update)
     elif args.pod and args.workflow == 'stager':
         state = 'running'  # stager pods should only send 'running' since harvester already has set the 'starting' state
         job.state = state
-    #    job.completed = True
 
     # should the pilot make any server updates?
     if not args.update_server:
@@ -354,6 +353,11 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
 
         if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+
+        if state == 'finished' or state == 'holding' or state == 'failed':
+            logger.info(f'setting job as completed (state={state})')
+            job.completed = True
+
         return True
 
     if final:
@@ -1949,6 +1953,7 @@ def retrieve(queues, traces, args):  # noqa: C901
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL
             check_for_final_server_update(args.update_server)
+            logger.warning('setting graceful_stop since proceed_with_getjob() returned False (pilot will end)')
             args.graceful_stop.set()
             break
 
@@ -1965,13 +1970,14 @@ def retrieve(queues, traces, args):  # noqa: C901
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL
             check_for_final_server_update(args.update_server)
+            logger.warning('setting graceful_stop since no job definition could be received (pilot will end)')
             args.graceful_stop.set()
             break
 
         if not res:
             getjob_failures += 1
             if getjob_failures >= args.getjob_failures:
-                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
+                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
                 args.graceful_stop.set()
                 break
 
