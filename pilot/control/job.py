@@ -2449,7 +2449,6 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             else:
                 # now ready for the next job (or quit)
                 put_in_queue(job.jobid, queues.completed_jobids)
-
                 put_in_queue(job, queues.completed_jobs)
                 if _job:
                     del _job
@@ -2475,6 +2474,10 @@ def update_server(job, args):
     :param args: pilot args object.
     :return:
     """
+
+    if job.completed:
+        logger.warning('job has already completed - cannot send another final update')
+        return
 
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -2840,15 +2843,13 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.info('setting graceful_stop since it was not set already')
                         args.graceful_stop.set()
                     error_code = errors.REACHEDMAXTIME
-                sent_update = jobs[i].completed  # job.completed gets set to True after a successful final server update
+                logger.debug(f'(1) jobs[i].completed={jobs[i].completed}')
                 if error_code:
                     jobs[i].state = 'failed'
                     jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
                     jobs[i].completed = True
-                    if not sent_update:
-                        status = send_state(jobs[i], args, jobs[i].state)
-                        if status:
-                            sent_update = True
+                    if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
+                        send_state(jobs[i], args, jobs[i].state)
                     if jobs[i].pid:
                         logger.debug('killing payload processes')
                         kill_processes(jobs[i].pid)
@@ -2860,6 +2861,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                     if not jobs[i].completed:  # e.g. this is the case for tobekilled (error code not set in this function)
                         send_state(jobs[i], args, jobs[i].state)
                     break
+
+                logger.debug(f'(2) jobs[i].completed={jobs[i].completed}')
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
@@ -2898,7 +2901,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 try:
                     update_time = send_heartbeat_if_time(_job, args, update_time)
                 except Exception as error:
-                    logger.warning('(2) exception caught: %s (job id=%s)', error, current_id)
+                    logger.warning('exception caught: %s (job id=%s)', error, current_id)
                     break
                 else:
                     # note: when sending a state change to the server, the server might respond with 'tobekilled'
@@ -3000,6 +3003,10 @@ def send_heartbeat_if_time(job, args, update_time):
     :param update_time: last update time (from time.time()).
     :return: possibly updated update_time (from time.time()).
     """
+
+    if job.completed:
+        logger.info('job already completed - will not send any further updates')
+        return update_time
 
     if int(time.time()) - update_time >= get_heartbeat_period(job.debug and job.debug_command):
         # check for state==running here, and send explicit 'running' in send_state, rather than sending job.state
