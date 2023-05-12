@@ -20,6 +20,7 @@ from subprocess import Popen, PIPE
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
 from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
+from pilot.util.common import is_pilot_check
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
@@ -279,17 +280,16 @@ def run_checks(queues, args):
     """
 
     # check how long time has passed since last successful heartbeat
-    last_heartbeat = time.time() - args.last_heartbeat
-    if last_heartbeat > config.Pilot.lost_heartbeat and args.update_server:
-        diagnostics = f'too much time has passed since last successful heartbeat ({last_heartbeat} s)'
-        logger.warning(diagnostics)
-        logger.warning('aborting pilot - no need to wait for job to finish - kill everything')
-        args.job_aborted.set()
-        args.graceful_stop.set()
-        args.abort_job.clear()
-        raise ExceededMaxWaitTime(diagnostics)
-    #else:
-    #    logger.debug(f'time since last successful heartbeat: {last_heartbeat} s')
+    if is_pilot_check(check='last_heartbeat'):
+        last_heartbeat = time.time() - args.last_heartbeat
+        if last_heartbeat > config.Pilot.lost_heartbeat and args.update_server:
+            diagnostics = f'too much time has passed since last successful heartbeat ({last_heartbeat} s)'
+            logger.warning(diagnostics)
+            logger.warning('aborting pilot - no need to wait for job to finish - kill everything')
+            args.job_aborted.set()
+            args.graceful_stop.set()
+            args.abort_job.clear()
+            raise ExceededMaxWaitTime(diagnostics)
 
     if args.graceful_stop.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module
