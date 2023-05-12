@@ -642,12 +642,13 @@ def threads_aborted(caller=''):
         #             f'names={names}, '
         #             f'tag={tag}')
     if pilot_thread_count == 0:
+        logger.debug(f'caller={caller}, main_thread_count={main_thread_count}')
         logger.debug(f'aborting since only the main Pilot thread is still running '
                      f'(total thread count={thread_count} with {daemon_threads} daemon thread(s): names={names}')
         abort = True
-    elif pilot_thread_count == 1 and caller and caller != 'run':
-        if caller in names[0]:
-            logger.info(f'caller={caller} is remaining thread - safe to abort')
+    elif pilot_thread_count == 1 and caller:  # and caller != 'run':
+        if caller in names[0] or caller == 'run':
+            logger.info(f'caller={caller} is remaining thread - safe to abort (names={names})')
             abort = True
 
     return abort

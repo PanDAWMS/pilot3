@@ -298,7 +298,7 @@ def run_checks(queues, args):
         # find all running jobs and stop them, find all jobs in queues relevant to this module
         abort_jobs_in_queues(queues, args.signal)
 
-        t_max = 2 * 60
+        t_max = 5 * 60
         logger.warning('pilot monitor received instruction that args.graceful_stop has been set')
         logger.warning(f'will wait for a maximum of {t_max} s for threads to finish')
         t_0 = time.time()
@@ -306,32 +306,37 @@ def run_checks(queues, args):
         while time.time() - t_0 < t_max:
             if args.job_aborted.is_set():
                 logger.warning('job_aborted has been set - aborting pilot monitoring')
-                args.abort_job.clear()
+                #args.abort_job.clear()
                 ret = True
                 break
             time.sleep(1)
         if ret:
             return
 
-        if not args.job_aborted.is_set():
-            t_max = 180
-            logger.warning(f'will wait for a maximum of {t_max} s for graceful_stop to take effect')
-            t_0 = time.time()
-            ret = False
-            while time.time() - t_0 < t_max:
-                if args.job_aborted.is_set():
-                    logger.warning('job_aborted has been set - aborting pilot monitoring')
-                    args.abort_job.clear()
-                    ret = True
-                    break
-                time.sleep(1)
-            if ret:
-                return
+        diagnostics = 'reached maximum waiting time - threads should have finished (ignore exception)'
+        #args.abort_job.clear()
+        args.job_aborted.set()
+        raise ExceededMaxWaitTime(diagnostics)
 
-            diagnostics = 'reached maximum waiting time - threads should have finished'
-            args.abort_job.clear()
-            args.job_aborted.set()
-            raise ExceededMaxWaitTime(diagnostics)
+#        if not args.job_aborted.is_set():
+#            t_max = 180
+#            logger.warning(f'will wait for a maximum of {t_max} s for graceful_stop to take effect')
+#            t_0 = time.time()
+#            ret = False
+#            while time.time() - t_0 < t_max:
+#                if args.job_aborted.is_set():
+#                    logger.warning('job_aborted has been set - aborting pilot monitoring')
+#                    #args.abort_job.clear()
+#                    ret = True
+#                    break
+#                time.sleep(1)
+#            if ret:
+#                return
+
+#            diagnostics = 'reached maximum waiting time - threads should have finished'
+#            args.abort_job.clear()
+#            args.job_aborted.set()
+#            raise ExceededMaxWaitTime(diagnostics)
 
 
 def get_max_running_time(lifetime, queuedata, queues, push, pod):
