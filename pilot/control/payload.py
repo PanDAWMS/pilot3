@@ -88,8 +88,6 @@ def control(queues, traces, args):
     if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] control thread has finished')
 
@@ -123,8 +121,6 @@ def validate_pre(queues, traces, args):
     if threads_aborted(caller='validate_pre'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] validate_pre thread has finished')
 
@@ -303,8 +299,6 @@ def execute_payloads(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='execute_payloads'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] execute_payloads thread has finished')
 
@@ -537,8 +531,6 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='run_realtimelog'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] run_realtimelog thread has finished')
 
@@ -732,8 +724,6 @@ def validate_post(queues, traces, args):
     if threads_aborted(caller='validate_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] validate_post thread has finished')
 
@@ -769,7 +759,5 @@ def failed_post(queues, traces, args):
     if threads_aborted(caller='failed_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] failed_post thread has finished')

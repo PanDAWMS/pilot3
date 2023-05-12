@@ -111,8 +111,6 @@ def control(queues, traces, args):
     if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] control thread has finished')
     # test kill signal during end of generic workflow
@@ -1078,8 +1076,6 @@ def validate(queues, traces, args):
     if threads_aborted(caller='validate'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] validate thread has finished')
 
@@ -1251,8 +1247,6 @@ def create_data_payload(queues, traces, args):
     if threads_aborted(caller='create_data_payload'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] create_data_payload thread has finished')
 
@@ -2062,8 +2056,6 @@ def retrieve(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='retrieve'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] retrieve thread has finished')
 
@@ -2460,8 +2452,6 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='queue_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] queue monitor thread has finished')
 
@@ -2617,8 +2607,6 @@ def interceptor(queues, traces, args):
     if threads_aborted(caller='interceptor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] interceptor thread has finished')
 
@@ -2682,8 +2670,6 @@ def message_listener(queues, traces, args):
         if threads_aborted(caller='message_listener'):
             logger.debug('will proceed to set job_aborted')
             args.job_aborted.set()
-        else:
-            logger.debug('will not set job_aborted yet')
 
     if args.amq:
         logger.debug('closing ActiveMQ connections')
@@ -2754,8 +2740,6 @@ def fast_job_monitor(queues, traces, args):
     if threads_aborted(caller='fast_job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] fast job monitor thread has finished')
 
@@ -2926,8 +2910,6 @@ def job_monitor(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] job monitor thread has finished')
 

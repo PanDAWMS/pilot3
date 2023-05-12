@@ -84,8 +84,6 @@ def control(queues, traces, args):
     if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] control thread has finished')
 
@@ -588,8 +586,6 @@ def copytool_in(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='copytool_in'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_in thread has finished')
 
@@ -674,8 +670,6 @@ def copytool_out(queues, traces, args):  # noqa: C901
     if threads_aborted(caller='copytool_out'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_out thread has finished')
 
@@ -1086,7 +1080,5 @@ def queue_monitoring(queues, traces, args):
     if threads_aborted(caller='queue_monitoring'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] queue_monitor thread has finished')
