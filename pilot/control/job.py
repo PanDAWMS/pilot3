@@ -2777,7 +2777,6 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
         # check for any abort_job requests (either kill signal or tobekilled command)
         abort_job = check_for_abort_job(args, caller='job monitor')
-        logger.debug(f'abort_job={abort_job}')
         if not abort_job:
             if not queues.current_data_in.empty():
                 # make sure to send heartbeat regularly if stage-in takes a long time
