@@ -314,7 +314,7 @@ def run_checks(queues, args):
             return
 
         if not args.job_aborted.is_set():
-            t_max = 60
+            t_max = 180
             logger.warning(f'will wait for a maximum of {t_max} s for graceful_stop to take effect')
             t_0 = time.time()
             ret = False
