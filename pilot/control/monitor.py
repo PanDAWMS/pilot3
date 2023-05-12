@@ -100,37 +100,40 @@ def control(queues, traces, args):  # noqa: C901
                     logger.info(f'{time_since_start}s have passed since pilot start')
 
             # every minute run the following check
-            if time.time() - last_minute_check > 60:
-                reached_maxtime = run_shutdowntime_minute_check(time_since_start)
-                if reached_maxtime:
-                    reached_maxtime_abort(args)
-                    break
-                last_minute_check = time.time()
+            if is_pilot_check(check='machinefeatures'):
+                if time.time() - last_minute_check > 60:
+                    reached_maxtime = run_shutdowntime_minute_check(time_since_start)
+                    if reached_maxtime:
+                        reached_maxtime_abort(args)
+                        break
+                    last_minute_check = time.time()
 
             # take a nap
             time.sleep(1)
 
             # time to check the CPU usage?
-            if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
-                processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
-                if processes:
-                    logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
-                    nproc = processes[3]
-                    if nproc > 1:
-                        logger.info(f'.. there are {nproc} such processes running')
-                tcpu = time.time()
+            if is_pilot_check(check='cpu_usage'):
+                if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
+                    processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
+                    if processes:
+                        logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
+                        nproc = processes[3]
+                        if nproc > 1:
+                            logger.info(f'.. there are {nproc} such processes running')
+                    tcpu = time.time()
 
             # proceed with running the other checks
             run_checks(queues, args)
 
             # thread monitoring
-            if int(time.time() - traces.pilot['lifetime_start']) % threadchecktime == 0:
-                # get all threads
-                for thread in threading.enumerate():
-                    # logger.info('thread name: %s', thread.name)
-                    if not thread.is_alive():
-                        logger.fatal(f'thread \'{thread.name}\' is not alive')
-                        # args.graceful_stop.set()
+            if is_pilot_check(check='threads'):
+                if int(time.time() - traces.pilot['lifetime_start']) % threadchecktime == 0:
+                    # get all threads
+                    for thread in threading.enumerate():
+                        # logger.info('thread name: %s', thread.name)
+                        if not thread.is_alive():
+                            logger.fatal(f'thread \'{thread.name}\' is not alive')
+                            # args.graceful_stop.set()
 
             niter += 1
 
