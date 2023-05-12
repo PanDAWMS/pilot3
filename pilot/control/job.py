@@ -2413,7 +2413,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
         while i < imax and os.environ.get('PILOT_WRAP_UP', '') == 'NORMAL':
             job = get_finished_or_failed_job(args, queues)
             if job:
-                logger.debug('returned job has state=%s', job.state)
+                logger.debug(f'returned job has job.state={job.state} and job.completed={job.completed}')
                 #if job.state == 'failed':
                 #    logger.warning('will abort failed job (should prepare for final server update)')
                 break
@@ -2822,10 +2822,9 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-        logger.debug('back here')
+
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
         jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
-        logger.debug(f'back here (jobs={jobs})')
         if jobs:
             # update the peeking time
             peeking_time = int(time.time())
@@ -2845,7 +2844,6 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.info('setting graceful_stop since it was not set already')
                         args.graceful_stop.set()
                     error_code = errors.REACHEDMAXTIME
-                logger.debug(f'(1) jobs[i].completed={jobs[i].completed}')
                 if error_code:
                     jobs[i].state = 'failed'
                     jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
@@ -2860,14 +2858,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                     # abort = True - do not set abort here as it will abort the entire thread, not just the current monitor loop
-                    logger.debug(f'(10) jobs[i].completed={jobs[i].completed}')
-                    if not jobs[i].completed:  # e.g. this is the case for tobekilled (error code not set in this function)
-                        logger.debug(f'(11) jobs[i].completed={jobs[i].completed}')
-                        send_state(jobs[i], args, jobs[i].state)
-                    logger.debug(f'(12) jobs[i].completed={jobs[i].completed}')
                     break
-
-                logger.debug(f'(2) jobs[i].completed={jobs[i].completed}')
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
@@ -2916,24 +2907,22 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         put_in_queue(_job, queues.data_out)
                         #abort = True
                         break
-            logger.debug('now here')
+
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')
         #else:
         #    # check the waiting time in the job monitor. set global graceful_stop if necessary
         #    if args.workflow != 'stager':
         #        check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
-        logger.debug('and now here')
+
         n += 1
 
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
         abort = should_abort(args, label='job:job_monitor')
-        logger.debug(f'abort={abort}')
         if abort:
             cont = False
-        logger.debug(f'cont={cont}')
+
     # proceed to set the job_aborted flag?
-    logger.debug('will check threads')
     if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
