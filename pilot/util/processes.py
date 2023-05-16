@@ -653,11 +653,14 @@ def threads_aborted(caller=''):
     elif pilot_thread_count == 0:
         logger.info(f'safe to abort? (names={names})')
         abort = True
-    elif pilot_thread_count < 3:
-        logger.info(f'waiting for threads to finish: {names}'
-                    f'(pilot_thread_count={pilot_thread_count}'
-                    f'main_thread_count={main_thread_count}'
-                    f'daemon_threads={daemon_threads})')
+    elif pilot_thread_count == 1:
+        mon = [thread for thread in names if ('monitor' in thread and '_monitor' not in thread)]  # exclude job_monitor and queue_monitor(ing)
+        if mon:
+            logger.info(f'only monitor.control thread still running - safe to abort: {names}')
+            abort = True
+        else:
+            logger.info(f'waiting for thread to finish: {names}')
+
     return abort
 
 
