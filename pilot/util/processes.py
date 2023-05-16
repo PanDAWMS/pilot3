@@ -653,6 +653,11 @@ def threads_aborted(caller=''):
     elif pilot_thread_count == 0:
         logger.info(f'safe to abort? (names={names})')
         abort = True
+    elif pilot_thread_count < 3:
+        logger.info(f'waiting for threads to finish: {names}'
+                    f'(pilot_thread_count={pilot_thread_count}'
+                    f'main_thread_count={main_thread_count}'
+                    f'daemon_threads={daemon_threads})')
     return abort
 
 
