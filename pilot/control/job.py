@@ -2078,8 +2078,6 @@ def htcondor_envvar(jobid, processingtype):
                 logger.info(f'set env var HTCondor_JOB_ID={globaljobid}')
         except Exception as exc:
             logger.warning(f'caught exception: {exc}')
-    else:
-        logger.debug('not a condor batch system - will not set HTCondor_JOB_ID')  # REMOVE ME
 
 
 def handle_proxy(job):
