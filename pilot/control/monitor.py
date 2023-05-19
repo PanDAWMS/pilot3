@@ -64,7 +64,8 @@ def control(queues, traces, args):  # noqa: C901
         while not args.graceful_stop.is_set():
             # every few seconds, run the monitoring checks
             if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
-                logger.warning('aborting monitor loop since graceful_stop has been set')
+                logger.warning('aborting monitor loop since graceful_stop has been set (timing out remaining threads)')
+                run_checks(queues, args)
                 break
 
             # abort if kill signal arrived too long time ago, ie loop is stuck
