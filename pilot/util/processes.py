@@ -630,10 +630,11 @@ def threads_aborted(caller=''):
         elif thread == threading.main_thread():
             main_thread_count += 1
             #tag = 'main'
+            names.append(f'{thread}')
         else:  # only count threads spawned by the main thread, no the main thread itself or any daemon threads
             pilot_thread_count += 1
             #tag = 'pilot?'
-        names.append(f'{thread}')
+            names.append(f'{thread}')
         #logger.debug(f'thread={thread},'
         #             f'caller={caller}, '
         #             f'pilot_thread_count={pilot_thread_count}, '
