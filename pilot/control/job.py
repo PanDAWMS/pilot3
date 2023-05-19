@@ -2768,6 +2768,14 @@ def job_monitor(queues, traces, args):  # noqa: C901
     n = 0
     cont = True
     while cont:
+
+        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
+        abort = should_abort(args, label='job:job_monitor')
+        if abort:
+            logger.info('aborting loop')
+            cont = False
+            break
+
         time.sleep(0.5)
 
         if traces.pilot.get('command') == 'abort':
@@ -2901,6 +2909,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
         abort = should_abort(args, label='job:job_monitor')
         if abort:
+            logger.info('will abort loop')
             cont = False
 
     # proceed to set the job_aborted flag?
