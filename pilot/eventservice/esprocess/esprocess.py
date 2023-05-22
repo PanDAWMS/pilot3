@@ -134,7 +134,7 @@ class ESProcess(threading.Thread):
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
         elif "--preExec" not in executable:
-            executable = executable().strip()
+            executable = executable.strip()
             if executable.endswith(";"):
                 executable = executable[:-1]
             executable += preexec_socket_config
