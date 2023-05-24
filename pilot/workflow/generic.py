@@ -194,8 +194,11 @@ def run(args):
             thread.join(0.1)
 
         # have all threads finished?
-        abort = threads_aborted()
+        abort = threads_aborted(caller='run')
         if abort:
+            logger.debug('will proceed to set job_aborted')
+            args.job_aborted.set()
+            sleep(5)  # allow monitor thread to finish (should pick up job_aborted within 1 second)
             logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
             break
 

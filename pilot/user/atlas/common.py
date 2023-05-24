@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from collections import defaultdict
@@ -179,11 +179,11 @@ def open_remote_files(indata, workdir, nthreads):
         # execute file open script which will attempt to open each file
 
         # copy pilot source into container directory, unless it is already there
+        script = 'open_remote_file.py'
         diagnostics = copy_pilot_source(workdir)
         if diagnostics:
             raise PilotException(diagnostics)
 
-        script = 'open_remote_file.py'
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
@@ -307,7 +307,7 @@ def parse_remotefileverification_dictionary(workdir):
     return exitcode, diagnostics, not_opened
 
 
-def get_file_open_command(script_path, turls, nthreads):
+def get_file_open_command(script_path, turls, nthreads, stdout='remote_open.stdout', stderr='remote_open.stderr'):
     """
 
     :param script_path: path to script (string).
@@ -316,7 +316,10 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
+    if stdout and stderr:
+        cmd += f' 1>{stdout} 2>{stderr}'
+    return cmd
 
 
 def extract_turls(indata):
@@ -544,8 +547,13 @@ def get_payload_command(job):
     # Explicitly add the ATHENA_PROC_NUMBER (or JOB value)
     cmd = add_athena_proc_number(cmd)
 
-    show_memory_usage()
+    #if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
+    #    cmd = 'export PYTHONPATH=/usr/lib64/python3.6:/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
 
+    if job.dask_scheduler_ip:
+        cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
+
+    show_memory_usage()
     logger.info('payload run command: %s', cmd)
 
     return cmd

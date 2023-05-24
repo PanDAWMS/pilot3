@@ -10,6 +10,7 @@
 import os
 import logging
 
+from pilot.util.config import config
 from pilot.util.constants import PILOT_KILL_SIGNAL
 from pilot.util.timing import get_time_since
 
@@ -56,3 +57,27 @@ def was_pilot_killed(timing):
         if PILOT_KILL_SIGNAL in timing[i]:
             was_killed = True
     return was_killed
+
+
+def is_pilot_check(check=''):
+    """
+    Should the given pilot check be run?
+
+    Consult config.Pilot.checks if the given check is listed.
+
+    :param check: name of check (string)
+    :return: True if check is present in config.Pilot.checks (and if config is outdated), False othersise (Boolean)
+    """
+
+    status = False
+    if not check:
+        return status
+
+    try:
+        if check in config.Pilot.checks:
+            status = True
+    except AttributeError as exc:
+        logger.warning(f'attribute Pilot.checks not present in config file - please update: exc={exc}')
+        status = True  # to allow check to proceed when config file is outdated
+
+    return status

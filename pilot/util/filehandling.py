@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import hashlib
 import io
@@ -25,6 +25,7 @@ from shutil import copy2, rmtree
 from zlib import adler32
 from functools import partial
 from mmap import mmap
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from pilot.util.config import config
@@ -466,22 +467,24 @@ def remove_dir_tree(path):
     return 0
 
 
-def remove_files(workdir, files):
+def remove_files(files, workdir=None):
     """
     Remove all given files from workdir.
+    If workdir is set, it will be used as base path.
 
-    :param workdir: working directory (string).
-    :param files: file list.
+    :param files: file list
+    :param workdir: optional working directory (string)
     :return: exit code (0 if all went well, -1 otherwise)
     """
 
     exitcode = 0
     if not isinstance(files, list):
-        logger.warning(f'files parameter not a list: {type(list)}')
+        logger.warning(f'files parameter not a list: {type(files)}')
         exitcode = -1
     else:
         for _file in files:
-            _ec = remove(os.path.join(workdir, _file))
+            path = os.path.join(workdir, _file) if workdir else _file
+            _ec = remove(path)
             if _ec != 0 and exitcode == 0:
                 exitcode = _ec
 
@@ -1093,19 +1096,26 @@ def get_valid_path_from_list(paths):
     return valid_path
 
 
-def copy_pilot_source(workdir):
+def copy_pilot_source(workdir, filename=None):
     """
     Copy the pilot source into the work directory.
+    If a filename is specified, only that file will be copied.
 
     :param workdir: working directory (string).
+    :param filename: specific filename (string).
     :return: diagnostics (string).
     """
 
     diagnostics = ""
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
+
+    if filename:
+        srcdir = os.path.join(srcdir, filename)
+
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
-        cmd = 'cp -r %s/* %s' % (srcdir, workdir)
+        pat = '%s' if filename else '%s/*'
+        cmd = f'cp -r {pat} %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = f'file copy failed: {exit_code}, {stdout}'
@@ -1234,3 +1244,32 @@ def find_file(filename, startdir):
         break
 
     return _path
+
+
+def zip_files(archivename, files):
+    """
+    Zip a list of files with standard compression level.
+
+    :param archivename: archive name (string).
+    :param files: list of files.
+    :return: status (Boolean)
+    """
+
+    status = False
+    try:
+
+        zipped = False
+        with ZipFile(archivename, 'w', ZIP_DEFLATED) as zip:
+            for _file in files:
+                if os.path.exists(_file):
+                    zip.write(_file)
+                    zipped = True
+        if not zipped:
+            print('nothing was zipped')
+        else:
+            status = True
+
+    except Exception as exc:
+        print(f'failed to create archive {archivename}: {exc}')
+
+    return status

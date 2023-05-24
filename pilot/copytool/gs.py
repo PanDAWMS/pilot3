@@ -18,9 +18,9 @@ from glob import glob
 try:
     from google.cloud import storage
 except Exception:
-    storage_client = storage.Client()
-else:
     storage_client = None
+else:
+    storage_client = storage.Client()
 
 try:
     import pathlib  # Python 3

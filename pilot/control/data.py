@@ -81,11 +81,9 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] control thread has finished')
 
@@ -539,14 +537,16 @@ def copytool_in(queues, traces, args):  # noqa: C901
                 traces.pilot['command'] = 'abort'
                 logger.warning('copytool_in detected a set abort_job pre stage-in (due to a kill signal)')
                 declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                break
+                if args.graceful_stop.is_set():
+                    break
 
             if _stage_in(args, job):
                 if args.abort_job.is_set():
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_in detected a set abort_job post stage-in (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                    break
+                    if args.graceful_stop.is_set():
+                        break
 
                 put_in_queue(job, queues.finished_data_in)
                 # remove the job from the current stage-in queue
@@ -583,16 +583,14 @@ def copytool_in(queues, traces, args):  # noqa: C901
             continue
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_in'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_in thread has finished')
 
 
-def copytool_out(queues, traces, args):
+def copytool_out(queues, traces, args):  # noqa: C901
     """
     Main stage-out thread.
     Perform stage-out as soon as a job object can be extracted from the data_out queue.
@@ -604,9 +602,8 @@ def copytool_out(queues, traces, args):
     """
 
     cont = True
-    logger.debug('entering copytool_out loop')
     if args.graceful_stop.is_set():
-        logger.debug('graceful_stop already set')
+        logger.debug('graceful_stop already set - do not start copytool_out thread')
 
     processed_jobs = []
     while cont:
@@ -638,14 +635,16 @@ def copytool_out(queues, traces, args):
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_out detected a set abort_job pre stage-out (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                    break
+                    if abort:
+                        break
 
                 if _stage_out_new(job, args):
                     if args.abort_job.is_set():
                         traces.pilot['command'] = 'abort'
                         logger.warning('copytool_out detected a set abort_job post stage-out (due to a kill signal)')
                         #declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                        break
+                        if args.graceful_stop.is_set():
+                            break
 
                     #queues.finished_data_out.put(job)
                     processed_jobs.append(job.jobid)
@@ -668,11 +667,9 @@ def copytool_out(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_out'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_out thread has finished')
 
@@ -1080,10 +1077,8 @@ def queue_monitoring(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='queue_monitoring'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] queue_monitor thread has finished')

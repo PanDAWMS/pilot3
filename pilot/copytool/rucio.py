@@ -9,6 +9,7 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
+# - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
 
 from __future__ import absolute_import  # Python 2 (2to3 complains about this)
@@ -591,7 +592,7 @@ def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, tra
     if rucio_host:
         logger.debug(f'using rucio_host={rucio_host}')
         rucio_client = Client(rucio_host=rucio_host)
-        upload_client = UploadClient(client=rucio_client, logger=logger)
+        upload_client = UploadClient(_client=rucio_client, logger=logger)
     else:
         upload_client = UploadClient(logger=logger)
 
