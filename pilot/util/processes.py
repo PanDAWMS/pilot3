@@ -616,7 +616,7 @@ def threads_aborted(caller=''):
     """
 
     abort = False
-    thread_count = threading.activeCount()
+    #thread_count = threading.activeCount()
     pilot_thread_count = 0
     daemon_threads = 0
     main_thread_count = 0
