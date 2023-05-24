@@ -16,6 +16,7 @@ import threading
 from pilot.util.container import execute
 from pilot.util.auxiliary import whoami
 from pilot.util.filehandling import read_file, remove_dir_tree
+from pilot.util.processgroups import kill_process_group
 
 import logging
 logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ def dump_stack_trace(pid):
 
 def kill_processes(pid):
     """
-    Kill process beloging to given process group.
+    Kill process belonging to the process group that the given pid belongs to.
 
     :param pid: process id (int).
     :return:
@@ -217,43 +218,6 @@ def kill_child_processes(pid):
 
                 # kill the process gracefully
                 kill_process(i)
-
-
-def kill_process_group(pgrp):
-    """
-    Kill the process group.
-
-    :param pgrp: process group id (int).
-    :return: boolean (True if SIGMTERM followed by SIGKILL signalling was successful)
-    """
-
-    status = False
-    _sleep = True
-
-    # kill the process gracefully
-    logger.info("killing group process %d", pgrp)
-    try:
-        os.killpg(pgrp, signal.SIGTERM)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process under SIGTERM: %s", error)
-        _sleep = False
-    else:
-        logger.info("SIGTERM sent to process group %d", pgrp)
-
-    if _sleep:
-        _t = 30
-        logger.info("sleeping %d s to allow processes to exit", _t)
-        time.sleep(_t)
-
-    try:
-        os.killpg(pgrp, signal.SIGKILL)
-    except Exception as error:
-        logger.warning("exception thrown when killing child group process with SIGKILL: %s", error)
-    else:
-        logger.info("SIGKILL sent to process group %d", pgrp)
-        status = True
-
-    return status
 
 
 def kill_process(pid):
@@ -641,7 +605,7 @@ def threads_aborted_deprecated(abort_at=2):
     return aborted
 
 
-def threads_aborted():
+def threads_aborted(caller=''):
     """
     Have the Pilot threads been aborted?
     This function will count all the threads still running, but will only return True if all
@@ -652,26 +616,51 @@ def threads_aborted():
     """
 
     abort = False
-    thread_count = threading.activeCount()
+    #thread_count = threading.activeCount()
     pilot_thread_count = 0
     daemon_threads = 0
+    main_thread_count = 0
 
     # count all threads still alive
+    names = []
     for thread in threading.enumerate():
         if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
             daemon_threads += 1
             #tag = 'daemon'
         elif thread == threading.main_thread():
+            main_thread_count += 1
             #tag = 'main'
-            pass
+            names.append(f'{thread}')
         else:  # only count threads spawned by the main thread, no the main thread itself or any daemon threads
-            #tag = 'pilot?'
             pilot_thread_count += 1
-        #logger.debug(f'thread={thread}, pilot_thread_count={pilot_thread_count}, daemon_thread_count={daemon_threads}, tag={tag}')
-    if pilot_thread_count == 0:
-        logger.debug(f'aborting since only the main Pilot thread is still running '
-                     f'(total thread count={thread_count} with {daemon_threads} daemon thread(s)')
+            #tag = 'pilot?'
+            names.append(f'{thread}')
+        #logger.debug(f'thread={thread},'
+        #             f'caller={caller}, '
+        #             f'pilot_thread_count={pilot_thread_count}, '
+        #             f'daemon_thread_count={daemon_threads}, '
+        #             f'main_thread_count={main_thread_count}, '
+        #             f'names={names}, '
+        #             f'tag={tag}')
+    #if pilot_thread_count == 0:
+    #    logger.debug(f'caller={caller}, main_thread_count={main_thread_count}')
+    #    logger.debug(f'aborting since only the main Pilot thread is still running '
+    #                 f'(total thread count={thread_count} with {daemon_threads} daemon thread(s): names={names}')
+    #    abort = True
+    if pilot_thread_count == 0 and caller:  # and caller != 'run':
+        if caller in names[0] or caller == 'run':
+            logger.info(f'caller={caller} is remaining thread - safe to abort (names={names})')
+            abort = True
+    elif pilot_thread_count == 0:
+        logger.info(f'safe to abort? (names={names})')
         abort = True
+    elif pilot_thread_count == 1:
+        mon = [thread for thread in names if ('monitor' in thread and '_monitor' not in thread)]  # exclude job_monitor and queue_monitor(ing)
+        if mon:
+            logger.info(f'only monitor.control thread still running - safe to abort: {names}')
+            abort = True
+        else:
+            logger.info(f'waiting for thread to finish: {names}')
 
     return abort
 

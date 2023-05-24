@@ -148,7 +148,8 @@ class RealTimeLogger(Logger):
                 transport = HttpTransport(
                     server,
                     port,
-                    ssl_verify=False,
+                    ssl_enable=config.Pilot.ssl_enable,
+                    ssl_verify=config.Pilot.ssl_verify,
                     timeout=5.0,
                     username=secrets.get('logstash_login', 'unknown_login'),
                     password=secrets.get('logstash_password', 'unknown_password')

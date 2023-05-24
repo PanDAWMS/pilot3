@@ -17,6 +17,7 @@ from shutil import which
 from pilot.util.auxiliary import sort_words
 from pilot.common.exception import PilotException, ErrorCodes
 from pilot.util.container import execute
+#from pilot.util.filehandling import copy_pilot_source, copy
 from pilot.info import infosys
 from pilot.util.disk import disk_usage
 
@@ -119,6 +120,56 @@ def get_cpu_flags(sorted=True):
     if flags and sorted:
         flags = sort_words(flags)
     return flags
+
+
+def get_cpu_arch_internal():
+    """
+    Return the CPU architecture string (using internal script).
+
+    The CPU architecture string is determined by a script (pilot/scripts/cpu_arch.py), run by the pilot.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :return: CPU arch (string).
+    """
+
+    cpu_arch = ''
+
+    # copy pilot source into container directory, unless it is already there
+    script = 'cpu_arch.py'
+    srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
+    script_dir = os.path.join(srcdir, 'pilot/scripts')
+
+    if script_dir not in os.environ['PYTHONPATH']:
+        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + script_dir
+
+    # CPU arch script has now been copied, time to execute it
+    ec, stdout, stderr = execute(f'python3 {script_dir}/{script} --alg gcc')
+    if ec or stderr:
+        logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
+    else:
+        cpu_arch = stdout
+        logger.debug(f'CPU arch script returned: {cpu_arch}')
+
+    return cpu_arch
+
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :return: CPU arch (string).
+    """
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+    cpu_arch = user.get_cpu_arch()
+    if not cpu_arch:
+        cpu_arch = get_cpu_arch_internal()
+
+    return cpu_arch
 
 
 def collect_workernode_info(path=None):

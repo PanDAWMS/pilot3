@@ -151,7 +151,7 @@ def run(args):
         if thread_count != threading.activeCount():
             # has all threads finished?
             #abort = threads_aborted(abort_at=1)
-            abort = threads_aborted()
+            abort = threads_aborted(caller='run')
             if abort:
                 break
 
