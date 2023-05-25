@@ -74,7 +74,7 @@ def message(msg):
     :return:
     """
 
-    print(msg) if not logger else logger.info(msg)
+    print(msg, flush=True) if not logger else logger.info(msg)
 
 
 def get_file_lists(turls):
