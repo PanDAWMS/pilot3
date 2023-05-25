@@ -167,7 +167,8 @@ def get_cpu_arch():
     user = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
     cpu_arch = user.get_cpu_arch()
     if not cpu_arch:
-        cpu_arch = get_cpu_arch_internal()
+        logger.info('no CPU architecture reporting')
+        # cpu_arch = get_cpu_arch_internal()
 
     return cpu_arch
 
