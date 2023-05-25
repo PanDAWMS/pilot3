@@ -74,7 +74,13 @@ def message(msg):
     :return:
     """
 
-    print(msg, flush=True) if not logger else logger.info(msg)
+    if logger:
+        logger.info(msg)
+        for handler in logging.getLogger().handlers:
+            if handler.name == "stream_handler":
+                handler.flush()  # make sure that stdout buffer gets flushed - in case of time-out exceptions
+    else:
+        print(msg, flush=True)
 
 
 def get_file_lists(turls):

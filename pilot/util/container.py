@@ -69,6 +69,9 @@ def execute(executable, **kwargs):
         try:
             stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
+            for handler in logging.getLogger().handlers:
+                if handler.name == "stream_handler":
+                    handler.flush()  # make sure that stdout buffer gets flushed
             stdout = ''
             stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)

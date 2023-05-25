@@ -999,6 +999,7 @@ def establish_logging(debug=True, nopilotlog=False, filename=config.Pilot.pilotl
     _logger.propagate = False
 
     console = logging.StreamHandler(sys.stdout)
+    console.name = 'stream_handler'
     if debug:
         format_str = '%(asctime)s | %(levelname)-8s | %(name)-32s | %(funcName)-25s | %(message)s'
         level = logging.DEBUG
