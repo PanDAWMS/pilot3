@@ -1007,6 +1007,67 @@ def get_file_transfer_info(job):   ## TO BE DEPRECATED, NOT USED (anisyonk)
     return use_copy_tool, use_direct_access, use_pfc_turl
 
 
+def test_job_data(job):
+    """
+
+    :param job: job object
+    :return:
+    """
+
+    # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
+    # output files and add them to the output file list
+    from pilot.info.filespec import FileSpec
+
+    # add a couple of files to replace current output
+    fileSizeInBytes = 1024
+    outputfiles = ['DST_.random1.root', 'DST_.random2.root', 'DST_.random3.root']
+    for outputfile in outputfiles:
+        with open(os.path.join(job.workdir, outputfile), 'wb') as fout:
+            fout.write(os.urandom(fileSizeInBytes))  # replace 1024 with a size in kilobytes if it is not unreasonably large
+
+    outfiles = []
+    scope = ''
+    dataset = ''
+    ddmendpoint = ''
+    for fspec in job.outdata:
+
+        fspec.lfn = 'regex|DST_.*.root'
+        if fspec.lfn.startswith('regex|'):  # if this is true, job.outdata will be overwritten
+            regex_pattern = fspec.lfn.split('regex|')[1]  # "DST_.*.root"
+            logger.info(f'found regular expression {regex_pattern} - looking for the corresponding files in {job.workdir}')
+
+            # extract needed info for the output files for later
+            scope = fspec.scope
+            dataset = fspec.dataset
+            ddmendpoint = fspec.ddmendpoint
+
+            # now locate the corresponding files in the work dir
+            outfiles = [_file for _file in os.listdir(job.workdir) if re.search(regex_pattern, _file)]
+            logger.debug(f'outfiles={outfiles}')
+            if not outfiles:
+                logger.warning(f'no output files matching {regex_pattern} were found')
+            break
+
+    if outfiles:
+        new_outfiles = []
+        for outfile in outfiles:
+            new_file = {'scope': scope,
+                        'lfn': outfile,
+                        'guid': get_guid(),
+                        'workdir': job.workdir,
+                        'dataset': dataset,
+                        'ddmendpoint': ddmendpoint,
+                        'ddmendpoint_alt': None}
+            new_outfiles.append(new_file)
+        logger.debug(f'new_outfiles={new_outfiles}')
+        # create list of FileSpecs and overwrite the old job.outdata
+        _xfiles = [FileSpec(type='output', **_file) for _file in new_outfiles]
+        logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
+        job.outdata = _xfiles
+    else:
+        logger.debug('no regex found in outdata file list')
+
+
 def update_job_data(job):
     """
     This function can be used to update/add data to the job object.
@@ -1023,6 +1084,8 @@ def update_job_data(job):
     ## metadata values)directly to Job object since in general it's Job
     ## related part. Later on once we introduce VO specific Job class
     ## (inherited from JobData) this can be easily customized
+
+    # test_job_data(job)
 
     # get label "all" or "log"
     stageout = get_stageout_label(job)

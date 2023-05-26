@@ -154,13 +154,14 @@ def update_job_data(job):
                         'ddmendpoint': ddmendpoint,
                         'ddmendpoint_alt': None}
             new_outfiles.append(new_file)
-        logger.debug(f'new_outfiles={new_outfiles}')
+
         # create list of FileSpecs and overwrite the old job.outdata
-        _xfiles = [FileSpec(type='output', **_file) for _file in outfiles]
+        _xfiles = [FileSpec(type='output', **_file) for _file in new_outfiles]
         logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
         job.outdata = _xfiles
     else:
         logger.debug('no regex found in outdata file list')
+
 
 def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
     """

@@ -1274,3 +1274,16 @@ def zip_files(archivename, files):
         print(f'failed to create archive {archivename}: {exc}')
 
     return status
+
+
+def generate_test_file(filename, filesize=1024):
+    """
+    Generate a binary file with the given size in Bytes.
+
+    :param filename: full path, file name (string)
+    :param filesize: file size in Bytes (int)
+    :return:
+    """
+
+    with open(filename, 'wb') as fout:
+        fout.write(os.urandom(filesize))  # replace 1024 with a size in kilobytes if it is not unreasonably large
