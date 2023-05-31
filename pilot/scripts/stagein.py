@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
 import argparse
 import os
@@ -437,7 +437,7 @@ if __name__ == '__main__':
                   'checkinputsize': True}]
 
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
-        _xfiles = [FileSpec(type='input', **f) for f in files]
+        _xfiles = [FileSpec(filetype='input', **f) for f in files]
         xfiles += _xfiles
 
     try:
