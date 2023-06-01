@@ -100,7 +100,7 @@ def main():
 
     # set requested workflow
     logger.info('pilot arguments: %s', str(args))
-    workflow = __import__('pilot.workflow.%s' % args.workflow, globals(), locals(), [args.workflow], 0)
+    workflow = __import__(f'pilot.workflow.{args.workflow}', globals(), locals(), [args.workflow], 0)
 
     # execute workflow
     try:
@@ -116,18 +116,19 @@ def main():
     return exitcode
 
 
-def str2bool(_var):
+def str2bool(_var:str):
     """ Helper function to convert string to bool """
 
-    if isinstance(_var, bool):
-        return _var
-    if _var.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
+    ret = _var
+    if isinstance(_var, bool):  # does this ever happen?
+        pass
+    elif _var.lower() in ('yes', 'true', 't', 'y', '1'):
+        ret = True
     elif _var.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
+        ret = False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-
+    return ret
 
 def get_args():
     """
@@ -433,7 +434,7 @@ def create_main_work_dir():
             mkdirs(_mainworkdir)
         except PilotException as error:
             # print to stderr since logging has not been established yet
-            print('failed to create workdir at %s -- aborting: %s' % (_mainworkdir, error), file=sys.stderr)
+            print(f'failed to create workdir at {_mainworkdir} -- aborting: {error}', file=sys.stderr)
             exitcode = shell_exit_code(error._errorCode)
     else:
         _mainworkdir = getcwd()
@@ -449,8 +450,6 @@ def set_environment_variables():
     Set environment variables. To be replaced with singleton implementation.
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
     Note: args and mainworkdir, used in this function, are defined in outer scope.
-
-    :return:
     """
 
     # working directory as set with a pilot option (e.g. ..)
@@ -476,8 +475,8 @@ def set_environment_variables():
     environ['PILOT_WRAP_UP'] = 'NORMAL'
 
     # proxy verifications
-    environ['PILOT_PROXY_VERIFICATION'] = '%s' % args.verify_proxy
-    environ['PILOT_PAYLOAD_PROXY_VERIFICATION'] = '%s' % args.verify_payload_proxy
+    environ['PILOT_PROXY_VERIFICATION'] = f'{args.verify_proxy}'
+    environ['PILOT_PAYLOAD_PROXY_VERIFICATION'] = f'{args.verify_payload_proxy}'
 
     # keep track of the server updates, if any
     environ['SERVER_UPDATE'] = SERVER_UPDATE_NOT_DONE
@@ -486,7 +485,7 @@ def set_environment_variables():
     environ['PILOT_RESOURCE_NAME'] = args.hpc_resource
 
     # allow for the possibility of turning off rucio traces
-    environ['PILOT_USE_RUCIO_TRACES'] = str(args.use_rucio_traces)
+    environ['PILOT_USE_RUCIO_TRACES'] = f'{args.use_rucio_traces}'
 
     # event service executor type
     environ['PILOT_ES_EXECUTOR_TYPE'] = args.executor_type
@@ -496,9 +495,9 @@ def set_environment_variables():
 
     # keep track of the server urls
     environ['PANDA_SERVER_URL'] = get_panda_server(args.url, args.port, update_server=args.update_server)
-    environ['QUEUEDATA_SERVER_URL'] = '%s' % args.queuedata_url
+    environ['QUEUEDATA_SERVER_URL'] = f'{args.queuedata_url}'
     if args.storagedata_url:
-        environ['STORAGEDATA_SERVER_URL'] = '%s' % args.storagedata_url
+        environ['STORAGEDATA_SERVER_URL'] = f'{args.storagedata_url}'
 
 
 def wrap_up():
@@ -517,9 +516,9 @@ def wrap_up():
         try:
             rmtree(mainworkdir)
         except Exception as exc:
-            logging.warning("failed to remove %s: %s", mainworkdir, exc)
+            logging.warning(f"failed to remove {mainworkdir}: {exc}")
         else:
-            logging.info("removed %s", mainworkdir)
+            logging.info(f"removed {mainworkdir}")
 
     # in Harvester mode, create a kill_worker file that will instruct Harvester that the pilot has finished
     if args.harvester:
@@ -531,15 +530,15 @@ def wrap_up():
     except Exception:
         exitcode = trace
     else:
-        logging.info('traces error code: %d', exitcode)
+        logging.info(f'traces error code: {exitcode}')
         if trace.pilot['nr_jobs'] <= 1:
             if exitcode != 0:
-                logging.info('an exit code was already set: %d (will be converted to a standard shell code)', exitcode)
+                logging.info(f'an exit code was already set: {exitcode} (will be converted to a standard shell code)')
         elif trace.pilot['nr_jobs'] > 0:
             if trace.pilot['nr_jobs'] == 1:
-                logging.getLogger(__name__).info('pilot has finished (%d job was processed)', trace.pilot['nr_jobs'])
+                logging.getLogger(__name__).info("pilot has finished 1 job was processed)")
             else:
-                logging.getLogger(__name__).info('pilot has finished (%d jobs were processed)', trace.pilot['nr_jobs'])
+                logging.getLogger(__name__).info(f"pilot has finished ({trace.pilot['nr_jobs']} jobs were processed)")
             exitcode = SUCCESS
         elif trace.pilot['state'] == FAILURE:
             logging.critical('pilot workflow failure -- aborting')
@@ -564,20 +563,16 @@ def get_pilot_source_dir():
     """
     Return the pilot source directory.
 
-    :return: full path to pilot source directory.
+    :return: full path to pilot source directory (string).
     """
 
     cwd = getcwd()
     if exists(join(join(cwd, 'pilot3'), 'pilot.py')):  # in case wrapper has untarred src as pilot3 in init dir
-        return join(cwd, 'pilot3')
-    elif exists(join(cwd, 'pilot.py')):  # in case pilot gets launched from within the src dir
-        return cwd
-    else:
-        # could throw error here, but logging is not setup yet - fail later
-        return cwd
+        cwd = join(cwd, 'pilot3')
+    return cwd
 
 
-def send_worker_status(status, queue, url, port, logger, internet_protocol_version):
+def send_worker_status(status:str, queue:str, url:str, port:str, logger, internet_protocol_version:str):
     """
     Send worker info to the server to let it know that the worker has started
     Note: the function can fail, but if it does, it will be ignored.
@@ -588,7 +583,6 @@ def send_worker_status(status, queue, url, port, logger, internet_protocol_versi
     :param port: server port (string).
     :param logger: logging object.
     :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (string).
-    :return:
     """
 
     # worker node structure to be sent to the server
