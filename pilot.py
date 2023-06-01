@@ -130,6 +130,7 @@ def str2bool(_var: str):
         raise argparse.ArgumentTypeError('Boolean value expected.')
     return ret
 
+
 def get_args():
     """
     Return the args from the arg parser.
