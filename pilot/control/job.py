@@ -37,12 +37,13 @@ from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PI
     LOG_TRANSFER_IN_PROGRESS, LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_TROUBLE, SERVER_UPDATE_FINAL, \
     SERVER_UPDATE_UPDATING, SERVER_UPDATE_NOT_DONE
 from pilot.util.container import execute
-from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, establish_logging, write_file, \
+from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, write_file, \
     create_symlink, write_json
 from pilot.util.harvester import request_new_jobs, remove_job_request_file, parse_job_definition_file, \
     is_harvester_mode, get_worker_attributes_file, publish_job_report, publish_work_report, get_event_status_file, \
     publish_stageout_files
 from pilot.util.jobmetrics import get_job_metrics
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space

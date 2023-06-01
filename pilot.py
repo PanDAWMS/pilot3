@@ -29,9 +29,10 @@ from pilot.info import infosys
 from pilot.util.auxiliary import pilot_version_banner, shell_exit_code
 from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIME, PILOT_END_TIME, get_pilot_version, \
     SERVER_UPDATE_NOT_DONE, PILOT_MULTIJOB_START_TIME
-from pilot.util.filehandling import get_pilot_work_dir, mkdirs, establish_logging
+from pilot.util.filehandling import get_pilot_work_dir, mkdirs
 from pilot.util.harvester import is_harvester_mode
 from pilot.util.https import get_panda_server, https_setup, send_update
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()

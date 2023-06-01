@@ -14,9 +14,17 @@ import re
 from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
 from pilot.common.exception import ConversionFailure
-from pilot.info import InfoService, FileSpec, infosys
+from pilot.info import (
+    InfoService,
+    FileSpec,
+    infosys,
+)
 from pilot.util.config import config
-from pilot.util.filehandling import establish_logging, write_json, read_json
+from pilot.util.filehandling import (
+    write_json,
+    read_json,
+)
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
 import logging

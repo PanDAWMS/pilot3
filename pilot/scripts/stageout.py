@@ -14,9 +14,14 @@ import re
 from pilot.api.data import StageOutClient
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
-from pilot.info import InfoService, FileSpec, infosys
+from pilot.info import (
+    InfoService,
+    FileSpec,
+    infosys,
+)
 from pilot.util.config import config
-from pilot.util.filehandling import establish_logging, write_json
+from pilot.util.filehandling import write_json
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
 import logging

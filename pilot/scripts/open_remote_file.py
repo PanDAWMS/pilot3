@@ -19,10 +19,12 @@ from collections import namedtuple
 
 from pilot.util.config import config
 from pilot.util.filehandling import (
-    establish_logging,
     write_json,
 )
-from pilot.util.loggingsupport import flush_handler
+from pilot.util.loggingsupport import (
+    flush_handler,
+    establish_logging,
+)
 from pilot.util.processes import kill_processes
 
 logger = logging.getLogger(__name__)
