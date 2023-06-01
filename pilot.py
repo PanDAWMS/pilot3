@@ -116,7 +116,7 @@ def main():
     return exitcode
 
 
-def str2bool(_var:str):
+def str2bool(_var: str):
     """ Helper function to convert string to bool """
 
     ret = _var
@@ -572,7 +572,7 @@ def get_pilot_source_dir():
     return cwd
 
 
-def send_worker_status(status:str, queue:str, url:str, port:str, logger, internet_protocol_version:str):
+def send_worker_status(status: str, queue: str, url: str, port: str, logger, internet_protocol_version: str):
     """
     Send worker info to the server to let it know that the worker has started
     Note: the function can fail, but if it does, it will be ignored.
