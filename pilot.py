@@ -21,7 +21,6 @@ import time
 from os import getcwd, chdir, environ
 from os.path import exists, join
 from shutil import rmtree
-from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
@@ -621,11 +620,9 @@ def send_worker_status(status: str, queue: str, url: str, port: str, logger, int
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
-def set_lifetime(_args: Any):
+def set_lifetime():
     """
     Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
-
-    :param _args: pilot args.
     """
 
     lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
@@ -635,14 +632,13 @@ def set_lifetime(_args: Any):
         except (ValueError, TypeError):
             pass
         else:
-            _args.lifetime = lifetime
+            args.lifetime = lifetime
 
 
-def set_redirectall(_args: Any):
+def set_redirectall():
     """
     Set args redirectall field.
-
-    :param _args: args object.
+    Currently not used.
     """
 
     redirectall = os.environ.get('PANDAPILOT_REDIRECTALL', False)
@@ -652,7 +648,7 @@ def set_redirectall(_args: Any):
         except (ValueError, TypeError):
             pass
         else:
-            _args.redirectall = redirectall
+            args.redirectall = redirectall
 
 
 if __name__ == '__main__':
@@ -687,7 +683,7 @@ if __name__ == '__main__':
     if exit_code != 0:
         sys.exit(exit_code)
 
-    set_lifetime(args)
+    set_lifetime()
 
     # setup and establish standard logging
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, redirectstdout=args.redirectstdout)
