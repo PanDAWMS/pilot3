@@ -28,7 +28,6 @@ from mmap import mmap
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
-from pilot.util.config import config
 from .container import execute
 from .math import diff_lists
 

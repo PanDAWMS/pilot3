@@ -12,6 +12,7 @@
 import logging
 import sys
 from time import gmtime
+from pilot.util.config import config
 
 logger = logging.getLogger(__name__)
 
