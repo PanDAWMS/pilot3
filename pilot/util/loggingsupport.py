@@ -17,7 +17,7 @@ from pilot.util.config import config
 logger = logging.getLogger(__name__)
 
 
-def establish_logging(debug:bool=True, nopilotlog:bool=False, filename:str=config.Pilot.pilotlog, loglevel:int=0, redirectstdout:str=""):
+def establish_logging(debug: bool = True, nopilotlog: bool = False, filename: str = config.Pilot.pilotlog, loglevel: int = 0, redirectstdout: str = ""):
     """
     Setup and establish logging.
 
@@ -69,7 +69,7 @@ def establish_logging(debug:bool=True, nopilotlog:bool=False, filename:str=confi
     _logger.addHandler(console)
 
 
-def flush_handler(name:str=""):
+def flush_handler(name: str = ""):
     """
     Flush the stdout buffer for the given handler.
     Useful e.g. in case of time-out exceptions.
