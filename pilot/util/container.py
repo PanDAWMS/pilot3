@@ -13,6 +13,7 @@ from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,9 @@ def execute(executable, **kwargs):
         try:
             stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
-            for handler in logging.getLogger().handlers:
-                if handler.name == "stream_handler":
-                    handler.flush()  # make sure that stdout buffer gets flushed
+            # make sure that stdout buffer gets flushed - in case of time-out exceptions
+            flush_handler(name="stream_handler")
+
             stdout = ''
             stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
