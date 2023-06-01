@@ -14,7 +14,6 @@ import re
 import tarfile
 import time
 import uuid
-import sys
 import logging
 from collections.abc import Iterable, Mapping
 from glob import glob
