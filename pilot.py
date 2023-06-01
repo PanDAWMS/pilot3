@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 from __future__ import print_function  # Python 2 (2to3 complains about this)
 from __future__ import absolute_import
@@ -21,17 +21,39 @@ import time
 from os import getcwd, chdir, environ
 from os.path import exists, join
 from shutil import rmtree
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.util.config import config
 from pilot.info import infosys
-from pilot.util.auxiliary import pilot_version_banner, shell_exit_code
-from pilot.util.constants import SUCCESS, FAILURE, ERRNO_NOJOBS, PILOT_START_TIME, PILOT_END_TIME, get_pilot_version, \
-    SERVER_UPDATE_NOT_DONE, PILOT_MULTIJOB_START_TIME
-from pilot.util.filehandling import get_pilot_work_dir, mkdirs
-from pilot.util.harvester import is_harvester_mode
-from pilot.util.https import get_panda_server, https_setup, send_update
+from pilot.util.auxiliary import (
+    pilot_version_banner,
+    shell_exit_code,
+)
+from pilot.util.constants import (
+    get_pilot_version,
+    SUCCESS,
+    FAILURE,
+    ERRNO_NOJOBS,
+    PILOT_START_TIME,
+    PILOT_END_TIME,
+    SERVER_UPDATE_NOT_DONE,
+    PILOT_MULTIJOB_START_TIME,
+)
+from pilot.util.filehandling import (
+    get_pilot_work_dir,
+    mkdirs,
+)
+from pilot.util.harvester import (
+    is_harvester_mode,
+    kill_worker,
+)
+from pilot.util.https import (
+    get_panda_server,
+    https_setup,
+    send_update,
+)
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.timing import add_to_pilot_timing
 
@@ -122,9 +144,9 @@ def str2bool(_var: str):
     ret = _var
     if isinstance(_var, bool):  # does this ever happen?
         pass
-    elif _var.lower() in ('yes', 'true', 't', 'y', '1'):
+    elif _var.lower() in {'yes', 'true', 't', 'y', '1'}:
         ret = True
-    elif _var.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif _var.lower() in {'no', 'false', 'f', 'n', '0'}:
         ret = False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
@@ -135,7 +157,7 @@ def get_args():
     """
     Return the args from the arg parser.
 
-    :return: args (arg parser object).
+    :return: args (arg parser object - type <class 'argparse.Namespace'>).
     """
 
     arg_parser = argparse.ArgumentParser()
@@ -523,7 +545,6 @@ def wrap_up():
 
     # in Harvester mode, create a kill_worker file that will instruct Harvester that the pilot has finished
     if args.harvester:
-        from pilot.util.harvester import kill_worker
         kill_worker()
 
     try:
@@ -600,12 +621,11 @@ def send_worker_status(status: str, queue: str, url: str, port: str, logger, int
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
-def set_lifetime(args):
+def set_lifetime(_args: Any):
     """
     Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
 
-    :param args: pilot args.
-    :return:
+    :param _args: pilot args.
     """
 
     lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
@@ -615,12 +635,14 @@ def set_lifetime(args):
         except (ValueError, TypeError):
             pass
         else:
-            args.lifetime = lifetime
+            _args.lifetime = lifetime
 
 
-def set_redirectall(args):
+def set_redirectall(_args: Any):
     """
+    Set args redirectall field.
 
+    :param _args: args object.
     """
 
     redirectall = os.environ.get('PANDAPILOT_REDIRECTALL', False)
@@ -630,13 +652,11 @@ def set_redirectall(args):
         except (ValueError, TypeError):
             pass
         else:
-            args.redirectall = redirectall
+            _args.redirectall = redirectall
 
 
 if __name__ == '__main__':
-    """
-    Main function of pilot module.
-    """
+    # Main function of pilot module.
 
     # get the args from the arg parser
     args = get_args()
