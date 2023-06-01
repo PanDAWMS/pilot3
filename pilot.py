@@ -516,7 +516,7 @@ def wrap_up():
         chdir(args.sourcedir)
         try:
             rmtree(mainworkdir)
-        except Exception as exc:
+        except OSError as exc:
             logging.warning(f"failed to remove {mainworkdir}: {exc}")
         else:
             logging.info(f"removed {mainworkdir}")
@@ -528,7 +528,7 @@ def wrap_up():
 
     try:
         exitcode = trace.pilot['error_code']
-    except Exception:
+    except KeyError:
         exitcode = trace
     else:
         logging.info(f'traces error code: {exitcode}')
