@@ -17,7 +17,7 @@ from pilot.info import InfoService, FileSpec, infosys
 client = data.StageInClient()
 files = [{'scope': 'mc16_13TeV', 'lfn': 'EVNT.11320990._003958.pool.root.1', 'workdir': '.',
           'ddmendpoint': 'RRC-KI-T1_DATADISK'}]
-xfiles = [FileSpec(type='input', **f) for f in files]
+xfiles = [FileSpec(filetype='input', **f) for f in files]
 r = client.transfer(xfiles)
 
 # With infosys initialization:
@@ -27,5 +27,5 @@ infoservice.init('ANALY_CERN', infosys.confinfo, infosys.extinfo)
 
 client = data.StageInClient(infoservice)
 files = [{'scope': 'mc16_13TeV', 'lfn': 'EVNT.11320990._003958.pool.root.1', 'workdir': '.'}]
-xfiles = [FileSpec(type='input', **f) for f in files]
+xfiles = [FileSpec(filetype='input', **f) for f in files]
 r = client.transfer(xfiles)

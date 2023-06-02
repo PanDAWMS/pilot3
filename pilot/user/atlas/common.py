@@ -1062,7 +1062,7 @@ def test_job_data(job):
             new_outfiles.append(new_file)
         logger.debug(f'new_outfiles={new_outfiles}')
         # create list of FileSpecs and overwrite the old job.outdata
-        _xfiles = [FileSpec(type='output', **_file) for _file in new_outfiles]
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
         logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
         job.outdata = _xfiles
     else:
@@ -1275,7 +1275,7 @@ def discover_new_outdata(job):
 
                 # do not abbreviate the following two lines as otherwise
                 # the content of xfiles will be a list of generator objects
-                _xfiles = [FileSpec(type='output', **f) for f in files]
+                _xfiles = [FileSpec(filetype='output', **f) for f in files]
                 new_outdata += _xfiles
 
     return new_outdata

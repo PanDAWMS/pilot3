@@ -19,8 +19,11 @@ from collections import namedtuple
 
 from pilot.util.config import config
 from pilot.util.filehandling import (
-    establish_logging,
     write_json,
+)
+from pilot.util.loggingsupport import (
+    flush_handler,
+    establish_logging,
 )
 from pilot.util.processes import kill_processes
 
@@ -76,9 +79,8 @@ def message(msg):
 
     if logger:
         logger.info(msg)
-        for handler in logging.getLogger().handlers:
-            if handler.name == "stream_handler":
-                handler.flush()  # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        flush_handler(name="stream_handler")
     else:
         print(msg, flush=True)
 

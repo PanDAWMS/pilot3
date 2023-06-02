@@ -156,7 +156,7 @@ def update_job_data(job):
             new_outfiles.append(new_file)
 
         # create list of FileSpecs and overwrite the old job.outdata
-        _xfiles = [FileSpec(type='output', **_file) for _file in new_outfiles]
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
         logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
         job.outdata = _xfiles
     else:
