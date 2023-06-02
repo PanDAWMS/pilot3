@@ -1009,6 +1009,7 @@ def get_file_transfer_info(job):   ## TO BE DEPRECATED, NOT USED (anisyonk)
 
 def test_job_data(job):
     """
+    REMOVE THIS
 
     :param job: job object
     :return:

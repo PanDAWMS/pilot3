@@ -817,7 +817,8 @@ def get_root_container_script(cmd):
     """
 
     # content = 'lsetup \'root 6.20.06-x86_64-centos7-gcc8-opt\'\npython %s\nexit $?' % cmd
-    content = 'date\nlsetup \'root pilot\'\ndate\npython %s\nexit $?' % cmd
+    # content = 'date\nlsetup \'root pilot\'\ndate\npython %s\nexit $?' % cmd
+    content = 'date\nlsetup \'root pilot\'\ndate\nstdbuf -oL bash -c \"python %s\"\nexit $?' % cmd
     logger.debug('root setup script content:\n\n%s\n\n', content)
 
     return content
