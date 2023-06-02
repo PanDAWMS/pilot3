@@ -41,7 +41,7 @@ def get_pilot_work_dir(workdir):
     :return: The name of main work directory
     """
 
-    return os.path.join(workdir, "PanDA_Pilot3_%d_%s" % (os.getpid(), str(int(time.time()))))
+    return os.path.join(workdir, f"PanDA_Pilot3_{os.getpid()}_{int(time.time())}")
 
 
 def mkdirs(workdir, chmod=0o770):
@@ -52,7 +52,6 @@ def mkdirs(workdir, chmod=0o770):
     :param workdir: Full path to the directory to be created
     :param chmod: chmod code (default 0770) (octal).
     :raises PilotException: MKDirFailure.
-    :return:
     """
 
     try:
@@ -60,7 +59,7 @@ def mkdirs(workdir, chmod=0o770):
         if chmod:
             os.chmod(workdir, chmod)
     except Exception as exc:
-        raise MKDirFailure(exc)
+        raise MKDirFailure(exc) from exc
 
 
 def rmdirs(path):
@@ -124,7 +123,7 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
         try:
             _file.write(contents)
         except IOError as exc:
-            raise FileHandlingFailure(exc)
+            raise FileHandlingFailure(exc) from exc
         else:
             status = True
         _file.close()
@@ -151,7 +150,7 @@ def open_file(filename, mode):
 
     _file = None
     try:
-        _file = open(filename, mode)
+        _file = open(filename, mode, encoding='utf-8')
     except IOError as exc:
         raise FileHandlingFailure(exc)
 
@@ -188,7 +187,7 @@ def get_files(pattern="*.log"):
     """
 
     files = []
-    cmd = "find . -name %s" % pattern
+    cmd = f"find . -name {pattern}"
 
     _, stdout, _ = execute(cmd)
     if stdout:
@@ -210,7 +209,7 @@ def tail(filename, nlines=10):
     :return: file tail (str).
     """
 
-    _, stdout, _ = execute('tail -n %d %s' % (nlines, filename))
+    _, stdout, _ = execute(f'tail -n {nlines} {filename}')
     # protection
     if not isinstance(stdout, str):
         stdout = ""
@@ -227,7 +226,7 @@ def head(filename, count=20):
     """
 
     ret = None
-    with open(filename, 'r') as _file:
+    with open(filename, 'r', encoding='utf-8') as _file:
         lines = [_file.readline() for line in range(1, count + 1)]
         ret = filter(len, lines)
 
@@ -315,7 +314,7 @@ def is_json(input_file):
     :return: Boolean.
     """
 
-    with open(input_file) as unknown_file:
+    with open(input_file, encoding='utf-8') as unknown_file:
         first_char = unknown_file.read(1)
         if first_char == '{':
             return True
@@ -334,7 +333,7 @@ def read_list(filename):
 
     # open output file for reading
     try:
-        with open(filename, 'r') as filehandle:
+        with open(filename, 'r', encoding='utf-8') as filehandle:
             _list = load(filehandle)
     except IOError as exc:
         logger.warning(f'failed to read {filename}: {exc}')
@@ -367,7 +366,7 @@ def read_json(filename):
                 try:
                     dictionary = convert(dictionary)
                 except Exception as exc:
-                    raise ConversionFailure(exc)
+                    raise ConversionFailure(exc) from exc
 
     return dictionary
 
@@ -388,10 +387,10 @@ def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': '))
     status = False
 
     try:
-        with open(filename, 'w') as _fh:
+        with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
     except IOError as exc:
-        raise FileHandlingFailure(exc)
+        raise FileHandlingFailure(exc) from exc
     else:
         status = True
 
@@ -404,14 +403,13 @@ def touch(path):
     Default to use execute() if case of python problem with appending to non-existant path.
 
     :param path: full path to file to be touched (string).
-    :return:
     """
 
     try:
-        with open(path, 'a'):
+        with open(path, 'a', encoding='utf-8'):
             os.utime(path, None)
     except OSError:
-        _ = execute('touch %s' % path)
+        execute(f'touch {path}')
 
 
 def remove_empty_directories(src_dir):
@@ -420,7 +418,6 @@ def remove_empty_directories(src_dir):
     Only empty directories will be removed.
 
     :param src_dir: directory to be purged of empty directories.
-    :return:
     """
 
     for dirpath, _, _ in os.walk(src_dir, topdown=False):
@@ -439,15 +436,16 @@ def remove(path):
     :return: 0 if successful, -1 if failed (int)
     """
 
+    ret = -1
     try:
         os.remove(path)
     except OSError as exc:
         logger.warning(f"failed to remove file: {path} ({exc.errno}, {exc.strerror})")
-        return -1
     else:
         logger.debug(f'removed {path}')
+        ret = 0
 
-    return 0
+    return ret
 
 
 def remove_dir_tree(path):
@@ -564,7 +562,6 @@ def copy(path1, path2):
     :param path1: file path (string).
     :param path2: file path (string).
     :raises PilotException: FileHandlingFailure, NoSuchFile
-    :return:
     """
 
     if not os.path.exists(path1):
@@ -741,7 +738,7 @@ def calculate_checksum(filename, algorithm='adler32'):
     """
 
     if not os.path.exists(filename):
-        raise FileHandlingFailure('file does not exist: %s' % filename)
+        raise FileHandlingFailure(f'file does not exist: {filename}')
 
     if algorithm == 'adler32' or algorithm == 'adler' or algorithm == 'ad' or algorithm == 'ad32':
         try:
@@ -938,7 +935,6 @@ def list_mod_files(file_list):
     Called before looping killer is executed.
 
     :param file_list: list of files with full paths.
-    :return:
     """
 
     if file_list:
@@ -961,7 +957,7 @@ def dump(path, cmd="cat"):
     """
 
     if os.path.exists(path) or cmd == "echo":
-        _cmd = "%s %s" % (cmd, path)
+        _cmd = f"{cmd} {path}"
         _, stdout, stderr = execute(_cmd)
         logger.info(f"{_cmd}:\n{stdout + stderr}")
     else:
@@ -982,10 +978,10 @@ def remove_core_dumps(workdir, pid=None):
 
     found = False
 
-    coredumps = glob("%s/core.*" % workdir) + glob("%s/core" % workdir)
+    coredumps = glob(f"{workdir}/core.*") + glob(f"{workdir}/core")
     if coredumps:
         for coredump in coredumps:
-            if pid and os.path.basename(coredump) == "core.%d" % pid:
+            if pid and os.path.basename(coredump) == f"core.{pid}":
                 found = True
             logger.info(f"removing core dump: {coredump}")
             remove(coredump)
@@ -1209,10 +1205,10 @@ def zip_files(archivename, files):
     try:
 
         zipped = False
-        with ZipFile(archivename, 'w', ZIP_DEFLATED) as zip:
+        with ZipFile(archivename, 'w', ZIP_DEFLATED) as _zip:
             for _file in files:
                 if os.path.exists(_file):
-                    zip.write(_file)
+                    _zip.write(_file)
                     zipped = True
         if not zipped:
             print('nothing was zipped')
@@ -1231,7 +1227,6 @@ def generate_test_file(filename, filesize=1024):
 
     :param filename: full path, file name (string)
     :param filesize: file size in Bytes (int)
-    :return:
     """
 
     with open(filename, 'wb') as fout:
