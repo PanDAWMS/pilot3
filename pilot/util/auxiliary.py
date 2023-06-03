@@ -411,7 +411,7 @@ def get_memory_usage(pid: int) -> (int, str, str):
     :return: ps exit code (int), stderr (strint), stdout (string).
     """
 
-    return execute(f'ps aux -q {pid}')
+    return execute(f'ps aux -q {pid}', timeout=60)
 
 
 def extract_memory_usage_value(output: str) -> int:
