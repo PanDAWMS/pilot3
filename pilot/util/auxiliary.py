@@ -13,10 +13,7 @@ import sys
 import logging
 
 from collections.abc import Set, Mapping
-from collections import (
-    deque,
-    OrderedDict,
-)
+from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
 from typing import Any
@@ -70,7 +67,7 @@ def is_virtual_machine() -> bool:
     status = False
 
     # look for 'hypervisor' in cpuinfo
-    with open("/proc/cpuinfo", "r", encoding="utf-8") as _fd:
+    with open("/proc/cpuinfo", "r", encoding='utf-8') as _fd:
         lines = _fd.readlines()
         for line in lines:
             if "hypervisor" in line:
@@ -82,10 +79,7 @@ def is_virtual_machine() -> bool:
 
 def display_architecture_info():
     """
-    Display OS/architecture information.
-    The function attempts to use the lsb_release -a command if available. If that is not available,
-    it will dump the contents of
-    WARNING: lsb_release will not be available on CentOS Stream 9
+    Display OS/architecture information from /etc/os-release.
     """
 
     logger.info("architecture information:")
@@ -132,7 +126,7 @@ def get_globaljobid() -> str:
     """
 
     ret = ""
-    with open(os.environ.get("_CONDOR_JOB_AD"), 'r', encoding="utf-8") as _fp:
+    with open(os.environ.get("_CONDOR_JOB_AD"), 'r', encoding='utf-8') as _fp:
         for line in _fp:
             res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
             if res is None:
@@ -155,7 +149,7 @@ def get_job_scheduler_id() -> str:
     return os.environ.get("PANDA_JSID", "unknown")
 
 
-def whoami():
+def whoami() -> str:
     """
     Return the name of the pilot user.
 
@@ -224,11 +218,11 @@ def shell_exit_code(exit_code: int) -> int:
 
     error_code_translation_dictionary = get_error_code_translation_dictionary()
 
+    ret = FAILURE
     if exit_code in error_code_translation_dictionary:
         ret = error_code_translation_dictionary.get(exit_code)[0]  # Only return the shell exit code, not the error meaning
     elif exit_code != 0:
         print(f"no translation to shell exit code for error code {exit_code}")
-        ret = FAILURE
     else:
         ret = SUCCESS
     return ret
@@ -282,11 +276,11 @@ def get_size(obj_0: Any) -> int:
         elif isinstance(obj, Mapping) or hasattr(obj, iteritems):
             try:
                 size += sum(inner(k) + inner(v) for k, v in getattr(obj, iteritems)())
-            except Exception:  # as e
+            except Exception:  # as exc
                 pass
                 # <class 'collections.OrderedDict'>: unbound method iteritems() must be called
                 # with OrderedDict instance as first argument (got nothing instead)
-                #logger.debug('exception caught for obj=%s: %s', (str(obj), e))
+                #logger.debug('exception caught for obj=%s: %s', (str(obj), exc))
 
         # Check for custom object instances - may subclass above too
         if hasattr(obj, '__dict__'):
@@ -335,25 +329,25 @@ def check_for_final_server_update(update_server: bool):
     i.e. wait until SERVER_UPDATE is DONE_FINAL. This function sleeps for a maximum
     of 20*30 s until SERVER_UPDATE env variable has been set to SERVER_UPDATE_FINAL.
 
-    :param update_server: args.update_server boolean.
+    :param update_server: args.update_server (Boolean).
     """
 
-    max_counter = 20
-    counter = 0
+    max_i = 20
+    i = 0
 
     # abort if in startup stage or if in final update stage
     server_update = os.environ.get('SERVER_UPDATE', '')
     if server_update == SERVER_UPDATE_NOT_DONE:
         return
 
-    while counter < max_counter and update_server:
+    while i < max_i and update_server:
         server_update = os.environ.get('SERVER_UPDATE', '')
-        if server_update == SERVER_UPDATE_FINAL or server_update == SERVER_UPDATE_TROUBLE:
+        if server_update in (SERVER_UPDATE_FINAL, SERVER_UPDATE_TROUBLE):
             logger.info('server update done, finishing')
             break
-        logger.info(f'server update not finished (#{counter + 1}/#{max_counter})')
+        logger.info('server update not finished (#%d/#%d)', i + 1, max_i)
         sleep(30)
-        counter += 1
+        i += 1
 
 
 def get_resource_name() -> str:
@@ -373,9 +367,9 @@ def get_object_size(obj: Any, seen: Any = None) -> int:
     """
     Recursively find the size of any objects
 
+    :param obj: object.
     :param seen:
-    :param obj: object
-    :return: cumulated size (int).
+    :return: object size (int).
     """
 
     size = sys.getsizeof(obj)
@@ -417,7 +411,7 @@ def get_memory_usage(pid: int) -> (int, str, str):
     :return: ps exit code (int), stderr (strint), stdout (string).
     """
 
-    return execute(f'ps aux -q {pid}', timeout=60)
+    return execute(f'ps aux -q {pid}')
 
 
 def extract_memory_usage_value(output: str) -> int:
@@ -429,15 +423,15 @@ def extract_memory_usage_value(output: str) -> int:
     # -> 152832 (kB)
 
     :param output: ps output (string).
-    :return: memory value in kB (int).
+    :return: memory value in kB (string).
     """
 
-    memory_usage = 0
+    memory_usage = "(unknown)"
     for row in output.split('\n'):
         try:
-            memory_usage = int(" ".join(row.split()).split(' ')[5])
+            memory_usage = " ".join(row.split()).split(' ')[5]
         except (IndexError, ValueError):
-            pass
+            memory_usage = "(unknown)"
         else:
             break
 
@@ -479,13 +473,12 @@ def has_instruction_set(instruction_set: str) -> bool:
     return status
 
 
-def has_instruction_sets(instruction_sets: list) -> bool:
+def has_instruction_sets(instruction_sets: str) -> bool:
     """
     Determine whether a given list of CPU instruction sets is available.
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
     Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
-
-    :param instruction_sets: instruction set (e.g. AVX2) (list).
+    :param instruction_sets: instruction set (e.g. AVX2) (string).
     :return: Boolean
     """
 
@@ -505,7 +498,7 @@ def has_instruction_sets(instruction_sets: list) -> bool:
     return ret
 
 
-def locate_core_file(cmd: str = None, pid: int = None) -> str:
+def locate_core_file(cmd: str = '', pid: int = 0) -> str:
     """
     Locate the core file produced by gdb.
 
@@ -552,7 +545,7 @@ def get_pid_from_command(cmd: str, pattern: str = r'gdb --pid (\d+)') -> int:
         except (IndexError, ValueError):
             pid = None
     else:
-        logger.warning(f'no match for pattern \'{pattern}\' in command=\'{cmd}\'')
+        logger.warning('no match for pattern \'%s\' in command=\'%s\'', pattern, cmd)
 
     return pid
 
@@ -626,7 +619,7 @@ def is_string(obj: Any) -> bool:
     return True if isinstance(obj, str) else False
 
 
-def find_pattern_in_list(input_list: list[str], pattern: str) -> Any:
+def find_pattern_in_list(input_list: list, pattern: str) -> str:
     """
     Search for the given pattern in the input list.
 
@@ -682,7 +675,7 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
     :return: encoded global job id (string).
     """
 
-    def reformat(num: Any, maxsize: int = 8) -> str:
+    def reformat(num: str, maxsize: int = 8) -> str:
         # can handle clusterid=4294967297, ie larger than 0xffffffff
         try:
             num_hex = hex(int(num)).replace('0x', '')
@@ -697,7 +690,7 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
             num_hex = ""
         return num_hex
 
-    def get_schedd_id(host: str) -> Any:
+    def get_schedd_id(host: str) -> str:
         # spce03.sdcc.bnl.gov -> spce03 -> 3
         try:
             schedd_id = host.split('.')[0][-1]
