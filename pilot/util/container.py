@@ -67,13 +67,14 @@ def execute(executable, **kwargs):
     if kwargs.get('returnproc', False):
         return process
     else:
+        stdout = ''
+        stderr = ''
         try:
             stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
             flush_handler(name="stream_handler")
-            stdout = ''
-            stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
+            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
             stderr = kill_all(process, stderr)
