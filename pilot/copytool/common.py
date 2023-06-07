@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Mario Lassnig, mario.lassnig@cern.ch, 2020
 
 import logging
@@ -15,7 +15,11 @@ import re
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
-from pilot.util.filehandling import calculate_checksum, get_checksum_type, get_checksum_value
+from pilot.util.filehandling import (
+    calculate_checksum,
+    get_checksum_type,
+    get_checksum_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ def verify_catalog_checksum(fspec, path):
     checksum_type = get_checksum_type(fspec.checksum)
     checksum_catalog = get_checksum_value(fspec.checksum)
     if checksum_type == 'unknown':
-        diagnostics = 'unknown checksum type for checksum(catalog): %s' % fspec.checksum
+        diagnostics = f'unknown checksum type for checksum(catalog): {fspec.checksum}'
         logger.warning(diagnostics)
         fspec.status_code = ErrorCodes.UNKNOWNCHECKSUMTYPE
         fspec.status = 'failed'
@@ -62,7 +66,7 @@ def verify_catalog_checksum(fspec, path):
         try:
             checksum_local = calculate_checksum(path, algorithm=checksum_type)
         except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-            diagnostics = 'caught exception during checksum calculation: %s' % exc
+            diagnostics = f'caught exception during checksum calculation: {exc}'
             logger.warning(diagnostics)
             fspec.status_code = ErrorCodes.CHECKSUMCALCFAILURE
             fspec.status = 'failed'
@@ -71,11 +75,11 @@ def verify_catalog_checksum(fspec, path):
 
         if checksum_type == 'ad32':
             checksum_type = 'adler32'
-        logger.info('checksum (catalog): %s (type: %s)', checksum_catalog, checksum_type)
-        logger.info('checksum (local): %s', checksum_local)
+        logger.info(f'checksum (catalog): {checksum_catalog} (type: {checksum_type})')
+        logger.info(f'checksum (local): {checksum_local}')
         if checksum_local and checksum_local != '' and checksum_local != checksum_catalog:
-            diagnostics = 'checksum verification failed for LFN=%s: checksum (catalog)=%s != checksum (local)=%s' % \
-                          (fspec.lfn, checksum_catalog, checksum_local)
+            diagnostics = f'checksum verification failed for LFN={fspec.lfn}: ' \
+                          f'checksum (catalog)={checksum_catalog} != checksum (local)={checksum_local}'
             logger.warning(diagnostics)
             fspec.status_code = ErrorCodes.GETADMISMATCH if checksum_type == 'adler32' else ErrorCodes.GETMD5MISMATCH
             fspec.status = 'failed'
@@ -96,21 +100,20 @@ def merge_destinations(files):
     """
     destinations = {}
     # ensure type(files) == list
-    for f in files:
-        # ensure destination in f
-        if not os.path.exists(f['destination']):
-            f['status'] = 'failed'
-            f['errmsg'] = 'Destination directory does not exist: %s' % f['destination']
-            f['errno'] = 1
+    for _file in files:
+        if not os.path.exists(_file['destination']):
+            _file['status'] = 'failed'
+            _file['errmsg'] = f"Destination directory does not exist: {_file['destination']}"
+            _file['errno'] = 1
         else:
             # ensure scope, name in f
-            f['status'] = 'running'
-            f['errmsg'] = 'File not yet successfully downloaded.'
-            f['errno'] = 2
-            lfn = '%s:%s' % (f['scope'], f['name'])
-            dst = destinations.setdefault(f['destination'], {'lfns': set(), 'files': list()})
+            _file['status'] = 'running'
+            _file['errmsg'] = 'File not yet successfully downloaded.'
+            _file['errno'] = 2
+            lfn = f"{_file['scope']}:{_file['name']}"
+            dst = destinations.setdefault(_file['destination'], {'lfns': set(), 'files': list()})
             dst['lfns'].add(lfn)
-            dst['files'].append(f)
+            dst['files'].append(_file)
     return destinations
 
 
@@ -160,9 +163,9 @@ def output_line_scan(ret, output):
     """
 
     for line in output.split('\n'):
-        m = re.search(r"[Dd]etails\s*:\s*(?P<error>.*)", line)  # Python 3 (added r)
-        if m:
-            ret['error'] = m.group('error')
+        match = re.search(r"[Dd]etails\s*:\s*(?P<error>.*)", line)  # Python 3 (added r)
+        if match:
+            ret['error'] = match.group('error')
         elif 'service_unavailable' in line:
             ret['error'] = 'service_unavailable'
             ret['rcode'] = ErrorCodes.RUCIOSERVICEUNAVAILABLE
@@ -186,7 +189,7 @@ def resolve_common_transfer_errors(output, is_stagein=True):  # noqa: C901
 
     if "timeout" in output:
         ret = get_error_info(ErrorCodes.STAGEINTIMEOUT if is_stagein else ErrorCodes.STAGEOUTTIMEOUT,
-                             'CP_TIMEOUT', 'copy command timed out: %s' % output)
+                             'CP_TIMEOUT', f'copy command timed out: {output}')
     elif "failed xrdadler32" in output:
         ret = get_error_info(ErrorCodes.GETADMISMATCH if is_stagein else ErrorCodes.PUTADMISMATCH,
                              'AD_MISMATCH', output)
@@ -198,20 +201,20 @@ def resolve_common_transfer_errors(output, is_stagein=True):  # noqa: C901
                              'MD5_MISMATCH', output)
     elif "globus_xio:" in output:
         ret = get_error_info(ErrorCodes.GETGLOBUSSYSERR if is_stagein else ErrorCodes.PUTGLOBUSSYSERR,
-                             'GLOBUS_FAIL', "Globus system error: %s" % output)
+                             'GLOBUS_FAIL', f"Globus system error: {output}")
     elif "File exists" in output or 'SRM_FILE_BUSY' in output or 'file already exists' in output:
         ret = get_error_info(ErrorCodes.FILEEXISTS, 'FILE_EXISTS',
-                             "File already exists in the destination: %s" % output)
+                             f"File already exists in the destination: {output}")
     elif "No such file or directory" in output and is_stagein:
         ret = get_error_info(ErrorCodes.MISSINGINPUTFILE, 'MISSING_INPUT', output)
     elif "query chksum is not supported" in output or "Unable to checksum" in output:
         ret = get_error_info(ErrorCodes.CHKSUMNOTSUP, 'CHKSUM_NOTSUP', output)
     elif "Could not establish context" in output:
-        error_msg = "Could not establish context: Proxy / VO extension of proxy has probably expired: %s" % output
+        error_msg = f"Could not establish context: Proxy / VO extension of proxy has probably expired: {output}"
         ret = get_error_info(ErrorCodes.NOPROXY, 'CONTEXT_FAIL', error_msg)
     elif "No space left on device" in output:
         ret = get_error_info(ErrorCodes.NOLOCALSPACE if is_stagein else ErrorCodes.NOREMOTESPACE,
-                             'NO_SPACE', "No available space left on disk: %s" % output)
+                             'NO_SPACE', f"No available space left on disk: {output}")
     elif "No such file or directory" in output:
         ret = get_error_info(ErrorCodes.NOSUCHFILE, 'NO_FILE', output)
     elif "service is not available at the moment" in output:
@@ -224,6 +227,4 @@ def resolve_common_transfer_errors(output, is_stagein=True):  # noqa: C901
         ret = get_error_info(ErrorCodes.MISSINGCREDENTIALS, 'S3_ERROR', output)
 
     # reg exp the output to get real error message
-    ret = output_line_scan(ret, output)
-
-    return ret
+    return output_line_scan(ret, output)
