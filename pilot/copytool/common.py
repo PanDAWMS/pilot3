@@ -12,9 +12,9 @@
 import logging
 import os
 import re
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import FileHandlingFailure
 from pilot.util.filehandling import (
     calculate_checksum,
     get_checksum_type,
@@ -24,7 +24,7 @@ from pilot.util.filehandling import (
 logger = logging.getLogger(__name__)
 
 
-def get_timeout(filesize, add=0):
+def get_timeout(filesize: int, add: int = 0) -> int:
     """
     Get a proper time-out limit based on the file size.
 
@@ -41,7 +41,7 @@ def get_timeout(filesize, add=0):
     return min(timeout, timeout_max)
 
 
-def verify_catalog_checksum(fspec, path):
+def verify_catalog_checksum(fspec: Any, path: str) -> (str, str):
     """
     Verify that the local and remote (fspec) checksum values are the same.
     The function will update the fspec object.
@@ -65,7 +65,7 @@ def verify_catalog_checksum(fspec, path):
     else:
         try:
             checksum_local = calculate_checksum(path, algorithm=checksum_type)
-        except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+        except (Exception) as exc:
             diagnostics = f'caught exception during checksum calculation: {exc}'
             logger.warning(diagnostics)
             fspec.status_code = ErrorCodes.CHECKSUMCALCFAILURE
@@ -90,13 +90,12 @@ def verify_catalog_checksum(fspec, path):
     return state, diagnostics
 
 
-def merge_destinations(files):
+def merge_destinations(files: list) -> dict:
     """
     Converts the file-with-destination dict to a destination-with-files dict
 
-    :param files Files to merge
-
-    :returns destination-with-files dictionary
+    :param files: files to merge (list)
+    :return: destination-with-files dictionary.
     """
     destinations = {}
     # ensure type(files) == list
@@ -111,18 +110,18 @@ def merge_destinations(files):
             _file['errmsg'] = 'File not yet successfully downloaded.'
             _file['errno'] = 2
             lfn = f"{_file['scope']}:{_file['name']}"
-            dst = destinations.setdefault(_file['destination'], {'lfns': set(), 'files': list()})
+            dst = destinations.setdefault(_file['destination'], {'lfns': set(), 'files': []})
             dst['lfns'].add(lfn)
             dst['files'].append(_file)
     return destinations
 
 
-def get_copysetup(copytools, copytool_name):
+def get_copysetup(copytools: list, copytool_name: str) -> str:
     """
     Return the copysetup for the given copytool.
 
     :param copytools: copytools list from infosys.
-    :param copytool name: name of copytool (string).
+    :param copytool_name: name of copytool (string).
     :return: copysetup (string).
     """
     copysetup = ""
@@ -138,7 +137,7 @@ def get_copysetup(copytools, copytool_name):
     return copysetup
 
 
-def get_error_info(rcode, state, error_msg):
+def get_error_info(rcode: int, state: str, error_msg: str) -> dict:
     """
     Return an error info dictionary specific to transfer errors.
     Helper function to resolve_common_transfer_errors().
@@ -152,7 +151,7 @@ def get_error_info(rcode, state, error_msg):
     return {'rcode': rcode, 'state': state, 'error': error_msg}
 
 
-def output_line_scan(ret, output):
+def output_line_scan(ret: dict, output: str) -> dict:
     """
     Do some reg exp on the transfer command output to search for special errors.
     Helper function to resolve_common_transfer_errors().
@@ -173,7 +172,7 @@ def output_line_scan(ret, output):
     return ret
 
 
-def resolve_common_transfer_errors(output, is_stagein=True):  # noqa: C901
+def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict:  # noqa: C901
     """
     Resolve any common transfer related errors.
 
