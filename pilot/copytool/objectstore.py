@@ -7,21 +7,24 @@
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
 
 import os
 import json
 import logging
 
-from .common import resolve_common_transfer_errors
-from pilot.common.exception import PilotException, ErrorCodes
-#from pilot.info.storageactivitymaps import get_ddm_activity
 from pilot.util.container import execute
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes,
+)
 from pilot.util.ruciopath import get_rucio_path
+from pilot.util.config import config
+from .common import resolve_common_transfer_errors
 
 logger = logging.getLogger(__name__)
 
-# can be disable for Rucio if allowed to use all RSE for input
+# can be disabled for Rucio if allowed to use all RSE for input
 require_replicas = False    ## indicates if given copytool requires input replicas to be resolved
 
 require_input_protocols = True    ## indicates if given copytool requires input protocols and manual generation of input replicas
@@ -30,11 +33,11 @@ require_protocols = True  ## indicates if given copytool requires protocols to b
 allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root', 's3', 's3+rucio']
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
     return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
     return True  ## FIX ME LATER
 
 
@@ -50,7 +53,7 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
     """
     ddm = ddmconf.get(fspec.ddmendpoint)
     if not ddm:
-        raise PilotException('Failed to resolve ddmendpoint by name=%s' % fspec.ddmendpoint)
+        raise PilotException(f'failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
     if ddm.is_deterministic:
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), get_rucio_path(fspec.scope, fspec.lfn))
@@ -58,37 +61,9 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), fspec.lfn)
         fspec.protocol_id = protocol.get('id')
     else:
-        raise PilotException('resolve_surl(): Failed to construct SURL for non deterministic ddm=%s: NOT IMPLEMENTED', fspec.ddmendpoint)
+        raise PilotException(f'resolve_surl(): failed to construct SURL for non deterministic ddm={fspec.ddmendpoint}: NOT IMPLEMENTED')
 
     return {'surl': surl}
-
-## redundant logic, can be removed (anisyonk)
-#def resolve_protocol(fspec, activity, ddm):
-#    """
-#        Rosolve protocols to be used to transfer the file with corressponding activity
-#
-#        :param fspec: file spec data
-#        :param activity: actvitiy name as string
-#        :param ddm: ddm storage data
-#        :return: protocol as dictionary
-#    """
-#
-#    logger.info("Resolving protocol for file(lfn: %s, ddmendpoint: %s) with activity(%s)", fspec.lfn, fspec.ddmendpoint, activity)
-#
-#    activity = get_ddm_activity(activity)
-#    protocols = ddm.arprotocols.get(activity)
-#    protocols_allow = []
-#    for schema in allowed_schemas:
-#        for protocol in protocols:
-#            if schema is None or protocol.get('endpoint', '').startswith("%s://" % schema):
-#                protocols_allow.append(protocol)
-#    if not protocols_allow:
-#        err = "No available allowed protocols for file(lfn: %s, ddmendpoint: %s) with activity(%s)" % (fspec.lfn, fspec.ddmendpoint, activity)
-#        logger.error(err)
-#        raise PilotException(err)
-#    protocol = protocols_allow[0]
-#    logger.info("Resolved protocol for file(lfn: %s, ddmendpoint: %s) with activity(%s): %s", fspec.lfn, fspec.ddmendpoint, activity, protocol)
-#    return protocol
 
 
 def copy_in(files, **kwargs):
@@ -103,8 +78,6 @@ def copy_in(files, **kwargs):
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
 
     ddmconf = kwargs.pop('ddmconf', {})
-    #activity = kwargs.pop('activity', None)
-    # trace_report = kwargs.get('trace_report')
 
     for fspec in files:
 
@@ -116,17 +89,6 @@ def copy_in(files, **kwargs):
                 ddm_special_setup = ddm.get_special_setup(fspec.protocol_id)
                 if ddm_special_setup:
                     cmd = [ddm_special_setup]
-
-        # redundant logic: to be cleaned (anisyonk)
-        #ddm = ddmconf.get(fspec.ddmendpoint)
-        #if ddm:
-        #    protocol = resolve_protocol(fspec, activity, ddm)
-        #    surls = resolve_surl(fspec, protocol, ddmconf)
-        #    if 'surl' in surls:
-        #        fspec.surl = surls['surl']
-        #    ddm_special_setup = ddm.get_special_setup(fspec.protocol_id)
-        #    if ddm_special_setup:
-        #        cmd += [ddm_special_setup]
 
         # temporary hack
         rses_option = '--rses' if is_new_rucio_version() else '--rse'
@@ -143,9 +105,9 @@ def copy_in(files, **kwargs):
             if fspec.ddmendpoint:
                 cmd.extend([rses_option, fspec.ddmendpoint])
             cmd.extend(['--pfn', turl])
-        cmd += ['%s:%s' % (fspec.scope, fspec.lfn)]
+        cmd += [f'{fspec.scope}:{fspec.lfn}']
 
-        rcode, stdout, stderr = execute(" ".join(cmd), **kwargs)
+        rcode, _, stderr = execute(" ".join(cmd), **kwargs)
 
         if rcode:  ## error occurred
             error = resolve_common_transfer_errors(stderr, is_stagein=True)
@@ -159,9 +121,11 @@ def copy_in(files, **kwargs):
     return files
 
 
-def is_new_rucio_version():
+def is_new_rucio_version() -> bool:
     """
+    Check if --rses RSES option is supported in Rucio.
 
+    :return: True if new rucio version (bool).
     """
 
     _, stdout, _ = execute('rucio download -h')
@@ -212,7 +176,7 @@ def copy_out(files, **kwargs):
 
         cmd += [fspec.surl]
 
-        rcode, stdout, stderr = execute(" ".join(cmd), **kwargs)
+        rcode, _, stderr = execute(" ".join(cmd), **kwargs)
 
         if rcode:  ## error occurred
             error = resolve_common_transfer_errors(stderr, is_stagein=False)
@@ -224,17 +188,20 @@ def copy_out(files, **kwargs):
             cwd = fspec.workdir or kwargs.get('workdir') or '.'
             path = os.path.join(cwd, 'rucio_upload.json')
             if not os.path.exists(path):
-                logger.error('Failed to resolve Rucio summary JSON, wrong path? file=%s', path)
+                logger.error(f'failed to resolve Rucio summary JSON, wrong path? file={path}')
             else:
                 with open(path, 'rb') as f:
                     summary = json.load(f)
-                    dat = summary.get("%s:%s" % (fspec.scope, fspec.lfn)) or {}
+                    dat = summary.get(f"{fspec.scope}:{fspec.lfn}") or {}
                     fspec.turl = dat.get('pfn')
                     # quick transfer verification:
                     # the logic should be unified and moved to base layer shared for all the movers
-                    adler32 = dat.get('adler32')
-                    if fspec.checksum.get('adler32') and adler32 and fspec.checksum.get('adler32') != adler32:
-                        raise PilotException("Failed to stageout: CRC mismatched", code=ErrorCodes.PUTADMISMATCH, state='AD_MISMATCH')
+                    checksum = dat.get(config.File.checksum_type)
+                    logger.debug(f'extracted checksum: {checksum}')
+                    if fspec.checksum.get(config.File.checksum_type) and checksum and fspec.checksum.get(config.File.checksum_type) != checksum:
+                        state = 'AD_MISMATCH' if config.File.checksum_type == 'adler32' else 'MD_MISMATCH'
+                        code = ErrorCodes.PUTADMISMATCH if config.File.checksum_type == 'adler32' else ErrorCodes.PUTMD5MISMATCH
+                        raise PilotException("failed to stageout: CRC mismatched", code=code, state=state)
 
         fspec.status_code = 0
         fspec.status = 'transferred'
