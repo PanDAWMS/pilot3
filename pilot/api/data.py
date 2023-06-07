@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
@@ -20,10 +20,20 @@ import time
 from functools import reduce
 
 from pilot.info import infosys
-from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound, FileHandlingFailure
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes,
+    SizeTooLarge,
+    NoLocalSpace,
+    ReplicasNotFound,
+    FileHandlingFailure,
+)
 from pilot.util.auxiliary import show_memory_usage
 from pilot.util.config import config
-from pilot.util.filehandling import calculate_checksum, write_json
+from pilot.util.filehandling import (
+    calculate_checksum,
+    write_json,
+)
 from pilot.util.math import convert_mb_to_b
 from pilot.util.parameters import get_maximum_input_sizes
 from pilot.util.workernode import get_local_disk_space
@@ -1090,9 +1100,9 @@ class StageOutClient(StagingClient):
 
             fspec.surl = pfn
             fspec.activity = activity
-            if os.path.isfile(pfn) and not fspec.checksum.get('adler32'):
+            if os.path.isfile(pfn) and not fspec.checksum.get(config.File.checksum_type):
                 try:
-                    fspec.checksum['adler32'] = calculate_checksum(pfn)
+                    fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn)
                 except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                     raise exc
 
