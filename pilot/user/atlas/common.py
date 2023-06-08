@@ -1305,7 +1305,7 @@ def discover_new_output(name_pattern, workdir):
             filesize = get_local_file_size(path)
             # get checksum
             try:
-                checksum = calculate_checksum(path)
+                checksum = calculate_checksum(path, algorithm=config.File.checksum_type)
             except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                 logger.warning(
                     'failed to create file info (filesize=%d) for lfn=%s: %s',
