@@ -564,6 +564,15 @@ def copytool_in(queues, traces, args):  # noqa: C901
                         logger.info('created input file metadata:\n%s', xml)
                     except ModuleNotFoundError as exc:
                         logger.warning(f'no such module: {exc} (will not create input file metadata)')
+
+                if args.pod and args.workflow == 'stager':
+                    #set_pilot_state(job=job, state='running')
+                    #ret = send_state(job, args, 'running')
+                    #if not ret:
+                    #    traces.pilot['error_code'] = errors.COMMUNICATIONFAILURE
+                    logger.info('pilot is no longer needed - terminating')
+                    args.job_aborted.set()
+                    args.graceful_stop.set()
             else:
                 # remove the job from the current stage-in queue
                 _job = queues.current_data_in.get(block=True, timeout=1)
