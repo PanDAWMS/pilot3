@@ -1307,22 +1307,12 @@ def discover_new_output(name_pattern, workdir):
             try:
                 checksum = calculate_checksum(path, algorithm=config.File.checksum_type)
             except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-                logger.warning(
-                    'failed to create file info (filesize=%d) for lfn=%s: %s',
-                    filesize,
-                    lfn,
-                    exc
-                )
+                logger.warning(f'failed to create file info (filesize={filesize}) for lfn={lfn}: {exc}')
             else:
                 if filesize and checksum:
                     new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
                 else:
-                    logger.warning(
-                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
-                        filesize,
-                        checksum,
-                        lfn
-                    )
+                    logger.warning(f'failed to create file info (filesize={filesize}, checksum={checksum}) for lfn={lfn}')
 
     return new_output
 
@@ -1344,20 +1334,16 @@ def extract_output_file_guids(job):
     if not job.allownooutput:
         output = job.metadata.get('files', {}).get('output', [])
         if output:
-            logger.info((
-                'verified that job report contains metadata '
-                'for %d file(s)'), len(output))
+            logger.info(f'verified that job report contains metadata for {len(output)} file(s)')
         else:
             #- will fail job since allowNoOutput is not set')
-            logger.warning((
-                'job report contains no output '
-                'files and allowNoOutput is not set'))
+            logger.warning('job report contains no output files and allowNoOutput is not set')
             #job.piloterrorcodes, job.piloterrordiags =
             # errors.add_error_code(errors.NOOUTPUTINJOBREPORT)
             return
 
     # extract info from metadata (job report JSON)
-    data = dict([e.lfn, e] for e in job.outdata)
+    data = dict([out.lfn, out] for out in job.outdata)
     #extra = []
     for dat in job.metadata.get('files', {}).get('output', []):
         for fdat in dat.get('subFiles', []):
