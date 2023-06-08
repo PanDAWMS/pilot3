@@ -1078,14 +1078,14 @@ class StageOutClient(StagingClient):
 
             if not fspec.ddmendpoint:  # ensure that output destination is properly set
                 if 'mv' not in self.infosys.queuedata.copytools:
-                    msg = 'no output RSE defined for file=%s' % fspec.lfn
+                    msg = f'no output RSE defined for file={fspec.lfn}'
                     self.logger.error(msg)
                     raise PilotException(msg, code=ErrorCodes.NOSTORAGE, state='NO_OUTPUTSTORAGE_DEFINED')
 
             pfn = fspec.surl or getattr(fspec, 'pfn', None) or os.path.join(kwargs.get('workdir', ''), fspec.lfn) or \
                 os.path.join(os.path.join(kwargs.get('workdir', ''), '..'), fspec.lfn)
             if not os.path.exists(pfn) or not os.access(pfn, os.R_OK):
-                msg = "output pfn file/directory does not exist: %s" % pfn
+                msg = f"output pfn file/directory does not exist: {pfn}"
                 self.logger.error(msg)
                 self.trace_report.update(clientState='MISSINGOUTPUTFILE', stateReason=msg, filename=fspec.lfn)
                 self.trace_report.send()
@@ -1094,7 +1094,7 @@ class StageOutClient(StagingClient):
                 fspec.filesize = os.path.getsize(pfn)
 
             if not fspec.filesize:
-                msg = 'output file has size zero: %s' % fspec.lfn
+                msg = f'output file has size zero: {fspec.lfn}'
                 self.logger.fatal(msg)
                 raise PilotException(msg, code=ErrorCodes.ZEROFILESIZE, state="ZERO_FILE_SIZE")
 
@@ -1102,7 +1102,8 @@ class StageOutClient(StagingClient):
             fspec.activity = activity
             if os.path.isfile(pfn) and not fspec.checksum.get(config.File.checksum_type):
                 try:
-                    fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn)
+                    fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
+                                                                                   algorithm=config.File.checksum_type)
                 except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                     raise exc
 
@@ -1112,11 +1113,11 @@ class StageOutClient(StagingClient):
             self.require_protocols(files, copytool, activity, local_dir=output_dir)
 
         if not copytool.is_valid_for_copy_out(files):
-            self.logger.warning('Input is not valid for transfers using copytool=%s', copytool)
-            self.logger.debug('Input: %s', files)
-            raise PilotException('Invalid input for transfer operation')
+            self.logger.warning(f'input is not valid for transfers using copytool={copytool}')
+            self.logger.debug(f'input: {files}')
+            raise PilotException('invalid input for transfer operation')
 
-        self.logger.info('ready to transfer (stage-out) files: %s', files)
+        self.logger.info(f'ready to transfer (stage-out) files: {files}')
 
         if self.infosys:
             kwargs['copytools'] = self.infosys.queuedata.copytools
