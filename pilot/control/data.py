@@ -16,6 +16,7 @@ import os
 import subprocess
 import time
 import queue
+from typing import Any
 
 from pilot.api.data import StageInClient, StageOutClient
 from pilot.api.es_data import StageInESClient
@@ -25,6 +26,7 @@ from pilot.common.exception import ExcThread, PilotException, LogFileCreationFai
 #from pilot.util.config import config
 from pilot.util.auxiliary import set_pilot_state, check_for_final_server_update  #, abort_jobs_in_queues
 from pilot.util.common import should_abort
+from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_STAGEIN, PILOT_POST_STAGEIN, PILOT_PRE_STAGEOUT, PILOT_POST_STAGEOUT, LOG_TRANSFER_IN_PROGRESS,\
     LOG_TRANSFER_DONE, LOG_TRANSFER_NOT_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_RUNNING, MAX_KILL_WAIT_TIME, UTILITY_BEFORE_STAGEIN
 from pilot.util.container import execute
@@ -917,14 +919,14 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     return not remain_files
 
 
-def _stage_out_new(job, args):
+def _stage_out_new(job: Any, args: Any) -> bool:
     """
     Stage-out of all output files.
     If job.stageout=log then only log files will be transferred.
 
-    :param job: job object.
-    :param args: pilot args object.
-    :return: True in case of success, False otherwise.
+    :param job: job object
+    :param args: pilot args object
+    :return: True in case of success, False otherwise (bool).
     """
 
     #logger.info('testing sending SIGUSR1')
@@ -957,14 +959,14 @@ def _stage_out_new(job, args):
         logfile = job.logdata[0]
 
         try:
-            tarball_name = 'tarball_PandaJob_%s_%s' % (job.jobid, job.infosys.pandaqueue)
+            tarball_name = f'tarball_PandaJob_{job.jobid}_{job.infosys.pandaqueue}'
             input_files = [fspec.lfn for fspec in job.indata]
             output_files = [fspec.lfn for fspec in job.outdata]
             create_log(job.workdir, logfile.lfn, tarball_name, args.cleanup,
                        input_files=input_files, output_files=output_files,
                        piloterrors=job.piloterrorcodes, debugmode=job.debug)
         except LogFileCreationFailure as error:
-            logger.warning('failed to create tar file: %s', error)
+            logger.warning(f'failed to create tar file: {error}')
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOGFILECREATIONFAILURE)
             return False
@@ -989,7 +991,7 @@ def _stage_out_new(job, args):
         if iofile.status in ['transferred']:
             fileinfo[iofile.lfn] = {'guid': iofile.guid,
                                     'fsize': iofile.filesize,
-                                    'adler32': iofile.checksum.get('adler32'),
+                                    f'{config.File.checksum_type}': iofile.checksum.get(config.File.checksum_type),
                                     'surl': iofile.turl}
 
     job.fileinfo = fileinfo
@@ -1005,7 +1007,7 @@ def _stage_out_new(job, args):
     logger.info('stage-out finished correctly')
 
     if not job.state or (job.state and job.state == 'stageout'):  # is the job state already set? if so, don't change the state (unless it's the stageout state)
-        logger.debug('changing job state from %s to finished', job.state)
+        logger.debug(f'changing job state from {job.state} to finished')
         set_pilot_state(job=job, state="finished")
 
     # send final server update since all transfers have finished correctly
