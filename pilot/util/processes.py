@@ -623,6 +623,7 @@ def threads_aborted(caller=''):
 
     # count all threads still alive
     names = []
+    time.sleep(1)
     for thread in threading.enumerate():
         if thread.isDaemon():  # ignore any daemon threads, they will be aborted when python ends
             daemon_threads += 1
@@ -659,8 +660,8 @@ def threads_aborted(caller=''):
         if mon:
             logger.info(f'only monitor.control thread still running - safe to abort: {names}')
             abort = True
-        else:
-            logger.info(f'waiting for thread to finish: {names}')
+        #else:
+        #    logger.info(f'waiting for thread to finish: {names}')
 
     return abort
 

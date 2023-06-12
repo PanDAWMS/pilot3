@@ -572,12 +572,13 @@ def copytool_in(queues, traces, args):  # noqa: C901
                     for fspec in job.indata:
                         path = os.path.join(job.workdir, fspec.lfn)
                         if os.path.exists(path):
-                            cmd = f"mv {path} {os.environ.get('PILOT_WORKDIR')}"
+                            dest = os.environ.get('PILOT_WORKDIR')
+                            cmd = f"mv {path} {dest}"
                             ec, _, stderr = execute(cmd)
                             if ec:
                                 logger.warning(f'move failed: {stderr}')
                             else:
-                                logger.info(f"moved file {path} to {os.environ.get('PILOT_WORKDIR')}")
+                                logger.info(f"moved file {path} to {dest}")
                         else:
                             logger.warning(f'path does not exist: {path}')
                     logger.info('pilot is no longer needed - terminating')
