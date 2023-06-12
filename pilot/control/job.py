@@ -2813,6 +2813,12 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 time.sleep(1)
                 continue
 
+        if args.workflow == 'stager':
+            logger.debug('did stage-in finish? abort everything')
+            args.job_aborted.set()
+            args.graceful_stop.set()
+            break
+
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
         jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
         if jobs:
