@@ -568,10 +568,18 @@ def copytool_in(queues, traces, args):  # noqa: C901
                         logger.warning(f'no such module: {exc} (will not create input file metadata)')
 
                 if args.pod and args.workflow == 'stager':
-                    #set_pilot_state(job=job, state='running')
-                    #ret = send_state(job, args, 'running')
-                    #if not ret:
-                    #    traces.pilot['error_code'] = errors.COMMUNICATIONFAILURE
+                    # files can now be moved to init dir, which will be the same as the PANDA_WORKDIR for the jupyter user
+                    for fspec in job.indata:
+                        path = os.path.join(job.workdir, fspec.lfn)
+                        if os.path.exists(path):
+                            cmd = f"mv {path} {os.environ.get('PILOT_HOME')}"
+                            ec, _, stderr = execute(cmd)
+                            if ec:
+                                logger.warning(f'move failed: {stderr}')
+                            else:
+                                logger.info(f"moved file {path} to {os.environ.get('PILOT_HOME')}")
+                        else:
+                            logger.warning(f'path does not exist: {path}')
                     logger.info('pilot is no longer needed - terminating')
                     args.job_aborted.set()
                     args.graceful_stop.set()
