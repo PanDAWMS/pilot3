@@ -660,8 +660,8 @@ def threads_aborted(caller=''):
         if mon:
             logger.info(f'only monitor.control thread still running - safe to abort: {names}')
             abort = True
-        #else:
-        #    logger.info(f'waiting for thread to finish: {names}')
+        else:
+            logger.info(f'waiting for thread to finish: {names}')
 
     return abort
 

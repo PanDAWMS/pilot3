@@ -492,7 +492,8 @@ def copytool_in(queues, traces, args):  # noqa: C901
     :return:
     """
 
-    while not args.graceful_stop.is_set():
+    abort = False
+    while not args.graceful_stop.is_set() and not abort:
         time.sleep(0.5)
         try:
             # abort if kill signal arrived too long time ago, ie loop is stuck
@@ -581,9 +582,11 @@ def copytool_in(queues, traces, args):  # noqa: C901
                                 logger.info(f"moved file {path} to {dest}")
                         else:
                             logger.warning(f'path does not exist: {path}')
-                    logger.info('pilot is no longer needed - terminating')
-                    args.job_aborted.set()
-                    args.graceful_stop.set()
+                    logger.info('stage-in thread is no longer needed - terminating')
+                    abort = True
+                    break
+                    #args.job_aborted.set()
+                    #args.graceful_stop.set()
             else:
                 # remove the job from the current stage-in queue
                 _job = queues.current_data_in.get(block=True, timeout=1)
@@ -601,6 +604,9 @@ def copytool_in(queues, traces, args):  # noqa: C901
 
         except queue.Empty:
             continue
+
+    if abort:
+        logger.debug('an abort was received - finishing stage-in thread')
 
     # proceed to set the job_aborted flag?
     if threads_aborted(caller='copytool_in'):
