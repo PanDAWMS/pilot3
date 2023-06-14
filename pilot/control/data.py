@@ -1010,13 +1010,14 @@ def _stage_out_new(job: Any, args: Any) -> bool:
     # write time stamps to pilot timing file
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEOUT, time.time(), args)
 
-    # generate fileinfo details to be send to Panda
+    # generate fileinfo details to be sent to Panda
     fileinfo = {}
+    checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
     for iofile in job.outdata + job.logdata:
         if iofile.status in ['transferred']:
             fileinfo[iofile.lfn] = {'guid': iofile.guid,
                                     'fsize': iofile.filesize,
-                                    f'{config.File.checksum_type}': iofile.checksum.get(config.File.checksum_type),
+                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
                                     'surl': iofile.turl}
 
     job.fileinfo = fileinfo
