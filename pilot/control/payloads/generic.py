@@ -682,7 +682,8 @@ class Executor(object):
 
             logger.info('payload iteration loop #%d', iteration + 1)
             os.environ['PILOT_EXEC_ITERATION_COUNT'] = '%s' % iteration
-            show_memory_usage()
+            if self.__args.debug:
+                show_memory_usage()
 
             # first run the preprocess (if necessary) - note: this might update jobparams -> must update cmd
             jobparams_pre = self.__job.jobparams

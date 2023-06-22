@@ -28,7 +28,6 @@ from pilot.common.exception import (
     ReplicasNotFound,
     FileHandlingFailure,
 )
-from pilot.util.auxiliary import show_memory_usage
 from pilot.util.config import config
 from pilot.util.filehandling import (
     calculate_checksum,
@@ -241,13 +240,9 @@ class StagingClient(object):
         logger = self.logger
         xfiles = []
 
-        show_memory_usage()
-
         for fdat in files:
             # skip fdat if need for further workflow (e.g. to properly handle OS ddms)
             xfiles.append(fdat)
-
-        show_memory_usage()
 
         if not xfiles:  # no files for replica look-up
             return files
@@ -293,8 +288,6 @@ class StagingClient(object):
                 logger.info("filesize and checksum verification done")
                 self.trace_report.update(clientState="DONE")
 
-        show_memory_usage()
-
         logger.info('Number of resolved replicas:\n' +
                     '\n'.join(["lfn=%s: replicas=%s, is_directaccess=%s"
                                % (f.lfn, len(f.replicas or []), f.is_directaccess(ensure_replica=False)) for f in files]))
@@ -313,9 +306,6 @@ class StagingClient(object):
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
-
-        show_memory_usage()
-
         location = self.detect_client_location()
         if not location:
             raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
@@ -339,8 +329,6 @@ class StagingClient(object):
             replicas = rucio_client.list_replicas(**query)
         except Exception as exc:
             raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED)
-
-        show_memory_usage()
 
         replicas = list(replicas)
         self.logger.debug(f"replicas received from Rucio: {replicas}")
@@ -512,7 +500,6 @@ class StagingClient(object):
             try:
                 result = self.transfer_files(copytool, remain_files, activity, **kwargs)
                 self.logger.debug('transfer_files() using copytool=%s completed with result=%s', copytool, str(result))
-                show_memory_usage()
                 break
             except PilotException as exc:
                 self.logger.warning('failed to transfer_files() using copytool=%s .. skipped; error=%s', copytool, exc)
@@ -836,8 +823,6 @@ class StageInClient(StagingClient):
                 self.check_availablespace(remain_files)
             else:
                 self.logger.info('skipping input file size check since maxinputsize=-1')
-
-        show_memory_usage()
 
         # add the trace report
         kwargs['trace_report'] = self.trace_report

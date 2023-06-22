@@ -48,7 +48,6 @@ from .utilities import (
 
 from pilot.util.auxiliary import (
     get_resource_name,
-    show_memory_usage,
     get_key_value,
 )
 
@@ -213,7 +212,6 @@ def open_remote_files(indata, workdir, nthreads):
             _cmd = get_file_open_command(final_script_path, turls, nthreads)
             cmd = create_root_container_command(workdir, _cmd)
 
-            show_memory_usage()
             timeout = get_timeout_for_remoteio(indata)
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
@@ -428,8 +426,6 @@ def get_payload_command(job):
     :return: command (string).
     """
 
-    show_memory_usage()
-
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -553,7 +549,6 @@ def get_payload_command(job):
     if job.dask_scheduler_ip:
         cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
 
-    show_memory_usage()
     logger.info('payload run command: %s', cmd)
 
     return cmd
@@ -913,8 +908,6 @@ def get_analysis_run_command(job, trf_name):  # noqa: C901
         _guids = get_guids_from_jobparams(job.jobparams, lfns, guids)
         if _guids:
             cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
-
-    show_memory_usage()
 
     return cmd
 
