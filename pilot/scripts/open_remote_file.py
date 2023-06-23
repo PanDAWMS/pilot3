@@ -13,6 +13,7 @@ import logging
 import queue
 import ROOT
 import signal
+import subprocess
 import threading
 import traceback
 from collections import namedtuple
@@ -185,13 +186,21 @@ def interrupt(args, signum, frame):
     :return:
     """
 
+    if args.signal:
+        logger.warning('process already being killed')
+        return
+
     try:
         sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
     except Exception:
         sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
     logger.warning(f'caught signal: {sig} in FRAME=\n%s', '\n'.join(traceback.format_stack(frame)))
+    cmd = f'ps aux | grep {os.getpid()}'
+    out = subprocess.getoutput(cmd)
+    logger.info(f'{cmd}:\n{out}')
     logger.warning(f'will terminate pid={os.getpid()}')
     logging.shutdown()
+    args.signal = sig
     kill_processes(os.getpid())
 
 

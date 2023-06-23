@@ -2050,6 +2050,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                         pilot_version_banner()
                         getjob_requests = 0
                         add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
+                        args.signal = None
                         break
                     time.sleep(0.5)
 
