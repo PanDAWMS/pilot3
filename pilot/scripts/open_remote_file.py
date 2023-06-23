@@ -84,6 +84,10 @@ def message(msg):
     else:
         print(msg, flush=True)
 
+    # always write message to instant log file (message might otherwise get lost in case of time-outs)
+    with open(config.Pilot.remotefileverification_instant, 'a') as _file:
+        _file.write(msg)
+
 
 def get_file_lists(turls):
     """
@@ -119,7 +123,7 @@ def try_open_file(turl, queues):
     _timeout = 30 * 1000  # 30 s per file
     try:
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
-        message("internal TFile.Open() time-out set to %d ms" % _timeout)
+        # message("internal TFile.Open() time-out set to %d ms" % _timeout)
         message('opening %s' % turl)
         in_file = ROOT.TFile.Open(turl)
     except Exception as exc:
