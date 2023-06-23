@@ -86,7 +86,7 @@ def message(msg):
 
     # always write message to instant log file (message might otherwise get lost in case of time-outs)
     with open(config.Pilot.remotefileverification_instant, 'a') as _file:
-        _file.write(msg)
+        _file.write(msg + '\n')
 
 
 def get_file_lists(turls):
