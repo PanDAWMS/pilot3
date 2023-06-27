@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
 import argparse
 import os
@@ -14,9 +14,14 @@ import re
 from pilot.api.data import StageOutClient
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
-from pilot.info import InfoService, FileSpec, infosys
+from pilot.info import (
+    InfoService,
+    FileSpec,
+    infosys,
+)
 from pilot.util.config import config
-from pilot.util.filehandling import establish_logging, write_json
+from pilot.util.filehandling import write_json
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
 import logging
@@ -336,7 +341,7 @@ if __name__ == '__main__':  # noqa: C901
         files = [{'scope': scope, 'lfn': lfn, 'workdir': args.workdir, 'dataset': dataset, 'ddmendpoint': ddmendpoint,
                   'ddmendpoint_alt': None}]
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
-        _xfiles = [FileSpec(type='output', **f) for f in files]
+        _xfiles = [FileSpec(filetype='output', **f) for f in files]
         xfiles += _xfiles
 
         # prod analy unification: use destination preferences from PanDA server for unified queues

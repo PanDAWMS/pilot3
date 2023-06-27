@@ -14,7 +14,6 @@ import re
 import tarfile
 import time
 import uuid
-import sys
 import logging
 from collections.abc import Iterable, Mapping
 from glob import glob
@@ -28,7 +27,6 @@ from mmap import mmap
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
-from pilot.util.config import config
 from .container import execute
 from .math import diff_lists
 
@@ -43,7 +41,7 @@ def get_pilot_work_dir(workdir):
     :return: The name of main work directory
     """
 
-    return os.path.join(workdir, "PanDA_Pilot3_%d_%s" % (os.getpid(), str(int(time.time()))))
+    return os.path.join(workdir, f"PanDA_Pilot3_{os.getpid()}_{int(time.time())}")
 
 
 def mkdirs(workdir, chmod=0o770):
@@ -54,7 +52,6 @@ def mkdirs(workdir, chmod=0o770):
     :param workdir: Full path to the directory to be created
     :param chmod: chmod code (default 0770) (octal).
     :raises PilotException: MKDirFailure.
-    :return:
     """
 
     try:
@@ -62,7 +59,7 @@ def mkdirs(workdir, chmod=0o770):
         if chmod:
             os.chmod(workdir, chmod)
     except Exception as exc:
-        raise MKDirFailure(exc)
+        raise MKDirFailure(exc) from exc
 
 
 def rmdirs(path):
@@ -126,7 +123,7 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
         try:
             _file.write(contents)
         except IOError as exc:
-            raise FileHandlingFailure(exc)
+            raise FileHandlingFailure(exc) from exc
         else:
             status = True
         _file.close()
@@ -153,7 +150,7 @@ def open_file(filename, mode):
 
     _file = None
     try:
-        _file = open(filename, mode)
+        _file = open(filename, mode, encoding='utf-8')
     except IOError as exc:
         raise FileHandlingFailure(exc)
 
@@ -190,7 +187,7 @@ def get_files(pattern="*.log"):
     """
 
     files = []
-    cmd = "find . -name %s" % pattern
+    cmd = f"find . -name {pattern}"
 
     _, stdout, _ = execute(cmd)
     if stdout:
@@ -212,7 +209,7 @@ def tail(filename, nlines=10):
     :return: file tail (str).
     """
 
-    _, stdout, _ = execute('tail -n %d %s' % (nlines, filename))
+    _, stdout, _ = execute(f'tail -n {nlines} {filename}')
     # protection
     if not isinstance(stdout, str):
         stdout = ""
@@ -229,7 +226,7 @@ def head(filename, count=20):
     """
 
     ret = None
-    with open(filename, 'r') as _file:
+    with open(filename, 'r', encoding='utf-8') as _file:
         lines = [_file.readline() for line in range(1, count + 1)]
         ret = filter(len, lines)
 
@@ -317,7 +314,7 @@ def is_json(input_file):
     :return: Boolean.
     """
 
-    with open(input_file) as unknown_file:
+    with open(input_file, encoding='utf-8') as unknown_file:
         first_char = unknown_file.read(1)
         if first_char == '{':
             return True
@@ -336,7 +333,7 @@ def read_list(filename):
 
     # open output file for reading
     try:
-        with open(filename, 'r') as filehandle:
+        with open(filename, 'r', encoding='utf-8') as filehandle:
             _list = load(filehandle)
     except IOError as exc:
         logger.warning(f'failed to read {filename}: {exc}')
@@ -369,7 +366,7 @@ def read_json(filename):
                 try:
                     dictionary = convert(dictionary)
                 except Exception as exc:
-                    raise ConversionFailure(exc)
+                    raise ConversionFailure(exc) from exc
 
     return dictionary
 
@@ -390,10 +387,10 @@ def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': '))
     status = False
 
     try:
-        with open(filename, 'w') as _fh:
+        with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
     except IOError as exc:
-        raise FileHandlingFailure(exc)
+        raise FileHandlingFailure(exc) from exc
     else:
         status = True
 
@@ -406,14 +403,13 @@ def touch(path):
     Default to use execute() if case of python problem with appending to non-existant path.
 
     :param path: full path to file to be touched (string).
-    :return:
     """
 
     try:
-        with open(path, 'a'):
+        with open(path, 'a', encoding='utf-8'):
             os.utime(path, None)
     except OSError:
-        _ = execute('touch %s' % path)
+        execute(f'touch {path}')
 
 
 def remove_empty_directories(src_dir):
@@ -422,7 +418,6 @@ def remove_empty_directories(src_dir):
     Only empty directories will be removed.
 
     :param src_dir: directory to be purged of empty directories.
-    :return:
     """
 
     for dirpath, _, _ in os.walk(src_dir, topdown=False):
@@ -441,15 +436,16 @@ def remove(path):
     :return: 0 if successful, -1 if failed (int)
     """
 
+    ret = -1
     try:
         os.remove(path)
     except OSError as exc:
         logger.warning(f"failed to remove file: {path} ({exc.errno}, {exc.strerror})")
-        return -1
     else:
         logger.debug(f'removed {path}')
+        ret = 0
 
-    return 0
+    return ret
 
 
 def remove_dir_tree(path):
@@ -566,7 +562,6 @@ def copy(path1, path2):
     :param path1: file path (string).
     :param path2: file path (string).
     :raises PilotException: FileHandlingFailure, NoSuchFile
-    :return:
     """
 
     if not os.path.exists(path1):
@@ -743,7 +738,7 @@ def calculate_checksum(filename, algorithm='adler32'):
     """
 
     if not os.path.exists(filename):
-        raise FileHandlingFailure('file does not exist: %s' % filename)
+        raise FileHandlingFailure(f'file does not exist: {filename}')
 
     if algorithm == 'adler32' or algorithm == 'adler' or algorithm == 'ad' or algorithm == 'ad32':
         try:
@@ -940,7 +935,6 @@ def list_mod_files(file_list):
     Called before looping killer is executed.
 
     :param file_list: list of files with full paths.
-    :return:
     """
 
     if file_list:
@@ -963,59 +957,11 @@ def dump(path, cmd="cat"):
     """
 
     if os.path.exists(path) or cmd == "echo":
-        _cmd = "%s %s" % (cmd, path)
+        _cmd = f"{cmd} {path}"
         _, stdout, stderr = execute(_cmd)
         logger.info(f"{_cmd}:\n{stdout + stderr}")
     else:
         logger.info(f"path {path} does not exist")
-
-
-def establish_logging(debug=True, nopilotlog=False, filename=config.Pilot.pilotlog, loglevel=0, redirectstdout=''):
-    """
-    Setup and establish logging.
-
-    Option loglevel can be used to decide which (predetermined) logging format to use.
-    Example:
-      loglevel=0: '%(asctime)s | %(levelname)-8s | %(name)-32s | %(funcName)-25s | %(message)s'
-      loglevel=1: 'ts=%(asctime)s level=%(levelname)-8s event=%(name)-32s.%(funcName)-25s msg="%(message)s"'
-
-    All stdout can be redirected to /dev/null (or to a file). Basically required in prompt processing, or there
-    will be too much stdout. If to a file, it is recommended to then also set an appropriate max pilot lifetime
-    to prevent it from creating too much stdout.
-
-    :param debug: debug mode (Boolean),
-    :param nopilotlog: True when pilot log is not known (Boolean).
-    :param filename: name of log file (string).
-    :param loglevel: selector for logging level (int).
-    :param redirectstdout: file name, or /dev/null (string).
-    :return:
-    """
-
-    if redirectstdout:
-        sys.stdout = open(redirectstdout, 'w')
-
-    _logger = logging.getLogger('')
-    _logger.handlers = []
-    _logger.propagate = False
-
-    console = logging.StreamHandler(sys.stdout)
-    if debug:
-        format_str = '%(asctime)s | %(levelname)-8s | %(name)-32s | %(funcName)-25s | %(message)s'
-        level = logging.DEBUG
-    else:
-        format_str = '%(asctime)s | %(levelname)-8s | %(message)s'
-        level = logging.INFO
-    #rank, maxrank = get_ranks_info()
-    #if rank is not None:
-    #    format_str = 'Rank {0} |'.format(rank) + format_str
-    if nopilotlog:
-        logging.basicConfig(level=level, format=format_str, filemode='w')
-    else:
-        logging.basicConfig(filename=filename, level=level, format=format_str, filemode='w')
-    console.setLevel(level)
-    console.setFormatter(logging.Formatter(format_str))
-    logging.Formatter.converter = time.gmtime
-    _logger.addHandler(console)
 
 
 def remove_core_dumps(workdir, pid=None):
@@ -1032,10 +978,10 @@ def remove_core_dumps(workdir, pid=None):
 
     found = False
 
-    coredumps = glob("%s/core.*" % workdir) + glob("%s/core" % workdir)
+    coredumps = glob(f"{workdir}/core.*") + glob(f"{workdir}/core")
     if coredumps:
         for coredump in coredumps:
-            if pid and os.path.basename(coredump) == "core.%d" % pid:
+            if pid and os.path.basename(coredump) == f"core.{pid}":
                 found = True
             logger.info(f"removing core dump: {coredump}")
             remove(coredump)
@@ -1115,7 +1061,7 @@ def copy_pilot_source(workdir, filename=None):
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
         pat = '%s' if filename else '%s/*'
-        cmd = f'cp -r {pat} %s' % (srcdir, workdir)
+        cmd = f'cp -pr {pat} %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
         if exit_code != 0:
             diagnostics = f'file copy failed: {exit_code}, {stdout}'
@@ -1259,10 +1205,10 @@ def zip_files(archivename, files):
     try:
 
         zipped = False
-        with ZipFile(archivename, 'w', ZIP_DEFLATED) as zip:
+        with ZipFile(archivename, 'w', ZIP_DEFLATED) as _zip:
             for _file in files:
                 if os.path.exists(_file):
-                    zip.write(_file)
+                    _zip.write(_file)
                     zipped = True
         if not zipped:
             print('nothing was zipped')
@@ -1273,3 +1219,15 @@ def zip_files(archivename, files):
         print(f'failed to create archive {archivename}: {exc}')
 
     return status
+
+
+def generate_test_file(filename, filesize=1024):
+    """
+    Generate a binary file with the given size in Bytes.
+
+    :param filename: full path, file name (string)
+    :param filesize: file size in Bytes (int)
+    """
+
+    with open(filename, 'wb') as fout:
+        fout.write(os.urandom(filesize))  # replace 1024 with a size in kilobytes if it is not unreasonably large

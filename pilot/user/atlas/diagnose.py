@@ -582,7 +582,7 @@ def process_job_report(job):
             # job object
             job.metadata = json.load(data_file)
 
-            #
+            # update job data if necessary
             update_job_data(job)
 
             # compulsory fields

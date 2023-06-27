@@ -48,7 +48,6 @@ from .utilities import (
 
 from pilot.util.auxiliary import (
     get_resource_name,
-    show_memory_usage,
     get_key_value,
 )
 
@@ -213,7 +212,6 @@ def open_remote_files(indata, workdir, nthreads):
             _cmd = get_file_open_command(final_script_path, turls, nthreads)
             cmd = create_root_container_command(workdir, _cmd)
 
-            show_memory_usage()
             timeout = get_timeout_for_remoteio(indata)
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
@@ -428,8 +426,6 @@ def get_payload_command(job):
     :return: command (string).
     """
 
-    show_memory_usage()
-
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -553,7 +549,6 @@ def get_payload_command(job):
     if job.dask_scheduler_ip:
         cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
 
-    show_memory_usage()
     logger.info('payload run command: %s', cmd)
 
     return cmd
@@ -914,8 +909,6 @@ def get_analysis_run_command(job, trf_name):  # noqa: C901
         if _guids:
             cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
 
-    show_memory_usage()
-
     return cmd
 
 
@@ -1007,6 +1000,68 @@ def get_file_transfer_info(job):   ## TO BE DEPRECATED, NOT USED (anisyonk)
     return use_copy_tool, use_direct_access, use_pfc_turl
 
 
+def test_job_data(job):
+    """
+    REMOVE THIS
+
+    :param job: job object
+    :return:
+    """
+
+    # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
+    # output files and add them to the output file list
+    from pilot.info.filespec import FileSpec
+
+    # add a couple of files to replace current output
+    filesizeinbytes = 1024
+    outputfiles = ['DST_.random1.root', 'DST_.random2.root', 'DST_.random3.root']
+    for outputfile in outputfiles:
+        with open(os.path.join(job.workdir, outputfile), 'wb') as fout:
+            fout.write(os.urandom(filesizeinbytes))  # replace 1024 with a size in kilobytes if it is not unreasonably large
+
+    outfiles = []
+    scope = ''
+    dataset = ''
+    ddmendpoint = ''
+    for fspec in job.outdata:
+
+        fspec.lfn = 'regex|DST_.*.root'
+        if fspec.lfn.startswith('regex|'):  # if this is true, job.outdata will be overwritten
+            regex_pattern = fspec.lfn.split('regex|')[1]  # "DST_.*.root"
+            logger.info(f'found regular expression {regex_pattern} - looking for the corresponding files in {job.workdir}')
+
+            # extract needed info for the output files for later
+            scope = fspec.scope
+            dataset = fspec.dataset
+            ddmendpoint = fspec.ddmendpoint
+
+            # now locate the corresponding files in the work dir
+            outfiles = [_file for _file in os.listdir(job.workdir) if re.search(regex_pattern, _file)]
+            logger.debug(f'outfiles={outfiles}')
+            if not outfiles:
+                logger.warning(f'no output files matching {regex_pattern} were found')
+            break
+
+    if outfiles:
+        new_outfiles = []
+        for outfile in outfiles:
+            new_file = {'scope': scope,
+                        'lfn': outfile,
+                        'guid': get_guid(),
+                        'workdir': job.workdir,
+                        'dataset': dataset,
+                        'ddmendpoint': ddmendpoint,
+                        'ddmendpoint_alt': None}
+            new_outfiles.append(new_file)
+        logger.debug(f'new_outfiles={new_outfiles}')
+        # create list of FileSpecs and overwrite the old job.outdata
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
+        logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
+        job.outdata = _xfiles
+    else:
+        logger.debug('no regex found in outdata file list')
+
+
 def update_job_data(job):
     """
     This function can be used to update/add data to the job object.
@@ -1023,6 +1078,8 @@ def update_job_data(job):
     ## metadata values)directly to Job object since in general it's Job
     ## related part. Later on once we introduce VO specific Job class
     ## (inherited from JobData) this can be easily customized
+
+    # test_job_data(job)
 
     # get label "all" or "log"
     stageout = get_stageout_label(job)
@@ -1211,7 +1268,7 @@ def discover_new_outdata(job):
 
                 # do not abbreviate the following two lines as otherwise
                 # the content of xfiles will be a list of generator objects
-                _xfiles = [FileSpec(type='output', **f) for f in files]
+                _xfiles = [FileSpec(filetype='output', **f) for f in files]
                 new_outdata += _xfiles
 
     return new_outdata
@@ -1241,24 +1298,14 @@ def discover_new_output(name_pattern, workdir):
             filesize = get_local_file_size(path)
             # get checksum
             try:
-                checksum = calculate_checksum(path)
+                checksum = calculate_checksum(path, algorithm=config.File.checksum_type)
             except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-                logger.warning(
-                    'failed to create file info (filesize=%d) for lfn=%s: %s',
-                    filesize,
-                    lfn,
-                    exc
-                )
+                logger.warning(f'failed to create file info (filesize={filesize}) for lfn={lfn}: {exc}')
             else:
                 if filesize and checksum:
                     new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
                 else:
-                    logger.warning(
-                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
-                        filesize,
-                        checksum,
-                        lfn
-                    )
+                    logger.warning(f'failed to create file info (filesize={filesize}, checksum={checksum}) for lfn={lfn}')
 
     return new_output
 
@@ -1280,20 +1327,16 @@ def extract_output_file_guids(job):
     if not job.allownooutput:
         output = job.metadata.get('files', {}).get('output', [])
         if output:
-            logger.info((
-                'verified that job report contains metadata '
-                'for %d file(s)'), len(output))
+            logger.info(f'verified that job report contains metadata for {len(output)} file(s)')
         else:
             #- will fail job since allowNoOutput is not set')
-            logger.warning((
-                'job report contains no output '
-                'files and allowNoOutput is not set'))
+            logger.warning('job report contains no output files and allowNoOutput is not set')
             #job.piloterrorcodes, job.piloterrordiags =
             # errors.add_error_code(errors.NOOUTPUTINJOBREPORT)
             return
 
     # extract info from metadata (job report JSON)
-    data = dict([e.lfn, e] for e in job.outdata)
+    data = dict([out.lfn, out] for out in job.outdata)
     #extra = []
     for dat in job.metadata.get('files', {}).get('output', []):
         for fdat in dat.get('subFiles', []):

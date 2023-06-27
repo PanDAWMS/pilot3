@@ -16,6 +16,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
 from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.info.filespec import FileSpec
+from pilot.util.config import config
 from pilot.util.filehandling import calculate_checksum
 
 from .baseexecutor import BaseExecutor
@@ -53,7 +54,7 @@ class HPOExecutor(BaseExecutor):
 
     def create_file_spec(self, pfn):
         try:
-            checksum = calculate_checksum(pfn)
+            checksum = calculate_checksum(pfn, algorithm=config.File.checksum_type)
         except (FileHandlingFailure, NotImplementedError, Exception) as exc:
             logger.warning('caught exception: %s', exc)
             checksum = ''  # fail later
