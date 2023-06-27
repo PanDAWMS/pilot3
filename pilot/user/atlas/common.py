@@ -1013,11 +1013,11 @@ def test_job_data(job):
     from pilot.info.filespec import FileSpec
 
     # add a couple of files to replace current output
-    fileSizeInBytes = 1024
+    filesizeinbytes = 1024
     outputfiles = ['DST_.random1.root', 'DST_.random2.root', 'DST_.random3.root']
     for outputfile in outputfiles:
         with open(os.path.join(job.workdir, outputfile), 'wb') as fout:
-            fout.write(os.urandom(fileSizeInBytes))  # replace 1024 with a size in kilobytes if it is not unreasonably large
+            fout.write(os.urandom(filesizeinbytes))  # replace 1024 with a size in kilobytes if it is not unreasonably large
 
     outfiles = []
     scope = ''
