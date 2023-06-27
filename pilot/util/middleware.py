@@ -5,15 +5,25 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
 from os import environ, path, getcwd
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, StageInFailure, StageOutFailure
+from pilot.common.exception import (
+    PilotException,
+    StageInFailure,
+    StageOutFailure,
+)
 from pilot.util.config import config
 from pilot.util.container import execute
-from pilot.util.filehandling import copy, read_json, write_json, write_file, copy_pilot_source
+from pilot.util.filehandling import (
+    copy,
+    read_json,
+    write_json,
+    write_file,
+    copy_pilot_source,
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -284,7 +294,7 @@ def handle_updated_job_object(job, xdata, label='stage-in'):
                 else:
                     fspec.surl = file_dictionary[fspec.lfn][2]
                     fspec.turl = file_dictionary[fspec.lfn][3]
-                    fspec.checksum['adler32'] = file_dictionary[fspec.lfn][4]
+                    fspec.checksum[config.File.checksum_type] = file_dictionary[fspec.lfn][4]
                     fspec.filesize = file_dictionary[fspec.lfn][5]
             except Exception as exc:
                 msg = f"exception caught while reading file dictionary: {exc}"

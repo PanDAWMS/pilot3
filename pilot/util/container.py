@@ -13,6 +13,7 @@ from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
@@ -66,28 +67,17 @@ def execute(executable, **kwargs):
     if kwargs.get('returnproc', False):
         return process
     else:
+        stdout = ''
+        stderr = ''
         try:
             stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
         except subprocess.TimeoutExpired as exc:
-            stdout = ''
-            stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
+            # make sure that stdout buffer gets flushed - in case of time-out exceptions
+            flush_handler(name="stream_handler")
+            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
-            try:
-                logger.warning('killing lingering subprocess and process group')
-                process.kill()
-                kill_process_group(getpgid(process.pid))
-            except ProcessLookupError as exc:
-                stderr += f'\n(kill process group) ProcessLookupError={exc}'
-            try:
-                logger.warning('killing lingering process')
-                kill(process.pid, SIGTERM)
-                logger.warning('sleeping a bit before sending SIGKILL')
-                sleep(10)
-                kill(process.pid, SIGKILL)
-            except ProcessLookupError as exc:
-                stderr += f'\n(kill process) ProcessLookupError={exc}'
-            logger.warning(f'sent soft kill signals - final stderr: {stderr}')
+            stderr = kill_all(process, stderr)
         else:
             exit_code = process.poll()
 
@@ -98,6 +88,32 @@ def execute(executable, **kwargs):
     return exit_code, stdout, stderr
 
 
+def kill_all(process, stderr):
+    """
+    Kill all processes after a time-out exception in process.communication().
+
+    :param process: process object
+    :param stderr: stderr (string).
+    """
+
+    try:
+        logger.warning('killing lingering subprocess and process group')
+        process.kill()
+        kill_process_group(getpgid(process.pid))
+    except ProcessLookupError as exc:
+        stderr += f'\n(kill process group) ProcessLookupError={exc}'
+    try:
+        logger.warning('killing lingering process')
+        kill(process.pid, SIGTERM)
+        logger.warning('sleeping a bit before sending SIGKILL')
+        sleep(10)
+        kill(process.pid, SIGKILL)
+    except ProcessLookupError as exc:
+        stderr += f'\n(kill process) ProcessLookupError={exc}'
+    logger.warning(f'sent soft kill signals - final stderr: {stderr}')
+    return stderr
+
+
 def print_executable(executable, obscure=''):
     """
     Print out the command to be executed, omitting any secrets.
@@ -105,7 +121,6 @@ def print_executable(executable, obscure=''):
 
     :param executable: executable (string).
     :param obscure: sensitive string to be obscured before dumping to log (string)
-    :return:
     """
 
     executable_readable = executable
@@ -132,7 +147,7 @@ def containerise_executable(executable, **kwargs):
     job = kwargs.get('job')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
-    container = __import__('pilot.user.%s.container' % user, globals(), locals(), [user], 0)
+    container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
     if container:
         # should a container really be used?
         do_use_container = job.usecontainer if job else container.do_use_container(**kwargs)

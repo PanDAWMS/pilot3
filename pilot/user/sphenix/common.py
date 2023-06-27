@@ -12,6 +12,7 @@ import re
 from signal import SIGTERM
 
 from pilot.common.exception import TrfDownloadFailure
+from pilot.info import FileSpec
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -120,7 +121,46 @@ def update_job_data(job):
     :return:
     """
 
-    pass
+    # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
+    # output files and add them to the output file list
+    outfiles = []
+    scope = ''
+    dataset = ''
+    ddmendpoint = ''
+    for fspec in job.outdata:
+        if fspec.lfn.startswith('regex|'):  # if this is true, job.outdata will be overwritten
+            regex_pattern = fspec.lfn.split('regex|')[1]  # "DST_.*.root"
+            logger.info(f'found regular expression {regex_pattern} - looking for the corresponding files in {job.workdir}')
+
+            # extract needed info for the output files for later
+            scope = fspec.scope
+            dataset = fspec.dataset
+            ddmendpoint = fspec.ddmendpoint
+
+            # now locate the corresponding files in the work dir
+            outfiles = [_file for _file in os.listdir(job.workdir) if re.search(regex_pattern, _file)]
+            logger.debug(f'outfiles={outfiles}')
+            if not outfiles:
+                logger.warning(f'no output files matching {regex_pattern} were found')
+            break
+
+    if outfiles:
+        new_outfiles = []
+        for outfile in outfiles:
+            new_file = {'scope': scope,
+                        'lfn': outfile,
+                        'workdir': job.workdir,
+                        'dataset': dataset,
+                        'ddmendpoint': ddmendpoint,
+                        'ddmendpoint_alt': None}
+            new_outfiles.append(new_file)
+
+        # create list of FileSpecs and overwrite the old job.outdata
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
+        logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
+        job.outdata = _xfiles
+    else:
+        logger.debug('no regex found in outdata file list')
 
 
 def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):

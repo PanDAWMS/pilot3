@@ -13,14 +13,18 @@ import logging
 import queue
 import ROOT
 import signal
+import subprocess
 import threading
 import traceback
 from collections import namedtuple
 
 from pilot.util.config import config
 from pilot.util.filehandling import (
-    establish_logging,
     write_json,
+)
+from pilot.util.loggingsupport import (
+    flush_handler,
+    establish_logging,
 )
 from pilot.util.processes import kill_processes
 
@@ -74,7 +78,16 @@ def message(msg):
     :return:
     """
 
-    print(msg) if not logger else logger.info(msg)
+    if logger:
+        logger.info(msg)
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        flush_handler(name="stream_handler")
+    else:
+        print(msg, flush=True)
+
+    # always write message to instant log file (message might otherwise get lost in case of time-outs)
+    with open(config.Pilot.remotefileverification_instant, 'a') as _file:
+        _file.write(msg + '\n')
 
 
 def get_file_lists(turls):
@@ -111,7 +124,7 @@ def try_open_file(turl, queues):
     _timeout = 30 * 1000  # 30 s per file
     try:
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
-        message("internal TFile.Open() time-out set to %d ms" % _timeout)
+        # message("internal TFile.Open() time-out set to %d ms" % _timeout)
         message('opening %s' % turl)
         in_file = ROOT.TFile.Open(turl)
     except Exception as exc:
@@ -173,13 +186,21 @@ def interrupt(args, signum, frame):
     :return:
     """
 
+    if args.signal:
+        logger.warning('process already being killed')
+        return
+
     try:
         sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
     except Exception:
         sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
     logger.warning(f'caught signal: {sig} in FRAME=\n%s', '\n'.join(traceback.format_stack(frame)))
+    cmd = f'ps aux | grep {os.getpid()}'
+    out = subprocess.getoutput(cmd)
+    logger.info(f'{cmd}:\n{out}')
     logger.warning(f'will terminate pid={os.getpid()}')
     logging.shutdown()
+    args.signal = sig
     kill_processes(os.getpid())
 
 

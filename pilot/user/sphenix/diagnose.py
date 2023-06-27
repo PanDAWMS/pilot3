@@ -12,6 +12,8 @@ import os
 from pilot.util.config import config
 from pilot.util.filehandling import read_file, tail
 
+from .common import update_job_data
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,9 @@ def interpret(job):
     :param job: job object
     :return: exit code (payload) (int).
     """
+
+    # since the payload have finished, we can look for output files and update the output file list
+    update_job_data(job)
 
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     message = 'payload stdout dump\n'

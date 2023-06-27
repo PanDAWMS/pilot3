@@ -37,12 +37,13 @@ from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PI
     LOG_TRANSFER_IN_PROGRESS, LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_TROUBLE, SERVER_UPDATE_FINAL, \
     SERVER_UPDATE_UPDATING, SERVER_UPDATE_NOT_DONE
 from pilot.util.container import execute
-from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, establish_logging, write_file, \
+from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, write_file, \
     create_symlink, write_json
 from pilot.util.harvester import request_new_jobs, remove_job_request_file, parse_job_definition_file, \
     is_harvester_mode, get_worker_attributes_file, publish_job_report, publish_work_report, get_event_status_file, \
     publish_stageout_files
 from pilot.util.jobmetrics import get_job_metrics
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
@@ -2049,6 +2050,7 @@ def retrieve(queues, traces, args):  # noqa: C901
                         pilot_version_banner()
                         getjob_requests = 0
                         add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
+                        args.signal = None
                         break
                     time.sleep(0.5)
 
@@ -2811,6 +2813,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
+
+        if args.workflow == 'stager':
+            logger.debug('stage-in has finished - no need for job_monitor to continue')
+            break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
         jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
