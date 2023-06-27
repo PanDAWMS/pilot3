@@ -464,7 +464,7 @@ def has_instruction_set(instruction_set: str) -> bool:
     """
 
     status = False
-    cmd = r"grep -o \'%s[^ ]*\|%s[^ ]*\' /proc/cpuinfo" % (instruction_set.lower(), instruction_set.upper())
+    cmd = fr"grep -o \'{instruction_set.lower()}[^ ]*\|{instruction_set.upper()}[^ ]*\' /proc/cpuinfo"
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
         if instruction_set.lower() in stdout.split() or instruction_set.upper() in stdout.split():
@@ -486,7 +486,7 @@ def has_instruction_sets(instruction_sets: str) -> bool:
     pattern = ''
 
     for instr in instruction_sets:
-        pattern += r'\|%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper()) if pattern else r'%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper())
+        pattern += fr'\|{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*' if pattern else fr'{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*'
     cmd = f"grep -o \'{pattern}\' /proc/cpuinfo"
 
     exit_code, stdout, stderr = execute(cmd)
@@ -616,7 +616,7 @@ def is_string(obj: Any) -> bool:
     :return: True if obj is a string (Boolean).
     """
 
-    return True if isinstance(obj, str) else False
+    return isinstance(obj, str)
 
 
 def find_pattern_in_list(input_list: list, pattern: str) -> str:
