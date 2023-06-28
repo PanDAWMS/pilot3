@@ -38,7 +38,7 @@ class Listener(connectionlistener):
 
     messages = []
 
-    def __init__(self, broker: Any = None, queues: Any = None):
+    def __init__(self, broker: Any = None, queues: Any = None) -> None:
         """
         Init function.
 
@@ -50,7 +50,7 @@ class Listener(connectionlistener):
         self.__queues = queues
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def set_broker(self, broker: Any):
+    def set_broker(self, broker: Any) -> None:
         """
         Define broker for internal use.
 
@@ -59,7 +59,7 @@ class Listener(connectionlistener):
 
         self.__broker = broker
 
-    def on_error(self, frame: Any):
+    def on_error(self, frame: Any) -> None:
         """
         Error handler.
 
@@ -69,7 +69,7 @@ class Listener(connectionlistener):
         self.logger.warning(f'received an error "{frame}"')
         # store error in messages?
 
-    def on_message(self, frame: Any):
+    def on_message(self, frame: Any) -> None:
         """
         Message handler.
 
@@ -114,7 +114,7 @@ class ActiveMQ:
     listener = None
     queues = None
 
-    def __init__(self, **kwargs: dict):
+    def __init__(self, **kwargs: dict) -> None:
         """
         Init function.
         Note: the init function sets up all connections and starts the listener.
@@ -190,7 +190,7 @@ class ActiveMQ:
         self.logger.debug(f'getting messages from {self.listener}')
         return self.listener.get_messages() if self.listener else []
 
-    def send_message(self, message: str):
+    def send_message(self, message: str) -> None:
         """
         Send a message to a topic or queue.
 
@@ -203,7 +203,7 @@ class ActiveMQ:
                   headers={'persistent': 'true', 'vo': 'atlas'})
         self.logger.debug('sent message')
 
-    def close_connections(self):
+    def close_connections(self) -> None:
         """
         Close all open connections.
         """
@@ -216,7 +216,7 @@ class ActiveMQ:
             else:
                 self.logger.debug(f'closed connection to {conn}')
 
-    def get_credentials(self):
+    def get_credentials(self) -> None:
         """
         Download username+password from the PanDA server for ActiveMQ authentication.
         Note: this function does not return anything, only sets private username and password.

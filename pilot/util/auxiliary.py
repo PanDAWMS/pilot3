@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def pilot_version_banner():
+def pilot_version_banner() -> None:
     """
     Print a pilot version banner.
     """
@@ -77,7 +77,7 @@ def is_virtual_machine() -> bool:
     return status
 
 
-def display_architecture_info():
+def display_architecture_info() -> None:
     """
     Display OS/architecture information from /etc/os-release.
     """
@@ -305,7 +305,7 @@ def get_pilot_state(job: Any = None) -> str:
     return job.state if job else os.environ.get('PILOT_JOB_STATE', 'unknown')
 
 
-def set_pilot_state(job: Any = None, state: str = ''):
+def set_pilot_state(job: Any = None, state: str = '') -> None:
     """
     Set the internal pilot state.
     Note: this function should update the global/singleton object but currently uses an environmental variable
@@ -323,7 +323,7 @@ def set_pilot_state(job: Any = None, state: str = ''):
         job.state = state
 
 
-def check_for_final_server_update(update_server: bool):
+def check_for_final_server_update(update_server: bool) -> None:
     """
     Do not set graceful stop if pilot has not finished sending the final job update
     i.e. wait until SERVER_UPDATE is DONE_FINAL. This function sleeps for a maximum
@@ -393,7 +393,7 @@ def get_object_size(obj: Any, seen: Any = None) -> int:
     return size
 
 
-def show_memory_usage():
+def show_memory_usage() -> None:
     """
     Display the current memory usage by the pilot process.
     """
