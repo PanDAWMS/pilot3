@@ -74,10 +74,7 @@ def get_pilot_version():
     :return: version string.
     """
 
-    return '{release}.{version}.{revision} ({build})'.format(release=RELEASE,
-                                                             version=VERSION,
-                                                             revision=REVISION,
-                                                             build=BUILD)
+    return f'{RELEASE}.{VERSION}.{REVISION}.{BUILD}'
 
 
 def get_rucio_client_version():
