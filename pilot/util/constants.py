@@ -67,7 +67,7 @@ SERVER_UPDATE_TROUBLE = 'LOST_HEARTBEAT'
 MAX_KILL_WAIT_TIME = 120  # twenty minutes
 
 
-def get_pilot_version():
+def get_pilot_version() -> str:
     """
     Return the current Pilot version string with the format <release>.<version>.<revision> (<build>).
     E.g. pilot_version = '2.1.3 (12)'
@@ -77,7 +77,7 @@ def get_pilot_version():
     return f'{RELEASE}.{VERSION}.{REVISION}.{BUILD}'
 
 
-def get_rucio_client_version():
+def get_rucio_client_version() -> str:
     """
     Return the current Rucio client version string using the environmental variable ATLAS_LOCAL_RUCIOCLIENTS_VERSION.
     If the environmental variable is not set, then an empty string will be returned.
