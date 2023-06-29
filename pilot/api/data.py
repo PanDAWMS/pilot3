@@ -396,8 +396,9 @@ class StagingClient(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
-        except Exception:
-            client_location['ip'] = ip
+        except Exception as exc:
+            self.logger.warning(f'failed to get socket info: {exc}')
+        client_location['ip'] = ip
 
         if use_vp:
             latitude = os.environ.get('RUCIO_LATITUDE')
