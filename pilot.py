@@ -205,6 +205,12 @@ def get_args() -> Any:
                             required=False,
                             type=int,
                             help='Pilot lifetime seconds (default: 324000 s)')
+    arg_parser.add_argument('-L', '--leasetime',
+                            dest='leasetime',
+                            default=3600,
+                            required=False,
+                            type=int,
+                            help='Pilot leasetime seconds (default: 3600 s)')
 
     # set the appropriate site, resource and queue
     arg_parser.add_argument('-q', '--queue',
