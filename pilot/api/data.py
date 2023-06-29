@@ -16,8 +16,12 @@ import os
 import hashlib
 import logging
 import time
-
 from functools import reduce
+
+try:
+    import requests
+except ImportError:
+    pass
 
 from pilot.info import infosys
 from pilot.common.exception import (
@@ -306,7 +310,7 @@ class StagingClient(object):
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
-        location = self.detect_client_location()
+        location = self.detect_client_location(use_vp=use_vp)
         if not location:
             raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
@@ -378,13 +382,49 @@ class StagingClient(object):
         return fdat
 
     @classmethod
-    def detect_client_location(self):
+    def detect_client_location(self, use_vp: bool = False) -> dict:
         """
         Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
         addresses of the requesting client.
-        Try to determine the sitename automatically from common environment variables,
-        in this order: SITE_NAME, ATLAS_SITE_NAME, OSG_SITE_NAME. If none of these exist
-        use the fixed string 'ROAMING'.
+        """
+
+        client_location = {'site': os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')}
+
+        ip = '0.0.0.0'
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            client_location['ip'] = ip
+
+        if use_vp:
+            latitude = os.environ.get('RUCIO_LATITUDE')
+            longitude = os.environ.get('RUCIO_LONGITUDE')
+            if latitude and longitude:
+                try:
+                    client_location['latitude'] = float(latitude)
+                    client_location['longitude'] = float(longitude)
+                except ValueError:
+                    self.logger.warning(f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid')
+            else:
+                try:
+                    response = requests.post('https://location.cern.workers.dev',
+                                             json={"site": client_location.get('site')},
+                                             timeout=1)
+                    if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
+                        client_location = response.json()
+                except Exception as exc:
+                    self.logger.warning(f'no requests module: {exc}')
+
+        return client_location
+
+    @classmethod
+    def detect_client_location_old(self):
+        """
+        Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
+        addresses of the requesting client.
         """
 
         ip = '0.0.0.0'
