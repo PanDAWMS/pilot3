@@ -213,6 +213,7 @@ if __name__ == '__main__':
     args = get_args()
     args.debug = True
     args.nopilotlog = False
+    args.signal = None
 
     try:
         logname = config.Pilot.remotefileverification_log
