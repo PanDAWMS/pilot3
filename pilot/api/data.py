@@ -388,7 +388,7 @@ class StagingClient(object):
         addresses of the requesting client.
         """
 
-        client_location = {'site': os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')}
+        client_location = {}
 
         ip = '0.0.0.0'
         try:
@@ -419,6 +419,7 @@ class StagingClient(object):
                 except Exception as exc:
                     self.logger.warning(f'no requests module: {exc}')
 
+        client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
         return client_location
 
     @classmethod
