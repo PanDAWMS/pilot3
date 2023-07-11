@@ -91,7 +91,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     return exit_code, stdout, stderr
 
 
-def kill_all(process: Any, stderr:str) -> str:
+def kill_all(process: Any, stderr: str) -> str:
     """
     Kill all processes after a time-out exception in process.communication().
 
@@ -118,7 +118,7 @@ def kill_all(process: Any, stderr:str) -> str:
     return stderr
 
 
-def print_executable(executable:str, obscure: str = '') -> None:
+def print_executable(executable: str, obscure: str = '') -> None:
     """
     Print out the command to be executed, omitting any secrets.
     Any S3_SECRET_KEY=... parts will be removed.
@@ -139,7 +139,7 @@ def print_executable(executable:str, obscure: str = '') -> None:
     logger.info(f'executing command: {executable_readable}')
 
 
-def containerise_executable(executable:str, **kwargs: dict) -> (Any, str):
+def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
     """
     Wrap the containerisation command around the executable.
 
