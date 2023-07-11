@@ -311,7 +311,7 @@ class StagingClient(object):
         from rucio.client import Client
         rucio_client = Client()
         location, diagnostics = self.detect_client_location(use_vp=use_vp)
-        if not location:
+        if diagnostics:
             raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
