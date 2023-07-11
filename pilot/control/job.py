@@ -2763,7 +2763,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
     # peeking and current time; peeking_time gets updated if and when jobs are being monitored, update_time is only
     # used for sending the heartbeat and is updated after a server update
-    peeking_time = int(time.time())
+    start_time = int(time.time())
+    peeking_time = start_time
     update_time = peeking_time
 
     # overall loop counter (ignoring the fact that more than one job may be running)
@@ -2815,7 +2816,16 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 continue
 
         if args.workflow == 'stager':
-            logger.debug('stage-in has finished - no need for job_monitor to continue')
+            if args.pod:
+                # wait maximum args.leasetime, then abort
+                time.sleep(10)
+                time_now = int(time.time())
+                if time_now - start_time >= args.leasetime:
+                    logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
+                else:
+                    continue
+            else:
+                logger.debug('stage-in has finished - no need for job_monitor to continue')
             break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function

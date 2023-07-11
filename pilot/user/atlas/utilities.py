@@ -878,17 +878,18 @@ def get_cpu_arch():
 
     # copy pilot source into container directory, unless it is already there
     setup = get_asetup(asetup=False) + 'lsetup cpu_flags; '
-    script = 'cpu_arch.py --alg gcc'
+    # script = 'cpu_arch.py --alg gcc'
+    script = 'cpu_arch.py'
     cmd = setup + script
 
     # CPU arch script has now been copied, time to execute it
     ec, stdout, stderr = execute(cmd)
     if ec or stderr:
-        logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
+        logger.warning(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
         logger.debug(stdout)
         stdout = filter_output(stdout)
         cpu_arch = stdout
-        logger.debug(f'CPU arch script returned: {cpu_arch}')
+        logger.info(f'CPU arch script returned: {cpu_arch}')
 
     return cpu_arch

@@ -13,8 +13,8 @@ from os import environ
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
 VERSION = '6'   # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '1'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '31'     # build number should be reset to '1' for every new development cycle
+REVISION = '2'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '9'     # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1
@@ -67,20 +67,17 @@ SERVER_UPDATE_TROUBLE = 'LOST_HEARTBEAT'
 MAX_KILL_WAIT_TIME = 120  # twenty minutes
 
 
-def get_pilot_version():
+def get_pilot_version() -> str:
     """
     Return the current Pilot version string with the format <release>.<version>.<revision> (<build>).
     E.g. pilot_version = '2.1.3 (12)'
     :return: version string.
     """
 
-    return '{release}.{version}.{revision} ({build})'.format(release=RELEASE,
-                                                             version=VERSION,
-                                                             revision=REVISION,
-                                                             build=BUILD)
+    return f'{RELEASE}.{VERSION}.{REVISION}.{BUILD}'
 
 
-def get_rucio_client_version():
+def get_rucio_client_version() -> str:
     """
     Return the current Rucio client version string using the environmental variable ATLAS_LOCAL_RUCIOCLIENTS_VERSION.
     If the environmental variable is not set, then an empty string will be returned.
