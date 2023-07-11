@@ -12,6 +12,8 @@ import logging
 from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
+from typing import Any
+
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
@@ -20,14 +22,14 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def execute(executable, **kwargs):
+def execute(executable: Any, **kwargs: dict) -> Any:
     """
     Execute the command and its options in the provided executable list.
     The function also determines whether the command should be executed within a container.
 
     :param executable: command to be executed (string or list).
-    :param kwargs (timeout, usecontainer, returnproc):
-    :return: exit code, stdout and stderr (or process if requested via returnproc argument)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument)
     """
 
     usecontainer = kwargs.get('usecontainer', False)
@@ -56,6 +58,9 @@ def execute(executable, **kwargs):
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
+    exit_code = 0
+    stdout = ''
+    stderr = ''
     process = subprocess.Popen(exe,
                                bufsize=-1,
                                stdout=kwargs.get('stdout', subprocess.PIPE),
@@ -66,34 +71,33 @@ def execute(executable, **kwargs):
                                errors='replace')
     if kwargs.get('returnproc', False):
         return process
-    else:
-        stdout = ''
-        stderr = ''
-        try:
-            stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
-        except subprocess.TimeoutExpired as exc:
-            # make sure that stdout buffer gets flushed - in case of time-out exceptions
-            flush_handler(name="stream_handler")
-            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-            logger.warning(stderr)
-            exit_code = errors.COMMANDTIMEDOUT
-            stderr = kill_all(process, stderr)
-        else:
-            exit_code = process.poll()
 
-        # remove any added \n
-        if stdout and stdout.endswith('\n'):
-            stdout = stdout[:-1]
+    try:
+        stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
+    except subprocess.TimeoutExpired as exc:
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        flush_handler(name="stream_handler")
+        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+        logger.warning(stderr)
+        exit_code = errors.COMMANDTIMEDOUT
+        stderr = kill_all(process, stderr)
+    else:
+        exit_code = process.poll()
+
+    # remove any added \n
+    if stdout and stdout.endswith('\n'):
+        stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
 
 
-def kill_all(process, stderr):
+def kill_all(process: Any, stderr: str) -> str:
     """
     Kill all processes after a time-out exception in process.communication().
 
     :param process: process object
-    :param stderr: stderr (string).
+    :param stderr: stderr (string)
+    :return: stderr (str).
     """
 
     try:
@@ -114,7 +118,7 @@ def kill_all(process, stderr):
     return stderr
 
 
-def print_executable(executable, obscure=''):
+def print_executable(executable: str, obscure: str = '') -> None:
     """
     Print out the command to be executed, omitting any secrets.
     Any S3_SECRET_KEY=... parts will be removed.
@@ -135,13 +139,13 @@ def print_executable(executable, obscure=''):
     logger.info(f'executing command: {executable_readable}')
 
 
-def containerise_executable(executable, **kwargs):
+def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
     """
     Wrap the containerisation command around the executable.
 
-    :param executable: command to be wrapper (string).
-    :param kwargs: kwargs dictionary.
-    :return: containerised executable (list).
+    :param executable: command to be wrapper (string)
+    :param kwargs: kwargs dictionary
+    :return: containerised executable (list or None), diagnostics (str).
     """
 
     job = kwargs.get('job')

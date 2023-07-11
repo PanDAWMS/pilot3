@@ -60,7 +60,7 @@ from pilot.util.timing import add_to_pilot_timing
 errors = ErrorCodes()
 
 
-def main():
+def main() -> int:
     """
     Main function of PanDA Pilot 2.
     Prepare for and execute the requested workflow.
@@ -102,7 +102,7 @@ def main():
         infosys.init(args.queue)
         # check if queue is ACTIVE
         if infosys.queuedata.state != 'ACTIVE':
-            logger.critical('specified queue is NOT ACTIVE: %s -- aborting', infosys.queuedata.name)
+            logger.critical(f'specified queue is NOT ACTIVE: {infosys.queuedata.name} -- aborting')
             return errors.PANDAQUEUENOTACTIVE
     except PilotException as error:
         logger.fatal(error)
@@ -115,20 +115,20 @@ def main():
     environ['PILOT_IP_VERSION'] = args.internet_protocol_version
 
     # set the site name for rucio
-    environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', None) or infosys.queuedata.site
+    environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', '') or infosys.queuedata.site
 
     # store the site name as set with a pilot option
     environ['PILOT_SITENAME'] = infosys.queuedata.resource  #args.site  # TODO: replace with singleton
 
     # set requested workflow
-    logger.info('pilot arguments: %s', str(args))
+    logger.info(f'pilot arguments: {args}')
     workflow = __import__(f'pilot.workflow.{args.workflow}', globals(), locals(), [args.workflow], 0)
 
     # execute workflow
     try:
         exitcode = workflow.run(args)
     except Exception as exc:
-        logger.fatal('main pilot function caught exception: %s', exc)
+        logger.fatal(f'main pilot function caught exception: {exc}')
         exitcode = None
 
     # let the server know that the worker has finished
@@ -138,22 +138,28 @@ def main():
     return exitcode
 
 
-def str2bool(_var: str):
-    """ Helper function to convert string to bool """
+def str2bool(var: str) -> bool:
+    """
+    Helper function to convert string to bool.
 
-    ret = _var
-    if isinstance(_var, bool):  # does this ever happen?
-        pass
-    elif _var.lower() in {'yes', 'true', 't', 'y', '1'}:
+    :param var: string to be converted to bool (str)
+    :return: converted string (bool).
+    """
+
+    if isinstance(var, bool):  # does this ever happen?
+        return var
+
+    if var.lower() in {'yes', 'true', 't', 'y', '1'}:
         ret = True
-    elif _var.lower() in {'no', 'false', 'f', 'n', '0'}:
+    elif var.lower() in {'no', 'false', 'f', 'n', '0'}:
         ret = False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise argparse.ArgumentTypeError(f'boolean value expected (var={var})')
+
     return ret
 
 
-def get_args():
+def get_args() -> Any:
     """
     Return the args from the arg parser.
 
@@ -199,6 +205,12 @@ def get_args():
                             required=False,
                             type=int,
                             help='Pilot lifetime seconds (default: 324000 s)')
+    arg_parser.add_argument('-L', '--leasetime',
+                            dest='leasetime',
+                            default=3600,
+                            required=False,
+                            type=int,
+                            help='Pilot leasetime seconds (default: 3600 s)')
 
     # set the appropriate site, resource and queue
     arg_parser.add_argument('-q', '--queue',
@@ -439,7 +451,7 @@ def get_args():
     return arg_parser.parse_args()
 
 
-def create_main_work_dir():
+def create_main_work_dir() -> (int, str):
     """
     Create and return the pilot's main work directory.
     The function also sets args.mainworkdir and cd's into this directory.
@@ -468,7 +480,7 @@ def create_main_work_dir():
     return exitcode, _mainworkdir
 
 
-def set_environment_variables():
+def set_environment_variables() -> None:
     """
     Set environment variables. To be replaced with singleton implementation.
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
@@ -523,7 +535,7 @@ def set_environment_variables():
         environ['STORAGEDATA_SERVER_URL'] = f'{args.storagedata_url}'
 
 
-def wrap_up():
+def wrap_up() -> int:
     """
     Perform cleanup and terminate logging.
     Note: args and mainworkdir, used in this function, are defined in outer scope.
@@ -551,6 +563,7 @@ def wrap_up():
         exitcode = trace.pilot['error_code']
     except KeyError:
         exitcode = trace
+        logging.debug(f'trace was not a class, trace={trace}')
     else:
         logging.info(f'traces error code: {exitcode}')
         if trace.pilot['nr_jobs'] <= 1:
@@ -581,7 +594,7 @@ def wrap_up():
     return sec
 
 
-def get_pilot_source_dir():
+def get_pilot_source_dir() -> str:
     """
     Return the pilot source directory.
 
@@ -594,7 +607,7 @@ def get_pilot_source_dir():
     return cwd
 
 
-def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any, internet_protocol_version: str):
+def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any, internet_protocol_version: str) -> None:
     """
     Send worker info to the server to let it know that the worker has started
     Note: the function can fail, but if it does, it will be ignored.
@@ -621,7 +634,7 @@ def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
-def set_lifetime():
+def set_lifetime() -> None:
     """
     Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
     """
@@ -629,14 +642,14 @@ def set_lifetime():
     lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
     if lifetime:
         try:
-            lifetime = int(lifetime)
+            _lifetime = int(lifetime)
         except (ValueError, TypeError):
             pass
         else:
-            args.lifetime = lifetime
+            args.lifetime = _lifetime
 
 
-def set_redirectall():
+def set_redirectall() -> None:
     """
     Set args redirectall field.
     Currently not used.
@@ -694,6 +707,7 @@ if __name__ == '__main__':
 
     # execute main function
     trace = main()
+    logging.debug(f'trace={trace}')
 
     # store final time stamp (cannot be placed later since the mainworkdir is about to be purged)
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)

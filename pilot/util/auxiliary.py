@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def pilot_version_banner():
+def pilot_version_banner() -> None:
     """
     Print a pilot version banner.
     """
@@ -77,7 +77,7 @@ def is_virtual_machine() -> bool:
     return status
 
 
-def display_architecture_info():
+def display_architecture_info() -> None:
     """
     Display OS/architecture information from /etc/os-release.
     """
@@ -305,7 +305,7 @@ def get_pilot_state(job: Any = None) -> str:
     return job.state if job else os.environ.get('PILOT_JOB_STATE', 'unknown')
 
 
-def set_pilot_state(job: Any = None, state: str = ''):
+def set_pilot_state(job: Any = None, state: str = '') -> None:
     """
     Set the internal pilot state.
     Note: this function should update the global/singleton object but currently uses an environmental variable
@@ -323,7 +323,7 @@ def set_pilot_state(job: Any = None, state: str = ''):
         job.state = state
 
 
-def check_for_final_server_update(update_server: bool):
+def check_for_final_server_update(update_server: bool) -> None:
     """
     Do not set graceful stop if pilot has not finished sending the final job update
     i.e. wait until SERVER_UPDATE is DONE_FINAL. This function sleeps for a maximum
@@ -393,7 +393,7 @@ def get_object_size(obj: Any, seen: Any = None) -> int:
     return size
 
 
-def show_memory_usage():
+def show_memory_usage() -> None:
     """
     Display the current memory usage by the pilot process.
     """
@@ -464,7 +464,7 @@ def has_instruction_set(instruction_set: str) -> bool:
     """
 
     status = False
-    cmd = r"grep -o \'%s[^ ]*\|%s[^ ]*\' /proc/cpuinfo" % (instruction_set.lower(), instruction_set.upper())
+    cmd = fr"grep -o \'{instruction_set.lower()}[^ ]*\|{instruction_set.upper()}[^ ]*\' /proc/cpuinfo"
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
         if instruction_set.lower() in stdout.split() or instruction_set.upper() in stdout.split():
@@ -486,7 +486,7 @@ def has_instruction_sets(instruction_sets: str) -> bool:
     pattern = ''
 
     for instr in instruction_sets:
-        pattern += r'\|%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper()) if pattern else r'%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper())
+        pattern += fr'\|{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*' if pattern else fr'{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*'
     cmd = f"grep -o \'{pattern}\' /proc/cpuinfo"
 
     exit_code, stdout, stderr = execute(cmd)
@@ -616,7 +616,7 @@ def is_string(obj: Any) -> bool:
     :return: True if obj is a string (Boolean).
     """
 
-    return True if isinstance(obj, str) else False
+    return isinstance(obj, str)
 
 
 def find_pattern_in_list(input_list: list, pattern: str) -> str:
