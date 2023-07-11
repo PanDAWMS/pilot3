@@ -381,7 +381,6 @@ class StagingClient(object):
 
         return fdat
 
-    @classmethod
     def detect_client_location(self, use_vp: bool = False) -> dict:
         """
         Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
@@ -421,41 +420,6 @@ class StagingClient(object):
 
         client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
         return client_location
-
-    @classmethod
-    def detect_client_location_old(self):
-        """
-        Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
-        addresses of the requesting client.
-        """
-
-        ip = '0.0.0.0'
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-        except Exception:
-            pass
-
-        ip6 = '::'
-        try:
-            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-            s.connect(("2001:4860:4860:0:0:0:0:8888", 80))
-            ip6 = s.getsockname()[0]
-        except Exception:
-            pass
-
-        site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
-#        site = os.environ.get('SITE_NAME',
-#                              os.environ.get('ATLAS_SITE_NAME',
-#                                             os.environ.get('OSG_SITE_NAME',
-#                                                            'ROAMING')))
-
-        return {'ip': ip,
-                'ip6': ip6,
-                'fqdn': socket.getfqdn(),
-                'site': site}
 
     def transfer_files(self, copytool, files, **kwargs):
         """
