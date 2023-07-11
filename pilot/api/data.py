@@ -310,9 +310,9 @@ class StagingClient(object):
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
-        location = self.detect_client_location(use_vp=use_vp)
+        location, diagnostics = self.detect_client_location(use_vp=use_vp)
         if not location:
-            raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
+            raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
@@ -387,6 +387,7 @@ class StagingClient(object):
         addresses of the requesting client.
         """
 
+        diagnostics = ''
         client_location = {}
 
         ip = '0.0.0.0'
@@ -396,7 +397,8 @@ class StagingClient(object):
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
         except Exception as exc:
-            self.logger.warning(f'failed to get socket info: {exc}')
+            diagnostics = f'failed to get socket info: {exc}'
+            self.logger.warning(diagnostics)
         client_location['ip'] = ip
 
         if use_vp:
@@ -407,7 +409,8 @@ class StagingClient(object):
                     client_location['latitude'] = float(latitude)
                     client_location['longitude'] = float(longitude)
                 except ValueError:
-                    self.logger.warning(f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid')
+                    diagnostics = f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid'
+                    self.logger.warning(diagnostics)
             else:
                 try:
                     response = requests.post('https://location.cern.workers.dev',
@@ -416,11 +419,12 @@ class StagingClient(object):
                     if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
                         client_location = response.json()
                 except Exception as exc:
-                    self.logger.warning(f'no requests module: {exc}')
+                    diagnostics = f'requests.post failed: {exc}'
+                    self.logger.warning(diagnostics)
 
         client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
         self.logger.debug(f'will use client_location={client_location}')
-        return client_location
+        return client_location, diagnostics
 
     def transfer_files(self, copytool, files, **kwargs):
         """
