@@ -419,6 +419,7 @@ class StagingClient(object):
                     self.logger.warning(f'no requests module: {exc}')
 
         client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
+        self.logger.debug(f'will use client_location={client_location}')
         return client_location
 
     def transfer_files(self, copytool, files, **kwargs):
