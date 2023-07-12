@@ -2814,16 +2814,17 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-
-        if args.workflow == 'stager':
-            if args.pod:
-                # wait maximum args.leasetime, then abort
-                time.sleep(10)
-                time_now = int(time.time())
-                if time_now - start_time >= args.leasetime:
-                    logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
-                else:
-                    continue
+            elif not queues.finished_data_in.empty():
+                # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
+                if args.workflow == 'stager':
+                    if args.pod:
+                        # wait maximum args.leasetime seconds, then abort
+                        time.sleep(10)
+                        time_now = int(time.time())
+                        if time_now - start_time >= args.leasetime:
+                            logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
+                    else:
+                        continue
             else:
                 logger.debug('stage-in has finished - no need for job_monitor to continue')
             break

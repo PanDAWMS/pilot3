@@ -116,6 +116,7 @@ def main() -> int:
 
     # set the site name for rucio
     environ['PILOT_RUCIO_SITENAME'] = os.environ.get('PILOT_RUCIO_SITENAME', '') or infosys.queuedata.site
+    logger.debug(f'PILOT_RUCIO_SITENAME={os.environ.get("PILOT_RUCIO_SITENAME")}')
 
     # store the site name as set with a pilot option
     environ['PILOT_SITENAME'] = infosys.queuedata.resource  #args.site  # TODO: replace with singleton
