@@ -310,9 +310,10 @@ class StagingClient(object):
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
-        location = self.detect_client_location(use_vp=use_vp)
-        if not location:
-            raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
+        location, diagnostics = self.detect_client_location(use_vp=use_vp)
+        if diagnostics:
+            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
+            #raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
@@ -381,13 +382,13 @@ class StagingClient(object):
 
         return fdat
 
-    @classmethod
     def detect_client_location(self, use_vp: bool = False) -> dict:
         """
         Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
         addresses of the requesting client.
         """
 
+        diagnostics = ''
         client_location = {}
 
         ip = '0.0.0.0'
@@ -397,8 +398,11 @@ class StagingClient(object):
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
         except Exception as exc:
-            self.logger.warning(f'failed to get socket info: {exc}')
+            diagnostics = f'failed to get socket info: {exc}'
+            self.logger.warning(diagnostics)
         client_location['ip'] = ip
+        site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
+        client_location['site'] = site
 
         if use_vp:
             latitude = os.environ.get('RUCIO_LATITUDE')
@@ -408,54 +412,23 @@ class StagingClient(object):
                     client_location['latitude'] = float(latitude)
                     client_location['longitude'] = float(longitude)
                 except ValueError:
-                    self.logger.warning(f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid')
+                    diagnostics = f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid'
+                    self.logger.warning(diagnostics)
             else:
                 try:
                     response = requests.post('https://location.cern.workers.dev',
-                                             json={"site": client_location.get('site')},
-                                             timeout=1)
+                                             json={"site": site},
+                                             timeout=10)
                     if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
                         client_location = response.json()
+                        # put back the site
+                        client_location['site'] = site
                 except Exception as exc:
-                    self.logger.warning(f'no requests module: {exc}')
+                    diagnostics = f'requests.post failed: {exc}'
+                    self.logger.warning(diagnostics)
 
-        client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
-        return client_location
-
-    @classmethod
-    def detect_client_location_old(self):
-        """
-        Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
-        addresses of the requesting client.
-        """
-
-        ip = '0.0.0.0'
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-        except Exception:
-            pass
-
-        ip6 = '::'
-        try:
-            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-            s.connect(("2001:4860:4860:0:0:0:0:8888", 80))
-            ip6 = s.getsockname()[0]
-        except Exception:
-            pass
-
-        site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
-#        site = os.environ.get('SITE_NAME',
-#                              os.environ.get('ATLAS_SITE_NAME',
-#                                             os.environ.get('OSG_SITE_NAME',
-#                                                            'ROAMING')))
-
-        return {'ip': ip,
-                'ip6': ip6,
-                'fqdn': socket.getfqdn(),
-                'site': site}
+        self.logger.debug(f'will use client_location={client_location}')
+        return client_location, diagnostics
 
     def transfer_files(self, copytool, files, **kwargs):
         """
