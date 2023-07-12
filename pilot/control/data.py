@@ -584,13 +584,13 @@ def copytool_in(queues, traces, args):  # noqa: C901
                             logger.warning(f'path does not exist: {path}')
 
                     # stage-out log file
-                    job.stageout = "log"
-                    if not _stage_out_new(job, args):
-                        logger.info(f"job {job.jobid} failed during stage-out of log, adding job object to failed_data_outs queue")
-                        put_in_queue(job, queues.failed_data_out)
-                    else:
-                        logger.info(f"job {job.jobid} has finished")
-                        put_in_queue(job, queues.finished_jobs)
+                    #job.stageout = "log"
+                    #if not _stage_out_new(job, args):
+                    #    logger.info(f"job {job.jobid} failed during stage-out of log, adding job object to failed_data_outs queue")
+                    #    put_in_queue(job, queues.failed_data_out)
+                    #else:
+                    #    logger.info(f"job {job.jobid} has finished")
+                    #    put_in_queue(job, queues.finished_jobs)
 
                     logger.info('stage-in thread is no longer needed - terminating')
                     abort = True
