@@ -652,40 +652,36 @@ def check_work_dir(job):
     if os.path.exists(job.workdir):
         # get the limit of the workdir
         maxwdirsize = get_max_allowed_work_dir_size()
+        workdirsize = get_disk_usage(job.workdir)
 
-        if os.path.exists(job.workdir):
-            workdirsize = get_disk_usage(job.workdir)
+        # is user dir within allowed size limit?
+        if workdirsize > maxwdirsize:
+            exit_code = errors.USERDIRTOOLARGE
+            diagnostics = f'work directory ({job.workdir}) is too large: {workdirsize} B (must be < {maxwdirsize} B)'
+            logger.fatal(diagnostics)
 
-            # is user dir within allowed size limit?
-            if workdirsize > maxwdirsize:
-                exit_code = errors.USERDIRTOOLARGE
-                diagnostics = f'work directory ({job.workdir}) is too large: {workdirsize} B (must be < {maxwdirsize} B)'
-                logger.fatal(diagnostics)
+            cmd = 'ls -altrR %s' % job.workdir
+            _ec, stdout, stderr = execute(cmd, mute=True)
+            logger.info(f'{cmd}:\n{stdout}')
 
-                cmd = 'ls -altrR %s' % job.workdir
-                _ec, stdout, stderr = execute(cmd, mute=True)
-                logger.info(f'{cmd}:\n{stdout}')
+            # kill the job
+            set_pilot_state(job=job, state="failed")
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+            kill_processes(job.pid)
 
-                # kill the job
-                set_pilot_state(job=job, state="failed")
-                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
-                kill_processes(job.pid)
+            # remove any lingering input files from the work dir
+            lfns, guids = job.get_lfns_and_guids()
+            if lfns:
+                remove_files(lfns, workdir=job.workdir)
 
-                # remove any lingering input files from the work dir
-                lfns, guids = job.get_lfns_and_guids()
-                if lfns:
-                    remove_files(lfns, workdir=job.workdir)
-
-                    # remeasure the size of the workdir at this point since the value is stored below
-                    workdirsize = get_disk_usage(job.workdir)
-            else:
-                logger.info(f'size of work directory {job.workdir}: {workdirsize} B (within {maxwdirsize} B limit)')
-
-            # Store the measured disk space (the max value will later be sent with the job metrics)
-            if workdirsize > 0:
-                job.add_workdir_size(workdirsize)
+                # re-measure the size of the workdir at this point since the value is stored below
+                workdirsize = get_disk_usage(job.workdir)
         else:
-            logger.warning(f'job work dir does not exist: {job.workdir}')
+            logger.info(f'size of work directory {job.workdir}: {workdirsize} B (within {maxwdirsize} B limit)')
+
+        # Store the measured disk space (the max value will later be sent with the job metrics)
+        if workdirsize > 0:
+            job.add_workdir_size(workdirsize)
     else:
         logger.warning('skipping size check of workdir since it has not been created yet')
 
