@@ -401,6 +401,8 @@ class StagingClient(object):
             diagnostics = f'failed to get socket info: {exc}'
             self.logger.warning(diagnostics)
         client_location['ip'] = ip
+        site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
+        client_location['site'] = site
 
         if use_vp:
             latitude = os.environ.get('RUCIO_LATITUDE')
@@ -415,15 +417,16 @@ class StagingClient(object):
             else:
                 try:
                     response = requests.post('https://location.cern.workers.dev',
-                                             json={"site": client_location.get('site')},
+                                             json={"site": site},
                                              timeout=10)
                     if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
                         client_location = response.json()
+                        # put back the site
+                        client_location['site'] = site
                 except Exception as exc:
                     diagnostics = f'requests.post failed: {exc}'
                     self.logger.warning(diagnostics)
 
-        client_location['site'] = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
