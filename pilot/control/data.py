@@ -619,7 +619,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
         logger.debug('an abort was received - finishing stage-in thread')
 
     # proceed to set the job_aborted flag?
-    if threads_aborted(caller='copytool_in'):
+    if threads_aborted(caller='copytool_in') and args.workflow != 'stager':  # only finish this thread in stager mode
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
 
