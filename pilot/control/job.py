@@ -2827,7 +2827,9 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         time_now = int(time.time())
                         if time_now - start_time >= args.leasetime:
                             logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
-                            args.graceful_stop.set()
+                            jobs[i].stageout = 'log'  # only stage-out log file
+                            put_in_queue(jobs[i], queues.data_out)
+                            #args.graceful_stop.set()
                         else:
                             continue
                     else:
