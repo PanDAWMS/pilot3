@@ -761,24 +761,6 @@ def get_input_file_dictionary(indata):
     return ret
 
 
-def filter_files_for_log(directory):
-    """
-    Create a file list recursi
-    :param directory:
-    :return:
-    """
-    filtered_files = []
-    maxfilesize = 10
-    for root, _, filenames in os.walk(directory):
-        for filename in filenames:
-            location = os.path.join(root, filename)
-            if os.path.exists(location):  # do not include broken links
-                if os.path.getsize(location) < maxfilesize:
-                    filtered_files.append(location)
-
-    return filtered_files
-
-
 def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], output_files=[], piloterrors=[], debugmode=False):
     """
     Create the tarball for the job.
