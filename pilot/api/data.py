@@ -312,7 +312,8 @@ class StagingClient(object):
         rucio_client = Client()
         location, diagnostics = self.detect_client_location(use_vp=use_vp)
         if diagnostics:
-            raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
+            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
+            #raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
 
         query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
@@ -415,7 +416,7 @@ class StagingClient(object):
                 try:
                     response = requests.post('https://location.cern.workers.dev',
                                              json={"site": client_location.get('site')},
-                                             timeout=1)
+                                             timeout=10)
                     if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
                         client_location = response.json()
                 except Exception as exc:
