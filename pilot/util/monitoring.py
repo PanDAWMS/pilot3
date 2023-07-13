@@ -28,6 +28,7 @@ from pilot.util.processes import get_current_cpu_consumption_time, kill_processe
     get_subprocesses
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import get_local_disk_space, check_hz
+from pilot.info import infosys
 
 import logging
 logger = logging.getLogger(__name__)
@@ -652,36 +653,40 @@ def check_work_dir(job):
     if os.path.exists(job.workdir):
         # get the limit of the workdir
         maxwdirsize = get_max_allowed_work_dir_size()
-        workdirsize = get_disk_usage(job.workdir)
 
-        # is user dir within allowed size limit?
-        if workdirsize > maxwdirsize:
-            exit_code = errors.USERDIRTOOLARGE
-            diagnostics = f'work directory ({job.workdir}) is too large: {workdirsize} B (must be < {maxwdirsize} B)'
-            logger.fatal(diagnostics)
+        if os.path.exists(job.workdir):
+            workdirsize = get_disk_usage(job.workdir)
 
-            cmd = 'ls -altrR %s' % job.workdir
-            _ec, stdout, stderr = execute(cmd, mute=True)
-            logger.info(f'{cmd}:\n{stdout}')
+            # is user dir within allowed size limit?
+            if workdirsize > maxwdirsize:
+                exit_code = errors.USERDIRTOOLARGE
+                diagnostics = f'work directory ({job.workdir}) is too large: {workdirsize} B (must be < {maxwdirsize} B)'
+                logger.fatal(diagnostics)
 
-            # kill the job
-            set_pilot_state(job=job, state="failed")
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
-            kill_processes(job.pid)
+                cmd = 'ls -altrR %s' % job.workdir
+                _ec, stdout, stderr = execute(cmd, mute=True)
+                logger.info(f'{cmd}:\n{stdout}')
 
-            # remove any lingering input files from the work dir
-            lfns, guids = job.get_lfns_and_guids()
-            if lfns:
-                remove_files(lfns, workdir=job.workdir)
+                # kill the job
+                set_pilot_state(job=job, state="failed")
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+                kill_processes(job.pid)
 
-                # re-measure the size of the workdir at this point since the value is stored below
-                workdirsize = get_disk_usage(job.workdir)
+                # remove any lingering input files from the work dir
+                lfns, guids = job.get_lfns_and_guids()
+                if lfns:
+                    remove_files(lfns, workdir=job.workdir)
+
+                    # remeasure the size of the workdir at this point since the value is stored below
+                    workdirsize = get_disk_usage(job.workdir)
+            else:
+                logger.info(f'size of work directory {job.workdir}: {workdirsize} B (within {maxwdirsize} B limit)')
+
+            # Store the measured disk space (the max value will later be sent with the job metrics)
+            if workdirsize > 0:
+                job.add_workdir_size(workdirsize)
         else:
-            logger.info(f'size of work directory {job.workdir}: {workdirsize} B (within {maxwdirsize} B limit)')
-
-        # Store the measured disk space (the max value will later be sent with the job metrics)
-        if workdirsize > 0:
-            job.add_workdir_size(workdirsize)
+            logger.warning(f'job work dir does not exist: {job.workdir}')
     else:
         logger.warning('skipping size check of workdir since it has not been created yet')
 
@@ -713,16 +718,15 @@ def get_max_allowed_work_dir_size():
     return maxwdirsize
 
 
-def get_max_input_size(queuedata, megabyte=False):
+def get_max_input_size(megabyte=False):
     """
     Return a proper maxinputsize value.
 
-    :param queuedata: job.infosys.queuedata object.
     :param megabyte: return results in MB (Boolean).
     :return: max input size (int).
     """
 
-    _maxinputsize = queuedata.maxwdir  # normally 14336+2000 MB
+    _maxinputsize = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     max_input_file_sizes = 14 * 1024 * 1024 * 1024  # 14 GB, 14336 MB (pilot default)
     max_input_file_sizes_mb = 14 * 1024  # 14336 MB (pilot default)
     if _maxinputsize != "":
