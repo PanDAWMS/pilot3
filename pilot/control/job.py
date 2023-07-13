@@ -2834,8 +2834,9 @@ def job_monitor(queues, traces, args):  # noqa: C901
                             continue
                     else:
                         continue
-            else:
-                logger.debug('stage-in has finished - no need for job_monitor to continue')
+
+        if args.workflow == 'stager':
+            logger.debug('stage-in has finished - no need for job_monitor to continue')
             break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
