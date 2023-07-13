@@ -2770,6 +2770,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
     cont = True
+    first = True
     while cont:
 
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
@@ -2817,16 +2818,25 @@ def job_monitor(queues, traces, args):  # noqa: C901
             elif not queues.finished_data_in.empty():
                 # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
                 if args.workflow == 'stager':
+                    if first:
+                        logger.debug('stage-in finished - waiting for lease time to finish')
+                        first = False
                     if args.pod:
                         # wait maximum args.leasetime seconds, then abort
                         time.sleep(10)
                         time_now = int(time.time())
                         if time_now - start_time >= args.leasetime:
                             logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
+                            jobs[i].stageout = 'log'  # only stage-out log file
+                            put_in_queue(jobs[i], queues.data_out)
+                            #args.graceful_stop.set()
+                        else:
+                            continue
                     else:
                         continue
-            else:
-                logger.debug('stage-in has finished - no need for job_monitor to continue')
+
+        if args.workflow == 'stager':
+            logger.debug('stage-in has finished - no need for job_monitor to continue')
             break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
