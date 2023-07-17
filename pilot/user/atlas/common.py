@@ -1108,7 +1108,8 @@ def update_job_data(job):
     # extract output files from the job report if required, in case the trf
     # has created additional (overflow) files. Also make sure all guids are
     # assigned (use job report value if present, otherwise generate the guid)
-    if job.metadata and not job.is_eventservice:
+    is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
+    if job.metadata and (not job.is_eventservice or is_raythena):
         # keep this for now, complicated to merge with verify_output_files?
         extract_output_file_guids(job)
         try:
