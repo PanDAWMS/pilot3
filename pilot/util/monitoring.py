@@ -89,6 +89,11 @@ def job_monitor_tasks(job, mt, args):
     if exit_code != 0:
         return exit_code, diagnostics
 
+    # check lease time in stager/pod mode on Kubernetes
+    exit_code, diagnostics = check_lease_time(current_time, mt, args.leasetime)
+    if exit_code != 0:
+        return exit_code, diagnostics
+
     # is it time to verify the pilot running time?
 #    exit_code, diagnostics = verify_pilot_running_time(current_time, mt, job)
 #    if exit_code != 0:
@@ -338,14 +343,41 @@ def verify_looping_job(current_time, mt, job, args):
     return 0, ""
 
 
+def check_lease_time(current_time, mt, leasetime):
+    """
+    Check the lease time in stager mode.
+
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param leasetime: lease time in seconds (int)
+    :return: exit code (int), error diagnostics (string).
+    """
+
+    exit_code = 0
+    diagnostics = ''
+    if current_time - mt.get('ct_lease') > 10:
+        # time to check the lease time
+
+        logger.debug(f'checking lease time (lease time={leasetime})')
+        if current_time - mt.get('ct_start') > leasetime:
+            diagnostics = f"lease time is up: {current_time - mt.get('ct_start')} s has passed since start - abort stager pilot"
+            logger.warning(diagnostics)
+            exit_code = errors.LEASETIME
+
+        # update the ct_lease with the current time
+        mt.update('ct_lease')
+
+    return exit_code, diagnostics
+
+
 def verify_disk_usage(current_time, mt, job):
     """
     Verify the disk usage.
     The function checks 1) payload stdout size, 2) local space, 3) work directory size, 4) output file sizes.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param job: job object.
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param job: job object
     :return: exit code (int), error diagnostics (string).
     """
 
