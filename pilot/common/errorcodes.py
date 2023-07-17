@@ -159,6 +159,7 @@ class ErrorCodes:
     APPTAINERNOTINSTALLED = 1372
     CERTIFICATEHASEXPIRED = 1373
     REMOTEFILEDICTDOESNOTEXIST = 1374
+    LEASETIME = 1375
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -294,7 +295,8 @@ class ErrorCodes:
         VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
         BADOUTPUTFILENAME: "Output file name contains illegal characters",
         CERTIFICATEHASEXPIRED: "Certificate has expired",
-        REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist"
+        REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist",
+        LEASETIME: "Lease time is up"  # internal use only
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
