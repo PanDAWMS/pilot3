@@ -2815,29 +2815,29 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-            elif not queues.finished_data_in.empty():
-                # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
-                if args.workflow == 'stager':
-                    if first:
-                        logger.debug('stage-in finished - waiting for lease time to finish')
-                        first = False
-                    if args.pod:
-                        # wait maximum args.leasetime seconds, then abort
-                        time.sleep(10)
-                        time_now = int(time.time())
-                        if time_now - start_time >= args.leasetime:
-                            logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
-                            jobs[i].stageout = 'log'  # only stage-out log file
-                            put_in_queue(jobs[i], queues.data_out)
-                            #args.graceful_stop.set()
-                        else:
-                            continue
-                    else:
-                        continue
+            #elif not queues.finished_data_in.empty():
+            #    # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
+            #    if args.workflow == 'stager':
+            #        if first:
+            #            logger.debug('stage-in finished - waiting for lease time to finish')
+            #            first = False
+            #        if args.pod:
+            #            # wait maximum args.leasetime seconds, then abort
+            #            time.sleep(10)
+            #            time_now = int(time.time())
+            #            if time_now - start_time >= args.leasetime:
+            #                logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
+            #                jobs[i].stageout = 'log'  # only stage-out log file
+            #                put_in_queue(jobs[i], queues.data_out)
+            #                #args.graceful_stop.set()
+            #            else:
+            #                continue
+            #        else:
+            #            continue
 
-        if args.workflow == 'stager':
-            logger.debug('stage-in has finished - no need for job_monitor to continue')
-            break
+        #if args.workflow == 'stager':
+        #    logger.debug('stage-in has finished - no need for job_monitor to continue')
+        #    break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
         jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
@@ -2889,6 +2889,11 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
                         break
+                    elif exit_code == errors.LEASETIME:  # stager mode, order log stage-out
+                        set_pilot_state(job=jobs[i], state="finished")
+                        logger.info('ordering log transfer')
+                        jobs[i].stageout = 'log'  # only stage-out log file
+                        put_in_queue(jobs[i], queues.data_out)
                     elif exit_code == 0:
                         # ie if download of new proxy was successful
                         diagnostics = ""
