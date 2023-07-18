@@ -592,6 +592,9 @@ def copytool_in(queues, traces, args):  # noqa: C901
                     #    logger.info(f"job {job.jobid} has finished")
                     #    put_in_queue(job, queues.finished_jobs)
 
+                    # this job is now to be monitored, so add it to the monitored_payloads queue
+                    put_in_queue(job, queues.monitored_payloads)
+
                     logger.info('stage-in thread is no longer needed - terminating')
                     abort = True
                     break
