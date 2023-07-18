@@ -2815,7 +2815,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-            #elif not queues.finished_data_in.empty():
+            elif not queues.finished_data_in.empty():
+                logger.debug('stage-in must have finished')
             #    # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
             #    if args.workflow == 'stager':
             #        if first:
@@ -2840,7 +2841,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
         #    break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
-        jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
+        jobs = queues.monitored_payloads.queue  #if args.workflow != 'stager' else None
         if jobs:
             # update the peeking time
             peeking_time = int(time.time())
