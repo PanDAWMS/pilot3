@@ -2064,7 +2064,7 @@ def retrieve(queues, traces, args):  # noqa: C901
 
 def htcondor_envvar(jobid, processingtype):
     """
-    On HTCondor nodes, set special env var (HTCondor_JOB_ID) for debugging Lustre.
+    On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
     :param jobid: PanDA job id (string)
     :param processingtype: PanDA processing type (string)
@@ -2076,8 +2076,8 @@ def htcondor_envvar(jobid, processingtype):
         try:
             globaljobid = encode_globaljobid(jobid, processingtype)
             if globaljobid:
-                os.environ['HTCondor_JOB_ID'] = globaljobid
-                logger.info(f'set env var HTCondor_JOB_ID={globaljobid}')
+                os.environ['HTCondor_PANDA'] = globaljobid
+                logger.info(f'set env var HTCondor_PANDA={globaljobid}')
         except Exception as exc:
             logger.warning(f'caught exception: {exc}')
 

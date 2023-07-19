@@ -665,6 +665,8 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
 
     Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
 
+    NEW FORMAT: WN hostname, process and user id
+
     Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
     characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
     to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
