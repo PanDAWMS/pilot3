@@ -517,8 +517,12 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
             if not os.path.exists(job.workdir):  # jobUpdate might be delayed - do not cause problems for new downloaded job
                 logger.warning(f'job.workdir ({job.workdir}) does not exist - ignore kill instruction')
                 return
-            set_pilot_state(job=job, state="failed")
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
+            if args.workflow == 'stager':
+                logger.info('will set interactive job to finished (server will override this, but harvester will not)')
+                set_pilot_state(job=job, state="finished")  # this will let pilot finish naturally and report exit code 0 to harvester
+            else:
+                set_pilot_state(job=job, state="failed")
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
             if job.pid:
                 logger.debug('killing payload process')
                 kill_process(job.pid)
