@@ -2878,7 +2878,16 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
-                    # abort = True - do not set abort here as it will abort the entire thread, not just the current monitor loop
+                    if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
+                        abort = True
+
+
+
+                    # change back heartbeat time
+
+
+
+                    # abort = True - do not set abort here in general as it will abort the entire thread, not just the current monitor loop
                     break
 
                 # perform the monitoring tasks
