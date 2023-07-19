@@ -2819,8 +2819,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-            elif not queues.finished_data_in.empty():
-                logger.debug('stage-in must have finished')
+            #elif not queues.finished_data_in.empty():
+            #    logger.debug('stage-in must have finished')
             #    # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
             #    if args.workflow == 'stager':
             #        if first:
