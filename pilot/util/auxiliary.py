@@ -693,9 +693,9 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
         return num_hex
 
     def get_schedd_id(host: str) -> str:
-        # spce03.sdcc.bnl.gov -> spce03 -> 3
+        # spce03.sdcc.bnl.gov -> spce03
         try:
-            schedd_id = host.split('.')[0][-1]
+            schedd_id = host.split('.')[0]
         except IndexError as exc:
             logger.warning(f'failed to extract schedd from host={host}: {exc}')
             schedd_id = None
@@ -720,9 +720,10 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
     logger.debug(f'host name={host}')
     clusterid_hex = reformat(clusterid, maxsize=8)  # 00283984
     processid_hex = reformat(processid, maxsize=2)  # 00
-    schedd_id = get_schedd_id(host)  # 3
+    schedd_id = get_schedd_id(host)  # spce03
     if clusterid_hex and processid_hex and schedd_id:
-        global_name = f'{jobid}:{processingtype}:{clusterid_hex}.{processid_hex}_{schedd_id}'
+        # global_name = f'{jobid}:{processingtype}:{clusterid_hex}.{processid_hex}_{schedd_id}'
+        global_name = f'{schedd_id}_{processid}_{jobid}'
     else:
         global_name = ''
 

@@ -2080,8 +2080,8 @@ def htcondor_envvar(jobid, processingtype):
         try:
             globaljobid = encode_globaljobid(jobid, processingtype)
             if globaljobid:
-                os.environ['HTCondor_JOB_ID'] = globaljobid
-                logger.info(f'set env var HTCondor_JOB_ID={globaljobid}')
+                os.environ['HTCondor_Job_ID'] = globaljobid
+                logger.info(f'set env var HTCondor_Job_ID={globaljobid}')
         except Exception as exc:
             logger.warning(f'caught exception: {exc}')
 
