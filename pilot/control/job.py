@@ -2029,7 +2029,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
                 # for debugging on HTCondor purposes, set special env var
-                htcondor_envvar(job.jobid, job.processingtype)
+                # (only proceed if there is a condor class ad)
+                if os.environ.get('_CONDOR_JOB_AD', None):
+                    htcondor_envvar(job.jobid)
 
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
@@ -2066,24 +2068,21 @@ def retrieve(queues, traces, args):  # noqa: C901
     logger.info('[job] retrieve thread has finished')
 
 
-def htcondor_envvar(jobid, processingtype):
+def htcondor_envvar(jobid):
     """
     On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
     :param jobid: PanDA job id (string)
-    :param processingtype: PanDA processing type (string)
     :return:
     """
 
-    # only proceed if there is a condor class ad
-    if os.environ.get('_CONDOR_JOB_AD', None):
-        try:
-            globaljobid = encode_globaljobid(jobid, processingtype)
-            if globaljobid:
-                os.environ['HTCondor_Job_ID'] = globaljobid
-                logger.info(f'set env var HTCondor_Job_ID={globaljobid}')
-        except Exception as exc:
-            logger.warning(f'caught exception: {exc}')
+    try:
+        globaljobid = encode_globaljobid(jobid)
+        if globaljobid:
+            os.environ['HTCondor_Job_ID'] = globaljobid
+            logger.info(f'set env var HTCondor_Job_ID={globaljobid}')
+    except Exception as exc:
+        logger.warning(f'caught exception: {exc}')
 
 
 def handle_proxy(job):

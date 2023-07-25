@@ -658,7 +658,7 @@ def sort_words(input_str: str) -> str:
     return output_str
 
 
-def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> str:
+def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
     """
     Encode the global job id on HTCondor.
     To be used as an environmental variable on HTCondor nodes to facilitate debugging.
@@ -672,34 +672,20 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
     to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
 
     :param jobid: panda job id (string)
-    :param processingtype: panda processing type (string)
     :param maxsize: max length allowed (int)
     :return: encoded global job id (string).
     """
 
-    def reformat(num: str, maxsize: int = 8) -> str:
-        # can handle clusterid=4294967297, ie larger than 0xffffffff
-        try:
-            num_hex = hex(int(num)).replace('0x', '')
-            if len(num_hex) > maxsize:  # i.e. larger than 'ffffffff' or 'ff'
-                num_hex = num_hex[-maxsize:]  # take the least significant bits
-            num_hex = '0x' + num_hex
-            num_int = int(num_hex, base=16)
-            size = "{0:0" + str(maxsize) + "x}"  # e.g. "{0:08x}"
-            num_hex = size.format(num_int)
-        except (IndexError, ValueError, TypeError) as exc:
-            logger.warning(exc)
-            num_hex = ""
-        return num_hex
-
-    def get_schedd_id(host: str) -> str:
-        # spce03.sdcc.bnl.gov -> spce03
-        try:
-            schedd_id = host.split('.')[0]
-        except IndexError as exc:
-            logger.warning(f'failed to extract schedd from host={host}: {exc}')
-            schedd_id = None
-        return schedd_id
+    def get_host_name():
+        # spool1462.sdcc.bnl.gov -> spool1462
+        if 'PANDA_HOSTNAME' in os.environ:
+            host = os.environ.get('PANDA_HOSTNAME')
+        elif hasattr(os, 'uname'):
+            host = os.uname()[1]
+        else:
+            import socket
+            host = socket.gethostname()
+        return host.split('.')[0]
 
     globaljobid = get_globaljobid()
     if not globaljobid:
@@ -707,23 +693,18 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
 
     try:
         _globaljobid = globaljobid.split('#')
-        host = _globaljobid[0]
+        # host = _globaljobid[0]
         tmp = _globaljobid[1].split('.')
         # timestamp = _globaljobid[2] - ignore this one
-        clusterid = tmp[0]
+        # clusterid = tmp[0]
         processid = tmp[1]
     except IndexError as exc:
         logger.warning(exc)
         return ""
 
-    logger.debug(f'clusterid={clusterid}')
-    logger.debug(f'host name={host}')
-    clusterid_hex = reformat(clusterid, maxsize=8)  # 00283984
-    processid_hex = reformat(processid, maxsize=2)  # 00
-    schedd_id = get_schedd_id(host)  # spce03
-    if clusterid_hex and processid_hex and schedd_id:
-        # global_name = f'{jobid}:{processingtype}:{clusterid_hex}.{processid_hex}_{schedd_id}'
-        global_name = f'{schedd_id}_{processid}_{jobid}'
+    host_name = get_host_name()
+    if processid and host_name:
+        global_name = f'{host_name}_{processid}_{jobid}'
     else:
         global_name = ''
 
