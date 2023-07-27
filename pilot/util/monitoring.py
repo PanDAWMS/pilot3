@@ -90,9 +90,10 @@ def job_monitor_tasks(job, mt, args):
         return exit_code, diagnostics
 
     # check lease time in stager/pod mode on Kubernetes
-    exit_code, diagnostics = check_lease_time(current_time, mt, args.leasetime)
-    if exit_code != 0:
-        return exit_code, diagnostics
+    if args.workflow == 'stager':
+        exit_code, diagnostics = check_lease_time(current_time, mt, args.leasetime)
+        if exit_code != 0:
+            return exit_code, diagnostics
 
     # is it time to verify the pilot running time?
 #    exit_code, diagnostics = verify_pilot_running_time(current_time, mt, job)
