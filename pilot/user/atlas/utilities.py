@@ -883,7 +883,10 @@ def get_cpu_arch():
     cmd = setup + script
 
     # CPU arch script has now been copied, time to execute it
+    # (reset irrelevant stderr)
     ec, stdout, stderr = execute(cmd)
+    if ec == 0 and 'RHEL9 and clone support is relatively new' in stderr:
+        stderr = ''
     if ec or stderr:
         logger.warning(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
