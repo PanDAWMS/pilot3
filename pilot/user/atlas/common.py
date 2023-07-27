@@ -1109,7 +1109,10 @@ def update_job_data(job):
     # has created additional (overflow) files. Also make sure all guids are
     # assigned (use job report value if present, otherwise generate the guid)
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
-    if job.metadata and (not job.is_eventservice or is_raythena):
+    if is_raythena:
+        return
+
+    if job.metadata and not job.is_eventservice:
         # keep this for now, complicated to merge with verify_output_files?
         extract_output_file_guids(job)
         try:
