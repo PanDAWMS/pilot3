@@ -339,6 +339,25 @@ def get_transport(catchall):
     return transport
 
 
+def get_rtlogging():
+    """
+    Return the proper rtlogging value from the experiment specific plug-in or the config file.
+
+    :return: rtlogging (str).
+    """
+
+    rtlogging = None
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    try:
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        rtlogging = user.get_rtlogging()
+    except Exception as exc:
+        rtlogging = config.Pilot.rtlogging
+        logger.warning(f'found no experiment specific rtlogging, using config value ({rtlogging})')
+
+    return rtlogging
+
+
 def get_logging_info(job, args):
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
@@ -365,7 +384,7 @@ def get_logging_info(job, args):
     logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
     pattern = r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
-    info = findall(pattern, config.Pilot.rtlogging)
+    info = findall(pattern, get_rtlogging())
 
     if not logserver and not info:
         logger.warning('not enough info available for activating real-time logging')

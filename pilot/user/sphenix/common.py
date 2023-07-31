@@ -456,3 +456,13 @@ def get_pilot_id(jobid):
     """
 
     return os.environ.get("GTAG", "unknown")
+
+
+def get_rtlogging():
+    """
+    Return the proper rtlogging value.
+
+    :return: rtlogging (str).
+    """
+
+    return 'logstash;http://splogstash.sdcc.bnl.gov:8080'
