@@ -466,3 +466,13 @@ def get_rtlogging():
     """
 
     return 'logstash;http://splogstash.sdcc.bnl.gov:8080'
+
+
+def get_rtlogging_ssl():
+    """
+    Return the proper ssl_enable and ssl_verify for real-time logging.
+
+    :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+    """
+
+    return False, False
