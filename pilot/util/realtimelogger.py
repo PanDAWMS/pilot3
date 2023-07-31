@@ -145,11 +145,12 @@ class RealTimeLogger(Logger):
                 if isinstance(secrets, str):
                     secrets = json.loads(secrets)
 
+                ssl_enable, ssl_verify = self.get_rtlogging_ssl()
                 transport = HttpTransport(
                     server,
                     port,
-                    ssl_enable=config.Pilot.ssl_enable,
-                    ssl_verify=config.Pilot.ssl_verify,
+                    ssl_enable=ssl_enable,
+                    ssl_verify=ssl_verify,
                     timeout=5.0,
                     username=secrets.get('logstash_login', 'unknown_login'),
                     password=secrets.get('logstash_password', 'unknown_password')
