@@ -16,7 +16,6 @@ import os
 import time
 import hashlib
 import logging
-import multiprocessing
 import queue
 from collections import namedtuple
 
@@ -1655,6 +1654,9 @@ def get_message_from_mb(args):
     if args.graceful_stop.is_set():
         logger.debug('will not start ActiveMQ since graceful_stop is set')
         return None
+
+    # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
+    import multiprocessing
 
     ctx = multiprocessing.get_context('spawn')
     message_queue = ctx.Queue()
