@@ -716,3 +716,15 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
         logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
 
     return global_name
+
+
+class TimeoutException(Exception):
+
+    def __init__(self, message, timeout=None, *args):
+        self.timeout = timeout
+        self.message = message
+        self._errorCode = 1334
+        super(TimeoutException, self).__init__(*args)
+
+    def __str__(self):
+        return "%s: %s, timeout=%s seconds%s" % (self.__class__.__name__, self.message, self.timeout, ' : %s' % repr(self.args) if self.args else '')
