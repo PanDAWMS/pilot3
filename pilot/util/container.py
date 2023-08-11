@@ -83,6 +83,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
         stderr = kill_all(process, stderr)
     else:
         exit_code = process.poll()
+    process.wait()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):

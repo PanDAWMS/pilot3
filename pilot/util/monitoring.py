@@ -13,6 +13,8 @@ import os
 import time
 from subprocess import PIPE
 from glob import glob
+from typing import Any
+from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
@@ -469,6 +471,10 @@ def utility_monitor(job):
         # make sure the subprocess is still running
         utproc = job.utilities[utcmd][0]
         if not utproc.poll() is None:
+
+            # clean up the process
+            kill_process(utproc)
+
             if job.state == 'finished' or job.state == 'failed' or job.state == 'stageout':
                 logger.debug('no need to restart utility command since payload has finished running')
                 continue
@@ -498,6 +504,27 @@ def utility_monitor(job):
                 logger.warning(f'file: {path} does not exist')
 
             time.sleep(10)
+
+
+def kill_process(process: Any):
+    """
+    Kill process before restart to get rid of defunct processes.
+
+    :param process: process object
+    """
+
+    diagnostics = ''
+    try:
+        logger.warning('killing lingering subprocess')
+        process.kill()
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process group) ProcessLookupError={exc}'
+    try:
+        logger.warning('killing lingering process')
+        os.kill(process.pid, SIGKILL)
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process) ProcessLookupError={exc}'
+    logger.warning(f'sent hard kill signal - final stderr: {diagnostics}')
 
 
 def get_local_size_limit_stdout(bytes=True):
