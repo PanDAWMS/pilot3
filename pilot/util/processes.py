@@ -132,7 +132,6 @@ def kill_processes(pid):
     Kill process belonging to the process group that the given pid belongs to.
 
     :param pid: process id (int).
-    :return:
     """
 
     # if there is a known subprocess pgrp, then it should be enough to kill the group in one go
@@ -181,6 +180,40 @@ def kill_processes(pid):
     # note: this should no longer be necessary since ctypes has made sure all subprocesses are parented
     # if orphan process killing is not desired, set env var PILOT_NOKILL
     kill_orphans()
+
+    # kill any lingering defunct processes
+    try:
+        kill_defunct_children(pid)
+    except Exception as exc:
+        logger.warning(f'exception caught: {exc}')
+
+
+def kill_defunct_children(pid):
+    """
+    Kills any defunct child processes of the specified process ID.
+
+    :param pid: process id (int).
+    """
+
+    defunct_children = []
+    for proc in os.listdir("/proc"):
+        if proc.isdigit():
+            cmdline = os.readlink(f"/proc/{proc}/cmdline")
+            if cmdline.startswith("/bin/init"):
+                continue
+            pinfo = os.readlink(f"/proc/{proc}/status")
+            if pinfo.startswith("Z") and os.readlink(f"/proc/{proc}/parent") == str(pid):
+                defunct_children.append(int(proc))
+
+    if defunct_children:
+        logger.info(f'will now remove defunct processes: {defunct_children}')
+    else:
+        logger.info(f'did not find any defunct processes belonging to {pid}')
+    for child_pid in defunct_children:
+        try:
+            os.kill(child_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def kill_child_processes(pid):
