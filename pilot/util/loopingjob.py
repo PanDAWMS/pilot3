@@ -5,15 +5,15 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-20223
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
 from pilot.util.config import config
-from pilot.util.container import execute
+from pilot.util.container import execute, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes
+from pilot.util.processes import kill_processes, find_zombies, handle_zombies
 from pilot.util.timing import time_stamp
 
 import os
@@ -55,17 +55,23 @@ def looping_job(job, montime):
         time_last_touched, recent_files = get_time_for_last_touch(job, montime, looping_limit)
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
-        if time_last_touched:
+
+
+
+        if time_last_touched or True:
             currenttime = int(time.time())
             logger.info(f'current time: {currenttime}')
             logger.info(f'last time files were touched: {time_last_touched}')
             logger.info(f'looping limit: {looping_limit} s')
-            if currenttime - time_last_touched > looping_limit:
+
+
+
+            if currenttime - time_last_touched > looping_limit or True:
                 try:
                     # which were the considered files?
                     list_mod_files(recent_files)
                     # first produce core dump and copy it
-                    create_core_dump(pid=job.pid, workdir=job.workdir)
+                    create_core_dump(job)
                     # set debug mode to prevent core file from being removed before log creation
                     job.debug = True
                     kill_looping_job(job)
@@ -77,7 +83,49 @@ def looping_job(job, montime):
     return exit_code, diagnostics
 
 
-def create_core_dump(pid=None, workdir=None):
+def create_core_dump(job):
+    """
+    Create core dump and copy it to work directory
+
+    :param job: job object.
+    """
+
+    if not job.pid or not job.workdir:
+        logger.warning('cannot create core file since pid or workdir is unknown')
+        return
+
+    cmd = f'gdb --pid {job.pid} -ex \'generate-core-file\' -ex quit'
+    #exit_code, stdout, stderr = execute(cmd)
+    exit_code = execute_command(cmd)
+    if exit_code == 0:
+        path = locate_core_file(pid=job.pid)
+        if path:
+            try:
+                copy(path, job.workdir)
+            except Exception as error:
+                logger.warning(f'failed to copy core file: {error}')
+            else:
+                logger.debug('copied core dump to workdir')
+
+    else:
+        logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}')
+
+    cmd = f'ps aux | grep gdb'
+    exit_code, stdout, stderr = execute(cmd)
+    logger.debug(f'gdb: {stdout}')
+
+    try:
+        zombies = find_zombies(os.getpid())
+        if zombies:
+            logger.info(f'found zombies: {zombies}')
+            handle_zombies(zombies, job=job)
+        else:
+            logger.info('found no zombies')
+    except Exception as exp:
+        logger.warning(f'exception caught: {exp}')
+
+
+def create_core_dump_new(pid=None, workdir=None):
     """
     Create core dump and copy it to work directory
     """
@@ -87,8 +135,9 @@ def create_core_dump(pid=None, workdir=None):
         return
 
     cmd = 'gdb --pid %d -ex \'generate-core-file\'' % pid
-    exit_code, stdout, stderr = execute(cmd)
-    if not exit_code:
+    output = execute_command(cmd)
+    logger.debug(f'check_output returned: {output}')
+    if not output.startswith(b'error executing command'):
         path = locate_core_file(pid=pid)
         if path:
             try:
@@ -99,7 +148,7 @@ def create_core_dump(pid=None, workdir=None):
                 logger.debug('copied core dump to workdir')
 
     else:
-        logger.warning(f'failed to execute command: {cmd}, stdout+stderr={stdout + stderr}')
+        logger.warning(f'failed to execute {cmd}: {output}')
 
 
 def get_time_for_last_touch(job, montime, looping_limit):

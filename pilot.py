@@ -54,6 +54,8 @@ from pilot.util.https import (
     https_setup,
     send_update,
 )
+from pilot.util.processes import kill_process
+from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.timing import add_to_pilot_timing
 
@@ -666,6 +668,20 @@ def set_redirectall() -> None:
             args.redirectall = redirectall
 
 
+def list_zombies() -> None:
+    """
+    Make sure there are no remaining defunct processes still lingering.
+
+    Note: can be used to find zombies, but zombies can't be killed..
+    """
+
+    found = find_defunct_subprocesses(os.getpid())
+    if found:
+        logging.info(f'found these defunct processes: {found}')
+    else:
+        logging.info('no defunct processes were found')
+
+
 if __name__ == '__main__':
     # Main function of pilot module.
 
@@ -712,6 +728,9 @@ if __name__ == '__main__':
 
     # store final time stamp (cannot be placed later since the mainworkdir is about to be purged)
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)
+
+    # make sure the pilot does not leave any lingering defunct child processes behind
+    list_zombies()
 
     # perform cleanup and terminate logging
     exit_code = wrap_up()

@@ -47,7 +47,7 @@ from pilot.util.math import mean
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
-from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes
+from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes, kill_defunct_children
 from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
@@ -2042,6 +2042,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 jobnumber += 1
                 while not args.graceful_stop.is_set():
                     if has_job_completed(queues, args):
+                        # make sure there are no lingering defunct subprocesses
+                        kill_defunct_children(job.pid)
+
                         # purge queue(s) that retains job object
                         set_pilot_state(state='')
                         purge_queue(queues.finished_data_in)

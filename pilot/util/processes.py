@@ -198,8 +198,12 @@ def kill_defunct_children(pid):
     defunct_children = []
     for proc in os.listdir("/proc"):
         if proc.isdigit():
-            cmdline = os.readlink(f"/proc/{proc}/cmdline")
-            if cmdline.startswith("/bin/init"):
+            try:
+                cmdline = os.readlink(f"/proc/{proc}/cmdline")
+            except:
+                # ignore lines that do not have cmdline
+                continue
+            if not cmdline or cmdline.startswith("/bin/init"):
                 continue
             pinfo = os.readlink(f"/proc/{proc}/status")
             if pinfo.startswith("Z") and os.readlink(f"/proc/{proc}/parent") == str(pid):
@@ -253,7 +257,7 @@ def kill_child_processes(pid):
                 kill_process(i)
 
 
-def kill_process(pid):
+def kill_process(pid, hardkillonly=False):
     """
     Kill process.
 
@@ -261,14 +265,13 @@ def kill_process(pid):
     :return: boolean (True if successful SIGKILL)
     """
 
-    status = False
-
     # start with soft kill (ignore any returned status)
-    kill(pid, signal.SIGTERM)
+    if not hardkillonly:
+        kill(pid, signal.SIGTERM)
 
-    _t = 10
-    logger.info("sleeping %d s to allow process to exit", _t)
-    time.sleep(_t)
+        _t = 10
+        logger.info("sleeping %d s to allow process to exit", _t)
+        time.sleep(_t)
 
     # now do a hard kill just in case some processes haven't gone away
     status = kill(pid, signal.SIGKILL)
@@ -837,3 +840,63 @@ def get_subprocesses(pid):
     cmd = f'ps -opid --no-headers --ppid {pid}'
     _, out, _ = execute(cmd)
     return [int(line) for line in out.splitlines()] if out else []
+
+
+def identify_numbers_and_strings(string):
+    """Identifies numbers and strings in a given string.
+
+    Args:
+    string: The string to be processed.
+
+    Returns:
+    A list of tuples, where each tuple contains the matched numbers and strings.
+    """
+
+    pattern = r'(\d+)\s+(\d+)\s+([A-Za-z]+)\s+([A-Za-z]+)'
+    return re.findall(pattern, string)
+
+
+def find_zombies(parent_pid):
+    """
+    Find all zombies/defunct processes under the given parent pid.
+
+    :param parent_pid: parent pid (int).
+    """
+
+    zombies = {}
+    cmd = 'ps -eo pid,ppid,stat,comm'
+    ec, stdout, _ = execute(cmd)
+    for line in stdout.split('\n'):
+        matches = identify_numbers_and_strings(line)
+        if matches:
+            pid = int(matches[0][0])
+            ppid = int(matches[0][1])
+            stat = matches[0][2]
+            comm = matches[0][3]
+            #print(f'pid={pid} ppid={ppid} stat={stat} comm={comm}')
+            if ppid == parent_pid and stat.startswith('Z'):
+                if not zombies.get(parent_pid):
+                    zombies[parent_pid] = []
+                zombies[parent_pid].append([pid, stat, comm])
+
+    return zombies
+
+def handle_zombies(zombies, job=None):
+    """
+    Dump some info about the given zombies.
+
+    :param zombies: list of zombies.
+    :param job: if job object is given, then the zombie pid will be added to the job.zombies list
+    """
+
+    for parent in zombies:
+        logger.info(f'sending SIGCHLD to ppid={parent}')
+        kill(parent, signal.SIGCHLD)
+        for zombie in zombies.get(parent):
+            pid = zombie[0]
+            # stat = zombie[1]
+            comm = zombie[2]
+            logger.info(f'zombie process {pid} (comm={comm}, ppid={parent})')
+            # kill_process(pid, hardkillonly=True)  # useless for zombies - they are already dead
+            if job:
+                job.zombies.append(pid)

@@ -324,7 +324,9 @@ def verify_looping_job(current_time, mt, job, args):
                      f'looping verification time={looping_verification_time} s')
         return 0, ""
 
-    if current_time - mt.get('ct_looping') > looping_verification_time:
+
+
+    if current_time - mt.get('ct_looping') > looping_verification_time or True:
         # is the job looping?
         try:
             exit_code, diagnostics = looping_job(job, mt)

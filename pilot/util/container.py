@@ -6,10 +6,11 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
-
+import os
 import subprocess
 import logging
-from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
+import shlex
+from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from typing import Any
@@ -34,6 +35,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
+    #shell = kwargs.get("shell", False)
     obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
 
     # convert executable to string if it is a list
@@ -66,7 +68,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
                                stdout=kwargs.get('stdout', subprocess.PIPE),
                                stderr=kwargs.get('stderr', subprocess.PIPE),
                                cwd=kwargs.get('cwd', getcwd()),
-                               preexec_fn=setpgrp,
+                               preexec_fn=os.setsid,    # setpgrp
                                encoding='utf-8',
                                errors='replace')
     if kwargs.get('returnproc', False):
@@ -83,14 +85,46 @@ def execute(executable: Any, **kwargs: dict) -> Any:
         stderr = kill_all(process, stderr)
     else:
         exit_code = process.poll()
-    process.wait()
 
+    # wait for the process to finish
+    process.wait()
+    if 'gdb' in executable:
+        logger.debug(f'killing gdb? {process.pid}')
+        exit_code = execute_command(f'pgrep -P {process.pid}')
+        logger.debug(f'pgrep ec={exit_code}')
+        exit_code = execute_command(f'ps -ef | grep gdb')
+        logger.debug(f'ps -ef ec={exit_code}')
+        _stderr = kill_all(process, '')
+        logger.debug(_stderr)
     # remove any added \n
     if stdout and stdout.endswith('\n'):
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
 
+
+def execute_command(command: str) -> str:
+    """
+    Executes a command using subprocess.
+
+    :param command: The command to execute.
+
+    :return: The output of the command (string).
+    """
+
+    try:
+        logger.info(f'executing command: {command}')
+        command = shlex.split(command)
+        proc = subprocess.Popen(command, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc.wait()
+        #output, err = proc.communicate()
+        exit_code = proc.returncode
+        logger.info(f'command finished with exit code: {exit_code}')
+        # output = subprocess.check_output(command, text=True)
+    except subprocess.CalledProcessError as exc:
+        logger.warning(f"error executing command:\n{command}\nexit code: {exc.returncode}\nStderr: {exc.stderr}")
+        exit_code = exc.returncode
+    return exit_code
 
 def kill_all(process: Any, stderr: str) -> str:
     """

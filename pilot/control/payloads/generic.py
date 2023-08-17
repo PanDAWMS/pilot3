@@ -548,10 +548,13 @@ class Executor(object):
 
         cmd = ""
         # for testing looping job: cmd = user.get_payload_command(job) + ';sleep 240'
+
+
+
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-            cmd = user.get_payload_command(job)  #+ 'sleep 1000'  # to test looping jobs
+            cmd = user.get_payload_command(job) + 'sleep 900'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
             import traceback
