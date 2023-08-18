@@ -2980,12 +2980,14 @@ def preliminary_server_update(job, args, diagnostics):
     logger.debug(f'could have sent diagnostics={diagnostics}')
     piloterrorcode = job.piloterrorcode
     piloterrorcodes = job.piloterrorcodes
+    piloterrordiags = job.piloterrordiags
     job.piloterrorcode = 0
     job.piloterrorcodes = []
-    send_state(job, args, job.state)
+    job.piloterrordiags = [diagnostics]
+    send_state(job, args, 'running')
     job.piloterrorcode = piloterrorcode
     job.piloterrorcodes = piloterrorcodes
-
+    job.piloterrordiags = piloterrordiags
 
 def get_signal_error(sig):
     """
