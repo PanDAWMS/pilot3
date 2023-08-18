@@ -75,6 +75,8 @@ def looping_job(job, montime):
                     # set debug mode to prevent core file from being removed before log creation
                     job.debug = True
                     kill_looping_job(job)
+                    exit_code = errors.LOOPINGJOB
+                    diagnostics = 'the payload was found to be looping - job will be failed in the next update'
                 except Exception as error:
                     logger.warning(f'exception caught: {error}')
         else:

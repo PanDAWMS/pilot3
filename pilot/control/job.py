@@ -2894,6 +2894,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
                 if exit_code != 0:
+                    # do a quick server update with the error diagnostics only
+                    preliminary_server_update(jobs[i], args, diagnostics)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
                         ec = download_new_proxy(role='production')
@@ -2964,6 +2966,25 @@ def job_monitor(queues, traces, args):  # noqa: C901
         args.job_aborted.set()
 
     logger.info('[job] job monitor thread has finished')
+
+
+def preliminary_server_update(job, args, diagnostics):
+    """
+    Send a quick job update to the server (do not send any error code yet) for a failed job.
+
+    :param job: job object
+    :param args: args object
+    :param diagnostics: error diagnostics (string).
+    """
+
+    logger.debug(f'could have sent diagnostics={diagnostics}')
+    piloterrorcode = job.piloterrorcode
+    piloterrorcodes = job.piloterrorcodes
+    job.piloterrorcode = 0
+    job.piloterrorcodes = []
+    send_state(job, args, job.state)
+    job.piloterrorcode = piloterrorcode
+    job.piloterrorcodes = piloterrorcodes
 
 
 def get_signal_error(sig):
