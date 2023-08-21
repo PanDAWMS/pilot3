@@ -87,7 +87,7 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
-        hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
+        hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
         except Exception:
