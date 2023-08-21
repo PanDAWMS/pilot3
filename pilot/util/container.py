@@ -88,14 +88,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
     # wait for the process to finish
     process.wait()
-    if 'gdb' in executable:
-        logger.debug(f'killing gdb? {process.pid}')
-        exit_code = execute_command(f'pgrep -P {process.pid}')
-        logger.debug(f'pgrep ec={exit_code}')
-        exit_code = execute_command(f'ps -ef | grep gdb')
-        logger.debug(f'ps -ef ec={exit_code}')
-        _stderr = kill_all(process, '')
-        logger.debug(_stderr)
+
     # remove any added \n
     if stdout and stdout.endswith('\n'):
         stdout = stdout[:-1]
