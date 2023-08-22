@@ -64,6 +64,8 @@ def looping_job(job, montime):
             logger.info(f'last time files were touched: {time_last_touched}')
             logger.info(f'looping limit: {looping_limit} s')
 
+
+
             if currenttime - time_last_touched > looping_limit or True:
                 try:
                     # which were the considered files?
@@ -216,10 +218,18 @@ def kill_looping_job(job):
     diagnostics = f"pilot has decided to kill looping job {job.jobid} at {time_stamp()}"
     logger.fatal(diagnostics)
 
+    # sweep up zombies
+    if job.pid not in job.zombies:
+        job.zombies.append(job.pid)
+
+    job.collect_zombies(depth=10)
+    logger.info("collected zombie processes")
+
     cmds = [f'ps -fwu {whoami()}',
             f'ls -ltr {job.workdir}',
             f'ps -o pid,ppid,sid,pgid,tpgid,stat,comm -u {whoami()}',
             'pstree -g -a']
+#            f'ps -f --ppid {os.getpid()} | grep python3']
     for cmd in cmds:
         _, stdout, _ = execute(cmd, mute=True)
         logger.info(f"{cmd} + '\n': {stdout}")

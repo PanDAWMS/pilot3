@@ -2211,7 +2211,7 @@ def has_job_completed(queues, args):
             job.prodproxy = ''
 
         # cleanup of any remaining processes
-        if job.pid:
+        if job.pid and job.pid not in job.zombies:
             job.zombies.append(job.pid)
         cleanup(job, args)
 
