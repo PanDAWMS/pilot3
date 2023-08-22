@@ -353,7 +353,7 @@ def get_rtlogging():
         rtlogging = user.get_rtlogging()
     except Exception as exc:
         rtlogging = config.Pilot.rtlogging
-        logger.warning(f'found no experiment specific rtlogging, using config value ({rtlogging})')
+        logger.warning(f'found no experiment specific rtlogging, using config value ({rtlogging}): {exc}')
 
     return rtlogging
 

@@ -54,7 +54,6 @@ from pilot.util.https import (
     https_setup,
     send_update,
 )
-from pilot.util.processes import kill_process
 from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.timing import add_to_pilot_timing

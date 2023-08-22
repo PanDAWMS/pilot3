@@ -64,8 +64,6 @@ def looping_job(job, montime):
             logger.info(f'last time files were touched: {time_last_touched}')
             logger.info(f'looping limit: {looping_limit} s')
 
-
-
             if currenttime - time_last_touched > looping_limit or True:
                 try:
                     # which were the considered files?

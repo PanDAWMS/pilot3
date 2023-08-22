@@ -119,6 +119,7 @@ def execute_command(command: str) -> str:
         exit_code = exc.returncode
     return exit_code
 
+
 def kill_all(process: Any, stderr: str) -> str:
     """
     Kill all processes after a time-out exception in process.communication().
