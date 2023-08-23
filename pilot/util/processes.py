@@ -14,7 +14,7 @@ import re
 import threading
 
 from pilot.util.container import execute
-from pilot.util.auxiliary import whoami
+from pilot.util.auxiliary import whoami, grep_str
 from pilot.util.filehandling import read_file, remove_dir_tree
 from pilot.util.processgroups import kill_process_group
 
@@ -22,7 +22,39 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def find_processes_in_group(cpids, pid):
+def find_processes_in_group(cpids, pid, ps_cache):
+    """
+    Find all processes that belong to the same group using the given ps command output.
+    Recursively search for the children processes belonging to pid and return their pid's.
+    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
+    the pids of the children AND the parent.
+
+    ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
+
+    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int).
+    :param pid: parent process id (int).
+    :param ps_cache: ps command output (string).
+    :return: (updated cpids input parameter list).
+    """
+
+    if not pid:
+        return
+
+    cpids.append(pid)
+    lines = grep_str([str(pid)], ps_cache)
+
+    if lines and lines != ['']:
+        for i in range(0, len(lines)):
+            try:
+                thispid = int(lines[i].split()[0])
+                thisppid = int(lines[i].split()[1])
+            except Exception as error:
+                logger.warning(f'exception caught: {error}')
+            if thisppid == pid:
+                find_processes_in_group(cpids, thispid, ps_cache)
+
+
+def find_processes_in_group_old(cpids, pid):
     """
     Find all processes that belong to the same group.
     Recursively search for the children processes belonging to pid and return their pid's.
@@ -40,7 +72,7 @@ def find_processes_in_group(cpids, pid):
     cpids.append(pid)
 
     cmd = "ps -eo pid,ppid -m | grep %d" % pid
-    exit_code, psout, stderr = execute(cmd, mute=True)
+    _, psout, _ = execute(cmd, mute=True)
 
     lines = psout.split("\n")
     if lines != ['']:
@@ -53,7 +85,6 @@ def find_processes_in_group(cpids, pid):
             if thisppid == pid:
                 find_processes_in_group(cpids, thispid)
 
-
 def is_zombie(pid):
     """
     Is the given process a zombie?
@@ -64,7 +95,7 @@ def is_zombie(pid):
     status = False
 
     cmd = "ps aux | grep %d" % (pid)
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     if "<defunct>" in stdout:
         status = True
 
@@ -146,7 +177,8 @@ def kill_processes(pid):
     if not status:
         # firstly find all the children process IDs to be killed
         children = []
-        find_processes_in_group(children, pid)
+        _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+        find_processes_in_group(children, pid, ps_cache)
 
         # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
         if not children:
@@ -229,7 +261,8 @@ def kill_child_processes(pid):
     """
     # firstly find all the children process IDs to be killed
     children = []
-    find_processes_in_group(children, pid)
+    _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+    find_processes_in_group(children, pid, ps_cache)
 
     # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
     children.reverse()
@@ -312,7 +345,8 @@ def get_number_of_child_processes(pid):
     children = []
     n = 0
     try:
-        find_processes_in_group(children, pid)
+        _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+        find_processes_in_group(children, pid, ps_cache)
     except Exception as error:
         logger.warning("exception caught in find_processes_in_group: %s", error)
     else:
@@ -548,7 +582,8 @@ def get_current_cpu_consumption_time(pid):
 
     # get all the child processes
     children = []
-    find_processes_in_group(children, pid)
+    _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+    find_processes_in_group(children, pid, ps_cache)
 
     cpuconsumptiontime = 0
     for _pid in children:
@@ -890,8 +925,8 @@ def handle_zombies(zombies, job=None):
     """
 
     for parent in zombies:
-        logger.info(f'sending SIGCHLD to ppid={parent}')
-        kill(parent, signal.SIGCHLD)
+        #logger.info(f'sending SIGCHLD to ppid={parent}')
+        #kill(parent, signal.SIGCHLD)
         for zombie in zombies.get(parent):
             pid = zombie[0]
             # stat = zombie[1]

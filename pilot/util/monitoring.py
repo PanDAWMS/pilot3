@@ -18,7 +18,7 @@ from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
@@ -217,8 +217,8 @@ def verify_memory_usage(current_time, mt, job, debug=False):
     :return: exit code (int), error diagnostics (string).
     """
 
-    if debug:
-        show_memory_usage()
+    #if debug:
+    #    show_memory_usage()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)

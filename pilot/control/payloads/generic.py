@@ -18,7 +18,7 @@ from subprocess import PIPE
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
@@ -685,8 +685,8 @@ class Executor(object):
 
             logger.info('payload iteration loop #%d', iteration + 1)
             os.environ['PILOT_EXEC_ITERATION_COUNT'] = '%s' % iteration
-            if self.__args.debug:
-                show_memory_usage()
+            #if self.__args.debug:
+            #    show_memory_usage()
 
             # first run the preprocess (if necessary) - note: this might update jobparams -> must update cmd
             jobparams_pre = self.__job.jobparams

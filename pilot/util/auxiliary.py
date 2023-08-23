@@ -718,6 +718,31 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
     return global_name
 
 
+def grep_str(patterns, stdout):
+    """
+    Search for the patterns in the given stdout.
+    For expected large stdout, better to use FileHandling::grep()
+
+    :param patterns: list of regexp patterns.
+    :param stdout: some text (string).
+    :return: list of matched lines in stdout.
+    """
+
+    matched_lines = []
+    _pats = []
+    for pattern in patterns:
+        _pats.append(re.compile(pattern))
+
+    lines = stdout.split('\n')
+    for line in lines:
+        # can the search pattern be found?
+        for _cp in _pats:
+            if re.search(_cp, line):
+                matched_lines.append(line)
+
+    return matched_lines
+
+
 class TimeoutException(Exception):
 
     def __init__(self, message, timeout=None, *args):
