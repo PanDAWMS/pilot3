@@ -217,6 +217,7 @@ def kill_looping_job(job):
     # the child process is looping, kill it
     diagnostics = f"pilot has decided to kill looping job {job.jobid} at {time_stamp()}"
     logger.fatal(diagnostics)
+    job.debug_command = 'looping'  # overrule any other debug command - also prevents real time logging from starting
 
     # sweep up zombies
     if job.pid not in job.zombies:
