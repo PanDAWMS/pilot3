@@ -232,8 +232,7 @@ def kill_looping_job(job):
     cmds = [f'ps -fwu {whoami()}',
             f'ls -ltr {job.workdir}',
             f'ps -o pid,ppid,sid,pgid,tpgid,stat,comm -u {whoami()}',
-            'pstree -g -a',
-            'ps aux | grep python3']
+            'pstree -g -a']
 #            f'ps -f --ppid {os.getpid()} | grep python3']
     for cmd in cmds:
         _, stdout, _ = execute(cmd, mute=True)
