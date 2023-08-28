@@ -86,6 +86,7 @@ def find_processes_in_group_old(cpids, pid):
             if thisppid == pid:
                 find_processes_in_group(cpids, thispid)
 
+
 def is_zombie(pid):
     """
     Is the given process a zombie?
@@ -178,7 +179,7 @@ def kill_processes(pid):
     if not status:
         # firstly find all the children process IDs to be killed
         children = []
-        _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
         find_processes_in_group(children, pid, ps_cache)
 
         # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -233,7 +234,7 @@ def kill_defunct_children(pid):
         if proc.isdigit():
             try:
                 cmdline = os.readlink(f"/proc/{proc}/cmdline")
-            except:
+            except Exception:
                 # ignore lines that do not have cmdline
                 continue
             if not cmdline or cmdline.startswith("/bin/init"):
@@ -262,7 +263,7 @@ def kill_child_processes(pid):
     """
     # firstly find all the children process IDs to be killed
     children = []
-    _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
     find_processes_in_group(children, pid, ps_cache)
 
     # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -346,7 +347,7 @@ def get_number_of_child_processes(pid):
     children = []
     n = 0
     try:
-        _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
         find_processes_in_group(children, pid, ps_cache)
     except Exception as error:
         logger.warning("exception caught in find_processes_in_group: %s", error)
@@ -583,7 +584,7 @@ def get_current_cpu_consumption_time(pid):
 
     # get all the child processes
     children = []
-    _, ps_cache, _ = execute(f"ps -eo pid,ppid -m", mute=True)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
     find_processes_in_group(children, pid, ps_cache)
 
     cpuconsumptiontime = 0
@@ -917,6 +918,7 @@ def find_zombies(parent_pid):
 
     return zombies
 
+
 def handle_zombies(zombies, job=None):
     """
     Dump some info about the given zombies.
@@ -978,7 +980,9 @@ def reap_zombies(pid: int = -1):
     :param pid: process id (int).
     """
 
-    @timeout(seconds=20)
+    max_timeout = 20
+
+    @timeout(seconds=max_timeout)
     def waitpid(pid: int = -1):
         try:
             while True:
@@ -991,5 +995,5 @@ def reap_zombies(pid: int = -1):
                     logger.info(f'pid={_pid} exited with {exit_code}')
         except ChildProcessError:
             pass
-    logger.info(f'reaping zombies for max 20 seconds')
+    logger.info(f'reaping zombies for max {max_timeout} seconds')
     waitpid(pid)

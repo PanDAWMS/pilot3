@@ -107,7 +107,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
 def execute_command(command: str) -> str:
     """
-    Executes a command using subprocess.
+    Executes a command using subprocess without using the shell.
 
     :param command: The command to execute.
 

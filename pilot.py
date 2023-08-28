@@ -729,7 +729,8 @@ if __name__ == '__main__':
     add_to_pilot_timing('0', PILOT_END_TIME, time.time(), args, store=False)
 
     # make sure the pilot does not leave any lingering defunct child processes behind
-    list_zombies()
+    if args.debug:
+        list_zombies()
 
     # perform cleanup and terminate logging
     exit_code = wrap_up()

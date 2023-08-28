@@ -91,6 +91,7 @@ def get_all_child_pids(parent_pid):
     except subprocess.CalledProcessError:
         return []
 
+
 def is_defunct(pid):
     try:
         result = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True)
@@ -98,6 +99,7 @@ def is_defunct(pid):
         return 'Z' in result.stdout.strip()
     except subprocess.CalledProcessError:
         return False
+
 
 def find_defunct_subprocesses(parent_pid):
     """

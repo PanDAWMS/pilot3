@@ -298,7 +298,7 @@ class RealTimeLogger(Logger):
         try:
             user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
             ssl_enable, ssl_verify = user.get_rtlogging_ssl()
-        except Exception as exc:
+        except Exception:
             ssl_enable = config.Pilot.ssl_enable
             ssl_verify = config.Pilot.ssl_verify
             logger.warning(f'found no experiment specific ssl_enable, ssl_verify, using config values ({ssl_enable}, {ssl_verify})')

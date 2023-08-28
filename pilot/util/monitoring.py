@@ -324,9 +324,7 @@ def verify_looping_job(current_time, mt, job, args):
                      f'looping verification time={looping_verification_time} s')
         return 0, ""
 
-
-
-    if current_time - mt.get('ct_looping') > looping_verification_time or True:
+    if current_time - mt.get('ct_looping') > looping_verification_time:
 
         # remove any lingering defunct processes
         try:
