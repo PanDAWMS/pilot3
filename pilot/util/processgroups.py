@@ -93,10 +93,19 @@ def get_all_child_pids(parent_pid):
 
 
 def is_defunct(pid):
+    def get_process_info(pid):
+        process = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True)
+        return process.returncode, process.stdout, process.stderr
+
     try:
-        result = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True)
-        logger.debug(f'{pid}: {result}')
-        return 'Z' in result.stdout.strip()
+        #cmd = f'ps -p {pid} -o pid,vsz=MEMORY -o user,group=GROUP -o comm,args=ARGS'
+        #result = subprocess.run(cmd.split(' '), capture_output=True, text=True)
+        #logger.debug(f'{cmd}: {result}')
+
+        returncode, stdout, stderr = get_process_info(pid)
+        logger.debug(f'{pid}: return code={returncode}, stdout={stdout}, stderr={stderr}')
+
+        return 'Z' in stdout.strip()
     except subprocess.CalledProcessError:
         return False
 
