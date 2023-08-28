@@ -13,7 +13,7 @@ from pilot.util.config import config
 from pilot.util.container import execute, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes, find_zombies, handle_zombies
+from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes
 from pilot.util.timing import time_stamp
 
 import os
@@ -229,11 +229,19 @@ def kill_looping_job(job):
     cmds = [f'ps -fwu {whoami()}',
             f'ls -ltr {job.workdir}',
             f'ps -o pid,ppid,sid,pgid,tpgid,stat,comm -u {whoami()}',
-            'pstree -g -a']
+            'pstree -g -a',
+            'ps aux | grep python3']
 #            f'ps -f --ppid {os.getpid()} | grep python3']
     for cmd in cmds:
         _, stdout, _ = execute(cmd, mute=True)
         logger.info(f"{cmd} + '\n': {stdout}")
+
+    parent_pid = os.getpid()
+    child_processes = get_child_processes(parent_pid)
+    if child_processes:
+        logger.info(f"child processes of PID {parent_pid}:")
+        for pid, cmdline in child_processes:
+            logger.info(f"PID {pid}: {cmdline}")
 
     # set the relevant error code
     if job.state == 'stagein':

@@ -935,3 +935,33 @@ def handle_zombies(zombies, job=None):
             # kill_process(pid, hardkillonly=True)  # useless for zombies - they are already dead
             if job:
                 job.zombies.append(pid)
+
+
+def get_child_processes(parent_pid):
+    child_processes = []
+
+    # Iterate through all directories in /proc
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue  # Skip non-numeric directories
+
+        pid = int(pid)
+        try:
+            # Read the command line of the process
+            with open(f'/proc/{pid}/cmdline', 'rb') as cmdline_file:
+                cmdline = cmdline_file.read().decode().replace('\x00', ' ')
+
+            # Read the parent PID of the process
+            with open(f'/proc/{pid}/stat', 'rb') as stat_file:
+                stat_info = stat_file.read().decode()
+                parts = stat_info.split()
+                ppid = int(parts[3])
+
+            # Check if the parent PID matches the specified parent process
+            if ppid == parent_pid:
+                child_processes.append((pid, cmdline))
+
+        except (FileNotFoundError, PermissionError):
+            continue  # Process may have terminated or we don't have permission
+
+    return child_processes

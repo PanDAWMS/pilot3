@@ -10,6 +10,8 @@ import os
 import subprocess
 import logging
 import shlex
+import threading
+
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
@@ -21,6 +23,9 @@ from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# Define a global lock for synchronization
+execute_lock = threading.Lock()
 
 
 def execute(executable: Any, **kwargs: dict) -> Any:
@@ -63,30 +68,34 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     exit_code = 0
     stdout = ''
     stderr = ''
-    process = subprocess.Popen(exe,
-                               bufsize=-1,
-                               stdout=kwargs.get('stdout', subprocess.PIPE),
-                               stderr=kwargs.get('stderr', subprocess.PIPE),
-                               cwd=kwargs.get('cwd', getcwd()),
-                               preexec_fn=os.setsid,    # setpgrp
-                               encoding='utf-8',
-                               errors='replace')
-    if kwargs.get('returnproc', False):
-        return process
+    # Acquire the lock before creating the subprocess
+    with execute_lock:
+        process = subprocess.Popen(exe,
+                                   bufsize=-1,
+                                   stdout=kwargs.get('stdout', subprocess.PIPE),
+                                   stderr=kwargs.get('stderr', subprocess.PIPE),
+                                   cwd=kwargs.get('cwd', getcwd()),
+                                   preexec_fn=os.setsid,    # setpgrp
+                                   encoding='utf-8',
+                                   errors='replace')
+        if kwargs.get('returnproc', False):
+            return process
 
-    try:
-        stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
-    except subprocess.TimeoutExpired as exc:
-        # make sure that stdout buffer gets flushed - in case of time-out exceptions
-        flush_handler(name="stream_handler")
-        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-        logger.warning(stderr)
-        exit_code = errors.COMMANDTIMEDOUT
-        stderr = kill_all(process, stderr)
-    else:
-        exit_code = process.poll()
+        try:
+            stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
+        except subprocess.TimeoutExpired as exc:
+            # make sure that stdout buffer gets flushed - in case of time-out exceptions
+            flush_handler(name="stream_handler")
+            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+            logger.warning(stderr)
+            exit_code = errors.COMMANDTIMEDOUT
+            stderr = kill_all(process, stderr)
+        else:
+            exit_code = process.poll()
 
     # wait for the process to finish
+    # not strictly necessary when process.commnunicate() is used - but this could reduce the number of defunct processes
+    # in case of time-out - a zombie reaper is also used by monitoring
     process.wait()
 
     # remove any added \n

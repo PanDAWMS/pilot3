@@ -857,6 +857,10 @@ def store_subprocess_pids(job):
     :return:
     """
 
+    # only store the pid once
+    if job.subprocesses:
+        return
+
     # is the payload running?
     if job.pid:
         # get all subprocesses
