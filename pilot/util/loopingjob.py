@@ -13,7 +13,7 @@ from pilot.util.config import config
 from pilot.util.container import execute, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes
+from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes, reap_zombies
 from pilot.util.timing import time_stamp
 
 import os
@@ -224,7 +224,10 @@ def kill_looping_job(job):
         job.zombies.append(job.pid)
 
     job.collect_zombies(depth=10)
-    logger.info("collected zombie processes")
+    logger.info("collected zombie processes (pass #1/2)")
+
+    logger.debug('reaping zombies (pass #2/2)')
+    reap_zombies()
 
     cmds = [f'ps -fwu {whoami()}',
             f'ls -ltr {job.workdir}',

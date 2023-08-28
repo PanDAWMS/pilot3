@@ -17,6 +17,7 @@ from pilot.util.container import execute
 from pilot.util.auxiliary import whoami, grep_str
 from pilot.util.filehandling import read_file, remove_dir_tree
 from pilot.util.processgroups import kill_process_group
+from pilot.util.timer import timeout
 
 import logging
 logger = logging.getLogger(__name__)
@@ -965,3 +966,30 @@ def get_child_processes(parent_pid):
             continue  # Process may have terminated or we don't have permission
 
     return child_processes
+
+
+def reap_zombies(pid: int = -1):
+    """
+    Check for and reap zombie processes.
+
+    This function can be called by the monitoring loop. Using PID -1 in os.waitpid() means that the request pertains to
+    any child of the current process.
+
+    :param pid: process id (int).
+    """
+
+    @timeout(seconds=20)
+    def waitpid(pid: int = -1):
+        try:
+            while True:
+                _pid, status = os.waitpid(pid, os.WNOHANG)
+                if _pid == 0:
+                    break
+                # Handle the terminated process here
+                if os.WIFEXITED(status):
+                    exit_code = os.WEXITSTATUS(status)
+                    logger.info(f'pid={_pid} exited with {exit_code}')
+        except ChildProcessError:
+            pass
+    logger.info(f'reaping zombies for max 20 seconds')
+    waitpid(pid)
