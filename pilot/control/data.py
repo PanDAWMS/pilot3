@@ -851,7 +851,10 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     logger.info(f'will create archive {fullpath} using timeout={timeout} s for directory size={dirsize} MB')
 
     try:
-        cmd = f"pwd;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
+
+
+
+        cmd = f"pwd;sleep 200;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
         exit_code, stdout, stderr = execute(cmd, timeout=timeout)
     except Exception as error:
         raise LogFileCreationFailure(error)
