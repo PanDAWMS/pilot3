@@ -869,11 +869,10 @@ def add_timing_and_extracts(data, job, state, args):
     :return:
     """
 
-    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup = timing_report(job.jobid, args)
-    #data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
-    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
+    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
     data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
                           (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
+    logger.debug(f'could have reported time_log_creation={time_log_creation} s')
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""

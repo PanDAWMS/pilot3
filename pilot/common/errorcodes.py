@@ -160,6 +160,7 @@ class ErrorCodes:
     CERTIFICATEHASEXPIRED = 1373
     REMOTEFILEDICTDOESNOTEXIST = 1374
     LEASETIME = 1375
+    LOGCREATIONTIMEOUT = 1376
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -296,7 +297,8 @@ class ErrorCodes:
         BADOUTPUTFILENAME: "Output file name contains illegal characters",
         CERTIFICATEHASEXPIRED: "Certificate has expired",
         REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist",
-        LEASETIME: "Lease time is up"  # internal use only
+        LEASETIME: "Lease time is up",  # internal use only
+        LOGCREATIONTIMEOUT: "Log file creation timed out"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

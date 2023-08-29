@@ -9,12 +9,13 @@
 
 import hashlib
 import io
+import logging
 import os
 import re
+import subprocess
 import tarfile
 import time
 import uuid
-import logging
 from collections.abc import Iterable, Mapping
 from glob import glob
 from json import load, JSONDecodeError
@@ -1231,3 +1232,27 @@ def generate_test_file(filename, filesize=1024):
 
     with open(filename, 'wb') as fout:
         fout.write(os.urandom(filesize))  # replace 1024 with a size in kilobytes if it is not unreasonably large
+
+
+def get_directory_size(directory: str) -> float:
+    """
+    Measure the size of the given directory with du -sh.
+    The function will return None in case of failure.
+
+    :param directory: full directory path (string).
+    :return: size in MB (float).
+    """
+
+    size_mb = None
+    command = ["du", "-sh", directory]
+    output = subprocess.check_output(command)
+    # E.g. '269M   /path'
+    match = re.search(r"^([0-9.]+)\S+(.*)$", output.decode("utf-8"))
+    if match:
+        print(match.group(1))
+        try:
+            size_mb = float(match.group(1))
+        except ValueError as exc:
+            logger.warning(f'failed to convert {match.group(1)} to float: {exc}')
+        # path = match.group(2)
+    return size_mb
