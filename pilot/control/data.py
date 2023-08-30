@@ -1035,10 +1035,9 @@ def _stage_out_new(job: Any, args: Any) -> bool:
 
         try:
             tarball_name = f'tarball_PandaJob_{job.jobid}_{job.infosys.pandaqueue}'
-            input_files = [fspec.lfn for fspec in job.indata]
-            output_files = [fspec.lfn for fspec in job.outdata]
             create_log(job.workdir, logfile.lfn, tarball_name, args.cleanup,
-                       input_files=input_files, output_files=output_files,
+                       input_files=[fspec.lfn for fspec in job.indata],
+                       output_files=[fspec.lfn for fspec in job.outdata],
                        piloterrors=job.piloterrorcodes, debugmode=job.debug)
         except LogFileCreationFailure as error:
             logger.warning(f'failed to create tar file: {error}')
@@ -1074,16 +1073,7 @@ def _stage_out_new(job: Any, args: Any) -> bool:
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEOUT, time.time(), args)
 
     # generate fileinfo details to be sent to Panda
-    fileinfo = {}
-    checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
-    for iofile in job.outdata + job.logdata:
-        if iofile.status in ['transferred']:
-            fileinfo[iofile.lfn] = {'guid': iofile.guid,
-                                    'fsize': iofile.filesize,
-                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
-                                    'surl': iofile.turl}
-
-    job.fileinfo = fileinfo
+    job.fileinfo = generate_fileinfo(job)
 
     # WARNING THE FOLLOWING RESETS ANY PREVIOUS STAGEOUT ERRORS
     if not is_success:
@@ -1099,10 +1089,26 @@ def _stage_out_new(job: Any, args: Any) -> bool:
         logger.debug(f'changing job state from {job.state} to finished')
         set_pilot_state(job=job, state="finished")
 
-    # send final server update since all transfers have finished correctly
-    # send_state(job, args, 'finished', xml=dumps(fileinfodict))
-
     return is_success
+
+
+def generate_fileinfo(job):
+    """
+    Generate fileinfo details to be sent to Panda.
+
+    :param job: job object.
+    """
+
+    fileinfo = {}
+    checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
+    for iofile in job.outdata + job.logdata:
+        if iofile.status in ['transferred']:
+            fileinfo[iofile.lfn] = {'guid': iofile.guid,
+                                    'fsize': iofile.filesize,
+                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
+                                    'surl': iofile.turl}
+
+    return fileinfo
 
 
 def queue_monitoring(queues, traces, args):
