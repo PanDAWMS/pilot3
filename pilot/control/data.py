@@ -1032,7 +1032,8 @@ def _stage_out_new(job: Any, args: Any) -> bool:
         logfile = job.logdata[0]
 
         # write time stamps to pilot timing file
-        add_to_pilot_timing(job.jobid, PILOT_PRE_LOG_TAR, time.time(), args)
+        current_time = time.time()
+        add_to_pilot_timing(job.jobid, PILOT_PRE_LOG_TAR, current_time, args)
 
         try:
             tarball_name = f'tarball_PandaJob_{job.jobid}_{job.infosys.pandaqueue}'
@@ -1049,7 +1050,12 @@ def _stage_out_new(job: Any, args: Any) -> bool:
         except PilotException as error:
             logger.warning(f'failed to create tar file: {error}')
             set_pilot_state(job=job, state="failed")
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=error.get_detail())
+            if 'timed out' in error:
+                delta = int(time.time() - current_time)
+                msg = f'tar command for log file creation timed out after {delta} s'
+            else:
+                msg = '(general error)'
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=msg)
             return False
 
         # write time stamps to pilot timing file
