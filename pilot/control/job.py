@@ -2775,7 +2775,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
     update_time = peeking_time
 
     # keep track of jobs we don't want to continue monitoring
-    no_monitoring = {}  # { job:id: time.time(), .. }
+    # no_monitoring = {}  # { job:id: time.time(), .. }
 
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
@@ -2831,15 +2831,15 @@ def job_monitor(queues, traces, args):  # noqa: C901
             # update the peeking time
             peeking_time = int(time.time())
 
-            stop_monitoring = False  # continue with the main loop (while cont)
+            # stop_monitoring = False  # continue with the main loop (while cont)
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
-                if current_id in no_monitoring:
-                    stop_monitoring = True
-                    delta = peeking_time - no_monitoring.get(current_id, 0)
-                    if delta > 60:
-                        logger.warning(f'job monitoring has waited {delta} s for job {current_id} to finish')
-                    break
+                #if current_id in no_monitoring:
+                #    stop_monitoring = True
+                #    delta = peeking_time - no_monitoring.get(current_id, 0)
+                #    if delta > 60:
+                #        logger.warning(f'job monitoring has waited {delta} s for job {current_id} to finish - aborting')
+                #    break
 
                 error_code = None
                 if abort_job and args.signal:
@@ -2873,7 +2873,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         jobs[i].stageout = 'log'  # only stage-out log file
                         put_in_queue(jobs[i], queues.data_out)
                         cont = False
-                    no_monitoring[current_id] = int(time.time())
+                    # no_monitoring[current_id] = int(time.time())
                     break
 
                 # perform the monitoring tasks
@@ -2931,8 +2931,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         #abort = True
                         break
 
-            if stop_monitoring:
-                continue
+            #if stop_monitoring:
+            #    continue
 
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')

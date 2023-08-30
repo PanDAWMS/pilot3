@@ -851,10 +851,8 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     logger.info(f'will create archive {fullpath} using timeout={timeout} s for directory size={dirsize} MB')
 
     try:
-
-
-
-        cmd = f"pwd;sleep 200;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
+        # add e.g. sleep 200; before tar command to test time-out
+        cmd = f"pwd;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
         exit_code, stdout, stderr = execute(cmd, timeout=timeout)
     except Exception as error:
         raise LogFileCreationFailure(error)
@@ -1050,11 +1048,11 @@ def _stage_out_new(job: Any, args: Any) -> bool:
         except PilotException as error:
             logger.warning(f'failed to create tar file: {error}')
             set_pilot_state(job=job, state="failed")
-            if 'timed out' in error:
+            if 'timed out' in error.get_detail():
                 delta = int(time.time() - current_time)
-                msg = f'tar command for log file creation timed out after {delta} s'
+                msg = f'tar command for log file creation timed out after {delta} s: {error.get_detail()}'
             else:
-                msg = '(general error)'
+                msg = error.get_detail()
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=msg)
             return False
 
