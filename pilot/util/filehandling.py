@@ -770,7 +770,7 @@ def calculate_adler32_checksum(filename):
     adler = 1
 
     try:
-        with open(filename, 'rb') as _file:
+        with open(filename, 'r+b') as _file:
             _mm = mmap(_file.fileno(), 0)
             for block in iter(partial(_mm.read, io.DEFAULT_BUFFER_SIZE), b''):
                 adler = adler32(block, adler)
