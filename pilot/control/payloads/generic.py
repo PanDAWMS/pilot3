@@ -826,19 +826,48 @@ class Executor(object):
         """
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-                sig = user.get_utility_command_kill_signal(utcmd)
-                logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
-                try:
-                    os.killpg(os.getpgid(utproc.pid), sig)
-                except Exception as error:
-                    logger.warning('exception caught: %s (ignoring)', error)
-
+                status = self.kill_and_wait_for_process(utproc.pid, user, utcmd)
+                if status:
+                    logger.info(f'cleaned up after prmon process {utproc.pid}')
+                else:
+                    logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
                 user.post_utility_command_action(utcmd, self.__job)
+
+    def kill_and_wait_for_process(self, pid, user, utcmd):
+        """
+        Kill utility process and wait for it to finish.
+
+        :param pid: process id (int)
+        :param user: pilot user/experiment (str)
+        :param utcmd: utility command (str)
+        :return: process exit status (int, None).
+        """
+
+        sig = user.get_utility_command_kill_signal(utcmd)
+        logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
+
+        try:
+            # Send SIGUSR1 signal to the process group
+            os.killpg(pid, sig)
+
+            # Wait for the process to finish
+            _, status = os.waitpid(pid, 0)
+
+            # Check the exit status of the process
+            if os.WIFEXITED(status):
+                return os.WEXITSTATUS(status)
+            else:
+                # Handle abnormal termination if needed
+                return None
+        except OSError as exc:
+            # Handle errors, such as process not found
+            logger.warning(f"exception caught: {exc}")
+            return None
 
     def rename_log_files(self, iteration):
         """
