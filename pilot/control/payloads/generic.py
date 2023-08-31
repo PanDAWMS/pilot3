@@ -832,7 +832,7 @@ class Executor(object):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
                 status = self.kill_and_wait_for_process(utproc.pid, user, utcmd)
-                if status:
+                if status == 0:
                     logger.info(f'cleaned up after prmon process {utproc.pid}')
                 else:
                     logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
