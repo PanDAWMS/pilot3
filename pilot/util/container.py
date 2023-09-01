@@ -98,8 +98,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             exit_code = process.poll()
 
     # wait for the process to finish
-    # not strictly necessary when process.commnunicate() is used - but this could reduce the number of defunct processes
-    # in case of time-out - a zombie reaper is also used by monitoring
+    # (not strictly necessary when process.communicate() is used)
     process.wait()
 
     # remove any added \n
