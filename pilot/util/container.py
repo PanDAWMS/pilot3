@@ -62,6 +62,10 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
 
+    # always use a timeout to prevent stdout buffer problem in nodes with lots of cores
+    timeout = get_timeout(kwargs.get('timeout', None))
+    logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
+
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
@@ -82,7 +86,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             return process
 
         try:
-            stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
+            stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
             flush_handler(name="stream_handler")
@@ -103,6 +107,21 @@ def execute(executable: Any, **kwargs: dict) -> Any:
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
+
+
+def get_timeout(requested_timeout):
+    """
+    Define the timeout to be used with subprocess.communicate().
+
+    If no timeout was requested by the execute() caller, a large default 10 days timeout will be returned.
+    It is better to give a really large timeout than no timeout at all, since the subprocess python module otherwise
+    can get stuck processing stdout on nodes with many cores.
+
+    :param requested_timeout: timeout in seconds set by execute() caller (int)
+    :return: timeout in seconds (int).
+    """
+
+    return requested_timeout if requested_timeout else 10 * 24 * 60 * 60  # using a ridiculously large default timeout
 
 
 def execute_command(command: str) -> str:
