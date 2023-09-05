@@ -975,7 +975,7 @@ class JobData(BaseData):
             depth -= 1
             for zombie in self.zombies:
                 try:
-                    logger.info(f"zombie collector trying to kill pid {zombie}")
+                    logger.info(f"zombie collector waiting for pid {zombie}")
                     _id, _ = os.waitpid(zombie, os.WNOHANG)
                 except OSError as exc:
                     logger.info(f"harmless exception when collecting zombies: {exc}")

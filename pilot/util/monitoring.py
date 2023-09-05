@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 # This module contains implementations of job monitoring tasks
 
@@ -13,10 +13,12 @@ import os
 import time
 from subprocess import PIPE
 from glob import glob
+from typing import Any
+from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
@@ -25,7 +27,7 @@ from pilot.util.loopingjob import looping_job
 from pilot.util.math import convert_mb_to_b, human2bytes
 from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
 from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes,\
-    get_subprocesses
+    get_subprocesses, reap_zombies
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import get_local_disk_space, check_hz
 from pilot.info import infosys
@@ -88,6 +90,12 @@ def job_monitor_tasks(job, mt, args):
     exit_code, diagnostics = should_abort_payload(current_time, mt)
     if exit_code != 0:
         return exit_code, diagnostics
+
+    # check lease time in stager/pod mode on Kubernetes
+    if args.workflow == 'stager':
+        exit_code, diagnostics = check_lease_time(current_time, mt, args.leasetime)
+        if exit_code != 0:
+            return exit_code, diagnostics
 
     # is it time to verify the pilot running time?
 #    exit_code, diagnostics = verify_pilot_running_time(current_time, mt, job)
@@ -209,8 +217,8 @@ def verify_memory_usage(current_time, mt, job, debug=False):
     :return: exit code (int), error diagnostics (string).
     """
 
-    if debug:
-        show_memory_usage()
+    #if debug:
+    #    show_memory_usage()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)
@@ -317,6 +325,13 @@ def verify_looping_job(current_time, mt, job, args):
         return 0, ""
 
     if current_time - mt.get('ct_looping') > looping_verification_time:
+
+        # remove any lingering defunct processes
+        try:
+            reap_zombies()
+        except Exception as exc:
+            logger.warning(f'reap_zombies threw an exception: {exc}')
+
         # is the job looping?
         try:
             exit_code, diagnostics = looping_job(job, mt)
@@ -338,14 +353,41 @@ def verify_looping_job(current_time, mt, job, args):
     return 0, ""
 
 
+def check_lease_time(current_time, mt, leasetime):
+    """
+    Check the lease time in stager mode.
+
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param leasetime: lease time in seconds (int)
+    :return: exit code (int), error diagnostics (string).
+    """
+
+    exit_code = 0
+    diagnostics = ''
+    if current_time - mt.get('ct_lease') > 10:
+        # time to check the lease time
+
+        logger.debug(f'checking lease time (lease time={leasetime})')
+        if current_time - mt.get('ct_start') > leasetime:
+            diagnostics = f"lease time is up: {current_time - mt.get('ct_start')} s has passed since start - abort stager pilot"
+            logger.warning(diagnostics)
+            exit_code = errors.LEASETIME
+
+        # update the ct_lease with the current time
+        mt.update('ct_lease')
+
+    return exit_code, diagnostics
+
+
 def verify_disk_usage(current_time, mt, job):
     """
     Verify the disk usage.
     The function checks 1) payload stdout size, 2) local space, 3) work directory size, 4) output file sizes.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param job: job object.
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param job: job object
     :return: exit code (int), error diagnostics (string).
     """
 
@@ -436,6 +478,10 @@ def utility_monitor(job):
         # make sure the subprocess is still running
         utproc = job.utilities[utcmd][0]
         if not utproc.poll() is None:
+
+            # clean up the process
+            kill_process(utproc)
+
             if job.state == 'finished' or job.state == 'failed' or job.state == 'stageout':
                 logger.debug('no need to restart utility command since payload has finished running')
                 continue
@@ -465,6 +511,27 @@ def utility_monitor(job):
                 logger.warning(f'file: {path} does not exist')
 
             time.sleep(10)
+
+
+def kill_process(process: Any):
+    """
+    Kill process before restart to get rid of defunct processes.
+
+    :param process: process object
+    """
+
+    diagnostics = ''
+    try:
+        logger.warning('killing lingering subprocess')
+        process.kill()
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process group) ProcessLookupError={exc}'
+    try:
+        logger.warning('killing lingering process')
+        os.kill(process.pid, SIGKILL)
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process) ProcessLookupError={exc}'
+    logger.warning(f'sent hard kill signal - final stderr: {diagnostics}')
 
 
 def get_local_size_limit_stdout(bytes=True):
@@ -794,6 +861,10 @@ def store_subprocess_pids(job):
     :param job: job object.
     :return:
     """
+
+    # only store the pid once
+    if job.subprocesses:
+        return
 
     # is the payload running?
     if job.pid:

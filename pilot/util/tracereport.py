@@ -87,7 +87,7 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
-        hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
+        hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
         except Exception:
@@ -172,7 +172,7 @@ class TraceReport(dict):
                 command += ' -4'
 
             cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
-            exit_code, stdout, stderr = execute(cmd, mute=False)
+            exit_code, stdout, stderr = execute(cmd, mute=False, timeout=300)
             logger.debug(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
             if exit_code or 'ExceptionClass' in stdout:
                 logger.warning('failed to send traces to rucio: %s' % stdout)

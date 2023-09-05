@@ -14,15 +14,48 @@ import re
 import threading
 
 from pilot.util.container import execute
-from pilot.util.auxiliary import whoami
+from pilot.util.auxiliary import whoami, grep_str
 from pilot.util.filehandling import read_file, remove_dir_tree
 from pilot.util.processgroups import kill_process_group
+from pilot.util.timer import timeout
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def find_processes_in_group(cpids, pid):
+def find_processes_in_group(cpids, pid, ps_cache):
+    """
+    Find all processes that belong to the same group using the given ps command output.
+    Recursively search for the children processes belonging to pid and return their pid's.
+    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
+    the pids of the children AND the parent.
+
+    ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
+
+    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int).
+    :param pid: parent process id (int).
+    :param ps_cache: ps command output (string).
+    :return: (updated cpids input parameter list).
+    """
+
+    if not pid:
+        return
+
+    cpids.append(pid)
+    lines = grep_str([str(pid)], ps_cache)
+
+    if lines and lines != ['']:
+        for i in range(0, len(lines)):
+            try:
+                thispid = int(lines[i].split()[0])
+                thisppid = int(lines[i].split()[1])
+            except Exception as error:
+                logger.warning(f'exception caught: {error}')
+            if thisppid == pid:
+                find_processes_in_group(cpids, thispid, ps_cache)
+
+
+def find_processes_in_group_old(cpids, pid):
     """
     Find all processes that belong to the same group.
     Recursively search for the children processes belonging to pid and return their pid's.
@@ -40,7 +73,7 @@ def find_processes_in_group(cpids, pid):
     cpids.append(pid)
 
     cmd = "ps -eo pid,ppid -m | grep %d" % pid
-    exit_code, psout, stderr = execute(cmd, mute=True)
+    _, psout, _ = execute(cmd, mute=True)
 
     lines = psout.split("\n")
     if lines != ['']:
@@ -64,7 +97,7 @@ def is_zombie(pid):
     status = False
 
     cmd = "ps aux | grep %d" % (pid)
-    exit_code, stdout, stderr = execute(cmd, mute=True)
+    _, stdout, _ = execute(cmd, mute=True)
     if "<defunct>" in stdout:
         status = True
 
@@ -132,7 +165,6 @@ def kill_processes(pid):
     Kill process belonging to the process group that the given pid belongs to.
 
     :param pid: process id (int).
-    :return:
     """
 
     # if there is a known subprocess pgrp, then it should be enough to kill the group in one go
@@ -147,7 +179,8 @@ def kill_processes(pid):
     if not status:
         # firstly find all the children process IDs to be killed
         children = []
-        find_processes_in_group(children, pid)
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        find_processes_in_group(children, pid, ps_cache)
 
         # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
         if not children:
@@ -182,6 +215,44 @@ def kill_processes(pid):
     # if orphan process killing is not desired, set env var PILOT_NOKILL
     kill_orphans()
 
+    # kill any lingering defunct processes
+    try:
+        kill_defunct_children(pid)
+    except Exception as exc:
+        logger.warning(f'exception caught: {exc}')
+
+
+def kill_defunct_children(pid):
+    """
+    Kills any defunct child processes of the specified process ID.
+
+    :param pid: process id (int).
+    """
+
+    defunct_children = []
+    for proc in os.listdir("/proc"):
+        if proc.isdigit():
+            try:
+                cmdline = os.readlink(f"/proc/{proc}/cmdline")
+            except Exception:
+                # ignore lines that do not have cmdline
+                continue
+            if not cmdline or cmdline.startswith("/bin/init"):
+                continue
+            pinfo = os.readlink(f"/proc/{proc}/status")
+            if pinfo.startswith("Z") and os.readlink(f"/proc/{proc}/parent") == str(pid):
+                defunct_children.append(int(proc))
+
+    if defunct_children:
+        logger.info(f'will now remove defunct processes: {defunct_children}')
+    else:
+        logger.info(f'did not find any defunct processes belonging to {pid}')
+    for child_pid in defunct_children:
+        try:
+            os.kill(child_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
 
 def kill_child_processes(pid):
     """
@@ -192,7 +263,8 @@ def kill_child_processes(pid):
     """
     # firstly find all the children process IDs to be killed
     children = []
-    find_processes_in_group(children, pid)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+    find_processes_in_group(children, pid, ps_cache)
 
     # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
     children.reverse()
@@ -220,7 +292,7 @@ def kill_child_processes(pid):
                 kill_process(i)
 
 
-def kill_process(pid):
+def kill_process(pid, hardkillonly=False):
     """
     Kill process.
 
@@ -228,14 +300,13 @@ def kill_process(pid):
     :return: boolean (True if successful SIGKILL)
     """
 
-    status = False
-
     # start with soft kill (ignore any returned status)
-    kill(pid, signal.SIGTERM)
+    if not hardkillonly:
+        kill(pid, signal.SIGTERM)
 
-    _t = 10
-    logger.info("sleeping %d s to allow process to exit", _t)
-    time.sleep(_t)
+        _t = 10
+        logger.info("sleeping %d s to allow process to exit", _t)
+        time.sleep(_t)
 
     # now do a hard kill just in case some processes haven't gone away
     status = kill(pid, signal.SIGKILL)
@@ -276,7 +347,8 @@ def get_number_of_child_processes(pid):
     children = []
     n = 0
     try:
-        find_processes_in_group(children, pid)
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        find_processes_in_group(children, pid, ps_cache)
     except Exception as error:
         logger.warning("exception caught in find_processes_in_group: %s", error)
     else:
@@ -512,7 +584,8 @@ def get_current_cpu_consumption_time(pid):
 
     # get all the child processes
     children = []
-    find_processes_in_group(children, pid)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+    find_processes_in_group(children, pid, ps_cache)
 
     cpuconsumptiontime = 0
     for _pid in children:
@@ -804,3 +877,123 @@ def get_subprocesses(pid):
     cmd = f'ps -opid --no-headers --ppid {pid}'
     _, out, _ = execute(cmd)
     return [int(line) for line in out.splitlines()] if out else []
+
+
+def identify_numbers_and_strings(string):
+    """Identifies numbers and strings in a given string.
+
+    Args:
+    string: The string to be processed.
+
+    Returns:
+    A list of tuples, where each tuple contains the matched numbers and strings.
+    """
+
+    pattern = r'(\d+)\s+(\d+)\s+([A-Za-z]+)\s+([A-Za-z]+)'
+    return re.findall(pattern, string)
+
+
+def find_zombies(parent_pid):
+    """
+    Find all zombies/defunct processes under the given parent pid.
+
+    :param parent_pid: parent pid (int).
+    """
+
+    zombies = {}
+    cmd = 'ps -eo pid,ppid,stat,comm'
+    ec, stdout, _ = execute(cmd)
+    for line in stdout.split('\n'):
+        matches = identify_numbers_and_strings(line)
+        if matches:
+            pid = int(matches[0][0])
+            ppid = int(matches[0][1])
+            stat = matches[0][2]
+            comm = matches[0][3]
+            #print(f'pid={pid} ppid={ppid} stat={stat} comm={comm}')
+            if ppid == parent_pid and stat.startswith('Z'):
+                if not zombies.get(parent_pid):
+                    zombies[parent_pid] = []
+                zombies[parent_pid].append([pid, stat, comm])
+
+    return zombies
+
+
+def handle_zombies(zombies, job=None):
+    """
+    Dump some info about the given zombies.
+
+    :param zombies: list of zombies.
+    :param job: if job object is given, then the zombie pid will be added to the job.zombies list
+    """
+
+    for parent in zombies:
+        #logger.info(f'sending SIGCHLD to ppid={parent}')
+        #kill(parent, signal.SIGCHLD)
+        for zombie in zombies.get(parent):
+            pid = zombie[0]
+            # stat = zombie[1]
+            comm = zombie[2]
+            logger.info(f'zombie process {pid} (comm={comm}, ppid={parent})')
+            # kill_process(pid, hardkillonly=True)  # useless for zombies - they are already dead
+            if job:
+                job.zombies.append(pid)
+
+
+def get_child_processes(parent_pid):
+    child_processes = []
+
+    # Iterate through all directories in /proc
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue  # Skip non-numeric directories
+
+        pid = int(pid)
+        try:
+            # Read the command line of the process
+            with open(f'/proc/{pid}/cmdline', 'rb') as cmdline_file:
+                cmdline = cmdline_file.read().decode().replace('\x00', ' ')
+
+            # Read the parent PID of the process
+            with open(f'/proc/{pid}/stat', 'rb') as stat_file:
+                stat_info = stat_file.read().decode()
+                parts = stat_info.split()
+                ppid = int(parts[3])
+
+            # Check if the parent PID matches the specified parent process
+            if ppid == parent_pid:
+                child_processes.append((pid, cmdline))
+
+        except (FileNotFoundError, PermissionError):
+            continue  # Process may have terminated or we don't have permission
+
+    return child_processes
+
+
+def reap_zombies(pid: int = -1):
+    """
+    Check for and reap zombie processes.
+
+    This function can be called by the monitoring loop. Using PID -1 in os.waitpid() means that the request pertains to
+    any child of the current process.
+
+    :param pid: process id (int).
+    """
+
+    max_timeout = 20
+
+    @timeout(seconds=max_timeout)
+    def waitpid(pid: int = -1):
+        try:
+            while True:
+                _pid, status = os.waitpid(pid, os.WNOHANG)
+                if _pid == 0:
+                    break
+                # Handle the terminated process here
+                if os.WIFEXITED(status):
+                    exit_code = os.WEXITSTATUS(status)
+                    logger.info(f'pid={_pid} exited with {exit_code}')
+        except ChildProcessError:
+            pass
+    logger.info(f'reaping zombies for max {max_timeout} seconds')
+    waitpid(pid)

@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 import json
 import os
@@ -14,9 +14,9 @@ import logging
 from glob import glob
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, BadXML
+from pilot.common.exception import PilotException, BadXML, FileHandlingFailure, NoSuchFile
 from pilot.util.config import config
-from pilot.util.filehandling import get_guid, tail, grep, open_file, read_file, scan_file  #, write_file
+from pilot.util.filehandling import get_guid, tail, grep, open_file, read_file, scan_file, write_json, copy
 from pilot.util.math import convert_mb_to_b
 from pilot.util.workernode import get_local_disk_space
 
@@ -577,10 +577,14 @@ def process_job_report(job):
         # get the metadata from the xml file instead, which must exist for most production transforms
         process_metadata_from_xml(job)
     else:
+        _metadata = {}  # used to overwrite original metadata file in case of changes
         with open(path) as data_file:
             # compulsory field; the payload must produce a job report (see config file for file name), attach it to the
             # job object
             job.metadata = json.load(data_file)
+
+            # truncate warnings if necessary (note: _metadata will remain unset if there are no changes)
+            _metadata = truncate_metadata(job.metadata)
 
             # update job data if necessary
             update_job_data(job)
@@ -632,6 +636,69 @@ def process_job_report(job):
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.BADALLOC)
                     job.piloterrorcode = errors.BADALLOC
                     job.piloterrordiag = diagnostics
+
+        if _metadata:
+            # overwrite job.metadata since it was updated and overwrite the json file
+            job.metadata = _metadata
+            overwrite_metadata(_metadata, path)
+
+
+def truncate_metadata(job_report_dictionary):
+    """
+    Truncate the metadata if necessary.
+
+    This function will truncate the job.metadata if some fields are too large. This can at least happen with the 'WARNINGS'
+    field.
+
+    :param job_report_dictionary: original job.metadata (dictionary)
+    :return: updated metadata, empty if no updates (dictionary).
+    """
+
+    _metadata = {}
+
+    limit = 25
+    if 'executor' in job_report_dictionary:
+        try:
+            warnings = job_report_dictionary['executor'][0]['logfileReport']['details']['WARNING']
+        except KeyError as exc:
+            logger.debug(f"jobReport has no such key: {exc} (ignore)")
+        except (TypeError, IndexError) as exc:
+            logger.warning(f"caught exception (aborting jobReport scan): {exc}")
+        else:
+            if isinstance(warnings, list) and len(warnings) > limit:
+                job_report_dictionary['executor'][0]['logfileReport']['details']['WARNING'] = warnings[0:limit]
+                _metadata = job_report_dictionary
+                logger.warning(f'truncated jobReport WARNING field to length: {limit}')
+    else:
+        logger.warning("jobReport does not have the executor key (aborting)")
+
+    return _metadata
+
+
+def overwrite_metadata(metadata, path):
+    """
+    Overwrite the original metadata with updated info.
+    Also make a backup of the original file.
+    """
+
+    # make a backup of the original metadata file
+    try:
+        copy(path, path + '.original')
+    except (IOError, FileHandlingFailure, NoSuchFile) as exc:
+        logger.warning(f'failed to make a backup of {path} (ignore): {exc}')
+    else:
+        logger.info(f'backed up original metadata file: {path}')
+
+    # store the updated metadata
+    try:
+        status = write_json(path, metadata)
+    except (IOError, FileHandlingFailure) as exc:
+        logger.warning(f'caught exception while writing metadata json: {exc}')
+    else:
+        if status:
+            logger.info(f'overwrote {path} with updated metadata')
+        else:
+            logger.warning(f'failed to overwrite {path} with updated metadata (ignore)')
 
 
 def get_frontier_details(job_report_dictionary):

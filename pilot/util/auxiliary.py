@@ -658,46 +658,34 @@ def sort_words(input_str: str) -> str:
     return output_str
 
 
-def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> str:
+def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
     """
     Encode the global job id on HTCondor.
     To be used as an environmental variable on HTCondor nodes to facilitate debugging.
 
     Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
 
+    NEW FORMAT: WN hostname, process and user id
+
     Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
     characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
     to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
 
     :param jobid: panda job id (string)
-    :param processingtype: panda processing type (string)
     :param maxsize: max length allowed (int)
     :return: encoded global job id (string).
     """
 
-    def reformat(num: str, maxsize: int = 8) -> str:
-        # can handle clusterid=4294967297, ie larger than 0xffffffff
-        try:
-            num_hex = hex(int(num)).replace('0x', '')
-            if len(num_hex) > maxsize:  # i.e. larger than 'ffffffff' or 'ff'
-                num_hex = num_hex[-maxsize:]  # take the least significant bits
-            num_hex = '0x' + num_hex
-            num_int = int(num_hex, base=16)
-            size = "{0:0" + str(maxsize) + "x}"  # e.g. "{0:08x}"
-            num_hex = size.format(num_int)
-        except (IndexError, ValueError, TypeError) as exc:
-            logger.warning(exc)
-            num_hex = ""
-        return num_hex
-
-    def get_schedd_id(host: str) -> str:
-        # spce03.sdcc.bnl.gov -> spce03 -> 3
-        try:
-            schedd_id = host.split('.')[0][-1]
-        except IndexError as exc:
-            logger.warning(f'failed to extract schedd from host={host}: {exc}')
-            schedd_id = None
-        return schedd_id
+    def get_host_name():
+        # spool1462.sdcc.bnl.gov -> spool1462
+        if 'PANDA_HOSTNAME' in os.environ:
+            host = os.environ.get('PANDA_HOSTNAME')
+        elif hasattr(os, 'uname'):
+            host = os.uname()[1]
+        else:
+            import socket
+            host = socket.gethostname()
+        return host.split('.')[0]
 
     globaljobid = get_globaljobid()
     if not globaljobid:
@@ -705,22 +693,18 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
 
     try:
         _globaljobid = globaljobid.split('#')
-        host = _globaljobid[0]
+        # host = _globaljobid[0]
         tmp = _globaljobid[1].split('.')
         # timestamp = _globaljobid[2] - ignore this one
-        clusterid = tmp[0]
+        # clusterid = tmp[0]
         processid = tmp[1]
     except IndexError as exc:
         logger.warning(exc)
         return ""
 
-    logger.debug(f'clusterid={clusterid}')
-    logger.debug(f'host name={host}')
-    clusterid_hex = reformat(clusterid, maxsize=8)  # 00283984
-    processid_hex = reformat(processid, maxsize=2)  # 00
-    schedd_id = get_schedd_id(host)  # 3
-    if clusterid_hex and processid_hex and schedd_id:
-        global_name = f'{jobid}:{processingtype}:{clusterid_hex}.{processid_hex}_{schedd_id}'
+    host_name = get_host_name()
+    if processid and host_name:
+        global_name = f'{host_name}_{processid}_{jobid}'
     else:
         global_name = ''
 
@@ -732,3 +716,40 @@ def encode_globaljobid(jobid: str, processingtype: str, maxsize: int = 31) -> st
         logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
 
     return global_name
+
+
+def grep_str(patterns, stdout):
+    """
+    Search for the patterns in the given stdout.
+    For expected large stdout, better to use FileHandling::grep()
+
+    :param patterns: list of regexp patterns.
+    :param stdout: some text (string).
+    :return: list of matched lines in stdout.
+    """
+
+    matched_lines = []
+    _pats = []
+    for pattern in patterns:
+        _pats.append(re.compile(pattern))
+
+    lines = stdout.split('\n')
+    for line in lines:
+        # can the search pattern be found?
+        for _cp in _pats:
+            if re.search(_cp, line):
+                matched_lines.append(line)
+
+    return matched_lines
+
+
+class TimeoutException(Exception):
+
+    def __init__(self, message, timeout=None, *args):
+        self.timeout = timeout
+        self.message = message
+        self._errorCode = 1334
+        super(TimeoutException, self).__init__(*args)
+
+    def __str__(self):
+        return "%s: %s, timeout=%s seconds%s" % (self.__class__.__name__, self.message, self.timeout, ' : %s' % repr(self.args) if self.args else '')
