@@ -145,11 +145,12 @@ class RealTimeLogger(Logger):
                 if isinstance(secrets, str):
                     secrets = json.loads(secrets)
 
+                ssl_enable, ssl_verify = self.get_rtlogging_ssl()
                 transport = HttpTransport(
                     server,
                     port,
-                    ssl_enable=config.Pilot.ssl_enable,
-                    ssl_verify=config.Pilot.ssl_verify,
+                    ssl_enable=ssl_enable,
+                    ssl_verify=ssl_verify,
                     timeout=5.0,
                     username=secrets.get('logstash_login', 'unknown_login'),
                     password=secrets.get('logstash_password', 'unknown_password')
@@ -285,3 +286,21 @@ class RealTimeLogger(Logger):
         else:
             self.send_loginfiles()  # send the remaining logs after the job completion
             self.close_files()
+
+    def get_rtlogging_ssl(self):
+        """
+        Return the proper rtlogging value from the experiment specific plug-in or the config file.
+
+        :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+        """
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        try:
+            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+            ssl_enable, ssl_verify = user.get_rtlogging_ssl()
+        except Exception:
+            ssl_enable = config.Pilot.ssl_enable
+            ssl_verify = config.Pilot.ssl_verify
+            logger.warning(f'found no experiment specific ssl_enable, ssl_verify, using config values ({ssl_enable}, {ssl_verify})')
+
+        return ssl_enable, ssl_verify

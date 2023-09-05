@@ -25,22 +25,10 @@ import sys
 
 import traceback
 import threading
-import multiprocessing
 
 from queue import Empty
 from functools import wraps
-
-
-class TimeoutException(Exception):
-
-    def __init__(self, message, timeout=None, *args):
-        self.timeout = timeout
-        self.message = message
-        self._errorCode = 1334
-        super(TimeoutException, self).__init__(*args)
-
-    def __str__(self):
-        return "%s: %s, timeout=%s seconds%s" % (self.__class__.__name__, self.message, self.timeout, ' : %s' % repr(self.args) if self.args else '')
+from pilot.util.auxiliary import TimeoutException
 
 
 class TimedThread(object):
@@ -125,6 +113,9 @@ class TimedProcess(object):
                 print('Exception occurred while executing %s' % func, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
                 queue.put((False, e))
+
+        # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
+        import multiprocessing
 
         queue = multiprocessing.Queue(1)
         process = multiprocessing.Process(target=_execute, args=(func, args, kwargs, queue))

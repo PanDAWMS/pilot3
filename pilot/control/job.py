@@ -16,7 +16,6 @@ import os
 import time
 import hashlib
 import logging
-import multiprocessing
 import queue
 from collections import namedtuple
 
@@ -48,7 +47,7 @@ from pilot.util.math import mean
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
-from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes
+from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes, kill_defunct_children
 from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
@@ -517,8 +516,12 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
             if not os.path.exists(job.workdir):  # jobUpdate might be delayed - do not cause problems for new downloaded job
                 logger.warning(f'job.workdir ({job.workdir}) does not exist - ignore kill instruction')
                 return
-            set_pilot_state(job=job, state="failed")
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
+            if args.workflow == 'stager':
+                logger.info('will set interactive job to finished (server will override this, but harvester will not)')
+                set_pilot_state(job=job, state="finished")  # this will let pilot finish naturally and report exit code 0 to harvester
+            else:
+                set_pilot_state(job=job, state="failed")
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
             if job.pid:
                 logger.debug('killing payload process')
                 kill_process(job.pid)
@@ -866,11 +869,10 @@ def add_timing_and_extracts(data, job, state, args):
     :return:
     """
 
-    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup = timing_report(job.jobid, args)
-    #data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
-    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
+    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
     data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
                           (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
+    logger.debug(f'could have reported time_log_creation={time_log_creation} s')
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""
@@ -1652,6 +1654,9 @@ def get_message_from_mb(args):
         logger.debug('will not start ActiveMQ since graceful_stop is set')
         return None
 
+    # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
+    import multiprocessing
+
     ctx = multiprocessing.get_context('spawn')
     message_queue = ctx.Queue()
     #amq_queue = ctx.Queue()
@@ -2025,7 +2030,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
                 # for debugging on HTCondor purposes, set special env var
-                htcondor_envvar(job.jobid, job.processingtype)
+                # (only proceed if there is a condor class ad)
+                if os.environ.get('_CONDOR_JOB_AD', None):
+                    htcondor_envvar(job.jobid)
 
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
@@ -2034,6 +2041,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 jobnumber += 1
                 while not args.graceful_stop.is_set():
                     if has_job_completed(queues, args):
+                        # make sure there are no lingering defunct subprocesses
+                        kill_defunct_children(job.pid)
+
                         # purge queue(s) that retains job object
                         set_pilot_state(state='')
                         purge_queue(queues.finished_data_in)
@@ -2062,24 +2072,21 @@ def retrieve(queues, traces, args):  # noqa: C901
     logger.info('[job] retrieve thread has finished')
 
 
-def htcondor_envvar(jobid, processingtype):
+def htcondor_envvar(jobid):
     """
-    On HTCondor nodes, set special env var (HTCondor_JOB_ID) for debugging Lustre.
+    On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
     :param jobid: PanDA job id (string)
-    :param processingtype: PanDA processing type (string)
     :return:
     """
 
-    # only proceed if there is a condor class ad
-    if os.environ.get('_CONDOR_JOB_AD', None):
-        try:
-            globaljobid = encode_globaljobid(jobid, processingtype)
-            if globaljobid:
-                os.environ['HTCondor_JOB_ID'] = globaljobid
-                logger.info(f'set env var HTCondor_JOB_ID={globaljobid}')
-        except Exception as exc:
-            logger.warning(f'caught exception: {exc}')
+    try:
+        globaljobid = encode_globaljobid(jobid)
+        if globaljobid:
+            os.environ['HTCondor_Job_ID'] = globaljobid
+            logger.info(f'set env var HTCondor_Job_ID={globaljobid}')
+    except Exception as exc:
+        logger.warning(f'caught exception: {exc}')
 
 
 def handle_proxy(job):
@@ -2203,7 +2210,7 @@ def has_job_completed(queues, args):
             job.prodproxy = ''
 
         # cleanup of any remaining processes
-        if job.pid:
+        if job.pid and job.pid not in job.zombies:
             job.zombies.append(job.pid)
         cleanup(job, args)
 
@@ -2767,10 +2774,12 @@ def job_monitor(queues, traces, args):  # noqa: C901
     peeking_time = start_time
     update_time = peeking_time
 
+    # keep track of jobs we don't want to continue monitoring
+    # no_monitoring = {}  # { job:id: time.time(), .. }
+
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
     cont = True
-    first = True
     while cont:
 
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
@@ -2815,37 +2824,22 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 # sleep for a while if stage-in has not completed
                 time.sleep(1)
                 continue
-            elif not queues.finished_data_in.empty():
-                # stage-in has finished, or there were no input files to begin with, job object ends up in finished_data_in queue
-                if args.workflow == 'stager':
-                    if first:
-                        logger.debug('stage-in finished - waiting for lease time to finish')
-                        first = False
-                    if args.pod:
-                        # wait maximum args.leasetime seconds, then abort
-                        time.sleep(10)
-                        time_now = int(time.time())
-                        if time_now - start_time >= args.leasetime:
-                            logger.warning(f'lease time is up: {time_now - start_time} s has passed since start - abort stager pilot')
-                            jobs[i].stageout = 'log'  # only stage-out log file
-                            put_in_queue(jobs[i], queues.data_out)
-                            #args.graceful_stop.set()
-                        else:
-                            continue
-                    else:
-                        continue
-
-        if args.workflow == 'stager':
-            logger.debug('stage-in has finished - no need for job_monitor to continue')
-            break
 
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
-        jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
+        jobs = queues.monitored_payloads.queue
         if jobs:
             # update the peeking time
             peeking_time = int(time.time())
+
+            # stop_monitoring = False  # continue with the main loop (while cont)
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
+                #if current_id in no_monitoring:
+                #    stop_monitoring = True
+                #    delta = peeking_time - no_monitoring.get(current_id, 0)
+                #    if delta > 60:
+                #        logger.warning(f'job monitoring has waited {delta} s for job {current_id} to finish - aborting')
+                #    break
 
                 error_code = None
                 if abort_job and args.signal:
@@ -2873,13 +2867,21 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
-                    # abort = True - do not set abort here as it will abort the entire thread, not just the current monitor loop
+                    if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
+                        set_pilot_state(job=jobs[i], state="finished")
+                        logger.info('ordering log transfer')
+                        jobs[i].stageout = 'log'  # only stage-out log file
+                        put_in_queue(jobs[i], queues.data_out)
+                        cont = False
+                    # no_monitoring[current_id] = int(time.time())
                     break
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
                 if exit_code != 0:
+                    # do a quick server update with the error diagnostics only
+                    preliminary_server_update(jobs[i], args, diagnostics)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
                         ec = download_new_proxy(role='production')
@@ -2889,6 +2891,11 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
                         break
+                    elif exit_code == errors.LEASETIME:  # stager mode, order log stage-out
+                        set_pilot_state(job=jobs[i], state="finished")
+                        logger.info('ordering log transfer')
+                        jobs[i].stageout = 'log'  # only stage-out log file
+                        put_in_queue(jobs[i], queues.data_out)
                     elif exit_code == 0:
                         # ie if download of new proxy was successful
                         diagnostics = ""
@@ -2924,6 +2931,9 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         #abort = True
                         break
 
+            #if stop_monitoring:
+            #    continue
+
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')
         #else:
@@ -2945,6 +2955,28 @@ def job_monitor(queues, traces, args):  # noqa: C901
         args.job_aborted.set()
 
     logger.info('[job] job monitor thread has finished')
+
+
+def preliminary_server_update(job, args, diagnostics):
+    """
+    Send a quick job update to the server (do not send any error code yet) for a failed job.
+
+    :param job: job object
+    :param args: args object
+    :param diagnostics: error diagnostics (string).
+    """
+
+    logger.debug(f'could have sent diagnostics={diagnostics}')
+    piloterrorcode = job.piloterrorcode
+    piloterrorcodes = job.piloterrorcodes
+    piloterrordiags = job.piloterrordiags
+    job.piloterrorcode = 0
+    job.piloterrorcodes = []
+    job.piloterrordiags = [diagnostics]
+    send_state(job, args, 'running')
+    job.piloterrorcode = piloterrorcode
+    job.piloterrorcodes = piloterrorcodes
+    job.piloterrordiags = piloterrordiags
 
 
 def get_signal_error(sig):

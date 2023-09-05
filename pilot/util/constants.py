@@ -13,8 +13,8 @@ from os import environ
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
 VERSION = '6'   # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '4'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '7'     # build number should be reset to '1' for every new development cycle
+REVISION = '5'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '32'     # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1
@@ -45,6 +45,8 @@ PILOT_PRE_PAYLOAD = 'PILOT_PRE_PAYLOAD'
 PILOT_POST_PAYLOAD = 'PILOT_POST_PAYLOAD'
 PILOT_PRE_STAGEOUT = 'PILOT_PRE_STAGEOUT'
 PILOT_POST_STAGEOUT = 'PILOT_POST_STAGEOUT'
+PILOT_PRE_LOG_TAR = 'PILOT_PRE_LOG_TAR'
+PILOT_POST_LOG_TAR = 'PILOT_POST_LOG_TAR'
 PILOT_PRE_FINAL_UPDATE = 'PILOT_PRE_FINAL_UPDATE'
 PILOT_POST_FINAL_UPDATE = 'PILOT_POST_FINAL_UPDATE'
 PILOT_END_TIME = 'PILOT_END_TIME'

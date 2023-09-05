@@ -18,7 +18,7 @@ from subprocess import PIPE
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
@@ -551,7 +551,7 @@ class Executor(object):
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-            cmd = user.get_payload_command(job)  #+ 'sleep 1000'  # to test looping jobs
+            cmd = user.get_payload_command(job)  # + 'sleep 900'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
             import traceback
@@ -682,8 +682,8 @@ class Executor(object):
 
             logger.info('payload iteration loop #%d', iteration + 1)
             os.environ['PILOT_EXEC_ITERATION_COUNT'] = '%s' % iteration
-            if self.__args.debug:
-                show_memory_usage()
+            #if self.__args.debug:
+            #    show_memory_usage()
 
             # first run the preprocess (if necessary) - note: this might update jobparams -> must update cmd
             jobparams_pre = self.__job.jobparams
@@ -826,19 +826,48 @@ class Executor(object):
         """
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-                sig = user.get_utility_command_kill_signal(utcmd)
-                logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
-                try:
-                    os.killpg(os.getpgid(utproc.pid), sig)
-                except Exception as error:
-                    logger.warning('exception caught: %s (ignoring)', error)
-
+                status = self.kill_and_wait_for_process(utproc.pid, user, utcmd)
+                if status == 0:
+                    logger.info(f'cleaned up after prmon process {utproc.pid}')
+                else:
+                    logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
                 user.post_utility_command_action(utcmd, self.__job)
+
+    def kill_and_wait_for_process(self, pid, user, utcmd):
+        """
+        Kill utility process and wait for it to finish.
+
+        :param pid: process id (int)
+        :param user: pilot user/experiment (str)
+        :param utcmd: utility command (str)
+        :return: process exit status (int, None).
+        """
+
+        sig = user.get_utility_command_kill_signal(utcmd)
+        logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
+
+        try:
+            # Send SIGUSR1 signal to the process group
+            os.killpg(pid, sig)
+
+            # Wait for the process to finish
+            _, status = os.waitpid(pid, 0)
+
+            # Check the exit status of the process
+            if os.WIFEXITED(status):
+                return os.WEXITSTATUS(status)
+            else:
+                # Handle abnormal termination if needed
+                return None
+        except OSError as exc:
+            # Handle errors, such as process not found
+            logger.warning(f"exception caught: {exc}")
+            return None
 
     def rename_log_files(self, iteration):
         """

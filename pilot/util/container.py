@@ -6,10 +6,13 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
-
+import os
 import subprocess
 import logging
-from os import environ, getcwd, setpgrp, getpgid, kill  #, getpgid  #setsid
+import shlex
+import threading
+
+from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
 from typing import Any
@@ -20,6 +23,9 @@ from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# Define a global lock for synchronization
+execute_lock = threading.Lock()
 
 
 def execute(executable: Any, **kwargs: dict) -> Any:
@@ -34,6 +40,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
+    #shell = kwargs.get("shell", False)
     obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
 
     # convert executable to string if it is a list
@@ -55,40 +62,89 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
 
+    # always use a timeout to prevent stdout buffer problem in nodes with lots of cores
+    timeout = get_timeout(kwargs.get('timeout', None))
+    logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
+
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
     exit_code = 0
     stdout = ''
     stderr = ''
-    process = subprocess.Popen(exe,
-                               bufsize=-1,
-                               stdout=kwargs.get('stdout', subprocess.PIPE),
-                               stderr=kwargs.get('stderr', subprocess.PIPE),
-                               cwd=kwargs.get('cwd', getcwd()),
-                               preexec_fn=setpgrp,
-                               encoding='utf-8',
-                               errors='replace')
-    if kwargs.get('returnproc', False):
-        return process
+    # Acquire the lock before creating the subprocess
+    with execute_lock:
+        process = subprocess.Popen(exe,
+                                   bufsize=-1,
+                                   stdout=kwargs.get('stdout', subprocess.PIPE),
+                                   stderr=kwargs.get('stderr', subprocess.PIPE),
+                                   cwd=kwargs.get('cwd', getcwd()),
+                                   preexec_fn=os.setsid,    # setpgrp
+                                   encoding='utf-8',
+                                   errors='replace')
+        if kwargs.get('returnproc', False):
+            return process
 
-    try:
-        stdout, stderr = process.communicate(timeout=kwargs.get('timeout', None))
-    except subprocess.TimeoutExpired as exc:
-        # make sure that stdout buffer gets flushed - in case of time-out exceptions
-        flush_handler(name="stream_handler")
-        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-        logger.warning(stderr)
-        exit_code = errors.COMMANDTIMEDOUT
-        stderr = kill_all(process, stderr)
-    else:
-        exit_code = process.poll()
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # make sure that stdout buffer gets flushed - in case of time-out exceptions
+            flush_handler(name="stream_handler")
+            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+            logger.warning(stderr)
+            exit_code = errors.COMMANDTIMEDOUT
+            stderr = kill_all(process, stderr)
+        else:
+            exit_code = process.poll()
+
+    # wait for the process to finish
+    # (not strictly necessary when process.communicate() is used)
+    process.wait()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
+
+
+def get_timeout(requested_timeout):
+    """
+    Define the timeout to be used with subprocess.communicate().
+
+    If no timeout was requested by the execute() caller, a large default 10 days timeout will be returned.
+    It is better to give a really large timeout than no timeout at all, since the subprocess python module otherwise
+    can get stuck processing stdout on nodes with many cores.
+
+    :param requested_timeout: timeout in seconds set by execute() caller (int)
+    :return: timeout in seconds (int).
+    """
+
+    return requested_timeout if requested_timeout else 10 * 24 * 60 * 60  # using a ridiculously large default timeout
+
+
+def execute_command(command: str) -> str:
+    """
+    Executes a command using subprocess without using the shell.
+
+    :param command: The command to execute.
+
+    :return: The output of the command (string).
+    """
+
+    try:
+        logger.info(f'executing command: {command}')
+        command = shlex.split(command)
+        proc = subprocess.Popen(command, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc.wait()
+        #output, err = proc.communicate()
+        exit_code = proc.returncode
+        logger.info(f'command finished with exit code: {exit_code}')
+        # output = subprocess.check_output(command, text=True)
+    except subprocess.CalledProcessError as exc:
+        logger.warning(f"error executing command:\n{command}\nexit code: {exc.returncode}\nStderr: {exc.stderr}")
+        exit_code = exc.returncode
+    return exit_code
 
 
 def kill_all(process: Any, stderr: str) -> str:

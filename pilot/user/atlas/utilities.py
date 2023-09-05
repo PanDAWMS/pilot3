@@ -153,18 +153,6 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     if not is_process_running(pid):
         return -1
 
-    #_cmd = get_trf_command(command, transformation=transformation)
-    # get ps info using group id
-    ps = get_ps_info(pgrp)
-    #if dump_ps:
-    #    logger.debug('ps:\n%s' % ps)
-    #logger.debug('ps:\n%s' % ps)
-    #logger.debug('attempting to identify pid for Singularity (v.3) runtime parent process')
-    #_pid = get_pid_for_command(ps, command="Singularity runtime parent")
-    #if _pid:
-    #    logger.debug('discovered pid=%d for process \"%s\"' % (_pid, _cmd))
-    #    return _pid
-
     i = 0
     imax = 120
     while i < imax:
@@ -883,7 +871,10 @@ def get_cpu_arch():
     cmd = setup + script
 
     # CPU arch script has now been copied, time to execute it
+    # (reset irrelevant stderr)
     ec, stdout, stderr = execute(cmd)
+    if ec == 0 and 'RHEL9 and clone support is relatively new' in stderr:
+        stderr = ''
     if ec or stderr:
         logger.warning(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:

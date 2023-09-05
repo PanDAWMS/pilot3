@@ -1108,6 +1108,10 @@ def update_job_data(job):
     # extract output files from the job report if required, in case the trf
     # has created additional (overflow) files. Also make sure all guids are
     # assigned (use job report value if present, otherwise generate the guid)
+    is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
+    if is_raythena:
+        return
+
     if job.metadata and not job.is_eventservice:
         # keep this for now, complicated to merge with verify_output_files?
         extract_output_file_guids(job)
@@ -2619,8 +2623,7 @@ def get_utility_command_kill_signal(name):
     """
 
     # note that the NetworkMonitor does not require killing (to be confirmed)
-    sig = SIGUSR1 if name == 'MemoryMonitor' else SIGTERM
-    return sig
+    return SIGUSR1 if name == 'MemoryMonitor' else SIGTERM
 
 
 def get_utility_command_output_filename(name, selector=None):
@@ -2632,12 +2635,7 @@ def get_utility_command_output_filename(name, selector=None):
     :return: filename (string).
     """
 
-    if name == 'MemoryMonitor':
-        filename = get_memory_monitor_summary_filename(selector=selector)
-    else:
-        filename = ""
-
-    return filename
+    return get_memory_monitor_summary_filename(selector=selector) if name == 'MemoryMonitor' else ""
 
 
 def verify_lfn_length(outdata):
