@@ -214,7 +214,31 @@ class Executor(object):
             else:
                 # store process handle in job object, and keep track on how many times the command has been launched
                 # also store the full command in case it needs to be restarted later (by the job_monitor() thread)
+                logger.debug(f'storing process for {utilitycommand}')
                 job.utilities[cmd_dictionary.get('command')] = [proc1, 1, utilitycommand]
+
+                # wait for command to start
+                #time.sleep(1)
+                #cmd = utilitycommand.split(';')[-1]
+                #prmon = f'prmon --pid {job.pid}'
+                #pid = None
+                #if prmon in cmd:
+                #    import subprocess
+                #    import re
+                #    ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                #                       encoding='utf-8')
+                #    pattern = r'\b\d+\b'
+                #    for line in ps.stdout.split('\n'):
+                #        if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
+                #            matches = re.findall(pattern, line)
+                #            if matches:
+                #                pid = matches[0]
+                #                break
+                #if pid:
+                #    logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')
+                #    job.utilities[cmd_dictionary.get('command')].append(pid)
+                #else:
+                #    logger.info(f'could not extract any pid from ps for cmd={cmd}')
 
     def utility_after_payload_started_new(self, job):
         """
@@ -831,14 +855,22 @@ class Executor(object):
         for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                status = self.kill_and_wait_for_process(utproc.pid, user, utcmd)
+                # get the pid for prmon
+                _list = self.__job.utilities.get('MemoryMonitor')
+                if _list:
+                    pid = int(_list[-1]) if len(_list) == 4 else utproc.pid
+                    logger.info(f'using pid={pid} to kill prmon')
+                else:
+                    logger.warning(f'did not find the pid for the memory monitor in the utilities list: {self.__job.utilities}')
+                    pid = utproc.pid
+                status = self.kill_and_wait_for_process(os.getpid(), pid, user, utcmd)
                 if status == 0:
                     logger.info(f'cleaned up after prmon process {utproc.pid}')
                 else:
                     logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
                 user.post_utility_command_action(utcmd, self.__job)
 
-    def kill_and_wait_for_process(self, pid, user, utcmd):
+    def kill_and_wait_for_process(self, parent, child, user, utcmd):
         """
         Kill utility process and wait for it to finish.
 
@@ -849,14 +881,15 @@ class Executor(object):
         """
 
         sig = user.get_utility_command_kill_signal(utcmd)
-        logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
+        logger.info("stopping utility process \'%s\' with signal %d", utcmd, sig)
 
         try:
-            # Send SIGUSR1 signal to the process group
-            os.killpg(pid, sig)
+            # Send SIGUSR1 signal to the process
+            #os.killpg(parent, sig)
+            os.kill(child, sig)
 
             # Wait for the process to finish
-            _, status = os.waitpid(pid, 0)
+            _, status = os.waitpid(child, 0)
 
             # Check the exit status of the process
             if os.WIFEXITED(status):

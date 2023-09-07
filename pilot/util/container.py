@@ -64,7 +64,6 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
     # always use a timeout to prevent stdout buffer problem in nodes with lots of cores
     timeout = get_timeout(kwargs.get('timeout', None))
-    logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
 
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
@@ -86,6 +85,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             return process
 
         try:
+            logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions

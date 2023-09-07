@@ -44,13 +44,17 @@ def interrupt(args, signum, frame):
     :param args: pilot arguments.
     :param signum: signal.
     :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
-    :return:
     """
 
     try:
         sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
     except Exception:
         sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
+
+    # ignore SIGUSR1 since that will be aimed at a child process
+    if str(sig) == 'SIGUSR1':
+        logger.info('ignore intercepted SIGUSR1 aimed at child process')
+        return
 
     args.signal_counter += 1
 
