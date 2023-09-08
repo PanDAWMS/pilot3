@@ -864,10 +864,7 @@ class Executor(object):
                     logger.warning(f'did not find the pid for the memory monitor in the utilities list: {self.__job.utilities}')
                     pid = utproc.pid
                 status = self.kill_and_wait_for_process(pid, user, utcmd)
-                if status == 0:
-                    logger.info(f'cleaned up after prmon process {utproc.pid}')
-                else:
-                    logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
+                logger.info(f'utility process {utproc.pid} cleanup finished with status={status}')
                 user.post_utility_command_action(utcmd, self.__job)
 
     def kill_and_wait_for_process(self, pid, user, utcmd):
@@ -887,26 +884,53 @@ class Executor(object):
             # Send SIGUSR1 signal to the process
             os.kill(pid, sig)
 
-            try:
+            # Check if the process exists
+            if os.kill(pid, 0):
                 # Wait for the process to finish
                 _, status = os.waitpid(pid, 0)
 
                 # Check the exit status of the process
                 if os.WIFEXITED(status):
+                    logger.debug('normal exit')
                     return os.WEXITSTATUS(status)
                 else:
                     # Handle abnormal termination if needed
                     logger.warning('abnormal termination')
                     return None
-            except OSError as exc:
-                # Handle errors related to waiting for the process
-                logger.warning(f"error waiting for process {pid}: {exc}")
-                return None
+            else:
+                # Process doesn't exist - ignore
+                logger.info(f'process {pid} no longer exists')
+                return True
 
         except OSError as exc:
             # Handle errors, such as process not found
-            logger.warning(f"error sending signal to process {pid}: {exc}")
+            logger.warning(f"Error sending signal to/waiting for process {pid}: {exc}")
             return None
+
+#        try:
+#            # Send SIGUSR1 signal to the process
+#            os.kill(pid, sig)
+#
+#            try:
+#                # Wait for the process to finish
+#                _, status = os.waitpid(pid, 0)
+#
+#                # Check the exit status of the process
+#                if os.WIFEXITED(status):
+#                    return os.WEXITSTATUS(status)
+#                else:
+#                    # Handle abnormal termination if needed
+#                    logger.warning('abnormal termination')
+#                    return None
+#            except OSError as exc:
+#                # Handle errors related to waiting for the process
+#                logger.warning(f"error waiting for process {pid}: {exc}")
+#                return None
+#
+#        except OSError as exc:
+#            # Handle errors, such as process not found
+#            logger.warning(f"error sending signal to process {pid}: {exc}")
+#            return None
 
 #        try:
 #            # Send SIGUSR1 signal to the process
