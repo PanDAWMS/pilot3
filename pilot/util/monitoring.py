@@ -58,6 +58,11 @@ def job_monitor_tasks(job, mt, args):
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
+
+        # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
+        if job.utilities != {}:
+            utility_monitor(job)
+
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
         try:
@@ -124,10 +129,6 @@ def job_monitor_tasks(job, mt, args):
         exit_code, diagnostics = verify_running_processes(current_time, mt, job.pid)
         if exit_code != 0:
             return exit_code, diagnostics
-
-    # make sure that any utility commands are still running
-    if job.utilities != {}:
-        utility_monitor(job)
 
     return exit_code, diagnostics
 
@@ -493,6 +494,7 @@ def utility_monitor(job):
                             matches = re.findall(pattern, line)
                             if matches:
                                 pid = matches[0]
+                                logger.info(f'extracting prmon pid from line: {line}')
                                 break
                     if pid:
                         logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')

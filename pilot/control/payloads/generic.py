@@ -863,14 +863,14 @@ class Executor(object):
                 else:
                     logger.warning(f'did not find the pid for the memory monitor in the utilities list: {self.__job.utilities}')
                     pid = utproc.pid
-                status = self.kill_and_wait_for_process(os.getpid(), pid, user, utcmd)
+                status = self.kill_and_wait_for_process(pid, user, utcmd)
                 if status == 0:
                     logger.info(f'cleaned up after prmon process {utproc.pid}')
                 else:
                     logger.warning(f'failed to cleanup prmon process {utproc.pid} (abnormal exit status: {status})')
                 user.post_utility_command_action(utcmd, self.__job)
 
-    def kill_and_wait_for_process(self, parent, child, user, utcmd):
+    def kill_and_wait_for_process(self, pid, user, utcmd):
         """
         Kill utility process and wait for it to finish.
 
@@ -885,22 +885,46 @@ class Executor(object):
 
         try:
             # Send SIGUSR1 signal to the process
-            #os.killpg(parent, sig)
-            os.kill(child, sig)
+            os.kill(pid, sig)
 
-            # Wait for the process to finish
-            _, status = os.waitpid(child, 0)
+            try:
+                # Wait for the process to finish
+                _, status = os.waitpid(pid, 0)
 
-            # Check the exit status of the process
-            if os.WIFEXITED(status):
-                return os.WEXITSTATUS(status)
-            else:
-                # Handle abnormal termination if needed
+                # Check the exit status of the process
+                if os.WIFEXITED(status):
+                    return os.WEXITSTATUS(status)
+                else:
+                    # Handle abnormal termination if needed
+                    logger.warning('abnormal termination')
+                    return None
+            except OSError as exc:
+                # Handle errors related to waiting for the process
+                logger.warning(f"error waiting for process {pid}: {exc}")
                 return None
+
         except OSError as exc:
             # Handle errors, such as process not found
-            logger.warning(f"exception caught: {exc}")
+            logger.warning(f"error sending signal to process {pid}: {exc}")
             return None
+
+#        try:
+#            # Send SIGUSR1 signal to the process
+#            os.kill(pid, sig)
+#
+#            # Wait for the process to finish
+#            _, status = os.waitpid(pid, 0)
+#
+#            # Check the exit status of the process
+#            if os.WIFEXITED(status):
+#                return os.WEXITSTATUS(status)
+#            else:
+#                # Handle abnormal termination if needed
+#                return None
+#        except OSError as exc:
+#            # Handle errors, such as process not found
+#            logger.warning(f"exception caught: {exc}")
+#            return None
 
     def rename_log_files(self, iteration):
         """
