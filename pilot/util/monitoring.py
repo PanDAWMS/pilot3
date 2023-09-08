@@ -11,7 +11,8 @@
 
 import os
 import time
-from subprocess import PIPE
+import re
+import subprocess
 from glob import glob
 from typing import Any
 from signal import SIGKILL
@@ -57,6 +58,11 @@ def job_monitor_tasks(job, mt, args):
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
+
+        # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
+        if job.utilities != {}:
+            utility_monitor(job)
+
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
         try:
@@ -123,10 +129,6 @@ def job_monitor_tasks(job, mt, args):
         exit_code, diagnostics = verify_running_processes(current_time, mt, job.pid)
         if exit_code != 0:
             return exit_code, diagnostics
-
-    # make sure that any utility commands are still running
-    if job.utilities != {}:
-        utility_monitor(job)
 
     return exit_code, diagnostics
 
@@ -459,7 +461,7 @@ def verify_running_processes(current_time, mt, pid):
     return 0, ""
 
 
-def utility_monitor(job):
+def utility_monitor(job):  # noqa: C901
     """
     Make sure that any utility commands are still running.
     In case a utility tool has crashed, this function may restart the process.
@@ -475,8 +477,34 @@ def utility_monitor(job):
     # loop over all utilities
     for utcmd in list(job.utilities.keys()):  # E.g. utcmd = MemoryMonitor
 
-        # make sure the subprocess is still running
         utproc = job.utilities[utcmd][0]
+
+        if utcmd == 'MemoryMonitor':
+            if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
+                try:
+                    _ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
+                    prmon = f'prmon --pid {job.pid}'
+                    pid = None
+                    pattern = r'\b\d+\b'
+                    for line in _ps.stdout.split('\n'):
+                        # line=atlprd55  16451  0.0  0.0   2944  1148 ?        SN   17:42   0:00 prmon --pid 13096 ..
+                        if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
+                            matches = re.findall(pattern, line)
+                            if matches:
+                                pid = matches[0]
+                                logger.info(f'extracting prmon pid from line: {line}')
+                                break
+                    if pid:
+                        logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')
+                        job.utilities[utcmd].append(pid)
+                    else:
+                        logger.info(f'could not extract any pid from ps for cmd={prmon}')
+
+                except subprocess.CalledProcessError as exc:
+                    logger.warning(f"error: {exc}")
+
+        # make sure the subprocess is still running
         if not utproc.poll() is None:
 
             # clean up the process
@@ -495,7 +523,7 @@ def utility_monitor(job):
 
                 try:
                     proc1 = execute(utility_command, workdir=job.workdir, returnproc=True, usecontainer=False,
-                                    stdout=PIPE, stderr=PIPE, cwd=job.workdir, queuedata=job.infosys.queuedata)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=job.workdir, queuedata=job.infosys.queuedata)
                 except Exception as error:
                     logger.error(f'could not execute: {error}')
                 else:
