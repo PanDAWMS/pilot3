@@ -461,7 +461,7 @@ def verify_running_processes(current_time, mt, pid):
     return 0, ""
 
 
-def utility_monitor(job):
+def utility_monitor(job):  # noqa: C901
     """
     Make sure that any utility commands are still running.
     In case a utility tool has crashed, this function may restart the process.
@@ -483,8 +483,7 @@ def utility_monitor(job):
             if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
                 try:
                     _ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE,
-                                            text=True, check=True, encoding='utf-8')
+                                         stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
                     prmon = f'prmon --pid {job.pid}'
                     pid = None
                     pattern = r'\b\d+\b'
