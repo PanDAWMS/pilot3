@@ -52,9 +52,9 @@ def interrupt(args, signum, frame):
         sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
 
     # ignore SIGUSR1 since that will be aimed at a child process
-    if str(sig) == 'SIGUSR1':
-        logger.info('ignore intercepted SIGUSR1 aimed at child process')
-        return
+    #if str(sig) == 'SIGUSR1':
+    #    logger.info('ignore intercepted SIGUSR1 aimed at child process')
+    #    return
 
     args.signal_counter += 1
 
