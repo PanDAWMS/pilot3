@@ -18,6 +18,12 @@ from pilot.util.transport import HttpTransport
 from logging import Logger, INFO
 import logging
 
+try:
+    import google.cloud.logging
+    from google.cloud.logging_v2.handlers import CloudLoggingHandler
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,8 +115,6 @@ class RealTimeLogger(Logger):
 
         try:
             if logtype == "google-cloud-logging":
-                import google.cloud.logging
-                from google.cloud.logging_v2.handlers import CloudLoggingHandler
                 client = google.cloud.logging.Client()
                 _handler = CloudLoggingHandler(client, name=name)
                 api_logger = logging.getLogger('google.cloud.logging_v2')
