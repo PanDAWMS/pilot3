@@ -265,7 +265,8 @@ class RealTimeLogger(Logger):
         while not args.graceful_stop.is_set():
             i += 1
             if i % 10 == 1:
-                logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state})')
+                logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state}, logfiles={self.logfiles})')
+            # there might be special cases when RT logs should be sent, e.g. for pilot logs
             if job.state == '' or job.state == 'starting' or job.state == 'running':
                 if len(self.logfiles) > len(self.openfiles):
                     for logfile in self.logfiles:
@@ -282,14 +283,19 @@ class RealTimeLogger(Logger):
                 logger.debug('no real-time logging during stage-in/out')
                 pass
             else:
-                # logger.debug(f'real-time logging: sending logs for state={job.state} [2]')
+                # run longer for pilotlog
+                # ..
+
+                logger.info(f'sending last real-time logs (state={job.state})')
                 self.send_loginfiles()  # send the remaining logs after the job completion
                 self.close_files()
                 break
             time.sleep(5)
         else:
+            logger.debug('sending last real-time logs')
             self.send_loginfiles()  # send the remaining logs after the job completion
             self.close_files()
+        logger.info('finished sending real-time logs')
 
     def get_rtlogging_ssl(self):
         """
