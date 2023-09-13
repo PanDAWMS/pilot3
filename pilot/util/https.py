@@ -204,7 +204,7 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     # write the strdata to file
     try:
         writestatus = write_file(filename, strdata)
-    except FileHandlingFailure as exc:
+    except FileHandlingFailure:
         writestatus = None
 
     # get the config option for the curl command
