@@ -29,6 +29,7 @@ from .config import config
 from .constants import get_pilot_version
 from .container import execute
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import FileHandlingFailure
 
 import logging
 logger = logging.getLogger(__name__)
@@ -201,7 +202,11 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
     # write the strdata to file
-    writestatus = write_file(filename, strdata)
+    try:
+        writestatus = write_file(filename, strdata)
+    except FileHandlingFailure as exc:
+        writestatus = None
+
     # get the config option for the curl command
     dat = get_curl_config_option(writestatus, url, data, filename)
 
