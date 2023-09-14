@@ -378,6 +378,16 @@ class ReplicasNotFound(PilotException):
         self._message = errors.get_error_message(self._errorCode)
 
 
+class MiddlewareImportFailure(PilotException):
+    """
+    No matching replicas were found in list_replicas() output.
+    """
+    def __init__(self, *args, **kwargs):
+        super(MiddlewareImportFailure, self).__init__(args, kwargs)
+        self._errorCode = errors.MIDDLEWAREIMPORTFAILURE
+        self._message = errors.get_error_message(self._errorCode)
+
+
 class JobAlreadyRunning(PilotException):
     """
     Job is already running elsewhere.
