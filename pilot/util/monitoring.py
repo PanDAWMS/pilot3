@@ -75,20 +75,14 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
     exit_code = 0
     diagnostics = ""
 
+    # verify that the process is still alive
+    if not still_running(job.pid):
+        return 0, ""
+
     current_time = int(time.time())
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
-
-        # verify that the process is actually still running
-        try:
-            if not is_process_running(job.pid):
-                logger.warning(f'aborting job monitor tasks since payload process {job.pid} is not running')
-                return 0, ""
-            else:
-                logger.debug(f'payload process {job.pid} is running')
-        except MiddlewareImportFailure as exc:
-            logger.warning(f'exception caught: {exc}')
 
         # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
         if job.utilities != {}:
@@ -96,6 +90,11 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
 
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
+
+        # verify that the process is still alive (again)
+        if not still_running(job.pid):
+            return 0, ""
+
         try:
             cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
         except Exception as error:
@@ -106,7 +105,7 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
         else:
             job.cpuconsumptiontime = int(round(cpuconsumptiontime))
             job.cpuconversionfactor = 1.0
-            logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
@@ -164,6 +163,23 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
     logger.debug(f'job monitor tasks loop took {int(time.time()) - current_time} s to complete')
 
     return exit_code, diagnostics
+
+
+def still_running(pid):
+    # verify that the process is still alive
+
+    running = False
+    try:
+        if pid:
+            if not is_process_running(pid):
+                logger.warning(f'aborting job monitor tasks since payload process {pid} is not running')
+            else:
+                running = True
+                logger.debug(f'payload process {pid} is running')
+    except MiddlewareImportFailure as exc:
+        logger.warning(f'exception caught: {exc}')
+
+    return running
 
 
 def display_oom_info(payload_pid):
