@@ -508,6 +508,9 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
     if 'command' in res and res.get('command') != 'NULL':
         # warning: server might return comma-separated string, 'debug,tobekilled'
         cmd = res.get('command')
+
+        # for testing debug command: cmd = 'tail pilotlog.txt'
+
         # is it a 'command options'-type? debug_command=tail .., ls .., gdb .., ps .., du ..
         if ' ' in cmd and 'tobekilled' not in cmd:
             job.debug, job.debug_command = get_debug_command(cmd)
