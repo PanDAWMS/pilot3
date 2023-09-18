@@ -7,6 +7,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+import os
 try:
     import psutil
 except ImportError:
@@ -21,6 +22,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def is_process_running_by_pid(pid):
+    return os.path.exists(f"/proc/{pid}")
+
+
 def is_process_running(pid):
     """
     Is the given process still running?
@@ -33,6 +38,9 @@ def is_process_running(pid):
     """
 
     if not is_psutil_available:
-        raise MiddlewareImportFailure("required dependency could not be imported: psutil")
+        is_running = is_process_running_by_pid(pid)
+        logger.warning(f'using /proc/{pid} instead of psutil (is_running={is_running})')
+        return is_running
+        # raise MiddlewareImportFailure("required dependency could not be imported: psutil")
     else:
         return psutil.pid_exists(pid)

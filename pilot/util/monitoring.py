@@ -103,9 +103,14 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
             exit_code = get_exception_error_code(diagnostics)
             return exit_code, diagnostics
         else:
-            job.cpuconsumptiontime = int(round(cpuconsumptiontime))
-            job.cpuconversionfactor = 1.0
-            logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            _cpuconsumptiontime = int(round(cpuconsumptiontime))
+            if _cpuconsumptiontime > 0:
+                job.cpuconsumptiontime = int(round(cpuconsumptiontime))
+                job.cpuconversionfactor = 1.0
+                logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            else:
+                logger.warning(f'process {job.pid} is no longer using CPU - aborting')
+                return 0, ""
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
