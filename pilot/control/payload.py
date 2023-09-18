@@ -463,9 +463,12 @@ def find_log_to_tail(debug_command, workdir, args, is_analysis):
             counter += 10
 
     # fallback to known log file if no other file could be found
-    if not path:
-        logger.warning(f'file {filename} was not found for {maxwait} s, using default')
     logf = path if path else config.Payload.payloadstdout
+    if not path:
+        if filename:
+            logger.warning(f'file {filename} was not found for {maxwait} s, using default')
+        else:
+            logger.info(f'using {logf} for real-time logging')
 
     return logf
 

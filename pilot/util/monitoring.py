@@ -18,19 +18,40 @@ from typing import Any
 from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException
+from pilot.common.exception import PilotException, MiddlewareImportFailure
 from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
-from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file, zip_files
+from pilot.util.filehandling import (
+    get_disk_usage,
+    remove_files,
+    get_local_file_size,
+    read_file,
+    zip_files
+)
 from pilot.util.loopingjob import looping_job
-from pilot.util.math import convert_mb_to_b, human2bytes
-from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
-from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes,\
-    get_subprocesses, reap_zombies
+from pilot.util.math import (
+    convert_mb_to_b,
+    human2bytes
+)
+from pilot.util.parameters import (
+    convert_to_int,
+    get_maximum_input_sizes
+)
+from pilot.util.processes import (
+    get_current_cpu_consumption_time,
+    kill_processes,
+    get_number_of_child_processes,
+    get_subprocesses,
+    reap_zombies
+)
+from pilot.util.psutils import is_process_running
 from pilot.util.timing import get_time_since
-from pilot.util.workernode import get_local_disk_space, check_hz
+from pilot.util.workernode import (
+    get_local_disk_space,
+    check_hz
+)
 from pilot.info import infosys
 
 import logging
@@ -39,7 +60,7 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def job_monitor_tasks(job, mt, args):
+def job_monitor_tasks(job, mt, args):  # noqa: C901
     """
     Perform the tasks for the job monitoring.
     The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
@@ -54,6 +75,10 @@ def job_monitor_tasks(job, mt, args):
     exit_code = 0
     diagnostics = ""
 
+    # verify that the process is still alive
+    if not still_running(job.pid):
+        return 0, ""
+
     current_time = int(time.time())
 
     # update timing info for running jobs (to avoid an update after the job has finished)
@@ -65,6 +90,11 @@ def job_monitor_tasks(job, mt, args):
 
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
+
+        # verify that the process is still alive (again)
+        if not still_running(job.pid):
+            return 0, ""
+
         try:
             cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
         except Exception as error:
@@ -73,9 +103,14 @@ def job_monitor_tasks(job, mt, args):
             exit_code = get_exception_error_code(diagnostics)
             return exit_code, diagnostics
         else:
-            job.cpuconsumptiontime = int(round(cpuconsumptiontime))
-            job.cpuconversionfactor = 1.0
-            logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            _cpuconsumptiontime = int(round(cpuconsumptiontime))
+            if _cpuconsumptiontime > 0:
+                job.cpuconsumptiontime = int(round(cpuconsumptiontime))
+                job.cpuconversionfactor = 1.0
+                logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            else:
+                logger.warning(f'process {job.pid} is no longer using CPU - aborting')
+                return 0, ""
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
@@ -130,7 +165,26 @@ def job_monitor_tasks(job, mt, args):
         if exit_code != 0:
             return exit_code, diagnostics
 
+    logger.debug(f'job monitor tasks loop took {int(time.time()) - current_time} s to complete')
+
     return exit_code, diagnostics
+
+
+def still_running(pid):
+    # verify that the process is still alive
+
+    running = False
+    try:
+        if pid:
+            if not is_process_running(pid):
+                logger.warning(f'aborting job monitor tasks since payload process {pid} is not running')
+            else:
+                running = True
+                logger.debug(f'payload process {pid} is running')
+    except MiddlewareImportFailure as exc:
+        logger.warning(f'exception caught: {exc}')
+
+    return running
 
 
 def display_oom_info(payload_pid):
