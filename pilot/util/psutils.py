@@ -16,7 +16,7 @@ except ImportError:
 else:
     is_psutil_available = True
 
-from pilot.common.exception import MiddlewareImportFailure
+# from pilot.common.exception import MiddlewareImportFailure
 
 import logging
 logger = logging.getLogger(__name__)
