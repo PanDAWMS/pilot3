@@ -94,12 +94,22 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
             stderr = kill_all(process, stderr)
+        except Exception as exc:
+            logger.warning(f'exception caused when executing command: {executable}: {exc}')
+            exit_code = errors.UNKNOWNEXCEPTION
+            stderr = kill_all(process, str(exc))
         else:
             exit_code = process.poll()
 
     # wait for the process to finish
     # (not strictly necessary when process.communicate() is used)
-    process.wait()
+    try:
+        # wait for the process to complete with a timeout of 60 seconds
+        process.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        # Handle the case where the process did not complete within the timeout
+        print("process did not complete within the timeout of 60s - terminating")
+        process.terminate()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):
@@ -158,18 +168,24 @@ def kill_all(process: Any, stderr: str) -> str:
 
     try:
         logger.warning('killing lingering subprocess and process group')
-        process.kill()
+        sleep(1)
+        # process.kill()
         kill_process_group(getpgid(process.pid))
     except ProcessLookupError as exc:
         stderr += f'\n(kill process group) ProcessLookupError={exc}'
+    except Exception as exc:
+        stderr += f'\n(kill_all 1) exception caught: {exc}'
     try:
         logger.warning('killing lingering process')
+        sleep(1)
         kill(process.pid, SIGTERM)
         logger.warning('sleeping a bit before sending SIGKILL')
         sleep(10)
         kill(process.pid, SIGKILL)
     except ProcessLookupError as exc:
         stderr += f'\n(kill process) ProcessLookupError={exc}'
+    except Exception as exc:
+        stderr += f'\n(kill_all 2) exception caught: {exc}'
     logger.warning(f'sent soft kill signals - final stderr: {stderr}')
     return stderr
 

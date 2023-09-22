@@ -162,6 +162,14 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
 
         ps = get_ps_info(pgrp)
         #logger.debug('ps:\n%s' % ps)
+        #_pid = os.getpid()
+        #logger.debug(f'current pid={_pid}')
+        #logger.debug(f'current ppid={os.getppid()}')  # /bin/bash parent process (parent to pilot and prmon, ..)
+
+
+
+
+        # prmon --pid 35859
 
         # lookup the process id using ps aux
         logger.debug(f'attempting to identify pid from job id ({jobid})')
