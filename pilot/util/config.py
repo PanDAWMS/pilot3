@@ -5,38 +5,41 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
 
 import os
 import re
 import configparser
+from typing import Any
 
 _default_path = os.path.join(os.path.dirname(__file__), 'default.cfg')
 _path = os.environ.get('HARVESTER_PILOT_CONFIG', _default_path)
 _default_cfg = _path if os.path.exists(_path) else _default_path
 
 
-class _ConfigurationSection(object):
+class _ConfigurationSection():
     """
     Keep the settings for a section of the configuration file
     """
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Any) -> Any:
         return getattr(self, item)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(tuple(list(self.__dict__.keys())))
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: Any) -> Any:
         if attr in self.__dict__:
             return self.__dict__[attr]
-        else:
-            raise AttributeError(f'setting \"{attr}\" does not exist in the section; __dict__={self.__dict__}')
+        raise AttributeError(f'setting \"{attr}\" does not exist in the section; __dict__={self.__dict__}')
 
 
-def read(config_file):
+def read(config_file: Any) -> Any:
     """
     Read the settings from file and return a dot notation object
+
+    :param config_file: file
+    :return: attribute object.
     """
 
     _config = configparser.ConfigParser()
@@ -56,11 +59,11 @@ def read(config_file):
                     raise KeyError(f'{envname} in the cfg is an undefined environment variable')
                 value = os.environ.get(envname)
             # convert to proper types
-            if value == 'True' or value == 'true':
+            if value in {'True', 'true'}:
                 value = True
-            elif value == 'False' or value == 'false':
+            elif value in {'False', 'false'}:
                 value = False
-            elif value == 'None' or value == 'none':
+            elif value in {'None', 'none'}:
                 value = None
             elif re.match(r'^\d+$', value):
                 value = int(value)

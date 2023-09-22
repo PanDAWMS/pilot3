@@ -85,8 +85,6 @@ class ErrorCodes:
     NORELEASEFOUND = 1244
     NOUSERTARBALL = 1246
     BADXML = 1247
-
-    # Error code constants (new since Pilot 2)
     NOTIMPLEMENTED = 1300
     UNKNOWNEXCEPTION = 1301
     CONVERSIONFAILURE = 1302
@@ -160,6 +158,9 @@ class ErrorCodes:
     BADOUTPUTFILENAME = 1371
     APPTAINERNOTINSTALLED = 1372
     CERTIFICATEHASEXPIRED = 1373
+    REMOTEFILEDICTDOESNOTEXIST = 1374
+    LEASETIME = 1375
+    LOGCREATIONTIMEOUT = 1376
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -294,7 +295,10 @@ class ErrorCodes:
         FRONTIER: "Frontier error",
         VOMSPROXYABOUTTOEXPIRE: "VOMS proxy is about to expire",
         BADOUTPUTFILENAME: "Output file name contains illegal characters",
-        CERTIFICATEHASEXPIRED: "Certificate has expired"
+        CERTIFICATEHASEXPIRED: "Certificate has expired",
+        REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist",
+        LEASETIME: "Lease time is up",  # internal use only
+        LOGCREATIONTIMEOUT: "Log file creation timed out"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -418,24 +422,30 @@ class ErrorCodes:
         :return: pilot error code (int)
         """
 
-        if exit_code == 251 and "Not mounting requested bind point" in stderr:
+        if exit_code and "Not mounting requested bind point" in stderr:
             exit_code = self.SINGULARITYBINDPOINTFAILURE
         elif exit_code == 251:
             exit_code = self.UNKNOWNTRFFAILURE
-        elif exit_code == 255 and "No more available loop devices" in stderr:
+        elif exit_code and "No more available loop devices" in stderr:
             exit_code = self.SINGULARITYNOLOOPDEVICES
-        elif exit_code == 255 and "Failed to mount image" in stderr:
+        elif exit_code and ("Failed to mount image" in stderr or "error: while mounting" in stderr):
             exit_code = self.SINGULARITYIMAGEMOUNTFAILURE
-        elif exit_code == 255 and "Operation not permitted" in stderr:
+        elif exit_code and "Operation not permitted" in stderr:
             exit_code = self.SINGULARITYGENERALFAILURE
+        elif exit_code and "Failed to create user namespace" in stderr:
+            exit_code = self.SINGULARITYFAILEDUSERNAMESPACE
         elif "Singularity is not installed" in stderr:  # exit code should be 64 but not always?
             exit_code = self.SINGULARITYNOTINSTALLED
         elif "Apptainer is not installed" in stderr:  # exit code should be 64 but not always?
             exit_code = self.APPTAINERNOTINSTALLED
         elif exit_code == 64 and "cannot create directory" in stderr:
             exit_code = self.MKDIR
+        elif exit_code and "General payload setup verification error" in stderr:
+            exit_code = self.SETUPFAILURE
         elif exit_code == -1:
             exit_code = self.UNKNOWNTRFFAILURE
+        elif exit_code == self.COMMANDTIMEDOUT:
+            pass
         elif exit_code != 0:
             exit_code = self.PAYLOADEXECUTIONFAILURE
 

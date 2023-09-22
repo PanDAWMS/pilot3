@@ -18,6 +18,12 @@ from pilot.util.transport import HttpTransport
 from logging import Logger, INFO
 import logging
 
+try:
+    import google.cloud.logging
+    from google.cloud.logging_v2.handlers import CloudLoggingHandler
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,8 +115,6 @@ class RealTimeLogger(Logger):
 
         try:
             if logtype == "google-cloud-logging":
-                import google.cloud.logging
-                from google.cloud.logging_v2.handlers import CloudLoggingHandler
                 client = google.cloud.logging.Client()
                 _handler = CloudLoggingHandler(client, name=name)
                 api_logger = logging.getLogger('google.cloud.logging_v2')
@@ -145,10 +149,12 @@ class RealTimeLogger(Logger):
                 if isinstance(secrets, str):
                     secrets = json.loads(secrets)
 
+                ssl_enable, ssl_verify = self.get_rtlogging_ssl()
                 transport = HttpTransport(
                     server,
                     port,
-                    ssl_verify=False,
+                    ssl_enable=ssl_enable,
+                    ssl_verify=ssl_verify,
                     timeout=5.0,
                     username=secrets.get('logstash_login', 'unknown_login'),
                     password=secrets.get('logstash_password', 'unknown_password')
@@ -199,6 +205,8 @@ class RealTimeLogger(Logger):
             self.jobinfo["Harvester_WorkerID"] = os.environ.get('HARVESTER_WORKER_ID')
         if 'HARVESTER_ID' in os.environ:
             self.jobinfo["Harvester_ID"] = os.environ.get('HARVESTER_ID')
+        if job.requestid:
+            self.jobinfo["RequestID"] = job.requestid
 
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),
@@ -254,10 +262,13 @@ class RealTimeLogger(Logger):
         self.set_jobinfo(job)
         self.add_logfiles(job)
         i = 0
+        t_start = time.time()
+        cutoff = 10 * 60   # 10 minutes
         while not args.graceful_stop.is_set():
             i += 1
             if i % 10 == 1:
-                logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state})')
+                logger.debug(f'RealTimeLogger iteration #{i} (job state={job.state}, logfiles={self.logfiles})')
+            # there might be special cases when RT logs should be sent, e.g. for pilot logs
             if job.state == '' or job.state == 'starting' or job.state == 'running':
                 if len(self.logfiles) > len(self.openfiles):
                     for logfile in self.logfiles:
@@ -274,11 +285,39 @@ class RealTimeLogger(Logger):
                 logger.debug('no real-time logging during stage-in/out')
                 pass
             else:
-                # logger.debug(f'real-time logging: sending logs for state={job.state} [2]')
+                # run longer for pilotlog
+                # wait for job.completed=True, for a maximum of N minutes
+                if ['pilotlog.txt' in logfile for logfile in self.logfiles] == [True]:
+                    if not job.completed and (time.time() - t_start < cutoff):
+                        time.sleep(5)
+                        continue
+                    logger.info(f'aborting real-time logging of pilot log after {time.time() - t_start} s (cut off: {cutoff} s)')
+
+                logger.info(f'sending last real-time logs for job {job.jobid} (state={job.state})')
                 self.send_loginfiles()  # send the remaining logs after the job completion
                 self.close_files()
                 break
             time.sleep(5)
         else:
+            logger.debug('sending last real-time logs')
             self.send_loginfiles()  # send the remaining logs after the job completion
             self.close_files()
+        logger.info('finished sending real-time logs')
+
+    def get_rtlogging_ssl(self):
+        """
+        Return the proper rtlogging value from the experiment specific plug-in or the config file.
+
+        :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+        """
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        try:
+            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+            ssl_enable, ssl_verify = user.get_rtlogging_ssl()
+        except Exception:
+            ssl_enable = config.Pilot.ssl_enable
+            ssl_verify = config.Pilot.ssl_verify
+            logger.warning(f'found no experiment specific ssl_enable, ssl_verify, using config values ({ssl_enable}, {ssl_verify})')
+
+        return ssl_enable, ssl_verify

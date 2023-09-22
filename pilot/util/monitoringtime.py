@@ -24,6 +24,7 @@ class MonitoringTime(object):
         """
 
         ct = int(time.time())
+        self.ct_start = ct
         self.ct_proxy = ct
         self.ct_looping = ct
         self.ct_looping_last_touched = None
@@ -32,6 +33,7 @@ class MonitoringTime(object):
         self.ct_process = ct
         self.ct_heartbeat = ct
         self.ct_kill = ct
+        self.ct_lease = ct
 
     def update(self, key, modtime=None):
         """

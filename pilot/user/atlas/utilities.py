@@ -153,17 +153,6 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     if not is_process_running(pid):
         return -1
 
-    #_cmd = get_trf_command(command, transformation=transformation)
-    # get ps info using group id
-    ps = get_ps_info(pgrp)
-    if dump_ps:
-        logger.debug('ps:\n%s' % ps)
-    #logger.debug('attempting to identify pid for Singularity (v.3) runtime parent process')
-    #_pid = get_pid_for_command(ps, command="Singularity runtime parent")
-    #if _pid:
-    #    logger.debug('discovered pid=%d for process \"%s\"' % (_pid, _cmd))
-    #    return _pid
-
     i = 0
     imax = 120
     while i < imax:
@@ -175,7 +164,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         #logger.debug('ps:\n%s' % ps)
 
         # lookup the process id using ps aux
-        logger.debug('attempting to identify pid from job id')
+        logger.debug(f'attempting to identify pid from job id ({jobid})')
         _pid = get_pid_for_jobid(ps, jobid)
         if _pid:
             logger.debug('discovered pid=%d for job id %s' % (_pid, jobid))
@@ -851,3 +840,47 @@ def precleanup():
     if os.path.exists(path):
         logger.info('removing no longer needed file: %s' % path)
         remove(path)
+
+
+def get_cpu_arch():
+    """
+    Return the CPU architecture string.
+
+    The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
+    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+
+    :return: CPU arch (string).
+    """
+
+    cpu_arch = ''
+
+    def filter_output(stdout):
+        """ Remove lsetup info """
+        if stdout:
+            if stdout.endswith('\n'):
+                stdout = stdout[:-1]
+        tmp = stdout.split('\n')
+        stdout = tmp[-1]
+
+        return stdout
+
+    # copy pilot source into container directory, unless it is already there
+    setup = get_asetup(asetup=False) + 'lsetup cpu_flags; '
+    # script = 'cpu_arch.py --alg gcc'
+    script = 'cpu_arch.py'
+    cmd = setup + script
+
+    # CPU arch script has now been copied, time to execute it
+    # (reset irrelevant stderr)
+    ec, stdout, stderr = execute(cmd)
+    if ec == 0 and 'RHEL9 and clone support is relatively new' in stderr:
+        stderr = ''
+    if ec or stderr:
+        logger.warning(f'ec={ec}, stdout={stdout}, stderr={stderr}')
+    else:
+        logger.debug(stdout)
+        stdout = filter_output(stdout)
+        cpu_arch = stdout
+        logger.info(f'CPU arch script returned: {cpu_arch}')
+
+    return cpu_arch

@@ -7,18 +7,26 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-2021
 
 import argparse
+import functools
 import os
 import logging
-import threading
 import queue
 import ROOT
+import signal
+import subprocess
+import threading
+import traceback
 from collections import namedtuple
 
 from pilot.util.config import config
 from pilot.util.filehandling import (
-    establish_logging,
     write_json,
 )
+from pilot.util.loggingsupport import (
+    flush_handler,
+    establish_logging,
+)
+from pilot.util.processes import kill_processes
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +78,16 @@ def message(msg):
     :return:
     """
 
-    print(msg) if not logger else logger.info(msg)
+    if logger:
+        logger.info(msg)
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        flush_handler(name="stream_handler")
+    else:
+        print(msg, flush=True)
+
+    # always write message to instant log file (message might otherwise get lost in case of time-outs)
+    with open(config.Pilot.remotefileverification_instant, 'a') as _file:
+        _file.write(msg + '\n')
 
 
 def get_file_lists(turls):
@@ -104,10 +121,10 @@ def try_open_file(turl, queues):
     """
 
     turl_opened = False
-    _timeout = 120 * 1000  # 120 s
+    _timeout = 30 * 1000  # 30 s per file
     try:
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
-        message("internal TFile.Open() time-out set to %d ms" % _timeout)
+        # message("internal TFile.Open() time-out set to %d ms" % _timeout)
         message('opening %s' % turl)
         in_file = ROOT.TFile.Open(turl)
     except Exception as exc:
@@ -144,6 +161,49 @@ def spawn_file_open_thread(queues, file_list):
     return thread
 
 
+def register_signals(signals, args):
+    """
+    Register kill signals for intercept function.
+
+    :param signals: list of signals.
+    :param args: pilot args.
+    :return:
+    """
+
+    for sig in signals:
+        signal.signal(sig, functools.partial(interrupt, args))
+
+
+def interrupt(args, signum, frame):
+    """
+    Interrupt function on the receiving end of kill signals.
+    This function is forwarded any incoming signals (SIGINT, SIGTERM, etc) and will set abort_job which instructs
+    the threads to abort the job.
+
+    :param args: pilot arguments.
+    :param signum: signal.
+    :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
+    :return:
+    """
+
+    if args.signal:
+        logger.warning('process already being killed')
+        return
+
+    try:
+        sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
+    except Exception:
+        sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
+    logger.warning(f'caught signal: {sig} in FRAME=\n%s', '\n'.join(traceback.format_stack(frame)))
+    cmd = f'ps aux | grep {os.getpid()}'
+    out = subprocess.getoutput(cmd)
+    logger.info(f'{cmd}:\n{out}')
+    logger.warning(f'will terminate pid={os.getpid()}')
+    logging.shutdown()
+    args.signal = sig
+    kill_processes(os.getpid())
+
+
 if __name__ == '__main__':
     """
     Main function of the remote file open script.
@@ -153,6 +213,7 @@ if __name__ == '__main__':
     args = get_args()
     args.debug = True
     args.nopilotlog = False
+    args.signal = None
 
     try:
         logname = config.Pilot.remotefileverification_log
@@ -166,6 +227,9 @@ if __name__ == '__main__':
 
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=logname)
     logger = logging.getLogger(__name__)
+
+    logger.info('setting up signal handling')
+    register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS], args)
 
     # get the file info
     file_list_dictionary = get_file_lists(args.turls)

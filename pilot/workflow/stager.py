@@ -93,7 +93,7 @@ def run(args):
     signal.signal(signal.SIGBUS, functools.partial(interrupt, args))
 
     logger.info('setting up queues')
-    queues = namedtuple('queues', ['jobs', 'data_in', 'data_out', 'current_data_in', 'validated_jobs',
+    queues = namedtuple('queues', ['jobs', 'data_in', 'data_out', 'current_data_in', 'validated_jobs', 'monitored_payloads',
                                    'finished_jobs', 'finished_data_in', 'finished_data_out', 'completed_jobids',
                                    'failed_jobs', 'failed_data_in', 'failed_data_out', 'completed_jobs'])
 
@@ -103,6 +103,7 @@ def run(args):
 
     queues.current_data_in = queue.Queue()
     queues.validated_jobs = queue.Queue()
+    queues.monitored_payloads = queue.Queue()
 
     queues.finished_jobs = queue.Queue()
     queues.finished_data_in = queue.Queue()
@@ -150,7 +151,8 @@ def run(args):
         abort = False
         if thread_count != threading.activeCount():
             # has all threads finished?
-            abort = threads_aborted(abort_at=1)
+            #abort = threads_aborted(abort_at=1)
+            abort = threads_aborted(caller='run')
             if abort:
                 break
 

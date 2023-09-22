@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import os
 import re
@@ -16,6 +16,7 @@ from collections.abc import Set, Mapping
 from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
+from typing import Any
 
 from pilot.util.constants import (
     SUCCESS,
@@ -36,14 +37,12 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def pilot_version_banner():
+def pilot_version_banner() -> None:
     """
     Print a pilot version banner.
-
-    :return:
     """
 
-    version = '***  PanDA Pilot version %s  ***' % get_pilot_version()
+    version = f'***  PanDA Pilot version {get_pilot_version()}  ***'
     logger.info('*' * len(version))
     logger.info(version)
     logger.info('*' * len(version))
@@ -56,19 +55,19 @@ def pilot_version_banner():
     logger.info('*' * len(version))
 
 
-def is_virtual_machine():
+def is_virtual_machine() -> bool:
     """
     Are we running in a virtual machine?
     If we are running inside a VM, then linux will put 'hypervisor' in cpuinfo. This function looks for the presence
     of that.
 
-    :return: boolean.
+    :return: Boolean.
     """
 
     status = False
 
     # look for 'hypervisor' in cpuinfo
-    with open("/proc/cpuinfo", "r") as _fd:
+    with open("/proc/cpuinfo", "r", encoding='utf-8') as _fd:
         lines = _fd.readlines()
         for line in lines:
             if "hypervisor" in line:
@@ -78,36 +77,20 @@ def is_virtual_machine():
     return status
 
 
-def display_architecture_info():
+def display_architecture_info() -> None:
     """
-    Display OS/architecture information.
-    The function attempts to use the lsb_release -a command if available. If that is not available,
-    it will dump the contents of
-    WARNING: lsb_release will not be available on CentOS Stream 9
-
-    :return:
+    Display OS/architecture information from /etc/os-release.
     """
 
     logger.info("architecture information:")
-
-    _, stdout, stderr = execute("lsb_release -a", mute=True)
-    if 'Command not found' in stdout or 'Command not found' in stderr:
-        # Dump standard architecture info files if available
-        dump("/etc/lsb-release")
-        dump("/etc/SuSE-release")
-        dump("/etc/redhat-release")
-        dump("/etc/debian_version")
-        dump("/etc/issue")
-        dump("$MACHTYPE", cmd="echo")
-    else:
-        logger.info("\n%s", stdout)
+    dump("/etc/os-release")
 
 
-def get_batchsystem_jobid():
+def get_batchsystem_jobid() -> (str, int):
     """
     Identify and return the batch system job id (will be reported to the server)
 
-    :return: batch system job id
+    :return: batch system name (string), batch system job id (int)
     """
 
     # BQS (e.g. LYON)
@@ -127,18 +110,37 @@ def get_batchsystem_jobid():
     # Condor (get jobid from classad file)
     if '_CONDOR_JOB_AD' in os.environ:
         try:
-            with open(os.environ.get("_CONDOR_JOB_AD"), 'r') as _fp:
-                for line in _fp:
-                    res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
-                    if res is None:
-                        continue
-                    return "Condor", res.group(1)
+            ret = get_globaljobid()
         except OSError as exc:
-            logger.warning("failed to read HTCondor job classAd: %s", exc)
+            logger.warning(f"failed to read HTCondor job classAd: {exc}")
+        else:
+            return "Condor", ret
     return None, ""
 
 
-def get_job_scheduler_id():
+def get_globaljobid() -> str:
+    """
+    Return the GlobalJobId value from the condor class ad.
+
+    :return: GlobalJobId value (string).
+    """
+
+    ret = ""
+    with open(os.environ.get("_CONDOR_JOB_AD"), 'r', encoding='utf-8') as _fp:
+        for line in _fp:
+            res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
+            if res is None:
+                continue
+            try:
+                ret = res.group(1)
+            except IndexError as exc:
+                logger.warning(f'failed to interpret GlobalJobId: {exc}')
+            break
+
+    return ret
+
+
+def get_job_scheduler_id() -> str:
     """
     Get the job scheduler id from the environment variable PANDA_JSID
 
@@ -147,7 +149,7 @@ def get_job_scheduler_id():
     return os.environ.get("PANDA_JSID", "unknown")
 
 
-def whoami():
+def whoami() -> str:
     """
     Return the name of the pilot user.
 
@@ -159,7 +161,7 @@ def whoami():
     return who_am_i
 
 
-def get_error_code_translation_dictionary():
+def get_error_code_translation_dictionary() -> dict:
     """
     Define the error code translation dictionary.
 
@@ -184,6 +186,7 @@ def get_error_code_translation_dictionary():
         errors.MIDDLEWAREIMPORTFAILURE: [76, "Failed to import middleware module"],  # added to traces object
         errors.MISSINGINPUTFILE: [77, "Missing input file in SE"],  # should pilot report this type of error to wrapper?
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
+        errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
@@ -196,7 +199,7 @@ def get_error_code_translation_dictionary():
     return error_code_translation_dictionary
 
 
-def shell_exit_code(exit_code):
+def shell_exit_code(exit_code: int) -> int:
     """
     Translate the pilot exit code to a proper exit code for the shell (wrapper).
     Any error code that is to be converted by this function, should be added to the traces object like:
@@ -215,16 +218,17 @@ def shell_exit_code(exit_code):
 
     error_code_translation_dictionary = get_error_code_translation_dictionary()
 
+    ret = FAILURE
     if exit_code in error_code_translation_dictionary:
-        return error_code_translation_dictionary.get(exit_code)[0]  # Only return the shell exit code, not the error meaning
+        ret = error_code_translation_dictionary.get(exit_code)[0]  # Only return the shell exit code, not the error meaning
     elif exit_code != 0:
-        print("no translation to shell exit code for error code %d" % exit_code)
-        return FAILURE
+        print(f"no translation to shell exit code for error code {exit_code}")
     else:
-        return SUCCESS
+        ret = SUCCESS
+    return ret
 
 
-def convert_to_pilot_error_code(exit_code):
+def convert_to_pilot_error_code(exit_code: int) -> int:
     """
     This conversion function is used to revert a batch system exit code back to a pilot error code.
     Note: the function is used by Harvester.
@@ -237,15 +241,15 @@ def convert_to_pilot_error_code(exit_code):
     list_of_keys = [key for (key, value) in error_code_translation_dictionary.items() if value[0] == exit_code]
     # note: do not use logging object as this function is used by Harvester
     if not list_of_keys:
-        print('unknown exit code: %d (no matching pilot error code)' % exit_code)
+        print(f'unknown exit code: {exit_code} (no matching pilot error code)')
         list_of_keys = [-1]
     elif len(list_of_keys) > 1:
-        print('found multiple pilot error codes: %s' % list_of_keys)
+        print(f'found multiple pilot error codes: {list_of_keys}')
 
     return list_of_keys[0]
 
 
-def get_size(obj_0):
+def get_size(obj_0: Any) -> int:
     """
     Recursively iterate to sum size of object & members.
     Note: for size measurement to work, the object must have set the data members in the __init__().
@@ -272,11 +276,11 @@ def get_size(obj_0):
         elif isinstance(obj, Mapping) or hasattr(obj, iteritems):
             try:
                 size += sum(inner(k) + inner(v) for k, v in getattr(obj, iteritems)())
-            except Exception:  # as e
+            except Exception:  # as exc
                 pass
                 # <class 'collections.OrderedDict'>: unbound method iteritems() must be called
                 # with OrderedDict instance as first argument (got nothing instead)
-                #logger.debug('exception caught for obj=%s: %s', (str(obj), e))
+                #logger.debug('exception caught for obj=%s: %s', (str(obj), exc))
 
         # Check for custom object instances - may subclass above too
         if hasattr(obj, '__dict__'):
@@ -289,7 +293,7 @@ def get_size(obj_0):
     return inner(obj_0)
 
 
-def get_pilot_state(job=None):
+def get_pilot_state(job: Any = None) -> str:
     """
     Return the current pilot (job) state.
     If the job object does not exist, the environmental variable PILOT_JOB_STATE will be queried instead.
@@ -301,7 +305,7 @@ def get_pilot_state(job=None):
     return job.state if job else os.environ.get('PILOT_JOB_STATE', 'unknown')
 
 
-def set_pilot_state(job=None, state=''):
+def set_pilot_state(job: Any = None, state: str = '') -> None:
     """
     Set the internal pilot state.
     Note: this function should update the global/singleton object but currently uses an environmental variable
@@ -311,7 +315,6 @@ def set_pilot_state(job=None, state=''):
 
     :param job: optional job object.
     :param state: internal pilot state (string).
-    :return:
     """
 
     os.environ['PILOT_JOB_STATE'] = state
@@ -320,14 +323,13 @@ def set_pilot_state(job=None, state=''):
         job.state = state
 
 
-def check_for_final_server_update(update_server):
+def check_for_final_server_update(update_server: bool) -> None:
     """
     Do not set graceful stop if pilot has not finished sending the final job update
     i.e. wait until SERVER_UPDATE is DONE_FINAL. This function sleeps for a maximum
     of 20*30 s until SERVER_UPDATE env variable has been set to SERVER_UPDATE_FINAL.
 
-    :param update_server: args.update_server boolean.
-    :return:
+    :param update_server: args.update_server (Boolean).
     """
 
     max_i = 20
@@ -340,7 +342,7 @@ def check_for_final_server_update(update_server):
 
     while i < max_i and update_server:
         server_update = os.environ.get('SERVER_UPDATE', '')
-        if server_update == SERVER_UPDATE_FINAL or server_update == SERVER_UPDATE_TROUBLE:
+        if server_update in (SERVER_UPDATE_FINAL, SERVER_UPDATE_TROUBLE):
             logger.info('server update done, finishing')
             break
         logger.info('server update not finished (#%d/#%d)', i + 1, max_i)
@@ -348,7 +350,7 @@ def check_for_final_server_update(update_server):
         i += 1
 
 
-def get_resource_name():
+def get_resource_name() -> str:
     """
     Return the name of the resource (only set for HPC resources; e.g. Cori, otherwise return 'grid').
 
@@ -361,11 +363,13 @@ def get_resource_name():
     return resource_name
 
 
-def get_object_size(obj, seen=None):
+def get_object_size(obj: Any, seen: Any = None) -> int:
     """
     Recursively find the size of any objects
 
     :param obj: object.
+    :param seen:
+    :return: object size (int).
     """
 
     size = sys.getsizeof(obj)
@@ -389,22 +393,17 @@ def get_object_size(obj, seen=None):
     return size
 
 
-def show_memory_usage():
+def show_memory_usage() -> None:
     """
     Display the current memory usage by the pilot process.
-
-    :return:
     """
 
-    _ec, _stdout, _stderr = get_memory_usage(os.getpid())
-    try:
-        _value = extract_memory_usage_value(_stdout)
-    except Exception:
-        _value = "(unknown)"
-    logger.debug('current pilot memory usage:\n\n%s\n\nusage: %s kB\n', _stdout, _value)
+    _, _stdout, _ = get_memory_usage(os.getpid())
+    _value = extract_memory_usage_value(_stdout)
+    logger.debug(f'current pilot memory usage:\n\n{_stdout}\n\nusage: {_value} kB\n')
 
 
-def get_memory_usage(pid):
+def get_memory_usage(pid: int) -> (int, str, str):
     """
     Return the memory usage string (ps auxf <pid>) for the given process.
 
@@ -412,10 +411,10 @@ def get_memory_usage(pid):
     :return: ps exit code (int), stderr (strint), stdout (string).
     """
 
-    return execute('ps aux -q %d' % pid)
+    return execute(f'ps aux -q {pid}', timeout=60)
 
 
-def extract_memory_usage_value(output):
+def extract_memory_usage_value(output: str) -> int:
     """
     Extract the memory usage value from the ps output (in kB).
 
@@ -424,22 +423,22 @@ def extract_memory_usage_value(output):
     # -> 152832 (kB)
 
     :param output: ps output (string).
-    :return: memory value in kB (int).
+    :return: memory value in kB (string).
     """
 
-    memory_usage = 0
+    memory_usage = "(unknown)"
     for row in output.split('\n'):
         try:
-            memory_usage = int(" ".join(row.split()).split(' ')[5])
-        except Exception:
-            pass
+            memory_usage = " ".join(row.split()).split(' ')[5]
+        except (IndexError, ValueError):
+            memory_usage = "(unknown)"
         else:
             break
 
     return memory_usage
 
 
-def cut_output(txt, cutat=1024, separator='\n[...]\n'):
+def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str:
     """
     Cut the given string if longer that 2*cutat value.
 
@@ -455,7 +454,7 @@ def cut_output(txt, cutat=1024, separator='\n[...]\n'):
     return txt
 
 
-def has_instruction_set(instruction_set):
+def has_instruction_set(instruction_set: str) -> bool:
     """
     Determine whether a given CPU instruction set is available.
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
@@ -465,7 +464,7 @@ def has_instruction_set(instruction_set):
     """
 
     status = False
-    cmd = r"grep -o \'%s[^ ]*\|%s[^ ]*\' /proc/cpuinfo" % (instruction_set.lower(), instruction_set.upper())
+    cmd = fr"grep -o \'{instruction_set.lower()}[^ ]*\|{instruction_set.upper()}[^ ]*\' /proc/cpuinfo"
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
         if instruction_set.lower() in stdout.split() or instruction_set.upper() in stdout.split():
@@ -474,7 +473,7 @@ def has_instruction_set(instruction_set):
     return status
 
 
-def has_instruction_sets(instruction_sets):
+def has_instruction_sets(instruction_sets: str) -> bool:
     """
     Determine whether a given list of CPU instruction sets is available.
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
@@ -487,19 +486,19 @@ def has_instruction_sets(instruction_sets):
     pattern = ''
 
     for instr in instruction_sets:
-        pattern += r'\|%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper()) if pattern else r'%s[^ ]*\|%s[^ ]*' % (instr.lower(), instr.upper())
-    cmd = "grep -o \'%s\' /proc/cpuinfo" % pattern
+        pattern += fr'\|{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*' if pattern else fr'{instr.lower()}[^ ]*\|{instr.upper()}[^ ]*'
+    cmd = f"grep -o \'{pattern}\' /proc/cpuinfo"
 
     exit_code, stdout, stderr = execute(cmd)
     if not exit_code and not stderr:
         for instr in instruction_sets:
             if instr.lower() in stdout.split() or instr.upper() in stdout.split():
-                ret += '|%s' % instr.upper() if ret else instr.upper()
+                ret += f'|{instr.upper()}' if ret else instr.upper()
 
     return ret
 
 
-def locate_core_file(cmd=None, pid=None):
+def locate_core_file(cmd: str = '', pid: int = 0) -> str:
     """
     Locate the core file produced by gdb.
 
@@ -512,20 +511,20 @@ def locate_core_file(cmd=None, pid=None):
     if not pid and cmd:
         pid = get_pid_from_command(cmd)
     if pid:
-        filename = 'core.%d' % pid
+        filename = f'core.{pid}'
         path = os.path.join(os.environ.get('PILOT_HOME', '.'), filename)
         if os.path.exists(path):
-            logger.debug('found core file at: %s', path)
+            logger.debug(f'found core file at: {path}')
 
         else:
-            logger.debug('did not find %s in %s', filename, path)
+            logger.debug(f'did not find {filename} in {path}')
     else:
         logger.warning('cannot locate core file since pid could not be extracted from command')
 
     return path
 
 
-def get_pid_from_command(cmd, pattern=r'gdb --pid (\d+)'):
+def get_pid_from_command(cmd: str, pattern: str = r'gdb --pid (\d+)') -> int:
     """
     Identify an explicit process id in the given command.
 
@@ -543,7 +542,7 @@ def get_pid_from_command(cmd, pattern=r'gdb --pid (\d+)'):
     if match:
         try:
             pid = int(match.group(1))
-        except Exception:
+        except (IndexError, ValueError):
             pid = None
     else:
         logger.warning('no match for pattern \'%s\' in command=\'%s\'', pattern, cmd)
@@ -551,20 +550,20 @@ def get_pid_from_command(cmd, pattern=r'gdb --pid (\d+)'):
     return pid
 
 
-def list_hardware():
+def list_hardware() -> str:
     """
     Execute lshw to list local hardware.
 
     :return: lshw output (string).
     """
 
-    exit_code, stdout, stderr = execute('lshw -numeric -C display', mute=True)
-    if 'Command not found' in stdout or 'Command not found' in stderr:
+    _, stdout, stderr = execute('lshw -numeric -C display', mute=True)
+    if 'command not found' in stdout or 'command not found' in stderr:
         stdout = ''
     return stdout
 
 
-def get_display_info():
+def get_display_info() -> (str, str):
     """
     Extract the product and vendor from the lshw command.
     E.g.
@@ -595,7 +594,7 @@ def get_display_info():
     return product, vendor
 
 
-def get_key_value(catchall, key='SOMEKEY'):
+def get_key_value(catchall: str, key: str = 'SOMEKEY') -> str:
     """
     Return the value corresponding to key in catchall.
     :param catchall: catchall free string.
@@ -609,7 +608,7 @@ def get_key_value(catchall, key='SOMEKEY'):
     return _dic.get(key)
 
 
-def is_string(obj):
+def is_string(obj: Any) -> bool:
     """
     Determine if the passed object is a string or not.
 
@@ -617,10 +616,10 @@ def is_string(obj):
     :return: True if obj is a string (Boolean).
     """
 
-    return True if isinstance(obj, str) else False
+    return isinstance(obj, str)
 
 
-def find_pattern_in_list(input_list, pattern):
+def find_pattern_in_list(input_list: list, pattern: str) -> str:
     """
     Search for the given pattern in the input list.
 
@@ -637,3 +636,120 @@ def find_pattern_in_list(input_list, pattern):
             break
 
     return found
+
+
+def sort_words(input_str: str) -> str:
+    """
+    Sort the words in a given string.
+    E.g. input_str = 'bbb fff aaa' -> output_str = 'aaa bbb fff'
+
+    :param input_str: input string.
+    :return: sorted output string.
+    """
+
+    output_str = input_str
+    try:
+        tmp = output_str.split()
+        tmp.sort()
+        output_str = ' '.join(tmp)
+    except (AttributeError, TypeError) as exc:
+        logger.warning(f'failed to sort input string: {input_str}, exc={exc}')
+
+    return output_str
+
+
+def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
+    """
+    Encode the global job id on HTCondor.
+    To be used as an environmental variable on HTCondor nodes to facilitate debugging.
+
+    Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
+
+    NEW FORMAT: WN hostname, process and user id
+
+    Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
+    characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
+    to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
+
+    :param jobid: panda job id (string)
+    :param maxsize: max length allowed (int)
+    :return: encoded global job id (string).
+    """
+
+    def get_host_name():
+        # spool1462.sdcc.bnl.gov -> spool1462
+        if 'PANDA_HOSTNAME' in os.environ:
+            host = os.environ.get('PANDA_HOSTNAME')
+        elif hasattr(os, 'uname'):
+            host = os.uname()[1]
+        else:
+            import socket
+            host = socket.gethostname()
+        return host.split('.')[0]
+
+    globaljobid = get_globaljobid()
+    if not globaljobid:
+        return ""
+
+    try:
+        _globaljobid = globaljobid.split('#')
+        # host = _globaljobid[0]
+        tmp = _globaljobid[1].split('.')
+        # timestamp = _globaljobid[2] - ignore this one
+        # clusterid = tmp[0]
+        processid = tmp[1]
+    except IndexError as exc:
+        logger.warning(exc)
+        return ""
+
+    host_name = get_host_name()
+    if processid and host_name:
+        global_name = f'{host_name}_{processid}_{jobid}'
+    else:
+        global_name = ''
+
+    if len(global_name) > maxsize:
+        logger.warning(f'HTCondor: global name is exceeding maxsize({maxsize}), will be truncated: {global_name}')
+        global_name = global_name[-maxsize:]
+        logger.debug(f'HTCondor: final global name={global_name}')
+    else:
+        logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
+
+    return global_name
+
+
+def grep_str(patterns, stdout):
+    """
+    Search for the patterns in the given stdout.
+    For expected large stdout, better to use FileHandling::grep()
+
+    :param patterns: list of regexp patterns.
+    :param stdout: some text (string).
+    :return: list of matched lines in stdout.
+    """
+
+    matched_lines = []
+    _pats = []
+    for pattern in patterns:
+        _pats.append(re.compile(pattern))
+
+    lines = stdout.split('\n')
+    for line in lines:
+        # can the search pattern be found?
+        for _cp in _pats:
+            if re.search(_cp, line):
+                matched_lines.append(line)
+
+    return matched_lines
+
+
+class TimeoutException(Exception):
+
+    def __init__(self, message, timeout=None, *args):
+        self.timeout = timeout
+        self.message = message
+        self._errorCode = 1334
+        super(TimeoutException, self).__init__(*args)
+
+    def __str__(self):
+        return "%s: %s, timeout=%s seconds%s" % (self.__class__.__name__, self.message, self.timeout, ' : %s' % repr(self.args) if self.args else '')

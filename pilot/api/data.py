@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
@@ -16,18 +16,31 @@ import os
 import hashlib
 import logging
 import time
-
 from functools import reduce
 
+try:
+    import requests
+except ImportError:
+    pass
+
 from pilot.info import infosys
-from pilot.common.exception import PilotException, ErrorCodes, SizeTooLarge, NoLocalSpace, ReplicasNotFound, FileHandlingFailure
-from pilot.util.auxiliary import show_memory_usage
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes,
+    SizeTooLarge,
+    NoLocalSpace,
+    ReplicasNotFound,
+    FileHandlingFailure,
+)
 from pilot.util.config import config
-from pilot.util.filehandling import calculate_checksum, write_json
+from pilot.util.filehandling import (
+    calculate_checksum,
+    write_json,
+)
 from pilot.util.math import convert_mb_to_b
 from pilot.util.parameters import get_maximum_input_sizes
 from pilot.util.workernode import get_local_disk_space
-from pilot.util.timer import TimeoutException
+from pilot.util.auxiliary import TimeoutException
 from pilot.util.tracereport import TraceReport
 
 
@@ -36,6 +49,7 @@ class StagingClient(object):
         Base Staging Client
     """
 
+    ipv = "IPv6"
     mode = ""  # stage-in/out, set by the inheritor of the class
     copytool_modules = {'rucio': {'module_name': 'rucio'},
                         'gfal': {'module_name': 'gfal'},
@@ -55,12 +69,13 @@ class StagingClient(object):
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
-    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None):
+    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None, ipv='IPv6'):
         """
             If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys` requires initialization.
             :param acopytools: dict of copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed.
             :param logger: logging.Logger object to use for logging (None means no logging)
             :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value.
+            :param ipv: internet protocol version (string).
         """
 
         super(StagingClient, self).__init__()
@@ -71,6 +86,7 @@ class StagingClient(object):
 
         self.logger = logger
         self.infosys = infosys_instance or infosys
+        self.ipv = ipv
 
         if isinstance(acopytools, str):
             acopytools = {'default': [acopytools]} if acopytools else {}
@@ -87,7 +103,7 @@ class StagingClient(object):
             self.acopytools['default'] = self.get_default_copytools(default_copytools)
 
         # get an initialized trace report (has to be updated for get/put if not defined before)
-        self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''))
+        self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), ipv=self.ipv)
 
         if not self.acopytools:
             msg = 'failed to initilize StagingClient: no acopytools options found, acopytools=%s' % self.acopytools
@@ -96,6 +112,16 @@ class StagingClient(object):
             self.trace_report.send()
             raise PilotException("failed to resolve acopytools settings")
         logger.info('configured copytools per activity: acopytools=%s', self.acopytools)
+
+    def allow_mvfinaldest(self, catchall):
+        """
+        Is there an override in catchall to allow mv to final destination?
+
+        :param catchall: catchall from queuedata (string)
+        :return: True if 'mv_final_destination' is present in catchall, otherwise False (Boolean)
+        """
+
+        return True if catchall and 'mv_final_destination' in catchall else False
 
     def set_acopytools(self):
         """
@@ -212,57 +238,24 @@ class StagingClient(object):
 
         :param files: list of `FileSpec` objects.
         :param use_vp: True for VP jobs (boolean).
-        :return: `files`
+        :return: files object.
         """
 
         logger = self.logger
         xfiles = []
 
-        show_memory_usage()
-
         for fdat in files:
-            ## skip fdat if need for further workflow (e.g. to properly handle OS ddms)
+            # skip fdat if need for further workflow (e.g. to properly handle OS ddms)
             xfiles.append(fdat)
-
-        show_memory_usage()
 
         if not xfiles:  # no files for replica look-up
             return files
 
-        # load replicas from Rucio
-        from rucio.client import Client
-        c = Client()
-
-        show_memory_usage()
-
-        location = self.detect_client_location()
-        if not location:
-            raise PilotException("Failed to get client location for Rucio", code=ErrorCodes.RUCIOLOCATIONFAILED)
-
-        query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm'],
-            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
-        }
-        query.update(sort='geoip', client_location=location)
-        # reset the schemas for VP jobs
-        if use_vp:
-            query['schemes'] = ['root']
-            query['rse_expression'] = 'istape=False\\type=SPECIAL'
-
-        # add signature lifetime for signed URL storages
-        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
-
-        logger.info('calling rucio.list_replicas() with query=%s', query)
-
+        # get the list of replicas
         try:
-            replicas = c.list_replicas(**query)
+            replicas = self.list_replicas(xfiles, use_vp)
         except Exception as exc:
-            raise PilotException("Failed to get replicas from Rucio: %s" % exc, code=ErrorCodes.RUCIOLISTREPLICASFAILED)
-
-        show_memory_usage()
-
-        replicas = list(replicas)
-        logger.debug("replicas received from Rucio: %s", replicas)
+            raise exc
 
         files_lfn = dict(((e.scope, e.lfn), e) for e in xfiles)
         for replica in replicas:
@@ -299,13 +292,54 @@ class StagingClient(object):
                 logger.info("filesize and checksum verification done")
                 self.trace_report.update(clientState="DONE")
 
-        show_memory_usage()
-
         logger.info('Number of resolved replicas:\n' +
                     '\n'.join(["lfn=%s: replicas=%s, is_directaccess=%s"
                                % (f.lfn, len(f.replicas or []), f.is_directaccess(ensure_replica=False)) for f in files]))
 
         return files
+
+    def list_replicas(self, xfiles, use_vp):
+        """
+        Wrapper around rucio_client.list_replicas()
+
+        :param xfiles: files object.
+        :param use_vp: True for VP jobs (boolean).
+        :return: replicas (list).
+        """
+
+        # load replicas from Rucio
+        from rucio.client import Client
+        rucio_client = Client()
+        location, diagnostics = self.detect_client_location(use_vp=use_vp)
+        if diagnostics:
+            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
+            #raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
+
+        query = {
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
+            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
+        }
+        query.update(sort='geoip', client_location=location)
+        # reset the schemas for VP jobs
+        if use_vp:
+            query['schemes'] = ['root']
+            query['rse_expression'] = 'istape=False\\type=SPECIAL'
+            query['ignore_availability'] = False
+
+        # add signature lifetime for signed URL storages
+        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
+
+        self.logger.info(f'calling rucio.list_replicas() with query={query}')
+
+        try:
+            replicas = rucio_client.list_replicas(**query)
+        except Exception as exc:
+            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED)
+
+        replicas = list(replicas)
+        self.logger.debug(f"replicas received from Rucio: {replicas}")
+
+        return replicas
 
     def add_replicas(self, fdat, replica):
         """
@@ -348,15 +382,14 @@ class StagingClient(object):
 
         return fdat
 
-    @classmethod
-    def detect_client_location(self):
+    def detect_client_location(self, use_vp: bool = False) -> dict:
         """
         Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
         addresses of the requesting client.
-        Try to determine the sitename automatically from common environment variables,
-        in this order: SITE_NAME, ATLAS_SITE_NAME, OSG_SITE_NAME. If none of these exist
-        use the fixed string 'ROAMING'.
         """
+
+        diagnostics = ''
+        client_location = {}
 
         ip = '0.0.0.0'
         try:
@@ -364,27 +397,38 @@ class StagingClient(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
-        except Exception:
-            pass
-
-        ip6 = '::'
-        try:
-            s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-            s.connect(("2001:4860:4860:0:0:0:0:8888", 80))
-            ip6 = s.getsockname()[0]
-        except Exception:
-            pass
-
+        except Exception as exc:
+            diagnostics = f'failed to get socket info: {exc}'
+            self.logger.warning(diagnostics)
+        client_location['ip'] = ip
         site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
-#        site = os.environ.get('SITE_NAME',
-#                              os.environ.get('ATLAS_SITE_NAME',
-#                                             os.environ.get('OSG_SITE_NAME',
-#                                                            'ROAMING')))
+        client_location['site'] = site
 
-        return {'ip': ip,
-                'ip6': ip6,
-                'fqdn': socket.getfqdn(),
-                'site': site}
+        if use_vp:
+            latitude = os.environ.get('RUCIO_LATITUDE')
+            longitude = os.environ.get('RUCIO_LONGITUDE')
+            if latitude and longitude:
+                try:
+                    client_location['latitude'] = float(latitude)
+                    client_location['longitude'] = float(longitude)
+                except ValueError:
+                    diagnostics = f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid'
+                    self.logger.warning(diagnostics)
+            else:
+                try:
+                    response = requests.post('https://location.cern.workers.dev',
+                                             json={"site": site},
+                                             timeout=10)
+                    if response.status_code == 200 and 'application/json' in response.headers.get('Content-Type', ''):
+                        client_location = response.json()
+                        # put back the site
+                        client_location['site'] = site
+                except Exception as exc:
+                    diagnostics = f'requests.post failed: {exc}'
+                    self.logger.warning(diagnostics)
+
+        self.logger.debug(f'will use client_location={client_location}')
+        return client_location, diagnostics
 
     def transfer_files(self, copytool, files, **kwargs):
         """
@@ -472,7 +516,6 @@ class StagingClient(object):
             try:
                 result = self.transfer_files(copytool, remain_files, activity, **kwargs)
                 self.logger.debug('transfer_files() using copytool=%s completed with result=%s', copytool, str(result))
-                show_memory_usage()
                 break
             except PilotException as exc:
                 self.logger.warning('failed to transfer_files() using copytool=%s .. skipped; error=%s', copytool, exc)
@@ -797,11 +840,12 @@ class StageInClient(StagingClient):
             else:
                 self.logger.info('skipping input file size check since maxinputsize=-1')
 
-        show_memory_usage()
-
         # add the trace report
         kwargs['trace_report'] = self.trace_report
         self.logger.info('ready to transfer (stage-in) files: %s', remain_files)
+
+        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
+        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
 
         # use bulk downloads if necessary
         # if kwargs['use_bulk_transfer']
@@ -1035,14 +1079,14 @@ class StageOutClient(StagingClient):
 
             if not fspec.ddmendpoint:  # ensure that output destination is properly set
                 if 'mv' not in self.infosys.queuedata.copytools:
-                    msg = 'no output RSE defined for file=%s' % fspec.lfn
+                    msg = f'no output RSE defined for file={fspec.lfn}'
                     self.logger.error(msg)
                     raise PilotException(msg, code=ErrorCodes.NOSTORAGE, state='NO_OUTPUTSTORAGE_DEFINED')
 
             pfn = fspec.surl or getattr(fspec, 'pfn', None) or os.path.join(kwargs.get('workdir', ''), fspec.lfn) or \
                 os.path.join(os.path.join(kwargs.get('workdir', ''), '..'), fspec.lfn)
             if not os.path.exists(pfn) or not os.access(pfn, os.R_OK):
-                msg = "output pfn file/directory does not exist: %s" % pfn
+                msg = f"output pfn file/directory does not exist: {pfn}"
                 self.logger.error(msg)
                 self.trace_report.update(clientState='MISSINGOUTPUTFILE', stateReason=msg, filename=fspec.lfn)
                 self.trace_report.send()
@@ -1051,15 +1095,16 @@ class StageOutClient(StagingClient):
                 fspec.filesize = os.path.getsize(pfn)
 
             if not fspec.filesize:
-                msg = 'output file has size zero: %s' % fspec.lfn
+                msg = f'output file has size zero: {fspec.lfn}'
                 self.logger.fatal(msg)
                 raise PilotException(msg, code=ErrorCodes.ZEROFILESIZE, state="ZERO_FILE_SIZE")
 
             fspec.surl = pfn
             fspec.activity = activity
-            if os.path.isfile(pfn) and not fspec.checksum.get('adler32'):
+            if os.path.isfile(pfn) and not fspec.checksum.get(config.File.checksum_type):
                 try:
-                    fspec.checksum['adler32'] = calculate_checksum(pfn)
+                    fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
+                                                                                   algorithm=config.File.checksum_type)
                 except (FileHandlingFailure, NotImplementedError, Exception) as exc:
                     raise exc
 
@@ -1069,11 +1114,11 @@ class StageOutClient(StagingClient):
             self.require_protocols(files, copytool, activity, local_dir=output_dir)
 
         if not copytool.is_valid_for_copy_out(files):
-            self.logger.warning('Input is not valid for transfers using copytool=%s', copytool)
-            self.logger.debug('Input: %s', files)
-            raise PilotException('Invalid input for transfer operation')
+            self.logger.warning(f'input is not valid for transfers using copytool={copytool}')
+            self.logger.debug(f'input: {files}')
+            raise PilotException('invalid input for transfer operation')
 
-        self.logger.info('ready to transfer (stage-out) files: %s', files)
+        self.logger.info(f'ready to transfer (stage-out) files: {files}')
 
         if self.infosys:
             kwargs['copytools'] = self.infosys.queuedata.copytools
@@ -1088,6 +1133,9 @@ class StageOutClient(StagingClient):
 
         # add the trace report
         kwargs['trace_report'] = self.trace_report
+
+        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
+        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
 
         return copytool.copy_out(files, **kwargs)
 

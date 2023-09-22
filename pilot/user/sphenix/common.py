@@ -5,14 +5,29 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import os
+import re
 from signal import SIGTERM
 
 from pilot.common.exception import TrfDownloadFailure
+from pilot.info import FileSpec
 from pilot.util.config import config
-from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED
+from pilot.util.constants import (
+    UTILITY_BEFORE_PAYLOAD,
+    UTILITY_WITH_PAYLOAD,
+    UTILITY_AFTER_PAYLOAD_STARTED,
+    UTILITY_AFTER_PAYLOAD_FINISHED,
+    UTILITY_AFTER_PAYLOAD_STARTED2,
+    UTILITY_BEFORE_STAGEIN,
+    UTILITY_AFTER_PAYLOAD_FINISHED2
+)
+from .utilities import (
+    get_memory_monitor_setup,
+    post_memory_monitor_action,
+    get_memory_monitor_summary_filename
+)
 from pilot.util.filehandling import read_file
 from .setup import get_analysis_trf
 
@@ -106,7 +121,46 @@ def update_job_data(job):
     :return:
     """
 
-    pass
+    # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
+    # output files and add them to the output file list
+    outfiles = []
+    scope = ''
+    dataset = ''
+    ddmendpoint = ''
+    for fspec in job.outdata:
+        if fspec.lfn.startswith('regex|'):  # if this is true, job.outdata will be overwritten
+            regex_pattern = fspec.lfn.split('regex|')[1]  # "DST_.*.root"
+            logger.info(f'found regular expression {regex_pattern} - looking for the corresponding files in {job.workdir}')
+
+            # extract needed info for the output files for later
+            scope = fspec.scope
+            dataset = fspec.dataset
+            ddmendpoint = fspec.ddmendpoint
+
+            # now locate the corresponding files in the work dir
+            outfiles = [_file for _file in os.listdir(job.workdir) if re.search(regex_pattern, _file)]
+            logger.debug(f'outfiles={outfiles}')
+            if not outfiles:
+                logger.warning(f'no output files matching {regex_pattern} were found')
+            break
+
+    if outfiles:
+        new_outfiles = []
+        for outfile in outfiles:
+            new_file = {'scope': scope,
+                        'lfn': outfile,
+                        'workdir': job.workdir,
+                        'dataset': dataset,
+                        'ddmendpoint': ddmendpoint,
+                        'ddmendpoint_alt': None}
+            new_outfiles.append(new_file)
+
+        # create list of FileSpecs and overwrite the old job.outdata
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
+        logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
+        job.outdata = _xfiles
+    else:
+        logger.debug('no regex found in outdata file list')
 
 
 def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=False):
@@ -124,35 +178,125 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
 
 def get_utility_commands(order=None, job=None):
     """
-    Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
-    This could e.g. be memory and network monitor commands. A separate function can be used to determine the
-    corresponding command setups using the utility command name.
-    If the optional order parameter is set, the function should return the list of corresponding commands.
-    E.g. if order=UTILITY_BEFORE_PAYLOAD, the function should return all commands that are to be executed before the
-    payload. If order=UTILITY_WITH_PAYLOAD, the corresponding commands will be prepended to the payload execution
-    string. If order=UTILITY_AFTER_PAYLOAD_STARTED, the commands that should be executed after the payload has been started
-    should be returned.
+    Return a dictionary of utility commands and arguments to be executed
+    in parallel with the payload. This could e.g. be memory and network
+    monitor commands. A separate function can be used to determine the
+    corresponding command setups using the utility command name. If the
+    optional order parameter is set, the function should return the list
+    of corresponding commands.
 
-    FORMAT: {'command': <command>, 'args': <args>}
+    For example:
 
-    :param order: optional sorting order (see pilot.util.constants)
+    If order=UTILITY_BEFORE_PAYLOAD, the function should return all
+    commands that are to be executed before the payload.
+
+    If order=UTILITY_WITH_PAYLOAD, the corresponding commands will be
+    prepended to the payload execution string.
+
+    If order=UTILITY_AFTER_PAYLOAD_STARTED, the commands that should be
+    executed after the payload has been started should be returned.
+
+    If order=UTILITY_WITH_STAGEIN, the commands that should be executed
+    parallel with stage-in will be returned.
+
+    FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>, 'ignore_failure': <Boolean>}
+
+    :param order: optional sorting order (see pilot.util.constants).
     :param job: optional job object.
     :return: dictionary of utilities to be executed in parallel with the payload.
     """
 
-    return {}
+    if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
+        return {}
+
+    if order == UTILITY_WITH_PAYLOAD:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_STARTED:
+        return get_utility_after_payload_started()
+
+    if order == UTILITY_AFTER_PAYLOAD_STARTED2 and job.coprocess:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_FINISHED:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_FINISHED2 and job.postprocess:
+        return {}
+
+    if order == UTILITY_BEFORE_STAGEIN:
+        return {}
+
+    return None
+
+
+def get_utility_after_payload_started():
+    """
+    Return the command dictionary for the utility after the payload has started.
+
+    Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
+
+    :return: command (dictionary).
+    """
+
+    com = {}
+    try:
+        cmd = config.Pilot.utility_after_payload_started
+    except Exception:
+        pass
+    else:
+        if cmd:
+            com = {'command': cmd, 'args': '', 'label': cmd.lower(), 'ignore_failure': True}
+    return com
 
 
 def get_utility_command_setup(name, job, setup=None):
     """
     Return the proper setup for the given utility command.
-    If a payload setup is specified
-    :param name:
-    :param setup:
-    :return:
+    If a payload setup is specified, then the utility command string should be prepended to it.
+
+    :param name: name of utility (string).
+    :param job: job object.
+    :param setup: optional payload setup string.
+    :return: utility command setup (string).
     """
 
-    pass
+    if name == 'MemoryMonitor':
+        # must know if payload is running in a container or not
+        # (enables search for pid in ps output)
+        use_container = False  #job.usecontainer or 'runcontainer' in job.transformation
+        dump_ps = ("PRMON_DEBUG" in job.infosys.queuedata.catchall)
+
+        setup, pid = get_memory_monitor_setup(
+            job.pid,
+            job.pgrp,
+            job.jobid,
+            job.workdir,
+            job.command,
+            use_container=use_container,
+            transformation=job.transformation,
+            outdata=job.outdata,
+            dump_ps=dump_ps
+        )
+
+        _pattern = r"([\S]+)\ ."
+        pattern = re.compile(_pattern)
+        _name = re.findall(pattern, setup.split(';')[-1])
+        if _name:
+            job.memorymonitor = _name[0]
+        else:
+            logger.warning('trf name could not be identified in setup string')
+
+        # update the pgrp if the pid changed
+        if pid not in (job.pid, -1):
+            logger.debug('updating pgrp=%d for pid=%d', job.pgrp, pid)
+            try:
+                job.pgrp = os.getpgid(pid)
+            except Exception as exc:
+                logger.warning('os.getpgid(%d) failed with: %s', pid, exc)
+        return setup
+
+    return ""
 
 
 def get_utility_command_execution_order(name):
@@ -179,7 +323,8 @@ def post_utility_command_action(name, job):
     :return:
     """
 
-    pass
+    if name == 'MemoryMonitor':
+        post_memory_monitor_action(job)
 
 
 def get_utility_command_kill_signal(name):
@@ -202,7 +347,12 @@ def get_utility_command_output_filename(name, selector=None):
     :return: filename (string).
     """
 
-    return ""
+    if name == 'MemoryMonitor':
+        filename = get_memory_monitor_summary_filename(selector=selector)
+    else:
+        filename = ""
+
+    return filename
 
 
 def verify_job(job):
@@ -306,3 +456,23 @@ def get_pilot_id(jobid):
     """
 
     return os.environ.get("GTAG", "unknown")
+
+
+def get_rtlogging():
+    """
+    Return the proper rtlogging value.
+
+    :return: rtlogging (str).
+    """
+
+    return 'logstash;http://splogstash.sdcc.bnl.gov:8080'
+
+
+def get_rtlogging_ssl():
+    """
+    Return the proper ssl_enable and ssl_verify for real-time logging.
+
+    :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+    """
+
+    return False, False

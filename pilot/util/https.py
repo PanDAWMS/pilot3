@@ -7,7 +7,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
 import json
 import os
@@ -29,6 +29,7 @@ from .config import config
 from .constants import get_pilot_version
 from .container import execute
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import FileHandlingFailure
 
 import logging
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ _ctx.cacert = None
 # anisyonk: public copy of `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
 # anisyonk: public instance, should be properly initialized by `https_setup()`
 # anisyonk: use lightweight class definition instead of namedtuple since tuple is immutable and we don't need/use any tuple features here
-ctx = type('ctx', (object,), dict(ssl_context=None, user_agent='Pilot2 client', capath=None, cacert=None))
+ctx = type('ctx', (object,), dict(ssl_context=None, user_agent='Pilot3 client', capath=None, cacert=None))
 
 
 def _tester(func, *args):
@@ -160,7 +161,7 @@ def https_setup(args=None, version=None):
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url, data=None, plain=False, secure=True):
+def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     """
     This function sends a request using HTTPS.
     Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
@@ -171,10 +172,11 @@ def request(url, data=None, plain=False, secure=True):
     Treats the request as JSON unless a parameter ``plain`` is `True`.
     If JSON is expected, sends ``Accept: application/json`` header.
 
-    :param string url: the URL of the resource
-    :param dict data: data to send
+    :param string url: the URL of the resource.
+    :param dict data: data to send.
     :param boolean plain: if true, treats the response as a plain text.
-    :param secure: Boolean (default: True, ie use certificates)
+    :param secure: Boolean (default: True, ie use certificates).
+    :param ipv: internet protocol version (string).
     Usage:
 
     .. code-block:: python
@@ -200,24 +202,38 @@ def request(url, data=None, plain=False, secure=True):
     # get the filename and strdata for the curl config file
     filename, strdata = get_vars(url, data)
     # write the strdata to file
-    writestatus = write_file(filename, strdata)
+    try:
+        writestatus = write_file(filename, strdata)
+    except FileHandlingFailure:
+        writestatus = None
+
     # get the config option for the curl command
     dat = get_curl_config_option(writestatus, url, data, filename)
 
+    # loop over internet protocol versions since proper value might be known yet (ie before downloading queuedata)
+    ipvs = ['IPv6', 'IPv4'] if ipv == 'IPv6' else ['IPv4']
     if _ctx.ssl_context is None and secure:
-        req, obscure = get_curl_command(plain, dat)
-        if not req:
-            logger.warning('failed to construct valid curl command')
+        failed = False
+        for _ipv in ipvs:
+            req, obscure = get_curl_command(plain, dat, _ipv)
+            if not req:
+                logger.warning('failed to construct valid curl command')
+                failed = True
+                break
+            try:
+                status, output, stderr = execute(req, obscure=obscure, timeout=130)
+            except Exception as exc:
+                logger.warning(f'exception: {exc}')
+                failed = True
+                break
+            else:
+                if status == 0:
+                    break
+                else:
+                    logger.warning(f'request failed for IPv={_ipv} ({status}): stdout={output}, stderr={stderr}')
+                    continue
+        if failed:
             return None
-        try:
-            status, output, stderr = execute(req, obscure=obscure)
-        except Exception as exc:
-            logger.warning(f'exception: {exc}')
-            return None
-        else:
-            if status != 0:
-                logger.warning(f'request failed ({status}): stdout={output}, stderr={stderr}')
-                return None
 
         # return output if plain otherwise return json.loads(output)
         if plain:
@@ -249,21 +265,28 @@ def update_ctx():
     x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
     if x509 != _ctx.cacert and os.path.exists(x509):
         _ctx.cacert = x509
+    certdir = os.environ.get('X509_CERT_DIR', _ctx.capath)
+    if certdir != _ctx.capath and os.path.exists(certdir):
+        _ctx.capath = certdir
 
 
-def get_curl_command(plain, dat):
+def get_curl_command(plain, dat, ipv):
     """
     Get the curl command.
 
     :param plain:
     :param dat: curl config option (string).
+    :param ipv: internet protocol version (string).
     :return: curl command (string), sensitive string to be obscured before dumping to log (string).
     """
 
     auth_token_content = ''
-    auth_token = os.environ.get('PANDA_AUTH_TOKEN', None)  # file name of the token
-    auth_origin = os.environ.get('PANDA_AUTH_ORIGIN', None)  # origin of the token (panda_dev.pilot)
+    auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN', None))  # file name of the token
+    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN', None))  # origin of the token (panda_dev.pilot)
 
+    command = 'curl'
+    if ipv == 'IPv4':
+        command += ' -4'
     if auth_token and auth_origin:
         # curl --silent --capath
         # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
@@ -274,21 +297,21 @@ def get_curl_command(plain, dat):
             auth_token_content = read_file(path)
             if not auth_token_content:
                 logger.warning(f'failed to read file {path}')
-                return None
+                return None, ''
         else:
             logger.warning(f'path does not exist: {path}')
-            return None
+            return None, ''
         if not auth_token_content:
-            logger.warning('PANDA_AUTH_TOKEN content could not be read')
-            return None
-        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+            return None, ''
+        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
               f'-H "Authorization: Bearer {pipes.quote(auth_token_content)}" ' \
               f'-H {pipes.quote("Accept: application/json") if not plain else ""} ' \
               f'-H "Origin: {pipes.quote(auth_origin)}" {dat}'
     else:
-        req = f'curl -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
+        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
               f'--cert {pipes.quote(_ctx.cacert or "")} ' \
@@ -309,7 +332,7 @@ def locate_token(auth_token):
     :return: path to token (string).
     """
 
-    _primary = os.path.dirname(os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', '')))
+    _primary = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(_primary, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
@@ -409,7 +432,7 @@ def get_urlopen_output(req, context):
     return exitcode, output
 
 
-def send_update(update_function, data, url, port, job=None):
+def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
     """
     Send the update to the server using the given function and data.
 
@@ -418,6 +441,7 @@ def send_update(update_function, data, url, port, job=None):
     :param url: server url (string).
     :param port: server port (string).
     :param job: job object.
+    :param ipv: internet protocol version, IPv4 or IPv6 (string).
     :return: server response (dictionary).
     """
 
@@ -431,10 +455,18 @@ def send_update(update_function, data, url, port, job=None):
         data['state'] = 'failed'
         if job:
             job.state = 'failed'
+            job.completed = True
             msg = 'the max batch system time limit has been reached'
             logger.warning(msg)
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
             add_error_codes(data, job)
+
+    # do not allow any delayed heartbeat messages for running state, if the job has completed (ie another call to this
+    # function was already made by another thread for finished/failed state)
+    if job:  # ignore for updateWorkerPilotStatus calls
+        if job.completed and (job.state == 'running' or job.state == 'starting'):
+            logger.warning(f'will not send job update for {job.state} state since the job has already completed')
+            return None  # should be ignored
 
     while attempt < max_attempts and not done:
         logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
@@ -449,7 +481,7 @@ def send_update(update_function, data, url, port, job=None):
             continue
         # send the heartbeat
         try:
-            res = request(f'{pandaserver}/server/panda/{update_function}', data=data)
+            res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
         else:
@@ -469,6 +501,9 @@ def send_update(update_function, data, url, port, job=None):
                 res['pilotSecrets'] = pilotsecrets
 
         attempt += 1
+        if not done:
+            sleep(config.Pilot.update_sleep)
+
     return res
 
 

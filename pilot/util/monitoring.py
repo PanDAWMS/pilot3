@@ -5,29 +5,54 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 # This module contains implementations of job monitoring tasks
 
 import os
 import time
-from subprocess import PIPE
+import re
+import subprocess
 from glob import glob
+from typing import Any
+from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.common.exception import PilotException, MiddlewareImportFailure
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
-from pilot.util.filehandling import get_disk_usage, remove_files, get_local_file_size, read_file
+from pilot.util.filehandling import (
+    get_disk_usage,
+    remove_files,
+    get_local_file_size,
+    read_file,
+    zip_files
+)
 from pilot.util.loopingjob import looping_job
-from pilot.util.math import convert_mb_to_b, human2bytes
-from pilot.util.parameters import convert_to_int, get_maximum_input_sizes
-from pilot.util.processes import get_current_cpu_consumption_time, kill_processes, get_number_of_child_processes,\
-    get_subprocesses
+from pilot.util.math import (
+    convert_mb_to_b,
+    human2bytes
+)
+from pilot.util.parameters import (
+    convert_to_int,
+    get_maximum_input_sizes
+)
+from pilot.util.processes import (
+    get_current_cpu_consumption_time,
+    kill_processes,
+    get_number_of_child_processes,
+    get_subprocesses,
+    reap_zombies
+)
+from pilot.util.psutils import is_process_running
 from pilot.util.timing import get_time_since
-from pilot.util.workernode import get_local_disk_space, check_hz
+from pilot.util.workernode import (
+    get_local_disk_space,
+    check_hz
+)
+from pilot.info import infosys
 
 import logging
 logger = logging.getLogger(__name__)
@@ -35,7 +60,7 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def job_monitor_tasks(job, mt, args):
+def job_monitor_tasks(job, mt, args):  # noqa: C901
     """
     Perform the tasks for the job monitoring.
     The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
@@ -50,12 +75,26 @@ def job_monitor_tasks(job, mt, args):
     exit_code = 0
     diagnostics = ""
 
+    # verify that the process is still alive
+    if not still_running(job.pid):
+        return 0, ""
+
     current_time = int(time.time())
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
+
+        # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
+        if job.utilities != {}:
+            utility_monitor(job)
+
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
+
+        # verify that the process is still alive (again)
+        if not still_running(job.pid):
+            return 0, ""
+
         try:
             cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
         except Exception as error:
@@ -64,9 +103,14 @@ def job_monitor_tasks(job, mt, args):
             exit_code = get_exception_error_code(diagnostics)
             return exit_code, diagnostics
         else:
-            job.cpuconsumptiontime = int(round(cpuconsumptiontime))
-            job.cpuconversionfactor = 1.0
-            logger.info(f'CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            _cpuconsumptiontime = int(round(cpuconsumptiontime))
+            if _cpuconsumptiontime > 0:
+                job.cpuconsumptiontime = int(round(cpuconsumptiontime))
+                job.cpuconversionfactor = 1.0
+                logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            else:
+                logger.warning(f'process {job.pid} is no longer using CPU - aborting')
+                return 0, ""
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
@@ -76,7 +120,7 @@ def job_monitor_tasks(job, mt, args):
         set_number_used_cores(job, time_since_start)
 
         # check memory usage (optional) for jobs in running state
-        exit_code, diagnostics = verify_memory_usage(current_time, mt, job)
+        exit_code, diagnostics = verify_memory_usage(current_time, mt, job, debug=args.debug)
         if exit_code != 0:
             return exit_code, diagnostics
 
@@ -87,6 +131,12 @@ def job_monitor_tasks(job, mt, args):
     exit_code, diagnostics = should_abort_payload(current_time, mt)
     if exit_code != 0:
         return exit_code, diagnostics
+
+    # check lease time in stager/pod mode on Kubernetes
+    if args.workflow == 'stager':
+        exit_code, diagnostics = check_lease_time(current_time, mt, args.leasetime)
+        if exit_code != 0:
+            return exit_code, diagnostics
 
     # is it time to verify the pilot running time?
 #    exit_code, diagnostics = verify_pilot_running_time(current_time, mt, job)
@@ -115,11 +165,26 @@ def job_monitor_tasks(job, mt, args):
         if exit_code != 0:
             return exit_code, diagnostics
 
-    # make sure that any utility commands are still running
-    if job.utilities != {}:
-        utility_monitor(job)
+    logger.debug(f'job monitor tasks loop took {int(time.time()) - current_time} s to complete')
 
     return exit_code, diagnostics
+
+
+def still_running(pid):
+    # verify that the process is still alive
+
+    running = False
+    try:
+        if pid:
+            if not is_process_running(pid):
+                logger.warning(f'aborting job monitor tasks since payload process {pid} is not running')
+            else:
+                running = True
+                logger.debug(f'payload process {pid} is running')
+    except MiddlewareImportFailure as exc:
+        logger.warning(f'exception caught: {exc}')
+
+    return running
 
 
 def display_oom_info(payload_pid):
@@ -196,18 +261,20 @@ def set_number_used_cores(job, walltime):
     cpu.set_core_counts(**kwargs)
 
 
-def verify_memory_usage(current_time, mt, job):
+def verify_memory_usage(current_time, mt, job, debug=False):
     """
     Verify the memory usage (optional).
     Note: this function relies on a stand-alone memory monitor tool that may be executed by the Pilot.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param job: job object.
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param job: job object
+    :param debug: True for args.debug==True (Boolean)
     :return: exit code (int), error diagnostics (string).
     """
 
-    show_memory_usage()
+    #if debug:
+    #    show_memory_usage()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)
@@ -314,6 +381,13 @@ def verify_looping_job(current_time, mt, job, args):
         return 0, ""
 
     if current_time - mt.get('ct_looping') > looping_verification_time:
+
+        # remove any lingering defunct processes
+        try:
+            reap_zombies()
+        except Exception as exc:
+            logger.warning(f'reap_zombies threw an exception: {exc}')
+
         # is the job looping?
         try:
             exit_code, diagnostics = looping_job(job, mt)
@@ -335,14 +409,41 @@ def verify_looping_job(current_time, mt, job, args):
     return 0, ""
 
 
+def check_lease_time(current_time, mt, leasetime):
+    """
+    Check the lease time in stager mode.
+
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param leasetime: lease time in seconds (int)
+    :return: exit code (int), error diagnostics (string).
+    """
+
+    exit_code = 0
+    diagnostics = ''
+    if current_time - mt.get('ct_lease') > 10:
+        # time to check the lease time
+
+        logger.debug(f'checking lease time (lease time={leasetime})')
+        if current_time - mt.get('ct_start') > leasetime:
+            diagnostics = f"lease time is up: {current_time - mt.get('ct_start')} s has passed since start - abort stager pilot"
+            logger.warning(diagnostics)
+            exit_code = errors.LEASETIME
+
+        # update the ct_lease with the current time
+        mt.update('ct_lease')
+
+    return exit_code, diagnostics
+
+
 def verify_disk_usage(current_time, mt, job):
     """
     Verify the disk usage.
     The function checks 1) payload stdout size, 2) local space, 3) work directory size, 4) output file sizes.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param job: job object.
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object
+    :param job: job object
     :return: exit code (int), error diagnostics (string).
     """
 
@@ -351,9 +452,13 @@ def verify_disk_usage(current_time, mt, job):
         # time to check the disk space
 
         # check the size of the payload stdout
-        exit_code, diagnostics = check_payload_stdout(job)
-        if exit_code != 0:
-            return exit_code, diagnostics
+        try:
+            exit_code, diagnostics = check_payload_stdout(job)
+        except Exception as exc:
+            logger.warning(f'caught exception: {exc}')
+        else:
+            if exit_code != 0:
+                return exit_code, diagnostics
 
         # check the local space, if it's enough left to keep running the job
         exit_code, diagnostics = check_local_space(initial=False)
@@ -410,7 +515,7 @@ def verify_running_processes(current_time, mt, pid):
     return 0, ""
 
 
-def utility_monitor(job):
+def utility_monitor(job):  # noqa: C901
     """
     Make sure that any utility commands are still running.
     In case a utility tool has crashed, this function may restart the process.
@@ -426,9 +531,39 @@ def utility_monitor(job):
     # loop over all utilities
     for utcmd in list(job.utilities.keys()):  # E.g. utcmd = MemoryMonitor
 
-        # make sure the subprocess is still running
         utproc = job.utilities[utcmd][0]
+
+        if utcmd == 'MemoryMonitor':
+            if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
+                try:
+                    _ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
+                    prmon = f'prmon --pid {job.pid}'
+                    pid = None
+                    pattern = r'\b\d+\b'
+                    for line in _ps.stdout.split('\n'):
+                        # line=atlprd55  16451  0.0  0.0   2944  1148 ?        SN   17:42   0:00 prmon --pid 13096 ..
+                        if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
+                            matches = re.findall(pattern, line)
+                            if matches:
+                                pid = matches[0]
+                                logger.info(f'extracting prmon pid from line: {line}')
+                                break
+                    if pid:
+                        logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')
+                        job.utilities[utcmd].append(pid)
+                    else:
+                        logger.info(f'could not extract any pid from ps for cmd={prmon}')
+
+                except subprocess.CalledProcessError as exc:
+                    logger.warning(f"error: {exc}")
+
+        # make sure the subprocess is still running
         if not utproc.poll() is None:
+
+            # clean up the process
+            kill_process(utproc)
+
             if job.state == 'finished' or job.state == 'failed' or job.state == 'stageout':
                 logger.debug('no need to restart utility command since payload has finished running')
                 continue
@@ -442,7 +577,7 @@ def utility_monitor(job):
 
                 try:
                     proc1 = execute(utility_command, workdir=job.workdir, returnproc=True, usecontainer=False,
-                                    stdout=PIPE, stderr=PIPE, cwd=job.workdir, queuedata=job.infosys.queuedata)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=job.workdir, queuedata=job.infosys.queuedata)
                 except Exception as error:
                     logger.error(f'could not execute: {error}')
                 else:
@@ -458,6 +593,27 @@ def utility_monitor(job):
                 logger.warning(f'file: {path} does not exist')
 
             time.sleep(10)
+
+
+def kill_process(process: Any):
+    """
+    Kill process before restart to get rid of defunct processes.
+
+    :param process: process object
+    """
+
+    diagnostics = ''
+    try:
+        logger.warning('killing lingering subprocess')
+        process.kill()
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process group) ProcessLookupError={exc}'
+    try:
+        logger.warning('killing lingering process')
+        os.kill(process.pid, SIGKILL)
+    except ProcessLookupError as exc:
+        diagnostics += f'\n(kill process) ProcessLookupError={exc}'
+    logger.warning(f'sent hard kill signal - final stderr: {diagnostics}')
 
 
 def get_local_size_limit_stdout(bytes=True):
@@ -512,45 +668,83 @@ def check_payload_stdout(job):
     logger.debug(f'file list={file_list}')
 
     # now loop over all files and check each individually (any large enough file will fail the job)
+    to_be_zipped = []
     for filename in file_list:
 
-        logger.debug(f'check_payload_stdout: filename={filename}')
         if "job.log.tgz" in filename:
-            logger.info(f"skipping file size check of file ({filename}) since it is a special log file")
+            logger.debug(f"skipping file size check of file ({filename}) since it is a special log file")
             continue
 
         if os.path.exists(filename):
-            try:
-                # get file size in bytes
-                fsize = os.path.getsize(filename)
-            except Exception as error:
-                logger.warning(f"could not read file size of {filename}: {error}")
-            else:
-                # is the file too big?
-                localsizelimit_stdout = get_local_size_limit_stdout()
-                if fsize > localsizelimit_stdout:
-                    exit_code = errors.STDOUTTOOBIG
-                    diagnostics = f"Payload stdout file too big: {fsize} B (larger than limit {localsizelimit_stdout} B)"
-                    logger.warning(diagnostics)
-
-                    # kill the job
-                    set_pilot_state(job=job, state="failed")
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
-                    kill_processes(job.pid)
-
-                    # remove the payload stdout file after the log extracts have been created
-
-                    # remove any lingering input files from the work dir
-                    lfns, guids = job.get_lfns_and_guids()
-                    if lfns:
-                        # remove any lingering input files from the work dir
-                        exit_code = remove_files(job.workdir, lfns)
-                else:
-                    logger.info(f"payload log ({os.path.basename(filename)}) within allowed size limit ({localsizelimit_stdout} B): {fsize} B")
+            _exit_code, to_be_zipped = check_log_size(filename, to_be_zipped=to_be_zipped)
+            if _exit_code:  # do not break loop so that other logs can get zipped if necessary
+                exit_code = _exit_code
         else:
             logger.info(f"skipping file size check of payload stdout file ({filename}) since it has not been created yet")
 
+    if exit_code:
+        # remove any lingering input files from the work dir
+        lfns, guids = job.get_lfns_and_guids()
+        if lfns:
+            # remove any lingering input files from the work dir
+            remove_files(lfns, workdir=job.workdir)
+
+    if to_be_zipped:
+        logger.warning(f'the following files will be zipped: {to_be_zipped}')
+        archivename = os.path.join(job.workdir, 'oversized_files.zip')
+        status = zip_files(archivename, to_be_zipped)
+        if status:
+            logger.info(f'created archive {archivename}')
+            # verify that the new file size is not too big (ignore exit code, should already be set above)
+            _exit_code, _ = check_log_size(archivename, to_be_zipped=None, archive=True)
+            if _exit_code:
+                logger.warning('also the archive was too large - will be removed')
+                remove_files([archivename])
+
+        # remove logs
+        remove_files(to_be_zipped)
+
+        # kill the job
+        set_pilot_state(job=job, state="failed")
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+        kill_processes(job.pid)  # will not return
+
     return exit_code, diagnostics
+
+
+def check_log_size(filename, to_be_zipped=None, archive=False):
+    """
+    Check the payload log file size.
+    The log will be added to the list of files to be zipped, if too large.
+
+    :param filename: file path (string)
+    :param to_be_zipped: list of files to be zipped
+    :param archive: is this file an archive? (boolean)
+    :return: exit code (int), to_be_zipped (list)
+    """
+
+    exit_code = 0
+
+    try:
+        # get file size in bytes
+        fsize = os.path.getsize(filename)
+    except Exception as error:
+        logger.warning(f"could not read file size of {filename}: {error}")
+    else:
+        # is the file too big?
+        localsizelimit_stdout = get_local_size_limit_stdout()
+        if fsize > localsizelimit_stdout:
+            exit_code = errors.STDOUTTOOBIG
+            label = 'archive' if archive else 'log file'
+            diagnostics = f"{label} {filename} is too big: {fsize} B (larger than limit {localsizelimit_stdout} B) [will be zipped]"
+            logger.warning(diagnostics)
+            if to_be_zipped is not None:
+                to_be_zipped.append(filename)
+        else:
+            logger.info(
+                f"payload log ({os.path.basename(filename)}) within allowed size limit ({localsizelimit_stdout} B): {fsize} B")
+
+    return exit_code, to_be_zipped
 
 
 def check_local_space(initial=True):
@@ -630,7 +824,7 @@ def check_work_dir(job):
                 # remove any lingering input files from the work dir
                 lfns, guids = job.get_lfns_and_guids()
                 if lfns:
-                    remove_files(job.workdir, lfns)
+                    remove_files(lfns, workdir=job.workdir)
 
                     # remeasure the size of the workdir at this point since the value is stored below
                     workdirsize = get_disk_usage(job.workdir)
@@ -673,16 +867,15 @@ def get_max_allowed_work_dir_size():
     return maxwdirsize
 
 
-def get_max_input_size(queuedata, megabyte=False):
+def get_max_input_size(megabyte=False):
     """
     Return a proper maxinputsize value.
 
-    :param queuedata: job.infosys.queuedata object.
     :param megabyte: return results in MB (Boolean).
     :return: max input size (int).
     """
 
-    _maxinputsize = queuedata.maxwdir  # normally 14336+2000 MB
+    _maxinputsize = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     max_input_file_sizes = 14 * 1024 * 1024 * 1024  # 14 GB, 14336 MB (pilot default)
     max_input_file_sizes_mb = 14 * 1024  # 14336 MB (pilot default)
     if _maxinputsize != "":
@@ -750,6 +943,10 @@ def store_subprocess_pids(job):
     :param job: job object.
     :return:
     """
+
+    # only store the pid once
+    if job.subprocesses:
+        return
 
     # is the payload running?
     if job.pid:

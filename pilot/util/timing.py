@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 # Note: The Pilot 2 modules that need to record timing measurements, can do so using the add_to_pilot_timing() function.
 # When the timing measurements need to be recorded, the high-level functions, e.g. get_getjob_time(), can be used.
@@ -19,11 +19,29 @@ import os
 import time
 
 from pilot.util.config import config
-from pilot.util.constants import PILOT_START_TIME, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, PILOT_PRE_SETUP, \
-    PILOT_POST_SETUP, PILOT_PRE_STAGEIN, PILOT_POST_STAGEIN, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, PILOT_PRE_STAGEOUT,\
-    PILOT_POST_STAGEOUT, PILOT_PRE_FINAL_UPDATE, PILOT_POST_FINAL_UPDATE, PILOT_END_TIME, PILOT_MULTIJOB_START_TIME
-from pilot.util.filehandling import read_json, write_json
-#from pilot.util.mpi import get_ranks_info
+from pilot.util.constants import (
+    PILOT_START_TIME,
+    PILOT_PRE_GETJOB,
+    PILOT_POST_GETJOB,
+    PILOT_PRE_SETUP,
+    PILOT_POST_SETUP,
+    PILOT_PRE_STAGEIN,
+    PILOT_POST_STAGEIN,
+    PILOT_PRE_PAYLOAD,
+    PILOT_POST_PAYLOAD,
+    PILOT_PRE_STAGEOUT,
+    PILOT_POST_STAGEOUT,
+    PILOT_PRE_FINAL_UPDATE,
+    PILOT_POST_FINAL_UPDATE,
+    PILOT_END_TIME,
+    PILOT_MULTIJOB_START_TIME,
+    PILOT_PRE_LOG_TAR,
+    PILOT_POST_LOG_TAR
+)
+from pilot.util.filehandling import (
+    read_json,
+    write_json
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -146,6 +164,18 @@ def get_stageout_time(job_id, args):
     """
 
     return get_time_difference(job_id, PILOT_PRE_STAGEOUT, PILOT_POST_STAGEOUT, args)
+
+
+def get_log_creation_time(job_id, args):
+    """
+    High level function that returns the time for creating the job log for the given job_id.
+
+    :param job_id: PanDA job id (string).
+    :param args: pilot arguments.
+    :return: time in seconds (int).
+    """
+
+    return get_time_difference(job_id, PILOT_PRE_LOG_TAR, PILOT_POST_LOG_TAR, args)
 
 
 def get_payload_execution_time(job_id, args):
@@ -272,7 +302,7 @@ def get_time_since(job_id, timing_constant, args):
         if time_measurement_dictionary:
             time_measurement = get_time_measurement(timing_constant, time_measurement_dictionary, args.timing)
             if time_measurement:
-                diff = time.time() - time_measurement
+                diff = int(time.time() - time_measurement)
         else:
             logger.warning(f'failed to extract time measurement dictionary from {args.timing}')
     else:
@@ -349,6 +379,8 @@ def timing_report(job_id, args):
     time_stagein = get_stagein_time(job_id, args)
     time_payload = get_payload_execution_time(job_id, args)
     time_stageout = get_stageout_time(job_id, args)
+    time_log_creation = get_log_creation_time(job_id, args)
+
     logger.info('.' * 30)
     logger.info('. Timing measurements:')
     logger.info(f'. get job = {time_getjob} s')
@@ -358,9 +390,10 @@ def timing_report(job_id, args):
     logger.info(f'. stage-in = {time_stagein} s')
     logger.info(f'. payload execution = {time_payload} s')
     logger.info(f'. stage-out = {time_stageout} s')
+    logger.info(f'. log creation = {time_log_creation} s')
     logger.info('.' * 30)
 
-    return time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup
+    return time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation
 
 
 def time_stamp():

@@ -5,13 +5,14 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-2023
 
 import socket
 import json
 import random
 import logging
 import sys
+from typing import Any
 
 try:
     import stomp
@@ -37,60 +38,62 @@ class Listener(connectionlistener):
 
     messages = []
 
-    def __init__(self, broker=None, queues=None):
+    def __init__(self, broker: Any = None, queues: Any = None) -> None:
         """
         Init function.
 
-        :param broker:
-        :param queues: queues
+        :param broker: broker
+        :param queues: queues.
         """
 
-        self.__broker = None
+        self.__broker = broker
         self.__queues = queues
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def set_broker(self, broker):
+    def set_broker(self, broker: Any) -> None:
         """
         Define broker for internal use.
 
-        :param broker:
+        :param broker: broker.
         """
 
         self.__broker = broker
 
-    def on_error(self, frame):
+    def on_error(self, frame: Any) -> None:
         """
         Error handler.
 
-        :param frame:
+        :param frame: frame.
         """
 
-        self.logger.warning('received an error "%s"' % frame)
+        self.logger.warning(f'received an error "{frame}"')
         # store error in messages?
 
-    def on_message(self, frame):
+    def on_message(self, frame: Any) -> None:
         """
         Message handler.
 
-        :param frame:
+        :param frame: frame.
         """
 
-        self.logger.info('received a message "%s"' % frame.body)
+        self.logger.info(f'received a message "{frame.body}"')
         body = json.loads(frame.body)
         if body not in [_obj for _obj in list(self.__queues.mbmessages.queue)]:
             self.__queues.mbmessages.put(body)
         #if body not in self.messages:
         #    self.messages.append(body)
 
-    def get_messages(self):
+    def get_messages(self) -> list:
         """
         Return stored messages to user.
+
+        :return: messages (list).
         """
 
         return self.messages
 
 
-class ActiveMQ(object):
+class ActiveMQ:
     """
     ActiveMQ class.
     Note: the class can be used for either topic or queue messages.
@@ -111,7 +114,7 @@ class ActiveMQ(object):
     listener = None
     queues = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict) -> None:
         """
         Init function.
         Note: the init function sets up all connections and starts the listener.
@@ -160,7 +163,6 @@ class ActiveMQ(object):
                                           keepalive=True)
             except Exception as exc:  # primarily used to avoid interpreted problem with stomp is not available
                 self.logger.warning(f'exception caught: {exc}')
-                pass
             else:
                 if conn not in self.connections:
                     self.connections.append(conn)
@@ -179,16 +181,20 @@ class ActiveMQ(object):
 
                 self.logger.debug('subscribed')
 
-    def get_messages(self):
+    def get_messages(self) -> list:
         """
         Return messages to user.
+
+        :return: messages (list).
         """
         self.logger.debug(f'getting messages from {self.listener}')
         return self.listener.get_messages() if self.listener else []
 
-    def send_message(self, message):
+    def send_message(self, message: str) -> None:
         """
         Send a message to a topic or queue.
+
+        :param message: message (string).
         """
 
         conn = random.choice(self.connections)
@@ -197,7 +203,7 @@ class ActiveMQ(object):
                   headers={'persistent': 'true', 'vo': 'atlas'})
         self.logger.debug('sent message')
 
-    def close_connections(self):
+    def close_connections(self) -> None:
         """
         Close all open connections.
         """
@@ -210,17 +216,16 @@ class ActiveMQ(object):
             else:
                 self.logger.debug(f'closed connection to {conn}')
 
-    def get_credentials(self):
+    def get_credentials(self) -> None:
         """
         Download username+password from the PanDA server for ActiveMQ authentication.
-
-        :return: credentials dictionary.
+        Note: this function does not return anything, only sets private username and password.
         """
 
         res = {}
         if not self.pandaurl or self.pandaport == 0:
             self.logger.warning('PanDA server URL and/or port not set - cannot get ActiveMQ credentials')
-            return {}
+            return
 
         data = {'get_json': True, 'keys': 'MB_USERNAME,MB_PASSWORD'}
         cmd = https.get_server_command(self.pandaurl, self.pandaport, cmd='get_user_secrets')

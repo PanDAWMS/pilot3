@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from __future__ import print_function  # Python 2
@@ -16,7 +16,6 @@ import os
 import time
 import hashlib
 import logging
-import multiprocessing
 import queue
 from collections import namedtuple
 
@@ -30,29 +29,30 @@ from pilot.util import https
 from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import get_batchsystem_jobid, get_job_scheduler_id, \
     set_pilot_state, get_pilot_state, check_for_final_server_update, pilot_version_banner, is_virtual_machine, \
-    has_instruction_sets, locate_core_file, get_display_info
+    has_instruction_sets, locate_core_file, get_display_info, encode_globaljobid
 from pilot.util.config import config
 from pilot.util.common import should_abort, was_pilot_killed
 from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, PILOT_KILL_SIGNAL, LOG_TRANSFER_NOT_DONE, \
     LOG_TRANSFER_IN_PROGRESS, LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_TROUBLE, SERVER_UPDATE_FINAL, \
     SERVER_UPDATE_UPDATING, SERVER_UPDATE_NOT_DONE
 from pilot.util.container import execute
-from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, establish_logging, write_file, \
+from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, write_file, \
     create_symlink, write_json
 from pilot.util.harvester import request_new_jobs, remove_job_request_file, parse_job_definition_file, \
     is_harvester_mode, get_worker_attributes_file, publish_job_report, publish_work_report, get_event_status_file, \
     publish_stageout_files
 from pilot.util.jobmetrics import get_job_metrics
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
-from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes
+from pilot.util.processes import cleanup, threads_aborted, kill_process, kill_processes, kill_defunct_children
 from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import scan_for_jobs, put_in_queue, queue_report, purge_queue
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import add_to_pilot_timing, timing_report, get_postgetjob_time, get_time_since, time_stamp
-from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model
+from pilot.util.workernode import get_disk_space, collect_workernode_info, get_node_name, get_cpu_model, get_cpu_cores, get_cpu_arch
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -108,11 +108,9 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] control thread has finished')
     # test kill signal during end of generic workflow
@@ -304,7 +302,6 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     """
 
     # insert out of batch time error code if MAXTIME has been reached
-    logger.debug(f"REACHED_MAXTIME={os.environ.get('REACHED_MAXTIME', None)}")
     if os.environ.get('REACHED_MAXTIME', None):
         msg = 'the max batch system time limit has been reached'
         logger.warning(msg)
@@ -313,6 +310,12 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         job.state = state
 
     state = get_proper_state(job, state)
+    if state == 'finished' or state == 'holding' or state == 'failed':
+        logger.info(f'this job has now completed (state={state})')
+        # job.completed = True  - do not set that here (only after the successful final server update)
+    elif args.pod and args.workflow == 'stager':
+        state = 'running'  # stager pods should only send 'running' since harvester already has set the 'starting' state
+        job.state = state
 
     # should the pilot make any server updates?
     if not args.update_server:
@@ -322,7 +325,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for updateJob
-    data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
+    data = get_data_structure(job, state, args, xml=xml, metadata=metadata, final=final)
     logger.debug(f'data={data}')
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -338,7 +341,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         logger.info('skipping job update for fake test job')
         return True
 
-    res = https.send_update('updateJob', data, args.url, args.port, job=job)
+    res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()
@@ -346,8 +349,13 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
 
-        if final:
+        if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+
+        if state == 'finished' or state == 'holding' or state == 'failed':
+            logger.info(f'setting job as completed (state={state})')
+            job.completed = True
+
         return True
 
     if final:
@@ -500,21 +508,26 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
     if 'command' in res and res.get('command') != 'NULL':
         # warning: server might return comma-separated string, 'debug,tobekilled'
         cmd = res.get('command')
+
+        # for testing debug command: cmd = 'tail pilotlog.txt'
+
         # is it a 'command options'-type? debug_command=tail .., ls .., gdb .., ps .., du ..
         if ' ' in cmd and 'tobekilled' not in cmd:
-            try:
-                job.debug, job.debug_command = get_debug_command(cmd)
-            except Exception as error:
-                logger.debug(f'exception caught in get_debug_command(): {error}')
+            job.debug, job.debug_command = get_debug_command(cmd)
         elif 'tobekilled' in cmd:
             logger.info(f'pilot received a panda server signal to kill job {job.jobid} at {time_stamp()}')
-            set_pilot_state(job=job, state="failed")
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
+            if not os.path.exists(job.workdir):  # jobUpdate might be delayed - do not cause problems for new downloaded job
+                logger.warning(f'job.workdir ({job.workdir}) does not exist - ignore kill instruction')
+                return
+            if args.workflow == 'stager':
+                logger.info('will set interactive job to finished (server will override this, but harvester will not)')
+                set_pilot_state(job=job, state="finished")  # this will let pilot finish naturally and report exit code 0 to harvester
+            else:
+                set_pilot_state(job=job, state="failed")
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PANDAKILL)
             if job.pid:
                 logger.debug('killing payload process')
                 kill_process(job.pid)
-            else:
-                logger.debug('no pid to kill')
             args.abort_job.set()
         elif 'softkill' in cmd:
             logger.info(f'pilot received a panda server signal to softkill job {job.jobid} at {time_stamp()}')
@@ -574,12 +587,12 @@ def add_data_structure_ids(data, version_tag, job):
         else:
             data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
     else:
-        logger.debug('no pilotid')
+        logger.warning('pilotid not available')
 
     return data
 
 
-def get_data_structure(job, state, args, xml=None, metadata=None):
+def get_data_structure(job, state, args, xml=None, metadata=None, final=False):  # noqa: C901
     """
     Build the data structure needed for updateJob.
 
@@ -588,10 +601,10 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     :param args: Pilot args object.
     :param xml: optional XML string.
     :param metadata: job report metadata read as a string.
+    :param final: is this for the final server update? (Boolean).
     :return: data structure (dictionary).
     """
 
-    logger.debug(f'state={state}')
     data = {'jobId': job.jobid,
             'state': state,
             'timestamp': time_stamp(),
@@ -622,7 +635,6 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     # add the core count
     if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
         data['coreCount'] = job.corecount
-        #data['coreCount'] = mean(job.corecounts) if job.corecounts else job.corecount
     if job.corecounts:
         _mean = mean(job.corecounts)
         logger.info(f'mean actualcorecount: {_mean}')
@@ -635,12 +647,14 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
     else:
         logger.info("payload/TRF did not report the number of read events")
 
-    # get the CU consumption time
+    # get the CPU consumption time
     constime = get_cpu_consumption_time(job.cpuconsumptiontime)
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + get_cpu_model()
+    cpumodel = get_cpu_model()
+    cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
+    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
     instruction_sets = has_instruction_sets(['AVX2'])
     product, vendor = get_display_info()
@@ -651,6 +665,11 @@ def get_data_structure(job, state, args, xml=None, metadata=None):
             data['cpuConsumptionUnit'] = instruction_sets
         if product and vendor:
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
+
+    cpu_arch = get_cpu_arch()
+    if cpu_arch:
+        logger.debug(f'cpu arch={cpu_arch}')
+        data['cpu_architecture_level'] = cpu_arch
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
@@ -853,11 +872,10 @@ def add_timing_and_extracts(data, job, state, args):
     :return:
     """
 
-    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup = timing_report(job.jobid, args)
-    #data['pilotTiming'] = "%s|%s|%s|%s|%s" % \
-    #                      (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup + time_setup)
+    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
     data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
                           (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
+    logger.debug(f'could have reported time_log_creation={time_log_creation} s')
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""
@@ -1047,23 +1065,23 @@ def validate(queues, traces, args):
                 logger.warning(f'exception caught: {error}')
 
             # store the PanDA job id for the wrapper to pick up
-            store_jobid(job.jobid, args.sourcedir)
+            if not args.pod:
+                store_jobid(job.jobid, args.sourcedir)
+
+                # make sure that ctypes is available (needed at the end by orphan killer)
+                verify_ctypes(queues, job)
 
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
 
-            # make sure that ctypes is available (needed at the end by orphan killer)
-            verify_ctypes(queues, job)
         else:
             logger.debug(f'failed to validate job={job.jobid}')
             put_in_queue(job, queues.failed_jobs)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] validate thread has finished')
 
@@ -1172,9 +1190,14 @@ def store_jobid(jobid, init_dir):
     :return:
     """
 
-    try:
+    pilot_source_dir = os.environ.get('PANDA_PILOT_SOURCE', '')
+    if pilot_source_dir:
+        path = os.path.join(pilot_source_dir, config.Pilot.jobid_file)
+    else:
         path = os.path.join(os.path.join(init_dir, 'pilot3'), config.Pilot.jobid_file)
         path = path.replace('pilot3/pilot3', 'pilot3')  # dirty fix for bad paths
+
+    try:
         mode = 'a' if os.path.exists(path) else 'w'
         write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)
     except Exception as error:
@@ -1212,17 +1235,24 @@ def create_data_payload(queues, traces, args):
             # if the job does not have any input data, then pretend that stage-in has finished and put the job
             # in the finished_data_in queue
             put_in_queue(job, queues.finished_data_in)
+            # for stager jobs in pod mode, let the server know the job is running, then terminate the pilot as it is no longer needed
+            if args.pod and args.workflow == 'stager':
+                set_pilot_state(job=job, state='running')
+                ret = send_state(job, args, 'running')
+                if not ret:
+                    traces.pilot['error_code'] = errors.COMMUNICATIONFAILURE
+                logger.info('pilot is no longer needed - terminating')
+                args.job_aborted.set()
+                args.graceful_stop.set()
 
         # only in normal workflow; in the stager workflow there is no payloads queue
         if not args.workflow == 'stager':
             put_in_queue(job, queues.payloads)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='create_data_payload'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] create_data_payload thread has finished')
 
@@ -1446,19 +1476,21 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     return True
 
 
-def get_job_definition_from_file(path, harvester):
+def get_job_definition_from_file(path, harvester, pod):
     """
     Get a job definition from a pre-placed file.
     In Harvester mode, also remove any existing job request files since it is no longer needed/wanted.
 
-    :param path: path to job definition file.
+    :param path: path to job definition file
     :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False
+    :param pod: True if pilot is running in a pod, otherwise False
     :return: job definition dictionary.
     """
 
     # remove any existing Harvester job request files (silent in non-Harvester mode) and read the JSON
-    if harvester:
-        remove_job_request_file()
+    if harvester or pod:
+        if harvester:
+            remove_job_request_file()
         if is_json(path):
             job_definition_list = parse_job_definition_file(path)
             if not job_definition_list:
@@ -1567,7 +1599,7 @@ def get_job_definition(queues, args):
         res = get_fake_job()
     elif os.path.exists(path):
         logger.info(f'will read job definition from file: {path}')
-        res = get_job_definition_from_file(path, args.harvester)
+        res = get_job_definition_from_file(path, args.harvester, args.pod)
     else:
         if args.harvester and args.harvester_submitmode.lower() == 'push':
             pass  # local job definition file not found (go to sleep)
@@ -1624,6 +1656,9 @@ def get_message_from_mb(args):
     if args.graceful_stop.is_set():
         logger.debug('will not start ActiveMQ since graceful_stop is set')
         return None
+
+    # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
+    import multiprocessing
 
     ctx = multiprocessing.get_context('spawn')
     message_queue = ctx.Queue()
@@ -1921,7 +1956,9 @@ def retrieve(queues, traces, args):  # noqa: C901
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL
             check_for_final_server_update(args.update_server)
+            logger.warning('setting graceful_stop since proceed_with_getjob() returned False (pilot will end)')
             args.graceful_stop.set()
+            args.abort_job.set()
             break
 
         # store time stamp
@@ -1937,13 +1974,14 @@ def retrieve(queues, traces, args):  # noqa: C901
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL
             check_for_final_server_update(args.update_server)
+            logger.warning('setting graceful_stop since no job definition could be received (pilot will end)')
             args.graceful_stop.set()
             break
 
         if not res:
             getjob_failures += 1
             if getjob_failures >= args.getjob_failures:
-                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
+                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
                 args.graceful_stop.set()
                 break
 
@@ -1994,6 +2032,11 @@ def retrieve(queues, traces, args):  # noqa: C901
                 add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
                 add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
 
+                # for debugging on HTCondor purposes, set special env var
+                # (only proceed if there is a condor class ad)
+                if os.environ.get('_CONDOR_JOB_AD', None):
+                    htcondor_envvar(job.jobid)
+
                 # add the job definition to the jobs queue and increase the job counter,
                 # and wait until the job has finished
                 put_in_queue(job, queues.jobs)
@@ -2001,6 +2044,9 @@ def retrieve(queues, traces, args):  # noqa: C901
                 jobnumber += 1
                 while not args.graceful_stop.is_set():
                     if has_job_completed(queues, args):
+                        # make sure there are no lingering defunct subprocesses
+                        kill_defunct_children(job.pid)
+
                         # purge queue(s) that retains job object
                         set_pilot_state(state='')
                         purge_queue(queues.finished_data_in)
@@ -2017,17 +2063,33 @@ def retrieve(queues, traces, args):  # noqa: C901
                         pilot_version_banner()
                         getjob_requests = 0
                         add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
+                        args.signal = None
                         break
                     time.sleep(0.5)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='retrieve'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] retrieve thread has finished')
+
+
+def htcondor_envvar(jobid):
+    """
+    On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
+
+    :param jobid: PanDA job id (string)
+    :return:
+    """
+
+    try:
+        globaljobid = encode_globaljobid(jobid)
+        if globaljobid:
+            os.environ['HTCondor_Job_ID'] = globaljobid
+            logger.info(f'set env var HTCondor_Job_ID={globaljobid}')
+    except Exception as exc:
+        logger.warning(f'caught exception: {exc}')
 
 
 def handle_proxy(job):
@@ -2151,7 +2213,7 @@ def has_job_completed(queues, args):
             job.prodproxy = ''
 
         # cleanup of any remaining processes
-        if job.pid:
+        if job.pid and job.pid not in job.zombies:
             job.zombies.append(job.pid)
         cleanup(job, args)
 
@@ -2353,7 +2415,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
         while i < imax and os.environ.get('PILOT_WRAP_UP', '') == 'NORMAL':
             job = get_finished_or_failed_job(args, queues)
             if job:
-                logger.debug('returned job has state=%s', job.state)
+                logger.debug(f'returned job has job.state={job.state} and job.completed={job.completed}')
                 #if job.state == 'failed':
                 #    logger.warning('will abort failed job (should prepare for final server update)')
                 break
@@ -2378,7 +2440,7 @@ def queue_monitor(queues, traces, args):  # noqa: C901
 
             # send final server update
             update_server(job, args)
-
+            logger.debug(f'job.completed={job.completed}')
             # we can now stop monitoring this job, so remove it from the monitored_payloads queue and add it to the
             # completed_jobs queue which will tell retrieve() that it can download another job
             try:
@@ -2389,7 +2451,6 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             else:
                 # now ready for the next job (or quit)
                 put_in_queue(job.jobid, queues.completed_jobids)
-
                 put_in_queue(job, queues.completed_jobs)
                 if _job:
                     del _job
@@ -2398,11 +2459,9 @@ def queue_monitor(queues, traces, args):  # noqa: C901
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='queue_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] queue monitor thread has finished')
 
@@ -2415,6 +2474,10 @@ def update_server(job, args):
     :param args: pilot args object.
     :return:
     """
+
+    if job.completed:
+        logger.warning('job has already completed - cannot send another final update')
+        return
 
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -2511,7 +2574,6 @@ def check_for_abort_job(args, caller=''):
     abort_job = False
     if args.abort_job.is_set():
         logger.warning('%s detected an abort_job request (signal=%s)', caller, args.signal)
-        logger.warning('in case pilot is running more than one job, all jobs will be aborted')
         abort_job = True
 
     return abort_job
@@ -2552,11 +2614,9 @@ def interceptor(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='interceptor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] interceptor thread has finished')
 
@@ -2617,11 +2677,9 @@ def message_listener(queues, traces, args):
 
     # proceed to set the job_aborted flag?
     if args.subscribe_to_msgsvc:
-        if threads_aborted():
+        if threads_aborted(caller='message_listener'):
             logger.debug('will proceed to set job_aborted')
             args.job_aborted.set()
-        else:
-            logger.debug('will not set job_aborted yet')
 
     if args.amq:
         logger.debug('closing ActiveMQ connections')
@@ -2689,11 +2747,9 @@ def fast_job_monitor(queues, traces, args):
                         logger.debug('fast monitoring reported an error: %d', exit_code)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='fast_job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] fast job monitor thread has finished')
 
@@ -2703,7 +2759,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
     Monitoring of job parameters.
     This function monitors certain job parameters, such as job looping, at various time intervals. The main loop
     is executed once a minute, while individual verifications may be executed at any time interval (>= 1 minute). E.g.
-    looping jobs are checked once per ten minutes (default) and the heartbeat is send once per 30 minutes. Memory
+    looping jobs are checked once every ten minutes (default) and the heartbeat is sent once every 30 minutes. Memory
     usage is checked once a minute.
 
     :param queues: internal queues for job handling.
@@ -2717,22 +2773,31 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
     # peeking and current time; peeking_time gets updated if and when jobs are being monitored, update_time is only
     # used for sending the heartbeat and is updated after a server update
-    peeking_time = int(time.time())
+    start_time = int(time.time())
+    peeking_time = start_time
     update_time = peeking_time
+
+    # keep track of jobs we don't want to continue monitoring
+    # no_monitoring = {}  # { job:id: time.time(), .. }
 
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
-    while not args.graceful_stop.is_set():
-        time.sleep(0.5)
+    cont = True
+    while cont:
 
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
-        # (abort at the end of the loop)
         abort = should_abort(args, label='job:job_monitor')
+        if abort:
+            logger.info('aborting loop')
+            cont = False
+            break
+
+        time.sleep(0.5)
 
         if traces.pilot.get('command') == 'abort':
             logger.warning('job monitor received an abort command')
 
-        # check for any abort_job requests
+        # check for any abort_job requests (either kill signal or tobekilled command)
         abort_job = check_for_abort_job(args, caller='job monitor')
         if not abort_job:
             if not queues.current_data_in.empty():
@@ -2763,29 +2828,63 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 time.sleep(1)
                 continue
 
-            time.sleep(60)
-
         # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
-        jobs = queues.monitored_payloads.queue if args.workflow != 'stager' else None
+        jobs = queues.monitored_payloads.queue
         if jobs:
             # update the peeking time
             peeking_time = int(time.time())
+
+            # stop_monitoring = False  # continue with the main loop (while cont)
             for i in range(len(jobs)):
                 current_id = jobs[i].jobid
+                #if current_id in no_monitoring:
+                #    stop_monitoring = True
+                #    delta = peeking_time - no_monitoring.get(current_id, 0)
+                #    if delta > 60:
+                #        logger.warning(f'job monitoring has waited {delta} s for job {current_id} to finish - aborting')
+                #    break
 
-                if os.environ.get('REACHED_MAXTIME', None):
+                error_code = None
+                if abort_job and args.signal:
+                    # if abort_job and a kill signal was set
+                    error_code = get_signal_error(args.signal)
+                elif abort_job:  # i.e. no kill signal
+                    logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
+                elif os.environ.get('REACHED_MAXTIME', None):
                     # the batch system max time has been reached, time to abort (in the next step)
+                    logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
+                    if not args.graceful_stop.is_set():
+                        logger.info('setting graceful_stop since it was not set already')
+                        args.graceful_stop.set()
+                    error_code = errors.REACHEDMAXTIME
+                if error_code:
                     jobs[i].state = 'failed'
+                    jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
+                    jobs[i].completed = True
+                    if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
+                        send_state(jobs[i], args, jobs[i].state)
+                    if jobs[i].pid:
+                        logger.debug('killing payload processes')
+                        kill_processes(jobs[i].pid)
 
                 logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
                 if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                     logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
+                    if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
+                        set_pilot_state(job=jobs[i], state="finished")
+                        logger.info('ordering log transfer')
+                        jobs[i].stageout = 'log'  # only stage-out log file
+                        put_in_queue(jobs[i], queues.data_out)
+                        cont = False
+                    # no_monitoring[current_id] = int(time.time())
                     break
 
                 # perform the monitoring tasks
                 exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
                 logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
                 if exit_code != 0:
+                    # do a quick server update with the error diagnostics only
+                    preliminary_server_update(jobs[i], args, diagnostics)
                     if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
                         # attempt to download a new proxy since it is about to expire
                         ec = download_new_proxy(role='production')
@@ -2795,6 +2894,11 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         logger.debug('killing payload process')
                         kill_process(jobs[i].pid)
                         break
+                    elif exit_code == errors.LEASETIME:  # stager mode, order log stage-out
+                        set_pilot_state(job=jobs[i], state="finished")
+                        logger.info('ordering log transfer')
+                        jobs[i].stageout = 'log'  # only stage-out log file
+                        put_in_queue(jobs[i], queues.data_out)
                     elif exit_code == 0:
                         # ie if download of new proxy was successful
                         diagnostics = ""
@@ -2807,7 +2911,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         break
 
                 # run this check again in case job_monitor_tasks() takes a long time to finish (and the job object
-                # has expired in the mean time)
+                # has expired in the meantime)
                 try:
                     _job = jobs[i]
                 except Exception:
@@ -2819,7 +2923,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                 try:
                     update_time = send_heartbeat_if_time(_job, args, update_time)
                 except Exception as error:
-                    logger.warning('(2) exception caught: %s (job id=%s)', error, current_id)
+                    logger.warning('exception caught: %s (job id=%s)', error, current_id)
                     break
                 else:
                     # note: when sending a state change to the server, the server might respond with 'tobekilled'
@@ -2830,26 +2934,72 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         #abort = True
                         break
 
+            #if stop_monitoring:
+            #    continue
+
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')
-        else:
-            # check the waiting time in the job monitor. set global graceful_stop if necessary
-            if args.workflow != 'stager':
-                check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
+        #else:
+        #    # check the waiting time in the job monitor. set global graceful_stop if necessary
+        #    if args.workflow != 'stager':
+        #        check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
 
         n += 1
 
-        if abort or abort_job:
-            break
+        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
+        abort = should_abort(args, label='job:job_monitor')
+        if abort:
+            logger.info('will abort loop')
+            cont = False
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[job] job monitor thread has finished')
+
+
+def preliminary_server_update(job, args, diagnostics):
+    """
+    Send a quick job update to the server (do not send any error code yet) for a failed job.
+
+    :param job: job object
+    :param args: args object
+    :param diagnostics: error diagnostics (string).
+    """
+
+    logger.debug(f'could have sent diagnostics={diagnostics}')
+    piloterrorcode = job.piloterrorcode
+    piloterrorcodes = job.piloterrorcodes
+    piloterrordiags = job.piloterrordiags
+    job.piloterrorcode = 0
+    job.piloterrorcodes = []
+    job.piloterrordiags = [diagnostics]
+    send_state(job, args, 'running')
+    job.piloterrorcode = piloterrorcode
+    job.piloterrorcodes = piloterrorcodes
+    job.piloterrordiags = piloterrordiags
+
+
+def get_signal_error(sig):
+    """
+    Return a corresponding pilot error code for the given signal.
+
+    :param sig: signal.
+    :return: pilot error code (int).
+    """
+
+    _sig = str(sig)  # e.g. 'SIGTERM'
+    codes = {'SIGBUS': errors.SIGBUS,
+             'SIGQUIT': errors.SIGQUIT,
+             'SIGSEGV': errors.SIGSEGV,
+             'SIGTERM': errors.SIGTERM,
+             'SIGXCPU': errors.SIGXCPU,
+             'SIGUSR1': errors.SIGUSR1,
+             'USERKILL': errors.USERKILL}
+    ret = codes.get(_sig) if _sig in codes else errors.KILLSIGNAL
+    return ret
 
 
 def download_new_proxy(role='production', proxy_type='', workdir=''):
@@ -2880,9 +3030,10 @@ def download_new_proxy(role='production', proxy_type='', workdir=''):
         if new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
             os.environ['X509_UNIFIED_DISPATCH'] = new_x509
             logger.debug(f'set X509_UNIFIED_DISPATCH to {new_x509}')
-            cmd = f'export X509_USER_PROXY={os.environ.get("X509_UNIFIED_DISPATCH")};echo $X509_USER_PROXY; voms-proxy-info -all'
-            _, stdout, _ = execute(cmd)
-            logger.debug(f'cmd={cmd}:\n{stdout}')
+            # already dumped right after proxy download:
+            #cmd = f'export X509_USER_PROXY={os.environ.get("X509_UNIFIED_DISPATCH")};echo $X509_USER_PROXY; voms-proxy-info -all'
+            #_, stdout, _ = execute(cmd)
+            #logger.debug(f'cmd={cmd}:\n{stdout}')
         else:
             logger.debug(f'will not set X509_UNIFIED_DISPATCH since new_x509={new_x509}, x509={x509}, os.path.exists(new_x509)={os.path.exists(new_x509)}')
 
@@ -2899,8 +3050,16 @@ def send_heartbeat_if_time(job, args, update_time):
     :return: possibly updated update_time (from time.time()).
     """
 
+    if job.completed:
+        logger.info('job already completed - will not send any further updates')
+        return update_time
+
     if int(time.time()) - update_time >= get_heartbeat_period(job.debug and job.debug_command):
-        if job.serverstate != 'finished' and job.serverstate != 'failed':
+        # check for state==running here, and send explicit 'running' in send_state, rather than sending job.state
+        # since the job state can actually change in the meantime by another thread
+        # job.completed will anyway be checked in https::send_update()
+        if job.serverstate != 'finished' and job.serverstate != 'failed' and job.state == 'running':
+            logger.info('will send heartbeat for job in \'running\' state')
             send_state(job, args, 'running')
             update_time = int(time.time())
 
@@ -2920,19 +3079,19 @@ def check_job_monitor_waiting_time(args, peeking_time, abort_override=False):
     waiting_time = int(time.time()) - peeking_time
     msg = 'no jobs in monitored_payloads queue (waited for %d s)' % waiting_time
     if waiting_time > 60 * 60:
-        abort = True
         msg += ' - aborting'
-    else:
-        abort = False
+    #    abort = True
+    #else:
+    #    abort = False
     if logger:
         logger.warning(msg)
     else:
         print(msg)
-    if abort or abort_override:
-        # do not set graceful stop if pilot has not finished sending the final job update
-        # i.e. wait until SERVER_UPDATE is DONE_FINAL
-        check_for_final_server_update(args.update_server)
-        args.graceful_stop.set()
+    #if abort or abort_override:
+    #    # do not set graceful stop if pilot has not finished sending the final job update
+    #    # i.e. wait until SERVER_UPDATE is DONE_FINAL
+    #    check_for_final_server_update(args.update_server)
+    #    args.graceful_stop.set()
 
 
 def fail_monitored_job(job, exit_code, diagnostics, queues, traces):

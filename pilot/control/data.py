@@ -7,7 +7,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
@@ -16,21 +16,55 @@ import os
 import subprocess
 import time
 import queue
+from typing import Any
 
-from pilot.api.data import StageInClient, StageOutClient
+from pilot.api.data import (
+    StageInClient,
+    StageOutClient
+)
 from pilot.api.es_data import StageInESClient
 from pilot.control.job import send_state
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread, PilotException, LogFileCreationFailure, NoSuchFile, FileHandlingFailure
-#from pilot.util.config import config
-from pilot.util.auxiliary import set_pilot_state, check_for_final_server_update  #, abort_jobs_in_queues
+from pilot.common.exception import (
+    ExcThread,
+    PilotException,
+    LogFileCreationFailure,
+    NoSuchFile,
+    FileHandlingFailure
+)
+from pilot.util.auxiliary import (
+    set_pilot_state,
+    check_for_final_server_update
+)
 from pilot.util.common import should_abort
-from pilot.util.constants import PILOT_PRE_STAGEIN, PILOT_POST_STAGEIN, PILOT_PRE_STAGEOUT, PILOT_POST_STAGEOUT, LOG_TRANSFER_IN_PROGRESS,\
-    LOG_TRANSFER_DONE, LOG_TRANSFER_NOT_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_RUNNING, MAX_KILL_WAIT_TIME, UTILITY_BEFORE_STAGEIN
+from pilot.util.config import config
+from pilot.util.constants import (
+    PILOT_PRE_STAGEIN,
+    PILOT_POST_STAGEIN,
+    PILOT_PRE_STAGEOUT,
+    PILOT_POST_STAGEOUT,
+    PILOT_PRE_LOG_TAR,
+    PILOT_POST_LOG_TAR,
+    LOG_TRANSFER_IN_PROGRESS,
+    LOG_TRANSFER_DONE,
+    LOG_TRANSFER_NOT_DONE,
+    LOG_TRANSFER_FAILED,
+    SERVER_UPDATE_RUNNING,
+    MAX_KILL_WAIT_TIME,
+    UTILITY_BEFORE_STAGEIN
+)
 from pilot.util.container import execute
-from pilot.util.filehandling import remove, write_file, copy
+from pilot.util.filehandling import (
+    remove,
+    write_file,
+    copy,
+    get_directory_size
+)
 from pilot.util.processes import threads_aborted
-from pilot.util.queuehandling import declare_failed_by_kill, put_in_queue
+from pilot.util.queuehandling import (
+    declare_failed_by_kill,
+    put_in_queue
+)
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
 import pilot.util.middleware
@@ -81,11 +115,9 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] control thread has finished')
 
@@ -207,7 +239,7 @@ def _stage_in(args, job):
                 client = StageInESClient(job.infosys, logger=logger, trace_report=trace_report)
                 activity = 'es_events_read'
             else:
-                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report)
+                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report, ipv=args.internet_protocol_version)
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             # get the proper input file destination (normally job.workdir unless stager workflow)
@@ -492,7 +524,8 @@ def copytool_in(queues, traces, args):  # noqa: C901
     :return:
     """
 
-    while not args.graceful_stop.is_set():
+    abort = False
+    while not args.graceful_stop.is_set() and not abort:
         time.sleep(0.5)
         try:
             # abort if kill signal arrived too long time ago, ie loop is stuck
@@ -539,14 +572,16 @@ def copytool_in(queues, traces, args):  # noqa: C901
                 traces.pilot['command'] = 'abort'
                 logger.warning('copytool_in detected a set abort_job pre stage-in (due to a kill signal)')
                 declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                break
+                if args.graceful_stop.is_set():
+                    break
 
             if _stage_in(args, job):
                 if args.abort_job.is_set():
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_in detected a set abort_job post stage-in (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_in, args.signal)
-                    break
+                    if args.graceful_stop.is_set():
+                        break
 
                 put_in_queue(job, queues.finished_data_in)
                 # remove the job from the current stage-in queue
@@ -564,6 +599,39 @@ def copytool_in(queues, traces, args):  # noqa: C901
                         logger.info('created input file metadata:\n%s', xml)
                     except ModuleNotFoundError as exc:
                         logger.warning(f'no such module: {exc} (will not create input file metadata)')
+
+                if args.pod and args.workflow == 'stager':
+                    # files can now be moved to init dir, which will be the same as the PANDA_WORKDIR for the jupyter user
+                    for fspec in job.indata:
+                        path = os.path.join(job.workdir, fspec.lfn)
+                        if os.path.exists(path):
+                            dest = os.environ.get('PILOT_WORKDIR')
+                            cmd = f"mv {path} {dest}"
+                            ec, _, stderr = execute(cmd)
+                            if ec:
+                                logger.warning(f'move failed: {stderr}')
+                            else:
+                                logger.info(f"moved file {path} to {dest}")
+                        else:
+                            logger.warning(f'path does not exist: {path}')
+
+                    # stage-out log file
+                    #job.stageout = "log"
+                    #if not _stage_out_new(job, args):
+                    #    logger.info(f"job {job.jobid} failed during stage-out of log, adding job object to failed_data_outs queue")
+                    #    put_in_queue(job, queues.failed_data_out)
+                    #else:
+                    #    logger.info(f"job {job.jobid} has finished")
+                    #    put_in_queue(job, queues.finished_jobs)
+
+                    # this job is now to be monitored, so add it to the monitored_payloads queue
+                    put_in_queue(job, queues.monitored_payloads)
+
+                    logger.info('stage-in thread is no longer needed - terminating')
+                    abort = True
+                    break
+                    #args.job_aborted.set()
+                    #args.graceful_stop.set()
             else:
                 # remove the job from the current stage-in queue
                 _job = queues.current_data_in.get(block=True, timeout=1)
@@ -582,17 +650,18 @@ def copytool_in(queues, traces, args):  # noqa: C901
         except queue.Empty:
             continue
 
+    if abort:
+        logger.debug('an abort was received - finishing stage-in thread')
+
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_in') and args.workflow != 'stager':  # only finish this thread in stager mode
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_in thread has finished')
 
 
-def copytool_out(queues, traces, args):
+def copytool_out(queues, traces, args):  # noqa: C901
     """
     Main stage-out thread.
     Perform stage-out as soon as a job object can be extracted from the data_out queue.
@@ -604,9 +673,8 @@ def copytool_out(queues, traces, args):
     """
 
     cont = True
-    logger.debug('entering copytool_out loop')
     if args.graceful_stop.is_set():
-        logger.debug('graceful_stop already set')
+        logger.debug('graceful_stop already set - do not start copytool_out thread')
 
     processed_jobs = []
     while cont:
@@ -638,14 +706,16 @@ def copytool_out(queues, traces, args):
                     traces.pilot['command'] = 'abort'
                     logger.warning('copytool_out detected a set abort_job pre stage-out (due to a kill signal)')
                     declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                    break
+                    if abort:
+                        break
 
                 if _stage_out_new(job, args):
                     if args.abort_job.is_set():
                         traces.pilot['command'] = 'abort'
                         logger.warning('copytool_out detected a set abort_job post stage-out (due to a kill signal)')
                         #declare_failed_by_kill(job, queues.failed_data_out, args.signal)
-                        break
+                        if args.graceful_stop.is_set():
+                            break
 
                     #queues.finished_data_out.put(job)
                     processed_jobs.append(job.jobid)
@@ -668,11 +738,9 @@ def copytool_out(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='copytool_out'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] copytool_out thread has finished')
 
@@ -728,24 +796,6 @@ def get_input_file_dictionary(indata):
     return ret
 
 
-def filter_files_for_log(directory):
-    """
-    Create a file list recursi
-    :param directory:
-    :return:
-    """
-    filtered_files = []
-    maxfilesize = 10
-    for root, _, filenames in os.walk(directory):
-        for filename in filenames:
-            location = os.path.join(root, filename)
-            if os.path.exists(location):  # do not include broken links
-                if os.path.getsize(location) < maxfilesize:
-                    filtered_files.append(location)
-
-    return filtered_files
-
-
 def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], output_files=[], piloterrors=[], debugmode=False):
     """
     Create the tarball for the job.
@@ -773,18 +823,18 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     # perform special cleanup (user specific) prior to log file creation
     if cleanup:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)  # Python 2/3
         user.remove_redundant_files(workdir, piloterrors=piloterrors, debugmode=debugmode)
 
     # remove any present input/output files before tarring up workdir
     for fname in input_files + output_files:
         path = os.path.join(workdir, fname)
         if os.path.exists(path):
-            logger.info('removing file: %s', path)
+            logger.info(f'removing file: {path}')
             remove(path)
 
     if logfile_name is None or len(logfile_name.strip('/ ')) == 0:
-        logger.info('Skipping tarball creation, since the logfile_name is empty')
+        logger.info('skipping tarball creation, since the logfile_name is empty')
         return
 
     # rename the workdir for the tarball creation
@@ -793,21 +843,34 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     os.rename(workdir, newworkdir)
     workdir = newworkdir
 
+    # get the size of the workdir
+    dirsize = get_directory_size(workdir)
+    timeout = get_tar_timeout(dirsize)
+
     fullpath = os.path.join(current_dir, logfile_name)  # /some/path/to/dirname/log.tgz
-    logger.info('will create archive %s', fullpath)
+    logger.info(f'will create archive {fullpath} using timeout={timeout} s for directory size={dirsize} MB')
+
     try:
-        cmd = "pwd;tar cvfz %s %s --dereference --one-file-system; echo $?" % (fullpath, tarball_name)
-        _, stdout, _ = execute(cmd)
+        # add e.g. sleep 200; before tar command to test time-out
+        cmd = f"pwd;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
+        exit_code, stdout, stderr = execute(cmd, timeout=timeout)
     except Exception as error:
         raise LogFileCreationFailure(error)
     else:
         if pilot_home != current_dir:
             os.chdir(pilot_home)
-        logger.debug('stdout = %s', stdout)
+        logger.debug(f'stdout: {stdout}')
     try:
         os.rename(workdir, orgworkdir)
-    except Exception as error:
-        logger.debug('exception caught when renaming workdir: %s', error)
+    except OSError as error:
+        logger.debug(f'exception caught when renaming workdir: {error} (ignore)')
+
+    if exit_code:
+        diagnostics = f'tarball creation failed with exit code: {exit_code}, stdout={stdout}, stderr={stderr}'
+        logger.warning(diagnostics)
+        if exit_code == errors.COMMANDTIMEDOUT:
+            exit_code = errors.LOGCREATIONTIMEOUT
+        raise PilotException(diagnostics, code=exit_code)
 
     # final step, copy the log file into the workdir - otherwise containerized stage-out won't work
     try:
@@ -816,7 +879,23 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         logger.warning(f'caught exception when copying tarball: {exc}')
 
 
-def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host=''):
+def get_tar_timeout(dirsize: float) -> int:
+    """
+    Get a proper time-out limit based on the directory size.
+    It should also handle the case dirsize=None and return the max timeout.
+
+    :param dirsize: directory size (float).
+    :return: time-out in seconds (int).
+    """
+
+    timeout_max = 3 * 3600  # 3 hours
+    timeout_min = 30
+    timeout = timeout_min + int(60.0 + dirsize / 5.0) if dirsize else timeout_max
+
+    return min(timeout, timeout_max)
+
+
+def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='', ipv='IPv6'):
     """
     Use the `StageOutClient` in the Data API to perform stage-out.
 
@@ -830,6 +909,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     :param title: type of stage-out (output, log) (string).
     :param output_dir: optional output directory (string).
     :param rucio_host: optional rucio host (string).
+    :param ipv: internet protocol version (string).
     :return: True in case of success transfers
     """
 
@@ -870,7 +950,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
             # create the trace report
             trace_report = create_trace_report(job, label=label)
 
-            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report)
+            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv)
             kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job, output_dir=output_dir,
                           catchall=job.infosys.queuedata.catchall, rucio_host=rucio_host)  #, mode='stage-out')
             # prod analy unification: use destination preferences from PanDA server for unified queues
@@ -893,7 +973,9 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
 
     if x509_unified_dispatch and os.path.exists(x509_unified_dispatch):
         os.environ['X509_USER_PROXY'] = x509_org
-        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org}')
+        os.environ['X509_UNIFIED_DISPATCH'] = ''
+        remove(x509_unified_dispatch)
+        logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org} (reset X509_UNIFIED_DISPATCH)')
 
     logger.info('summary of transferred files:')
     for iofile in xdata:
@@ -908,14 +990,14 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
     return not remain_files
 
 
-def _stage_out_new(job, args):
+def _stage_out_new(job: Any, args: Any) -> bool:
     """
     Stage-out of all output files.
     If job.stageout=log then only log files will be transferred.
 
-    :param job: job object.
-    :param args: pilot args object.
-    :return: True in case of success, False otherwise.
+    :param job: job object
+    :param args: pilot args object
+    :return: True in case of success, False otherwise (bool).
     """
 
     #logger.info('testing sending SIGUSR1')
@@ -932,7 +1014,8 @@ def _stage_out_new(job, args):
         job.stageout = 'log'
 
     if job.stageout != 'log':  ## do stage-out output files
-        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir, rucio_host=args.rucio_host):
+        if not _do_stageout(job, job.outdata, ['pw', 'w'], args.queue, title='output', output_dir=args.output_dir,
+                            rucio_host=args.rucio_host, ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('transfer of output file(s) failed')
 
@@ -946,20 +1029,37 @@ def _stage_out_new(job, args):
         job.status['LOG_TRANSFER'] = LOG_TRANSFER_IN_PROGRESS
         logfile = job.logdata[0]
 
+        # write time stamps to pilot timing file
+        current_time = time.time()
+        add_to_pilot_timing(job.jobid, PILOT_PRE_LOG_TAR, current_time, args)
+
         try:
-            tarball_name = 'tarball_PandaJob_%s_%s' % (job.jobid, job.infosys.pandaqueue)
-            input_files = [fspec.lfn for fspec in job.indata]
-            output_files = [fspec.lfn for fspec in job.outdata]
+            tarball_name = f'tarball_PandaJob_{job.jobid}_{job.infosys.pandaqueue}'
             create_log(job.workdir, logfile.lfn, tarball_name, args.cleanup,
-                       input_files=input_files, output_files=output_files,
+                       input_files=[fspec.lfn for fspec in job.indata],
+                       output_files=[fspec.lfn for fspec in job.outdata],
                        piloterrors=job.piloterrorcodes, debugmode=job.debug)
         except LogFileCreationFailure as error:
-            logger.warning('failed to create tar file: %s', error)
+            logger.warning(f'failed to create tar file: {error}')
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOGFILECREATIONFAILURE)
             return False
+        except PilotException as error:
+            logger.warning(f'failed to create tar file: {error}')
+            set_pilot_state(job=job, state="failed")
+            if 'timed out' in error.get_detail():
+                delta = int(time.time() - current_time)
+                msg = f'tar command for log file creation timed out after {delta} s: {error.get_detail()}'
+            else:
+                msg = error.get_detail()
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=msg)
+            return False
 
-        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir, rucio_host=args.rucio_host):
+        # write time stamps to pilot timing file
+        add_to_pilot_timing(job.jobid, PILOT_POST_LOG_TAR, time.time(), args)
+
+        if not _do_stageout(job, [logfile], ['pl', 'pw', 'w'], args.queue, title='log', output_dir=args.output_dir,
+                            rucio_host=args.rucio_host, ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('log transfer failed')
             job.status['LOG_TRANSFER'] = LOG_TRANSFER_FAILED
@@ -972,16 +1072,8 @@ def _stage_out_new(job, args):
     # write time stamps to pilot timing file
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEOUT, time.time(), args)
 
-    # generate fileinfo details to be send to Panda
-    fileinfo = {}
-    for iofile in job.outdata + job.logdata:
-        if iofile.status in ['transferred']:
-            fileinfo[iofile.lfn] = {'guid': iofile.guid,
-                                    'fsize': iofile.filesize,
-                                    'adler32': iofile.checksum.get('adler32'),
-                                    'surl': iofile.turl}
-
-    job.fileinfo = fileinfo
+    # generate fileinfo details to be sent to Panda
+    job.fileinfo = generate_fileinfo(job)
 
     # WARNING THE FOLLOWING RESETS ANY PREVIOUS STAGEOUT ERRORS
     if not is_success:
@@ -994,13 +1086,29 @@ def _stage_out_new(job, args):
     logger.info('stage-out finished correctly')
 
     if not job.state or (job.state and job.state == 'stageout'):  # is the job state already set? if so, don't change the state (unless it's the stageout state)
-        logger.debug('changing job state from %s to finished', job.state)
+        logger.debug(f'changing job state from {job.state} to finished')
         set_pilot_state(job=job, state="finished")
 
-    # send final server update since all transfers have finished correctly
-    # send_state(job, args, 'finished', xml=dumps(fileinfodict))
-
     return is_success
+
+
+def generate_fileinfo(job):
+    """
+    Generate fileinfo details to be sent to Panda.
+
+    :param job: job object.
+    """
+
+    fileinfo = {}
+    checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
+    for iofile in job.outdata + job.logdata:
+        if iofile.status in ['transferred']:
+            fileinfo[iofile.lfn] = {'guid': iofile.guid,
+                                    'fsize': iofile.filesize,
+                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
+                                    'surl': iofile.turl}
+
+    return fileinfo
 
 
 def queue_monitoring(queues, traces, args):
@@ -1031,9 +1139,6 @@ def queue_monitoring(queues, traces, args):
         else:
             # stage-out log file then add the job to the failed_jobs queue
             job.stageout = "log"
-
-            # TODO: put in data_out queue instead?
-
             if not _stage_out_new(job, args):
                 logger.info("job %s failed during stage-in and stage-out of log, adding job object to failed_data_outs queue", job.jobid)
                 put_in_queue(job, queues.failed_data_out)
@@ -1075,10 +1180,8 @@ def queue_monitoring(queues, traces, args):
             break
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='queue_monitoring'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[data] queue_monitor thread has finished')

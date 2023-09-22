@@ -18,13 +18,13 @@ from subprocess import PIPE
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
-from pilot.util.auxiliary import set_pilot_state, show_memory_usage
+from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_WITH_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED, \
     UTILITY_AFTER_PAYLOAD_FINISHED, PILOT_PRE_SETUP, PILOT_POST_SETUP, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, \
     UTILITY_AFTER_PAYLOAD_STARTED2, UTILITY_AFTER_PAYLOAD_FINISHED2
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import write_file, read_file
 from pilot.util.processes import kill_processes
 from pilot.util.timing import add_to_pilot_timing, get_time_measurement
 from pilot.common.exception import PilotException
@@ -214,7 +214,31 @@ class Executor(object):
             else:
                 # store process handle in job object, and keep track on how many times the command has been launched
                 # also store the full command in case it needs to be restarted later (by the job_monitor() thread)
+                logger.debug(f'storing process for {utilitycommand}')
                 job.utilities[cmd_dictionary.get('command')] = [proc1, 1, utilitycommand]
+
+                # wait for command to start
+                #time.sleep(1)
+                #cmd = utilitycommand.split(';')[-1]
+                #prmon = f'prmon --pid {job.pid}'
+                #pid = None
+                #if prmon in cmd:
+                #    import subprocess
+                #    import re
+                #    ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                #                       encoding='utf-8')
+                #    pattern = r'\b\d+\b'
+                #    for line in ps.stdout.split('\n'):
+                #        if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
+                #            matches = re.findall(pattern, line)
+                #            if matches:
+                #                pid = matches[0]
+                #                break
+                #if pid:
+                #    logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')
+                #    job.utilities[cmd_dictionary.get('command')].append(pid)
+                #else:
+                #    logger.info(f'could not extract any pid from ps for cmd={cmd}')
 
     def utility_after_payload_started_new(self, job):
         """
@@ -551,7 +575,7 @@ class Executor(object):
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-            cmd = user.get_payload_command(job)  #+ 'sleep 1000'  # to test looping jobs
+            cmd = user.get_payload_command(job)  # + 'sleep 900'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
             import traceback
@@ -603,6 +627,17 @@ class Executor(object):
 
         return exit_code
 
+    def should_verify_setup(self):
+        """
+        Should the setup command be verified?
+
+        :return: Boolean.
+        """
+
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        return user.should_verify_setup(self.__job)
+
     def run(self):  # noqa: C901
         """
         Run all payload processes (including pre- and post-processes, and utilities).
@@ -611,12 +646,57 @@ class Executor(object):
         :return:
         """
 
+        diagnostics = ''
+
         # get the payload command from the user specific code
         self.pre_setup(self.__job)
 
+        # get the user defined payload command
         cmd = self.get_payload_command(self.__job)
+        if not cmd:
+            logger.warning('aborting run() since payload command could not be defined')
+            return errors.UNKNOWNPAYLOADFAILURE, 'undefined payload command'
+
         # extract the setup in case the preprocess command needs it
         self.__job.setup = self.extract_setup(cmd)
+        # should the setup be verified? (user defined)
+        verify_setup = self.should_verify_setup()
+        if verify_setup:
+            logger.debug(f'extracted setup to be verified:\n\n{self.__job.setup}')
+            try:
+                _cmd = self.__job.setup
+                stdout_filename = os.path.join(self.__job.workdir, "setup.stdout")
+                stderr_filename = os.path.join(self.__job.workdir, "setup.stderr")
+                out = open(stdout_filename, 'wb')
+                err = open(stderr_filename, 'wb')
+                # remove any trailing spaces and ;-signs
+                _cmd = _cmd.strip()
+                trail = ';' if not _cmd.endswith(';') else ''
+                _cmd += trail + 'echo \"Done.\"'
+                exit_code, stdout, stderr = execute(_cmd, workdir=self.__job.workdir, returnproc=False, usecontainer=True,
+                                                    stdout=out, stderr=err, cwd=self.__job.workdir, job=self.__job)
+                if exit_code:
+                    logger.warning(f'setup returned exit code={exit_code}')
+                    diagnostics = stderr + stdout if stdout and stderr else ''
+                    if not diagnostics:
+                        stdout = read_file(stdout_filename)
+                        stderr = read_file(stderr_filename)
+                    diagnostics = stderr + stdout if stdout and stderr else 'General payload setup verification error (check setup logs)'
+                    # check for special errors in thw output
+                    exit_code = errors.resolve_transform_error(exit_code, diagnostics)
+                    diagnostics = errors.format_diagnostics(exit_code, diagnostics)
+                    return exit_code, diagnostics
+                if out:
+                    out.close()
+                    logger.debug(f'closed {stdout_filename}')
+                if err:
+                    err.close()
+                    logger.debug(f'closed {stderr_filename}')
+            except Exception as error:
+                diagnostics = f'could not execute: {error}'
+                logger.error(diagnostics)
+                return None, diagnostics
+
         self.post_setup(self.__job)
 
         # a loop is needed for HPO jobs
@@ -626,7 +706,8 @@ class Executor(object):
 
             logger.info('payload iteration loop #%d', iteration + 1)
             os.environ['PILOT_EXEC_ITERATION_COUNT'] = '%s' % iteration
-            show_memory_usage()
+            #if self.__args.debug:
+            #    show_memory_usage()
 
             # first run the preprocess (if necessary) - note: this might update jobparams -> must update cmd
             jobparams_pre = self.__job.jobparams
@@ -648,11 +729,6 @@ class Executor(object):
             # now run the main payload, when it finishes, run the postprocess (if necessary)
             # note: no need to run any main payload in HPO Horovod jobs on Kubernetes
             if os.environ.get('HARVESTER_HOROVOD', '') == '':
-
-                #exit_code, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[before payload start] stdout=%s', _stdout)
-                #logger.debug('[before payload start] stderr=%s', _stderr)
-
                 proc = self.run_payload(self.__job, cmd, self.__out, self.__err)
             else:
                 proc = None
@@ -699,10 +775,6 @@ class Executor(object):
                 set_pilot_state(job=self.__job, state=state)
                 logger.info('\n\nfinished pid=%s exit_code=%s state=%s\n', proc.pid, exit_code, self.__job.state)
 
-                #exit_code, _stdout, _stderr = execute('pgrep -x xrootd | awk \'{print \"ps -p \"$1\" -o args --no-headers --cols 300\"}\' | sh')
-                #logger.debug('[after payload finish] stdout=%s', _stdout)
-                #logger.debug('[after payload finish] stderr=%s', _stderr)
-
                 # stop the utility command (e.g. a coprocess if necessary
                 if proc_co:
                     logger.debug('stopping utility command: %s', utility_cmd)
@@ -733,7 +805,7 @@ class Executor(object):
             else:
                 break
 
-        return exit_code
+        return exit_code, diagnostics
 
     def run_utility_after_payload_finished(self, exit_code, state, order):
         """
@@ -778,19 +850,105 @@ class Executor(object):
         """
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
 
         for utcmd in list(self.__job.utilities.keys()):
             utproc = self.__job.utilities[utcmd][0]
             if utproc:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
-                sig = user.get_utility_command_kill_signal(utcmd)
-                logger.info("stopping process \'%s\' with signal %d", utcmd, sig)
-                try:
-                    os.killpg(os.getpgid(utproc.pid), sig)
-                except Exception as error:
-                    logger.warning('exception caught: %s (ignoring)', error)
-
+                # get the pid for prmon
+                _list = self.__job.utilities.get('MemoryMonitor')
+                if _list:
+                    pid = int(_list[-1]) if len(_list) == 4 else utproc.pid
+                    logger.info(f'using pid={pid} to kill prmon')
+                else:
+                    logger.warning(f'did not find the pid for the memory monitor in the utilities list: {self.__job.utilities}')
+                    pid = utproc.pid
+                status = self.kill_and_wait_for_process(pid, user, utcmd)
+                logger.info(f'utility process {utproc.pid} cleanup finished with status={status}')
                 user.post_utility_command_action(utcmd, self.__job)
+
+    def kill_and_wait_for_process(self, pid, user, utcmd):
+        """
+        Kill utility process and wait for it to finish.
+
+        :param pid: process id (int)
+        :param user: pilot user/experiment (str)
+        :param utcmd: utility command (str)
+        :return: process exit status (int, None).
+        """
+
+        sig = user.get_utility_command_kill_signal(utcmd)
+        logger.info("stopping utility process \'%s\' with signal %d", utcmd, sig)
+
+        try:
+            # Send SIGUSR1 signal to the process
+            os.kill(pid, sig)
+
+            # Check if the process exists
+            if os.kill(pid, 0):
+                # Wait for the process to finish
+                _, status = os.waitpid(pid, 0)
+
+                # Check the exit status of the process
+                if os.WIFEXITED(status):
+                    logger.debug('normal exit')
+                    return os.WEXITSTATUS(status)
+                else:
+                    # Handle abnormal termination if needed
+                    logger.warning('abnormal termination')
+                    return None
+            else:
+                # Process doesn't exist - ignore
+                logger.info(f'process {pid} no longer exists')
+                return True
+
+        except OSError as exc:
+            # Handle errors, such as process not found
+            logger.warning(f"Error sending signal to/waiting for process {pid}: {exc}")
+            return None
+
+#        try:
+#            # Send SIGUSR1 signal to the process
+#            os.kill(pid, sig)
+#
+#            try:
+#                # Wait for the process to finish
+#                _, status = os.waitpid(pid, 0)
+#
+#                # Check the exit status of the process
+#                if os.WIFEXITED(status):
+#                    return os.WEXITSTATUS(status)
+#                else:
+#                    # Handle abnormal termination if needed
+#                    logger.warning('abnormal termination')
+#                    return None
+#            except OSError as exc:
+#                # Handle errors related to waiting for the process
+#                logger.warning(f"error waiting for process {pid}: {exc}")
+#                return None
+#
+#        except OSError as exc:
+#            # Handle errors, such as process not found
+#            logger.warning(f"error sending signal to process {pid}: {exc}")
+#            return None
+
+#        try:
+#            # Send SIGUSR1 signal to the process
+#            os.kill(pid, sig)
+#
+#            # Wait for the process to finish
+#            _, status = os.waitpid(pid, 0)
+#
+#            # Check the exit status of the process
+#            if os.WIFEXITED(status):
+#                return os.WEXITSTATUS(status)
+#            else:
+#                # Handle abnormal termination if needed
+#                return None
+#        except OSError as exc:
+#            # Handle errors, such as process not found
+#            logger.warning(f"exception caught: {exc}")
+#            return None
 
     def rename_log_files(self, iteration):
         """

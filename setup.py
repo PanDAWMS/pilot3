@@ -6,7 +6,7 @@
 #
 # Authors:
 # - Fernando Barreiro Megino, fernando.harald.barreiro.megino@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
 import sys
 
 from setuptools import setup, find_packages
@@ -26,10 +26,11 @@ setup(
     author='PanDA Team',
     author_email='atlas-adc-panda@cern.ch',
     url='https://github.com/PanDAWMS/pilot3/wiki',
-    python_requires='>=2.7',
+    python_requires='>=3.6',
     packages=find_packages(),
     install_requires=[],
     data_files=[],
+    package_data={'': ['PILOTVERSION']},
     include_package_data=True,
-    scripts=['pilot.py']
+    scripts=[]
     )

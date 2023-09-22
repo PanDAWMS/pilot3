@@ -5,15 +5,15 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-20223
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
 from pilot.util.config import config
-from pilot.util.container import execute
-from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy
+from pilot.util.container import execute  #, execute_command
+from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes
+from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes, reap_zombies
 from pilot.util.timing import time_stamp
 
 import os
@@ -40,7 +40,6 @@ def looping_job(job, montime):
     diagnostics = ""
 
     logger.info(f'checking for looping job (in state={job.state})')
-
     looping_limit = get_looping_job_limit()
 
     if job.state == 'stagein':
@@ -52,7 +51,7 @@ def looping_job(job, montime):
     elif job.state == 'running':
         # get the time when the files in the workdir were last touched. in case no file was touched since the last
         # check, the returned value will be the same as the previous time
-        time_last_touched = get_time_for_last_touch(job, montime, looping_limit)
+        time_last_touched, recent_files = get_time_for_last_touch(job, montime, looping_limit)
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
@@ -60,13 +59,18 @@ def looping_job(job, montime):
             logger.info(f'current time: {currenttime}')
             logger.info(f'last time files were touched: {time_last_touched}')
             logger.info(f'looping limit: {looping_limit} s')
+
             if currenttime - time_last_touched > looping_limit:
                 try:
+                    # which were the considered files?
+                    list_mod_files(recent_files)
                     # first produce core dump and copy it
-                    create_core_dump(pid=job.pid, workdir=job.workdir)
+                    create_core_dump(job)
                     # set debug mode to prevent core file from being removed before log creation
                     job.debug = True
                     kill_looping_job(job)
+                    exit_code = errors.LOOPINGJOB
+                    diagnostics = 'the payload was found to be looping - job will be failed in the next update'
                 except Exception as error:
                     logger.warning(f'exception caught: {error}')
         else:
@@ -75,29 +79,41 @@ def looping_job(job, montime):
     return exit_code, diagnostics
 
 
-def create_core_dump(pid=None, workdir=None):
+def create_core_dump(job):
     """
     Create core dump and copy it to work directory
+
+    :param job: job object.
     """
 
-    if not pid or not workdir:
+    if not job.pid or not job.workdir:
         logger.warning('cannot create core file since pid or workdir is unknown')
         return
 
-    cmd = 'gdb --pid %d -ex \'generate-core-file\'' % pid
+    cmd = f'gdb --pid {job.pid} -ex \'generate-core-file\' -ex quit'
     exit_code, stdout, stderr = execute(cmd)
-    if not exit_code:
-        path = locate_core_file(pid=pid)
+    #exit_code = execute_command(cmd)
+    if exit_code == 0:
+        path = locate_core_file(pid=job.pid)
         if path:
             try:
-                copy(path, workdir)
+                copy(path, job.workdir)
             except Exception as error:
                 logger.warning(f'failed to copy core file: {error}')
             else:
                 logger.debug('copied core dump to workdir')
-
     else:
-        logger.warning(f'failed to execute command: {cmd}, stdout+stderr={stdout + stderr}')
+        logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}, stdout={stdout}, stderr={stderr}')
+
+    try:
+        zombies = find_zombies(os.getpid())
+        if zombies:
+            logger.info(f'found zombies: {zombies}')
+            handle_zombies(zombies, job=job)
+        else:
+            logger.info('found no zombies')
+    except Exception as exp:
+        logger.warning(f'exception caught: {exp}')
 
 
 def get_time_for_last_touch(job, montime, looping_limit):
@@ -108,9 +124,10 @@ def get_time_for_last_touch(job, montime, looping_limit):
     :param job: job object.
     :param montime: `MonitoringTime` object.
     :param looping_limit: looping limit in seconds.
-    :return: time in seconds since epoch (int) (or None in case of failure).
+    :return: time in seconds since epoch (int) (or None in case of failure), recent files (list).
     """
 
+    updated_files = []
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions',
                                         globals(), locals(), [pilot_user], 0)
@@ -135,7 +152,7 @@ def get_time_for_last_touch(job, montime, looping_limit):
                     logger.info(f"file {latest_modified_file} is the most recently updated file (at time={mtime})")
                 else:
                     logger.warning('looping job algorithm failed to identify latest updated file')
-                    return montime.ct_looping_last_touched
+                    return montime.ct_looping_last_touched, updated_files
 
                 # store the time of the last file modification
                 montime.update('ct_looping_last_touched', modtime=mtime)
@@ -149,7 +166,7 @@ def get_time_for_last_touch(job, montime, looping_limit):
         stderr = cut_output(stderr)
         logger.warning(f'find command failed: exitcode={exit_code}, stdout={stdout}, stderr={stderr}')
 
-    return montime.ct_looping_last_touched
+    return montime.ct_looping_last_touched, updated_files
 
 
 def kill_looping_job(job):
@@ -163,14 +180,31 @@ def kill_looping_job(job):
     # the child process is looping, kill it
     diagnostics = f"pilot has decided to kill looping job {job.jobid} at {time_stamp()}"
     logger.fatal(diagnostics)
+    job.debug_command = 'looping'  # overrule any other debug command - also prevents real time logging from starting
+
+    # process zombies
+    if job.pid not in job.zombies:
+        job.zombies.append(job.pid)
+    logger.info("pass #1/2: collecting zombie processes")
+    job.collect_zombies(depth=10)
+    logger.debug('pass #2/2: reaping zombies')
+    reap_zombies()
 
     cmds = [f'ps -fwu {whoami()}',
             f'ls -ltr {job.workdir}',
             f'ps -o pid,ppid,sid,pgid,tpgid,stat,comm -u {whoami()}',
             'pstree -g -a']
+#            f'ps -f --ppid {os.getpid()} | grep python3']
     for cmd in cmds:
         _, stdout, _ = execute(cmd, mute=True)
         logger.info(f"{cmd} + '\n': {stdout}")
+
+    parent_pid = os.getpid()
+    child_processes = get_child_processes(parent_pid)
+    if child_processes:
+        logger.info(f"child processes of PID {parent_pid}:")
+        for pid, cmdline in child_processes:
+            logger.info(f"PID {pid}: {cmdline}")
 
     # set the relevant error code
     if job.state == 'stagein':
@@ -185,7 +219,7 @@ def kill_looping_job(job):
     # remove any lingering input files from the work dir
     lfns, _ = job.get_lfns_and_guids()
     if lfns:
-        _ec = remove_files(job.workdir, lfns)
+        _ec = remove_files(lfns, workdir=job.workdir)
         if _ec != 0:
             logger.warning('failed to remove all files')
 

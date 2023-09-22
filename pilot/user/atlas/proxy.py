@@ -175,6 +175,10 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
     #   validityLeft - duration of proxy validity left in seconds.
     #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
     #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
+    cmd = f"{envsetup}arcproxy -i subject"
+    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
+    logger.info(f'subject={stdout}')
+
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
@@ -471,3 +475,13 @@ def extract_time_left_old(stdout):
         logger.info(f"validity_end = {validity_end}")
 
     return validity_end, stdout
+
+
+def getproxy_dictionary(voms_role):
+    """
+    Prepare the dictionary for the getProxy call.
+
+    :param voms_role: VOMS role (string).
+    """
+
+    return {'role': voms_role, 'dn': 'atlpilo2'} if voms_role == 'atlas' else {'role': voms_role}

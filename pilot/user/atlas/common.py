@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from collections import defaultdict
@@ -24,7 +24,7 @@ try:
 except ImportError:
     pass
 
-from .container import create_root_container_command
+from .container import create_root_container_command  #, create_middleware_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -48,7 +48,6 @@ from .utilities import (
 
 from pilot.util.auxiliary import (
     get_resource_name,
-    show_memory_usage,
     get_key_value,
 )
 
@@ -179,11 +178,11 @@ def open_remote_files(indata, workdir, nthreads):
         # execute file open script which will attempt to open each file
 
         # copy pilot source into container directory, unless it is already there
+        script = 'open_remote_file.py'
         diagnostics = copy_pilot_source(workdir)
         if diagnostics:
             raise PilotException(diagnostics)
 
-        script = 'open_remote_file.py'
         final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
         script_path = os.path.join('pilot/scripts', script)
@@ -213,9 +212,7 @@ def open_remote_files(indata, workdir, nthreads):
             _cmd = get_file_open_command(final_script_path, turls, nthreads)
             cmd = create_root_container_command(workdir, _cmd)
 
-            show_memory_usage()
-
-            timeout = len(indata) * 120 + 180
+            timeout = get_timeout_for_remoteio(indata)
             logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
@@ -226,23 +223,43 @@ def open_remote_files(indata, workdir, nthreads):
 
             # error handling
             if exitcode:
-                logger.warning('script %s finished with ec=%d', script, exitcode)
+                # first check for apptainer errors
+                _exitcode = errors.resolve_transform_error(exitcode, stdout + stderr)
+                if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
+                    return _exitcode, stderr, not_opened
 
-                # note: ignore any time-out errors if the remote files could still be opened
+                # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
                 _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
                 if not _exitcode:
-                    logger.info('ignoring time-out error since remote file could still be opened')
-                    exitcode = 0
+                    logger.info('remote file could still be opened in spite of previous error')
                 elif _exitcode:
-                    exitcode = _exitcode
-                if exitcode == errors.COMMANDTIMEDOUT:
-                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                    if exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILECOULDNOTBEOPENED:
+                        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                    elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILEDICTDOESNOTEXIST:
+                        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+                        diagnostics = f'remote file open command was timed-out and: {diagnostics}'  # cannot give further info
+                    else:  # REMOTEFILECOULDNOTBEOPENED
+                        exitcode = _exitcode
             else:
                 exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
     else:
         logger.info('nothing to verify (for remote files)')
 
+    if exitcode:
+        logger.warning(f'remote file open exit code: {exitcode}')
     return exitcode, diagnostics, not_opened
+
+
+def get_timeout_for_remoteio(indata):
+    """
+    Calculate a proper timeout to be used for remote i/o files.
+
+    :param indata: indata object.
+    :return: timeout in seconds (int).
+    """
+
+    remote_io = [fspec.status == 'remote_io' for fspec in indata]
+    return len(remote_io) * 30 + 600
 
 
 def parse_remotefileverification_dictionary(workdir):
@@ -262,6 +279,11 @@ def parse_remotefileverification_dictionary(workdir):
         workdir,
         config.Pilot.remotefileverification_dictionary
     )
+
+    if not os.path.exists(dictionary_path):
+        diagnostics = f'file {dictionary_path} does not exist'
+        logger.warning(diagnostics)
+        return errors.REMOTEFILEDICTDOESNOTEXIST, diagnostics, not_opened
 
     file_dictionary = read_json(dictionary_path)
     if not file_dictionary:
@@ -283,7 +305,7 @@ def parse_remotefileverification_dictionary(workdir):
     return exitcode, diagnostics, not_opened
 
 
-def get_file_open_command(script_path, turls, nthreads):
+def get_file_open_command(script_path, turls, nthreads, stdout='remote_open.stdout', stderr='remote_open.stderr'):
     """
 
     :param script_path: path to script (string).
@@ -292,7 +314,10 @@ def get_file_open_command(script_path, turls, nthreads):
     :return: comma-separated list of turls (string).
     """
 
-    return "%s --turls=\'%s\' -w %s -t %s" % (script_path, turls, os.path.dirname(script_path), str(nthreads))
+    cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
+    if stdout and stderr:
+        cmd += f' 1>{stdout} 2>{stderr}'
+    return cmd
 
 
 def extract_turls(indata):
@@ -344,6 +369,11 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if fspec.turl in not_opened_turls:
                         base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
                     else:
+                        protocol = get_protocol(fspec.surl, base_trace_report.get('eventType', ''))
+                        logger.debug(f'protocol={protocol}')
+                        if protocol:
+                            base_trace_report.update(protocol=protocol)
+                            logger.debug(f'added protocol={protocol} to trace report')
                         base_trace_report.update(clientState='FOUND_ROOT')
 
                     # copy the base trace report (only a dictionary) into a real trace report object
@@ -352,6 +382,25 @@ def process_remote_file_traces(path, job, not_opened_turls):
                         trace_report.send()
                     else:
                         logger.warning('failed to create trace report for turl=%s', fspec.turl)
+
+
+def get_protocol(surl, event_type):
+    """
+    Extract the protocol from the surl for event type get_sm_a.
+
+    :param surl: SURL (string).
+    :return: protocol (string).
+    """
+
+    protocol = ''
+    if event_type != 'get_sm_a':
+        return ''
+    if surl:
+        protocols = re.findall(r'(\w+)://', surl)  # use raw string to avoid flake8 warning W605 invalid escape sequence '\w'
+        if protocols:
+            protocol = protocols[0]
+
+    return protocol
 
 
 def get_nthreads(catchall):
@@ -377,8 +426,6 @@ def get_payload_command(job):
     :return: command (string).
     """
 
-    show_memory_usage()
-
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -394,14 +441,6 @@ def get_payload_command(job):
     # Python 3, level -1 -> 0
     modname = 'pilot.user.atlas.resource.%s' % resource_name
     resource = __import__(modname, globals(), locals(), [resource_name], 0)
-
-    # get the general setup command and then verify it if required
-    cmd = resource.get_setup_command(job, preparesetup)
-    if cmd:
-        exitcode, diagnostics = resource.verify_setup_command(cmd)
-        if exitcode != 0:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode)
-            raise PilotException(diagnostics, code=exitcode)
 
     # make sure that remote file can be opened before executing payload
     catchall = job.infosys.queuedata.catchall.lower() if job.infosys.queuedata.catchall else ''
@@ -432,6 +471,25 @@ def get_payload_command(job):
         logger.debug('no remote file open verification')
 
     os.environ['INDS'] = 'unknown'  # reset in case set by earlier job
+
+    # get the general setup command
+    cmd = resource.get_setup_command(job, preparesetup)
+    logger.debug(f'get_setup_command: cmd={cmd}')
+
+    # do not verify the command at this point, since it is best to run in a container (ie do it further down)
+
+    # move this until the final command is ready to prevent double work and complications
+    #if cmd:
+    #    # containerise command for payload setup verification
+    #    _cmd = create_middleware_container_command(job, cmd, label='setup', proxy=False)
+    #    exitcode, diagnostics = resource.verify_setup_command(_cmd)
+    #    if exitcode != 0:
+    #        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
+    #        raise PilotException(diagnostics, code=exitcode)
+    #    else:
+    #        logger.info('payload setup verified (in a container)')
+    #########################
+
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")
@@ -485,7 +543,11 @@ def get_payload_command(job):
     # Explicitly add the ATHENA_PROC_NUMBER (or JOB value)
     cmd = add_athena_proc_number(cmd)
 
-    show_memory_usage()
+    #if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
+    #    cmd = 'export PYTHONPATH=/usr/lib64/python3.6:/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
+
+    if job.dask_scheduler_ip:
+        cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
 
     logger.info('payload run command: %s', cmd)
 
@@ -754,7 +816,7 @@ def add_makeflags(job_core_count, cmd):
     return cmd
 
 
-def get_analysis_run_command(job, trf_name):
+def get_analysis_run_command(job, trf_name):  # noqa: C901
     """
     Return the proper run command for the user job.
 
@@ -783,6 +845,10 @@ def get_analysis_run_command(job, trf_name):
         logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
         x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
+    if 'OIDC_AUTH_TOKEN' in os.environ:
+        cmd += 'unset OIDC_AUTH_TOKEN;'
+    if 'OIDC_AUTH_ORIGIN' in os.environ:
+        cmd += 'unset OIDC_AUTH_ORIGIN;'
     if 'PANDA_AUTH_TOKEN' in os.environ:
         cmd += 'unset PANDA_AUTH_TOKEN;'
     if 'PANDA_AUTH_ORIGIN' in os.environ:
@@ -842,8 +908,6 @@ def get_analysis_run_command(job, trf_name):
         _guids = get_guids_from_jobparams(job.jobparams, lfns, guids)
         if _guids:
             cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
-
-    show_memory_usage()
 
     return cmd
 
@@ -936,6 +1000,68 @@ def get_file_transfer_info(job):   ## TO BE DEPRECATED, NOT USED (anisyonk)
     return use_copy_tool, use_direct_access, use_pfc_turl
 
 
+def test_job_data(job):
+    """
+    REMOVE THIS
+
+    :param job: job object
+    :return:
+    """
+
+    # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
+    # output files and add them to the output file list
+    from pilot.info.filespec import FileSpec
+
+    # add a couple of files to replace current output
+    filesizeinbytes = 1024
+    outputfiles = ['DST_.random1.root', 'DST_.random2.root', 'DST_.random3.root']
+    for outputfile in outputfiles:
+        with open(os.path.join(job.workdir, outputfile), 'wb') as fout:
+            fout.write(os.urandom(filesizeinbytes))  # replace 1024 with a size in kilobytes if it is not unreasonably large
+
+    outfiles = []
+    scope = ''
+    dataset = ''
+    ddmendpoint = ''
+    for fspec in job.outdata:
+
+        fspec.lfn = 'regex|DST_.*.root'
+        if fspec.lfn.startswith('regex|'):  # if this is true, job.outdata will be overwritten
+            regex_pattern = fspec.lfn.split('regex|')[1]  # "DST_.*.root"
+            logger.info(f'found regular expression {regex_pattern} - looking for the corresponding files in {job.workdir}')
+
+            # extract needed info for the output files for later
+            scope = fspec.scope
+            dataset = fspec.dataset
+            ddmendpoint = fspec.ddmendpoint
+
+            # now locate the corresponding files in the work dir
+            outfiles = [_file for _file in os.listdir(job.workdir) if re.search(regex_pattern, _file)]
+            logger.debug(f'outfiles={outfiles}')
+            if not outfiles:
+                logger.warning(f'no output files matching {regex_pattern} were found')
+            break
+
+    if outfiles:
+        new_outfiles = []
+        for outfile in outfiles:
+            new_file = {'scope': scope,
+                        'lfn': outfile,
+                        'guid': get_guid(),
+                        'workdir': job.workdir,
+                        'dataset': dataset,
+                        'ddmendpoint': ddmendpoint,
+                        'ddmendpoint_alt': None}
+            new_outfiles.append(new_file)
+        logger.debug(f'new_outfiles={new_outfiles}')
+        # create list of FileSpecs and overwrite the old job.outdata
+        _xfiles = [FileSpec(filetype='output', **_file) for _file in new_outfiles]
+        logger.info(f'overwriting old outdata list with new output file info (size={len(_xfiles)})')
+        job.outdata = _xfiles
+    else:
+        logger.debug('no regex found in outdata file list')
+
+
 def update_job_data(job):
     """
     This function can be used to update/add data to the job object.
@@ -952,6 +1078,8 @@ def update_job_data(job):
     ## metadata values)directly to Job object since in general it's Job
     ## related part. Later on once we introduce VO specific Job class
     ## (inherited from JobData) this can be easily customized
+
+    # test_job_data(job)
 
     # get label "all" or "log"
     stageout = get_stageout_label(job)
@@ -980,6 +1108,10 @@ def update_job_data(job):
     # extract output files from the job report if required, in case the trf
     # has created additional (overflow) files. Also make sure all guids are
     # assigned (use job report value if present, otherwise generate the guid)
+    is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
+    if is_raythena:
+        return
+
     if job.metadata and not job.is_eventservice:
         # keep this for now, complicated to merge with verify_output_files?
         extract_output_file_guids(job)
@@ -1140,7 +1272,7 @@ def discover_new_outdata(job):
 
                 # do not abbreviate the following two lines as otherwise
                 # the content of xfiles will be a list of generator objects
-                _xfiles = [FileSpec(type='output', **f) for f in files]
+                _xfiles = [FileSpec(filetype='output', **f) for f in files]
                 new_outdata += _xfiles
 
     return new_outdata
@@ -1170,24 +1302,14 @@ def discover_new_output(name_pattern, workdir):
             filesize = get_local_file_size(path)
             # get checksum
             try:
-                checksum = calculate_checksum(path)
+                checksum = calculate_checksum(path, algorithm=config.File.checksum_type)
             except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-                logger.warning(
-                    'failed to create file info (filesize=%d) for lfn=%s: %s',
-                    filesize,
-                    lfn,
-                    exc
-                )
+                logger.warning(f'failed to create file info (filesize={filesize}) for lfn={lfn}: {exc}')
             else:
                 if filesize and checksum:
                     new_output[lfn] = {'path': path, 'filesize': filesize, 'checksum': checksum}
                 else:
-                    logger.warning(
-                        'failed to create file info (filesize=%d, checksum=%s) for lfn=%s',
-                        filesize,
-                        checksum,
-                        lfn
-                    )
+                    logger.warning(f'failed to create file info (filesize={filesize}, checksum={checksum}) for lfn={lfn}')
 
     return new_output
 
@@ -1209,20 +1331,16 @@ def extract_output_file_guids(job):
     if not job.allownooutput:
         output = job.metadata.get('files', {}).get('output', [])
         if output:
-            logger.info((
-                'verified that job report contains metadata '
-                'for %d file(s)'), len(output))
+            logger.info(f'verified that job report contains metadata for {len(output)} file(s)')
         else:
             #- will fail job since allowNoOutput is not set')
-            logger.warning((
-                'job report contains no output '
-                'files and allowNoOutput is not set'))
+            logger.warning('job report contains no output files and allowNoOutput is not set')
             #job.piloterrorcodes, job.piloterrordiags =
             # errors.add_error_code(errors.NOOUTPUTINJOBREPORT)
             return
 
     # extract info from metadata (job report JSON)
-    data = dict([e.lfn, e] for e in job.outdata)
+    data = dict([out.lfn, out] for out in job.outdata)
     #extra = []
     for dat in job.metadata.get('files', {}).get('output', []):
         for fdat in dat.get('subFiles', []):
@@ -2505,8 +2623,7 @@ def get_utility_command_kill_signal(name):
     """
 
     # note that the NetworkMonitor does not require killing (to be confirmed)
-    sig = SIGUSR1 if name == 'MemoryMonitor' else SIGTERM
-    return sig
+    return SIGUSR1 if name == 'MemoryMonitor' else SIGTERM
 
 
 def get_utility_command_output_filename(name, selector=None):
@@ -2518,12 +2635,7 @@ def get_utility_command_output_filename(name, selector=None):
     :return: filename (string).
     """
 
-    if name == 'MemoryMonitor':
-        filename = get_memory_monitor_summary_filename(selector=selector)
-    else:
-        filename = ""
-
-    return filename
+    return get_memory_monitor_summary_filename(selector=selector) if name == 'MemoryMonitor' else ""
 
 
 def verify_lfn_length(outdata):

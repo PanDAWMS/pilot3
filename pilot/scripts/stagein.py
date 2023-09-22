@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
 import argparse
 import os
@@ -14,9 +14,17 @@ import re
 from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
 from pilot.common.exception import ConversionFailure
-from pilot.info import InfoService, FileSpec, infosys
+from pilot.info import (
+    InfoService,
+    FileSpec,
+    infosys,
+)
 from pilot.util.config import config
-from pilot.util.filehandling import establish_logging, write_json, read_json
+from pilot.util.filehandling import (
+    write_json,
+    read_json,
+)
+from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
 import logging
@@ -437,7 +445,7 @@ if __name__ == '__main__':
                   'checkinputsize': True}]
 
         # do not abbreviate the following two lines as otherwise the content of xfiles will be a list of generator objects
-        _xfiles = [FileSpec(type='input', **f) for f in files]
+        _xfiles = [FileSpec(filetype='input', **f) for f in files]
         xfiles += _xfiles
 
     try:

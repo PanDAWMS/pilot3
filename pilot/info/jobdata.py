@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -69,6 +69,7 @@ class JobData(BaseData):
     realtimelogging = False        # True for real-time logging (set by server/job definition/args)
     pandasecrets = ""              # User defined secrets
     pilotsecrets = {}              # Real-time logging secrets
+    requestid = None               # Request ID
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job
@@ -111,6 +112,7 @@ class JobData(BaseData):
     checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
     subprocesses = []              # list of PIDs for payload subprocesses
     prodproxy = ""                 # to keep track of production proxy on unified queues
+    completed = False              # True when job has finished or failed, used by https::send_update()
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -143,6 +145,9 @@ class JobData(BaseData):
     # coprocess = {u'args': u'coprocess', u'command': u'echo'}
     containeroptions = {}          #
     use_vp = False                 # True for VP jobs
+    maxwalltime = 0                # maxWalltime in s
+    dask_scheduler_ip = ''         # enhanced job definition for Dask jobs
+    jupyter_session_ip = ''        # enhanced job definition for Dask jobs
 
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
@@ -160,15 +165,18 @@ class JobData(BaseData):
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
-                   'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount'],
+                   'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
+                   'requestid', 'maxwalltime'],
              str: ['jobid', 'taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
                    'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy'],
-             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses'],
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip'],
+             list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
+                    'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
@@ -307,6 +315,7 @@ class JobData(BaseData):
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
             'ddmendpoint': 'ddmEndPointIn',
+            'requestid': 'reqID'
         }
 
         return kmap
@@ -478,7 +487,11 @@ class JobData(BaseData):
             'containeroptions': 'containerOptions',
             'looping_check': 'loopingCheck',
             'pandasecrets': 'secrets',
-            'pilotsecrets': 'pilotSecrets'
+            'pilotsecrets': 'pilotSecrets',
+            'requestid': 'reqID',
+            'maxwalltime': 'maxWalltime',
+            'dask_scheduler_ip': 'scheduler_ip',
+            'jupyter_session_ip': 'session_ip'
         } if use_kmap else {}
 
         self._load_data(data, kmap)
@@ -962,7 +975,7 @@ class JobData(BaseData):
             depth -= 1
             for zombie in self.zombies:
                 try:
-                    logger.info(f"zombie collector trying to kill pid {zombie}")
+                    logger.info(f"zombie collector waiting for pid {zombie}")
                     _id, _ = os.waitpid(zombie, os.WNOHANG)
                 except OSError as exc:
                     logger.info(f"harmless exception when collecting zombies: {exc}")
@@ -1019,5 +1032,9 @@ class JobData(BaseData):
         self.subprocesses = []
 
     def to_json(self):
+        """
+        Convert class to dictionary.
+        """
+
         from json import dumps
-        return dumps(self, default=lambda o: o.__dict__)
+        return dumps(self, default=lambda par: par.__dict__)

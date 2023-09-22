@@ -135,7 +135,9 @@ def download_transform(url, transform_name, workdir):
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
-    cmd = 'curl -sS \"%s\" > %s' % (url, path)
+    ip_version = os.environ.get('PILOT_IP_VERSION', 'IPv6')
+    command = 'curl' if ip_version == 'IPv6' else 'curl -4'
+    cmd = f'{command} -sS \"%s\" > %s' % (url, path)
     trial = 1
     max_trials = 3
 
@@ -237,3 +239,14 @@ def get_ddm_source_priority():
     """
 
     return ['LOCAL', 'USER', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def should_verify_setup(job):
+    """
+    Should the setup command be verified?
+
+    :param job: job object.
+    :return: Boolean.
+    """
+
+    return False

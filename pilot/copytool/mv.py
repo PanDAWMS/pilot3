@@ -131,7 +131,11 @@ def copy_in(files, copy_type="symlink", **kwargs):
 
     logger.debug(f"workdir={kwargs.get('workdir')}")
     logger.debug(f"jobworkdir={kwargs.get('jobworkdir')}")
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), kwargs.get('jobworkdir'))
+    exit_code, stdout, stderr = move_all_files(files,
+                                               copy_type,
+                                               kwargs.get('workdir'),
+                                               kwargs.get('jobworkdir'),
+                                               mvfinaldest=kwargs.get('mvfinaldest', False))
     if exit_code != 0:
         # raise failure
         raise StageInFailure(stdout)
@@ -153,7 +157,11 @@ def copy_out(files, copy_type="mv", **kwargs):
     if not kwargs.get('workdir'):
         raise StageOutFailure("Workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files, copy_type, kwargs.get('workdir'), '')
+    exit_code, stdout, stderr = move_all_files(files,
+                                               copy_type,
+                                               kwargs.get('workdir'),
+                                               '',
+                                               mvfinaldest=kwargs.get('mvfinaldest', False))
     if exit_code != 0:
         # raise failure
         if exit_code == ErrorCodes.MKDIR:
@@ -170,7 +178,7 @@ def copy_out(files, copy_type="mv", **kwargs):
     return files
 
 
-def move_all_files(files, copy_type, workdir, jobworkdir):
+def move_all_files(files, copy_type, workdir, jobworkdir, mvfinaldest=False):
     """
     Move all files.
 
@@ -198,7 +206,7 @@ def move_all_files(files, copy_type, workdir, jobworkdir):
 
         name = fspec.lfn
         if fspec.filetype == 'input':
-            if user.mv_to_final_destination():
+            if user.mv_to_final_destination() or mvfinaldest:
                 subpath = user.get_path(fspec.scope, fspec.lfn)
                 logger.debug(f'subpath={subpath}')
                 source = os.path.join(workdir, subpath)
@@ -209,7 +217,7 @@ def move_all_files(files, copy_type, workdir, jobworkdir):
         else:
             source = os.path.join(workdir, name)
             # is the copytool allowed to move files to the final destination (not in Nordugrid/ATLAS)
-            if user.mv_to_final_destination():
+            if user.mv_to_final_destination() or mvfinaldest:
                 # create any sub dirs if they don't exist already, and find the final destination path
                 ec, diagnostics, destination = build_final_path(fspec.turl)
                 if ec:

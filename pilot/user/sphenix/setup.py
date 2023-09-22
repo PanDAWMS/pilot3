@@ -14,6 +14,8 @@ from time import sleep
 from datetime import datetime
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import NoSoftwareDir
+from pilot.info import infosys
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
 from pilot.util.filehandling import copy, head
@@ -22,6 +24,77 @@ import logging
 logger = logging.getLogger(__name__)
 
 errors = ErrorCodes()
+
+
+def get_file_system_root_path():
+    """
+    Return the root path of the local file system.
+    The function returns "/cvmfs" or "/(some path)/cvmfs" in case the expected file system root path is not
+    where it usually is (e.g. on an HPC). A site can set the base path by exporting ATLAS_SW_BASE.
+
+    :return: path (string)
+    """
+
+    return os.environ.get('ATLAS_SW_BASE', '/cvmfs')
+
+
+def get_alrb_export(add_if=False):
+    """
+    Return the export command for the ALRB path if it exists.
+    If the path does not exist, return empty string.
+
+    :param add_if: Boolean. True means that an if statement will be placed around the export.
+    :return: export command
+    """
+
+    path = "%s/atlas.cern.ch/repo" % get_file_system_root_path()
+    cmd = "export ATLAS_LOCAL_ROOT_BASE=%s/ATLASLocalRootBase;" % path if os.path.exists(path) else ""
+
+    # if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
+    if cmd and add_if:
+        cmd = 'if [ -z \"$ATLAS_LOCAL_ROOT_BASE\" ]; then ' + cmd + ' fi;'
+
+    return cmd
+
+
+def get_asetup(asetup=True, alrb=False, add_if=False):
+    """
+    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE
+    Only include the actual asetup script if asetup=True. This is not needed if the jobPars contain the payload command
+    but the pilot still needs to add the exports and the atlasLocalSetup.
+
+    :param asetup: Boolean. True value means that the pilot should include the asetup command.
+    :param alrb: Boolean. True value means that the function should return special setup used with ALRB and containers.
+    :param add_if: Boolean. True means that an if statement will be placed around the export.
+    :raises: NoSoftwareDir if appdir does not exist.
+    :return: source <path>/asetup.sh (string).
+    """
+
+    cmd = ""
+    alrb_cmd = get_alrb_export(add_if=add_if)
+    if alrb_cmd != "":
+        cmd = alrb_cmd
+        if not alrb:
+            cmd += "source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;"
+            if asetup:
+                cmd += "source $AtlasSetup/scripts/asetup.sh"
+    else:
+        try:  # use try in case infosys has not been initiated
+            appdir = infosys.queuedata.appdir
+        except Exception:
+            appdir = ""
+        if appdir == "":
+            appdir = os.environ.get('VO_ATLAS_SW_DIR', '')
+        if appdir != "":
+            # make sure that the appdir exists
+            if not os.path.exists(appdir):
+                msg = 'appdir does not exist: %s' % appdir
+                logger.warning(msg)
+                raise NoSoftwareDir(msg)
+            if asetup:
+                cmd = "source %s/scripts/asetup.sh" % appdir
+
+    return cmd
 
 
 def get_analysis_trf(transform, workdir):
@@ -237,3 +310,14 @@ def get_ddm_source_priority():
     """
 
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
+
+
+def should_verify_setup(job):
+    """
+    Should the setup command be verified?
+
+    :param job: job object.
+    :return: Boolean.
+    """
+
+    return False

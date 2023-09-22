@@ -123,18 +123,30 @@ class ESProcess(threading.Thread):
 
     def init_yampl_socket(self, executable):
         socket_name = self.__message_thread.get_yampl_socket_name()
+
+        is_ca = "--CA" in executable
+        if is_ca:
+            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\' " % (socket_name)
+        else:
+            preexec_socket_config = \
+                " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % (socket_name)
+
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
         elif "--preExec" not in executable:
-            executable += " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\'" % (socket_name)
+            executable = executable.strip()
+            if executable.endswith(";"):
+                executable = executable[:-1]
+            executable += preexec_socket_config
         else:
             if "import jobproperties as jps" in executable:
                 executable = executable.replace("import jobproperties as jps;",
                                                 "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % (socket_name))
+                if is_ca:
+                    logger.warning("Found jobproperties config in CA job")
             else:
                 if "--preExec " in executable:
-                    new_str = "--preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % socket_name
-                    executable = executable.replace("--preExec ", new_str)
+                    executable = executable.replace("--preExec ", preexec_socket_config)
                 else:
                     logger.warn("--preExec has an unknown format - expected \'--preExec \"\' or \"--preExec \'\", got: %s" % (executable))
 
@@ -443,7 +455,7 @@ class ESProcess(threading.Thread):
                     found = re.findall(pattern, message)
                     event_range = found[0][1]
                     if "eventRangeID" in event_range:
-                        pattern = re.compile(r"eventRangeID\'\:\ ?.?\'([0-9\-]+)")
+                        pattern = re.compile(r"eventRangeID\'\:\ ?.?\'([0-9A-Za-z._\-]+)")
                         found = re.findall(pattern, event_range)
                         event_range_id = found[0]
                         ret = {'id': event_range_id, 'status': 'failed', 'message': message}
@@ -451,7 +463,7 @@ class ESProcess(threading.Thread):
                     else:
                         raise Exception("Failed to parse %s" % message)
                 else:
-                    pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9\-]+)\:\ ?(.+)")
+                    pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9A-Za-z._\-]+)\:\ ?(.+)")
                     found = re.findall(pattern, message)
                     event_range_id = found[0][1]
                     ret = {'id': event_range_id, 'status': 'failed', 'message': message}

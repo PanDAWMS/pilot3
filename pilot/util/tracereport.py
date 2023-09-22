@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 class TraceReport(dict):
 
+    ipv = 'IPv6'
+
     def __init__(self, *args, **kwargs):
 
         event_version = "%s+%s" % (get_pilot_version(), get_rucio_client_version())
@@ -64,6 +66,7 @@ class TraceReport(dict):
 
         super(TraceReport, self).__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
+        self.ipv = kwargs.get('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
 
     # sitename, dsname, eventType
     def init(self, job):
@@ -84,7 +87,7 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
-        hostname = os.environ.get('PAMDA_HOSTNAME', socket.gethostname())
+        hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
         except Exception:
@@ -157,23 +160,22 @@ class TraceReport(dict):
 
         try:
             # take care of the encoding
-            #data = {'API': '0_3_0', 'operation': 'addReport', 'report': self}
             data = dumps(self).replace('"', '\\"')
-            #loaded = loads(data)
-            #logger.debug('self object converted to json dictionary: %s' % loaded)
+            # remove the ipv item since it's for internal pilot use only
+            data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
 
             ssl_certificate = self.get_ssl_certificate()
 
             # create the command
-            cmd = 'curl --connect-timeout 20 --max-time 120 --cacert %s -v -k -d \"%s\" %s' % \
-                  (ssl_certificate, data, url)
-            exit_code, stdout, stderr = execute(cmd, mute=True)
-            if exit_code:
+            command = 'curl'
+            if self.ipv == 'IPv4':
+                command += ' -4'
+
+            cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
+            exit_code, stdout, stderr = execute(cmd, mute=False, timeout=300)
+            logger.debug(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
+            if exit_code or 'ExceptionClass' in stdout:
                 logger.warning('failed to send traces to rucio: %s' % stdout)
-            #request(url, loaded)
-            #if status is not None:
-            #    logger.warning('failed to send traces to rucio: %s' % status)
-            #    raise Exception(status)
         except Exception:
             # if something fails, log it but ignore
             logger.error('tracing failed: %s' % str(exc_info()))

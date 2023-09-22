@@ -85,11 +85,9 @@ def control(queues, traces, args):
             #abort_jobs_in_queues(queues, args.signal)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='control'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] control thread has finished')
 
@@ -120,11 +118,9 @@ def validate_pre(queues, traces, args):
             put_in_queue(job, queues.failed_payloads)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate_pre'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] validate_pre thread has finished')
 
@@ -227,17 +223,19 @@ def execute_payloads(queues, traces, args):  # noqa: C901
 
             # run the payload and measure the execution time
             job.t0 = os.times()
-            exit_code = payload_executor.run()
+            exit_code, diagnostics = payload_executor.run()
+            if exit_code > 1000:  # pilot error code, add to list
+                logger.debug(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
 
+            logger.debug(f'run() returned exit_code={exit_code}')
             set_cpu_consumption_time(job)
             job.transexitcode = exit_code % 255
-
             out.close()
             err.close()
 
-            pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-
             # some HPO jobs will produce new output files (following lfn name pattern), discover those and replace the job.outdata list
+            pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             if job.is_hpo:
                 user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
                 try:
@@ -259,16 +257,16 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             perform_initial_payload_error_analysis(job, exit_code)
 
             # was an error already found?
-            #if job.piloterrorcodes:
-            #    exit_code_interpret = 1
-            #else:
             user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
                 logger.warning(f'exception caught: {error}')
-                #exit_code_interpret = -1
-                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM)
+                if 'error code:' in error and 'message:' in error:
+                    error_code, diagnostics = extract_error_info(error)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                else:
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
 
             if job.piloterrorcodes:
                 exit_code_interpret = 1
@@ -292,20 +290,40 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             logger.fatal(f'execute payloads caught an exception (cannot recover): {error}, {traceback.format_exc()}')
             if job:
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONEXCEPTION)
-                #queues.failed_payloads.put(job)
                 put_in_queue(job, queues.failed_payloads)
             while not args.graceful_stop.is_set():
                 # let stage-out of log finish, but stop running payloads as there should be a problem with the pilot
                 time.sleep(5)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='execute_payloads'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] execute_payloads thread has finished')
+
+
+def extract_error_info(error):
+    """
+    Extract the error code and diagnostics from an error exception.
+
+    :param error: exception string.
+    :return: error code (int), diagnostics (string).
+    """
+
+    error_code = errors.INTERNALPILOTPROBLEM
+    diagnostics = f'full exception: {error}'
+
+    pattern = r'error\ code\:\ ([0-9]+)\,\ message\:\ (.+)'
+    errinfo = findall(pattern, error)
+    if errinfo:  # e.g. [('1303', 'Failed during file handling')]
+        try:
+            error_code = errinfo[0][0]
+            diagnostics = errinfo[0][1]
+        except Exception as exc:
+            logger.warning(f'failed to extract error info from exception error={error}, exc={exc}')
+
+    return error_code, diagnostics
 
 
 def get_transport(catchall):
@@ -319,6 +337,25 @@ def get_transport(catchall):
     transport = ''
 
     return transport
+
+
+def get_rtlogging():
+    """
+    Return the proper rtlogging value from the experiment specific plug-in or the config file.
+
+    :return: rtlogging (str).
+    """
+
+    rtlogging = None
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    try:
+        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        rtlogging = user.get_rtlogging()
+    except Exception as exc:
+        rtlogging = config.Pilot.rtlogging
+        logger.warning(f'found no experiment specific rtlogging, using config value ({rtlogging}): {exc}')
+
+    return rtlogging
 
 
 def get_logging_info(job, args):
@@ -347,7 +384,7 @@ def get_logging_info(job, args):
     logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
     pattern = r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
-    info = findall(pattern, config.Pilot.rtlogging)
+    info = findall(pattern, get_rtlogging())
 
     if not logserver and not info:
         logger.warning('not enough info available for activating real-time logging')
@@ -426,9 +463,12 @@ def find_log_to_tail(debug_command, workdir, args, is_analysis):
             counter += 10
 
     # fallback to known log file if no other file could be found
-    if not path:
-        logger.warning(f'file {filename} was not found for {maxwait} s, using default')
     logf = path if path else config.Payload.payloadstdout
+    if not path:
+        if filename:
+            logger.warning(f'file {filename} was not found for {maxwait} s, using default')
+        else:
+            logger.info(f'using {logf} for real-time logging')
 
     return logf
 
@@ -510,11 +550,9 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
         realtime_logger.sending_logs(args, job)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='run_realtimelog'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] run_realtimelog thread has finished')
 
@@ -561,7 +599,7 @@ def perform_initial_payload_error_analysis(job, exit_code):
         msg = scan_for_memory_errors(job.subprocesses)
         if msg:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
-    elif exit_code != 0:
+    if exit_code != 0:
         msg = ""
 
         # are there any critical errors in the stdout?
@@ -705,11 +743,9 @@ def validate_post(queues, traces, args):
         put_in_queue(job, queues.data_out)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='validate_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] validate_post thread has finished')
 
@@ -742,10 +778,8 @@ def failed_post(queues, traces, args):
         put_in_queue(job, queues.data_out)
 
     # proceed to set the job_aborted flag?
-    if threads_aborted():
+    if threads_aborted(caller='failed_post'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
-    else:
-        logger.debug('will not set job_aborted yet')
 
     logger.info('[payload] failed_post thread has finished')
