@@ -24,11 +24,12 @@ from .utilities import get_memory_monitor_output_filename
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job):
+def get_job_metrics_string(job, extra={}):
     """
     Get the job metrics string.
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 
@@ -85,6 +86,10 @@ def get_job_metrics_string(job):
     if job.dask_scheduler_ip and job.jupyter_session_ip:
         job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
         job_metrics += get_job_metrics_entry("sessionIP", job.jupyter_session_ip)
+
+    if extra:
+        for entry in extra:
+            logger.debug(f'could have added: {entry}: {extra.get(entry)}')
 
     return job_metrics
 
@@ -183,7 +188,7 @@ def add_event_number(job_metrics, workdir):
     return job_metrics
 
 
-def get_job_metrics(job):
+def get_job_metrics(job, extra={}):
     """
     Return a properly formatted job metrics string.
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
@@ -193,12 +198,13 @@ def get_job_metrics(job):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 
     # get job metrics string
-    job_metrics = get_job_metrics_string(job)
+    job_metrics = get_job_metrics_string(job, extra=extra)
 
     # correct for potential initial and trailing space
     job_metrics = job_metrics.lstrip().rstrip()

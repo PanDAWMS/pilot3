@@ -619,10 +619,6 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
     if starttime:
         data['startTime'] = starttime
 
-    job_metrics = get_job_metrics(job)
-    if job_metrics:
-        data['jobMetrics'] = job_metrics
-
     if xml is not None:
         data['xml'] = xml
     if metadata is not None:
@@ -656,6 +652,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
     cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
+    # CPU instruction set
     instruction_sets = has_instruction_sets(['AVX2'])
     product, vendor = get_display_info()
     if instruction_sets:
@@ -666,6 +663,7 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
         if product and vendor:
             logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
+    # CPU architecture
     cpu_arch = get_cpu_arch()
     if cpu_arch:
         logger.debug(f'cpu arch={cpu_arch}')
@@ -673,6 +671,21 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
+
+    # job metrics
+
+    # add read_bytes from memory monitor to job metrics if available
+    extra = {}
+    if 'totRBYTES' in data:
+        logger.debug(f"current max read_bytes: {data.get('totRBYTES')}")
+        extra = {'readbyterate': data.get('totRBYTES')}
+    else:
+        logger.debug('read_bytes info not yet available')
+    job_metrics = get_job_metrics(job, extra=extra)
+    if job_metrics:
+        data['jobMetrics'] = job_metrics
+
+    # add timing info if finished or failed
     if state == 'finished' or state == 'failed':
         add_timing_and_extracts(data, job, state, args)
         https.add_error_codes(data, job)
