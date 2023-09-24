@@ -71,6 +71,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     exit_code = 0
     stdout = ''
     stderr = ''
+
     # Acquire the lock before creating the subprocess
     with execute_lock:
         process = subprocess.Popen(exe,
@@ -89,7 +90,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
-            flush_handler(name="stream_handler")
+            # flush_handler(name="stream_handler")
             stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT

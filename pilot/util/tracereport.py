@@ -109,7 +109,10 @@ class TraceReport(dict):
 
     def get_value(self, key):
         """
+        Return trace report value for given key.
 
+        :param key: key (str)
+        :return: trace report value (Any).
         """
 
         return self.get(key, None)
