@@ -17,15 +17,16 @@ import tarfile
 import time
 import uuid
 from collections.abc import Iterable, Mapping
+from functools import partial, reduce
 from glob import glob
 from json import load, JSONDecodeError
 from json import dump as dumpjson
+from mmap import mmap
 from pathlib import Path
 from shutil import copy2, rmtree
-from zlib import adler32
-from functools import partial
-from mmap import mmap
+from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
+from zlib import adler32
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
 from .container import execute
@@ -1256,3 +1257,23 @@ def get_directory_size(directory: str) -> float:
             logger.warning(f'failed to convert {match.group(1)} to float: {exc}')
         # path = match.group(2)
     return size_mb
+
+
+def get_total_input_size(files: Any, nolib: bool = True) -> int:
+    """
+    Calculate the total input file size, but do not include the lib file if present.
+
+    :param files: files object (list of FileSpec)
+    :param nolib: if True, do not include the lib file in the calculation
+    :return: total input file size in bytes (int).
+    """
+
+    if not nolib:
+        total_size = reduce(lambda x, y: x + y.filesize, files, 0)
+    else:
+        total_size = 0
+        for _file in files:
+            if nolib and '.lib.' not in _file.lfn:
+                total_size += _file.filesize
+
+    return total_size

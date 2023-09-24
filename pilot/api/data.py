@@ -938,6 +938,12 @@ class StageInClient(StagingClient):
 
         self.logger.info("total input file size=%s B within allowed limit=%s B (zero value means unlimited)", totalsize, maxinputsize)
 
+        from pilot.util.filehandling import get_total_input_size
+        _totalsize = get_total_input_size(files, nolib=True)
+        self.logger.debug(f'_totalsize={_totalsize}')
+
+
+
         # get available space
         try:
             disk_space = get_local_disk_space(os.getcwd())

@@ -87,9 +87,10 @@ def get_job_metrics_string(job, extra={}):
         job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
         job_metrics += get_job_metrics_entry("sessionIP", job.jupyter_session_ip)
 
+    # add any additional info
     if extra:
         for entry in extra:
-            logger.debug(f'could have added: {entry}: {extra.get(entry)}')
+            job_metrics += get_job_metrics_entry(entry, extra.get(entry))
 
     return job_metrics
 

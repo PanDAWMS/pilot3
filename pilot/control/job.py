@@ -36,14 +36,23 @@ from pilot.util.constants import PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, PI
     LOG_TRANSFER_IN_PROGRESS, LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED, SERVER_UPDATE_TROUBLE, SERVER_UPDATE_FINAL, \
     SERVER_UPDATE_UPDATING, SERVER_UPDATE_NOT_DONE
 from pilot.util.container import execute
-from pilot.util.filehandling import find_text_files, tail, is_json, copy, remove, write_file, \
-    create_symlink, write_json
+from pilot.util.filehandling import (
+    find_text_files,
+    tail,
+    is_json,
+    copy,
+    remove,
+    write_file,
+    create_symlink,
+    write_json,
+    get_total_input_size
+)
 from pilot.util.harvester import request_new_jobs, remove_job_request_file, parse_job_definition_file, \
     is_harvester_mode, get_worker_attributes_file, publish_job_report, publish_work_report, get_event_status_file, \
     publish_stageout_files
 from pilot.util.jobmetrics import get_job_metrics
 from pilot.util.loggingsupport import establish_logging
-from pilot.util.math import mean
+from pilot.util.math import mean, float_to_rounded_string
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import job_monitor_tasks, check_local_space
 from pilot.util.monitoringtime import MonitoringTime
@@ -677,8 +686,19 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
     # add read_bytes from memory monitor to job metrics if available
     extra = {}
     if 'totRBYTES' in data:
+        _totalsize = get_total_input_size(job.indata, nolib=True)
+        logger.debug(f'_totalsize={_totalsize}')
         logger.debug(f"current max read_bytes: {data.get('totRBYTES')}")
-        extra = {'readbyterate': data.get('totRBYTES')}
+        try:
+            readfrac = data.get('totRBYTES') / _totalsize
+        except (TypeError, ZeroDivisionError) as exc:
+            logger.warning(f"failed to calculate {data.get('totRBYTES')}/{_totalsize}: {exc}")
+            readfrac = None
+        else:
+            readfrac = float_to_rounded_string(readfrac, precision=2)
+            logger.debug(f'readbyterate={readfrac}')
+        if readfrac:
+            extra = {'readbyterate': readfrac}
     else:
         logger.debug('read_bytes info not yet available')
     job_metrics = get_job_metrics(job, extra=extra)
