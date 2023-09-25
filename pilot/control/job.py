@@ -2869,103 +2869,102 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
             # stop_monitoring = False  # continue with the main loop (while cont)
             for i in range(len(jobs)):
-                current_id = jobs[i].jobid
-                #if current_id in no_monitoring:
-                #    stop_monitoring = True
-                #    delta = peeking_time - no_monitoring.get(current_id, 0)
-                #    if delta > 60:
-                #        logger.warning(f'job monitoring has waited {delta} s for job {current_id} to finish - aborting')
-                #    break
+                try:
+                    current_id = jobs[i].jobid
+                    error_code = None
+                    if abort_job and args.signal:
+                        # if abort_job and a kill signal was set
+                        error_code = get_signal_error(args.signal)
+                    elif abort_job:  # i.e. no kill signal
+                        logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
+                    elif os.environ.get('REACHED_MAXTIME', None):
+                        # the batch system max time has been reached, time to abort (in the next step)
+                        logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
+                        if not args.graceful_stop.is_set():
+                            logger.info('setting graceful_stop since it was not set already')
+                            args.graceful_stop.set()
+                        error_code = errors.REACHEDMAXTIME
+                    if error_code:
+                        jobs[i].state = 'failed'
+                        jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
+                        jobs[i].completed = True
+                        if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
+                            send_state(jobs[i], args, jobs[i].state)
+                        if jobs[i].pid:
+                            logger.debug('killing payload processes')
+                            kill_processes(jobs[i].pid)
 
-                error_code = None
-                if abort_job and args.signal:
-                    # if abort_job and a kill signal was set
-                    error_code = get_signal_error(args.signal)
-                elif abort_job:  # i.e. no kill signal
-                    logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
-                elif os.environ.get('REACHED_MAXTIME', None):
-                    # the batch system max time has been reached, time to abort (in the next step)
-                    logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
-                    if not args.graceful_stop.is_set():
-                        logger.info('setting graceful_stop since it was not set already')
-                        args.graceful_stop.set()
-                    error_code = errors.REACHEDMAXTIME
-                if error_code:
-                    jobs[i].state = 'failed'
-                    jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
-                    jobs[i].completed = True
-                    if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
-                        send_state(jobs[i], args, jobs[i].state)
-                    if jobs[i].pid:
-                        logger.debug('killing payload processes')
-                        kill_processes(jobs[i].pid)
-
-                logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
-                if jobs[i].state == 'finished' or jobs[i].state == 'failed':
-                    logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
-                    if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
-                        set_pilot_state(job=jobs[i], state="finished")
-                        logger.info('ordering log transfer')
-                        jobs[i].stageout = 'log'  # only stage-out log file
-                        put_in_queue(jobs[i], queues.data_out)
-                        cont = False
-                    # no_monitoring[current_id] = int(time.time())
-                    break
-
-                # perform the monitoring tasks
-                exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
-                logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
-                if exit_code != 0:
-                    # do a quick server update with the error diagnostics only
-                    preliminary_server_update(jobs[i], args, diagnostics)
-                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
-                        # attempt to download a new proxy since it is about to expire
-                        ec = download_new_proxy(role='production')
-                        exit_code = ec if ec != 0 else 0  # reset the exit_code if success
-                    if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
-                        jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
-                        logger.debug('killing payload process')
-                        kill_process(jobs[i].pid)
+                    logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
+                    if jobs[i].state == 'finished' or jobs[i].state == 'failed':
+                        logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
+                        if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
+                            set_pilot_state(job=jobs[i], state="finished")
+                            logger.info('ordering log transfer')
+                            jobs[i].stageout = 'log'  # only stage-out log file
+                            put_in_queue(jobs[i], queues.data_out)
+                            cont = False
+                        # no_monitoring[current_id] = int(time.time())
                         break
-                    elif exit_code == errors.LEASETIME:  # stager mode, order log stage-out
-                        set_pilot_state(job=jobs[i], state="finished")
-                        logger.info('ordering log transfer')
-                        jobs[i].stageout = 'log'  # only stage-out log file
-                        put_in_queue(jobs[i], queues.data_out)
-                    elif exit_code == 0:
-                        # ie if download of new proxy was successful
-                        diagnostics = ""
+
+                    # perform the monitoring tasks
+                    exit_code, diagnostics = job_monitor_tasks(jobs[i], mt, args)
+                    logger.debug(f'job_monitor_tasks returned {exit_code}, {diagnostics}')
+                    if exit_code != 0:
+                        # do a quick server update with the error diagnostics only
+                        preliminary_server_update(jobs[i], args, diagnostics)
+                        if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                            # attempt to download a new proxy since it is about to expire
+                            ec = download_new_proxy(role='production')
+                            exit_code = ec if ec != 0 else 0  # reset the exit_code if success
+                        if exit_code == errors.KILLPAYLOAD or exit_code == errors.NOVOMSPROXY or exit_code == errors.CERTIFICATEHASEXPIRED:
+                            jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
+                            logger.debug('killing payload process')
+                            kill_process(jobs[i].pid)
+                            break
+                        elif exit_code == errors.LEASETIME:  # stager mode, order log stage-out
+                            set_pilot_state(job=jobs[i], state="finished")
+                            logger.info('ordering log transfer')
+                            jobs[i].stageout = 'log'  # only stage-out log file
+                            put_in_queue(jobs[i], queues.data_out)
+                        elif exit_code == 0:
+                            # ie if download of new proxy was successful
+                            diagnostics = ""
+                            break
+                        else:
+                            try:
+                                fail_monitored_job(jobs[i], exit_code, diagnostics, queues, traces)
+                            except Exception as error:
+                                logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
+                            break
+
+                    # run this check again in case job_monitor_tasks() takes a long time to finish (and the job object
+                    # has expired in the meantime)
+                    try:
+                        _job = jobs[i]
+                    except Exception:
+                        logger.info('aborting job monitoring since job object (job id=%s) has expired', current_id)
+                        break
+
+                    # send heartbeat if it is time (note that the heartbeat function might update the job object, e.g.
+                    # by turning on debug mode, ie we need to get the heartbeat period in case it has changed)
+                    try:
+                        update_time = send_heartbeat_if_time(_job, args, update_time)
+                    except Exception as error:
+                        logger.warning('exception caught: %s (job id=%s)', error, current_id)
                         break
                     else:
-                        try:
-                            fail_monitored_job(jobs[i], exit_code, diagnostics, queues, traces)
-                        except Exception as error:
-                            logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
-                        break
+                        # note: when sending a state change to the server, the server might respond with 'tobekilled'
+                        if _job.state == 'failed':
+                            logger.warning('job state is \'failed\' - order log transfer and abort job_monitor() (2)')
+                            _job.stageout = 'log'  # only stage-out log file
+                            put_in_queue(_job, queues.data_out)
+                            #abort = True
+                            break
 
-                # run this check again in case job_monitor_tasks() takes a long time to finish (and the job object
-                # has expired in the meantime)
-                try:
-                    _job = jobs[i]
-                except Exception:
-                    logger.info('aborting job monitoring since job object (job id=%s) has expired', current_id)
-                    break
-
-                # send heartbeat if it is time (note that the heartbeat function might update the job object, e.g.
-                # by turning on debug mode, ie we need to get the heartbeat period in case it has changed)
-                try:
-                    update_time = send_heartbeat_if_time(_job, args, update_time)
-                except Exception as error:
-                    logger.warning('exception caught: %s (job id=%s)', error, current_id)
-                    break
-                else:
-                    # note: when sending a state change to the server, the server might respond with 'tobekilled'
-                    if _job.state == 'failed':
-                        logger.warning('job state is \'failed\' - order log transfer and abort job_monitor() (2)')
-                        _job.stageout = 'log'  # only stage-out log file
-                        put_in_queue(_job, queues.data_out)
-                        #abort = True
-                        break
+                except Exception as exc:
+                    # did the job object expire?
+                    logger.warning(f'exception caught: {exc}')
+                    continue
 
             #if stop_monitoring:
             #    continue
