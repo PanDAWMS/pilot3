@@ -18,7 +18,7 @@ from signal import SIGTERM, SIGKILL
 from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.loggingsupport import flush_handler
+#from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)

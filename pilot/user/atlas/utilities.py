@@ -166,16 +166,11 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         #logger.debug(f'current pid={_pid}')
         #logger.debug(f'current ppid={os.getppid()}')  # /bin/bash parent process (parent to pilot and prmon, ..)
 
-
-
-
-        # prmon --pid 35859
-
         # lookup the process id using ps aux
         logger.debug(f'attempting to identify pid from job id ({jobid})')
         _pid = get_pid_for_jobid(ps, jobid)
         if _pid:
-            logger.debug('discovered pid=%d for job id %s' % (_pid, jobid))
+            logger.debug(f'discovered pid={_pid} for job id {jobid}')
             break
 
         #logger.debug('attempting to identify pid from transform name and its output')
@@ -184,7 +179,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         #    logger.debug('discovered pid=%d for transform name \"%s\"' % (_pid, transformation))
         #    break
 
-        logger.warning('payload pid has not yet been identified (#%d/#%d)' % (i + 1, imax))
+        logger.warning(f'payload pid has not yet been identified (#{i + 1}/#{imax})')
 
         # wait until the payload has launched
         time.sleep(5)
@@ -193,7 +188,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     if _pid:
         pid = _pid
 
-    logger.info('will use pid=%d for memory monitor' % pid)
+    logger.info(f'will use pid={pid} for memory monitor')
 
     return pid
 

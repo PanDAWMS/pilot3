@@ -11,7 +11,6 @@
 
 import os
 import time
-import re
 import subprocess
 from glob import glob
 from typing import Any
@@ -48,8 +47,7 @@ from pilot.util.processes import (
 )
 from pilot.util.psutils import (
     is_process_running,
-    find_pid_by_command_and_ppid,
-    get_parent_pid
+    find_pid_by_command_and_ppid
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
@@ -544,7 +542,7 @@ def utility_monitor(job):  # noqa: C901
                     logger.info(f'prmon command has pid {pid} (appending to cmd dictionary)')
                     job.utilities[utcmd].append(pid)
                 else:
-                    logger.info(f'could not find any pid for prmon command')
+                    logger.info('could not find any pid for prmon command')
 
         # make sure the subprocess is still running
         if not utproc.poll() is None:

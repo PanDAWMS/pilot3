@@ -56,7 +56,7 @@ def find_pid_by_command_and_ppid(command, payload_pid):
     """
 
     if not is_psutil_available:
-        logger.warning(f'find_pid_by_command_and_ppid(): psutil not available - aborting')
+        logger.warning('find_pid_by_command_and_ppid(): psutil not available - aborting')
         return None
 
     for process in psutil.process_iter(['pid', 'name', 'cmdline', 'ppid']):
