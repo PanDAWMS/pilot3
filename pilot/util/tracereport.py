@@ -182,6 +182,7 @@ class TraceReport(dict):
             # stream the output to files to prevent massive reponses that could overwhelm subprocess.communicate() in execute()
             outname, errname = self.get_trace_curl_filenames(name='trace_curl_last')
             out, err = self.get_trace_curl_files(outname, errname)
+            logger.debug(f'using {outname} and {errname} to store curl output')
             cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
             exit_code = execute2(cmd, out, err, 300)
             logger.debug(f'exit_code={exit_code}')
@@ -253,7 +254,8 @@ class TraceReport(dict):
         :return: stdout file name (str), stderr file name (str).
         """
 
-        return os.path.join(self.workdir, f'{name}.stdout'), os.path.join(self.workdir, f'{name}.stderr')
+        workdir = self.workdir if self.workdir else os.getcwd()
+        return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
 
     def get_trace_curl_files(self, outpath, errpath, mode='wb'):
         """
