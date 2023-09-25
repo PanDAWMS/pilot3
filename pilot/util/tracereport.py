@@ -187,13 +187,21 @@ class TraceReport(dict):
             logger.debug(f'exit_code={exit_code}')
 
             # always append the output to trace_curl.std{out|err}
-            outname_final, _ = self.get_trace_curl_filenames(name='trace_curl')
+            outname_final, errname_final = self.get_trace_curl_filenames(name='trace_curl')
             _ = append_to_file(outname, outname_final)
+            _ = append_to_file(errname, errname_final)
+            self.close(out, err)
 
-            # handle errors that only appear in stdout (curl)
+            # handle errors that only appear in stdout/err (curl)
             if not exit_code:
+                out, err = self.get_trace_curl_files(outname, errname, mode='r')
                 exit_code = self.assign_error(out)
-                logger.debug(f'updated curl exit_code={exit_code}')
+                if not exit_code:
+                    exit_code = self.assign_error(err)
+                logger.debug(f'curl exit_code from stdout/err={exit_code}')
+                self.close(out, err)
+            if not exit_code:
+                logger.info('no errors were detected from curl operation')
 
         except Exception:
             # if something fails, log it but ignore
@@ -201,13 +209,17 @@ class TraceReport(dict):
         else:
             logger.info("tracing report sent")
 
-        # close the file objects
+        return True
+
+    def close(self, out, err):
+        """
+        Close all open file streams.
+        """
+
         if out:
             out.close()
         if err:
             err.close()
-
-        return True
 
     def assign_error(self, out):
         """
@@ -243,7 +255,7 @@ class TraceReport(dict):
 
         return os.path.join(self.workdir, f'{name}.stdout'), os.path.join(self.workdir, f'{name}.stderr')
 
-    def get_trace_curl_files(self, outpath, errpath):
+    def get_trace_curl_files(self, outpath, errpath, mode='wb'):
         """
         Return file objects for the curl stdout and stderr.
 
@@ -253,8 +265,8 @@ class TraceReport(dict):
         """
 
         try:
-            out = open(outpath, 'wb')
-            err = open(errpath, 'wb')
+            out = open(outpath, mode=mode)
+            err = open(errpath, mode=mode)
         except IOError as error:
             logger.warning(f'failed to open curl stdout/err: {error}')
             out = None

@@ -1301,6 +1301,7 @@ def append_to_file(from_file: str, to_file: str) -> bool:
                     # Read a chunk from the source file
                     chunk = source_file.read(chunk_size)
                     if not chunk:
+                        target_file.write('--------------------------------------\n')
                         break  # Reached the end of the source file
 
                     # Write the chunk to the target file
