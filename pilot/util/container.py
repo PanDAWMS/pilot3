@@ -15,7 +15,7 @@ import threading
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
-from typing import Any
+from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
 #from pilot.util.loggingsupport import flush_handler
@@ -117,6 +117,71 @@ def execute(executable: Any, **kwargs: dict) -> Any:
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
+
+
+def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
+    """
+    Execute the command and its options in the provided executable list.
+    The difference between execute() and execute2() is that execute2() will always stream stdout and stderr to files
+    and does not rely on subprocess.communicate(). It does not return the stdout, stderr, and it uses its own timeout mechanism.
+
+    :param executable: command to be executed (string or list)
+    :param stdout_file: stdout file name (str)
+    :param stderr_file: stderr file name (str)
+    :param timeout_seconds: timeout in seconds (int)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int).
+    """
+    # ... (previous code)
+
+    def _timeout_handler(process):
+        # This function is called when the timeout occurs
+        process.terminate()
+        raise TimeoutException()
+
+    class TimeoutException(Exception):
+        # Dummy class to handle timeout exceptions
+        pass
+
+    exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
+
+    # Create the subprocess with stdout and stderr redirection to files
+    process = subprocess.Popen(exe,
+                               stdout=stdout_file,
+                               stderr=stderr_file,
+                               cwd=kwargs.get('cwd', getcwd()),
+                               preexec_fn=os.setsid,
+                               encoding='utf-8',
+                               errors='replace')
+
+    # Set up a timer for the timeout
+    timeout_timer = threading.Timer(timeout_seconds, lambda: _timeout_handler(process))
+
+    try:
+        # Start the timer
+        timeout_timer.start()
+
+        # wait for the process to finish
+        try:
+            # wait for the process to complete with a timeout
+            process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            # Handle the case where the process did not complete within the timeout
+            print(f"process did not complete within the timeout of {timeout_seconds}s - terminating")
+            process.terminate()
+    except TimeoutException:
+        # Handle the timeout as an exception
+        logger.warning("subprocess execution timed out")
+        exit_code = errors.COMMANDTIMEDOUT
+        process.terminate()  # Terminate the subprocess if it's still running
+    else:
+        # Get the exit code
+        exit_code = process.returncode
+    finally:
+        # Cancel the timer to avoid it firing after the subprocess has completed
+        timeout_timer.cancel()
+
+    return exit_code
 
 
 def get_timeout(requested_timeout):

@@ -1277,3 +1277,41 @@ def get_total_input_size(files: Any, nolib: bool = True) -> int:
                 total_size += _file.filesize
 
     return total_size
+
+
+def append_to_file(from_file: str, to_file: str) -> bool:
+    """
+    Appends the contents of one file to another.
+
+    :param from_file: The path to the source file to read from (str)
+    :param to_file: The path to the target file to append to (str)
+    :return: True if the operation was successful, False otherwise (bool).
+    """
+
+    status = False
+    try:
+        # 1 kB chunk size
+        chunk_size = 1024
+
+        # Open the source file in read mode
+        with open(from_file, 'r') as source_file:
+            # Open the target file in append mode
+            with open(to_file, 'a') as target_file:
+                while True:
+                    # Read a chunk from the source file
+                    chunk = source_file.read(chunk_size)
+                    if not chunk:
+                        break  # Reached the end of the source file
+
+                    # Write the chunk to the target file
+                    target_file.write(chunk)
+
+        status = True
+
+    except FileNotFoundError as exc:
+        logger.warning(f"file not found: {exc}")
+
+    except IOError as exc:
+        logger.warning(f"an error occurred while processing the file: {exc}")
+
+    return status

@@ -6,20 +6,20 @@
 # Authors:
 # - Alexey Anisenkov, alexey.anisenkov@cern.ch, 2017
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 import hashlib
 import os
 import socket
 import time
 from sys import exc_info
-from json import dumps  #, loads
+from json import dumps
 from os import environ, getuid
 
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
-from pilot.util.container import execute
-#from pilot.util.https import request
+from pilot.util.container import execute, execute2
+from pilot.util.filehandling import append_to_file
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 class TraceReport(dict):
 
     ipv = 'IPv6'
+    workdir = ''
 
     def __init__(self, *args, **kwargs):
 
@@ -67,6 +68,7 @@ class TraceReport(dict):
         super(TraceReport, self).__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
         self.ipv = kwargs.get('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
+        self.workdir = kwargs.get('workdir', '')  # workdir is needed for streaming the curl output, but should not be included in the report
 
     # sitename, dsname, eventType
     def init(self, job):
@@ -161,11 +163,14 @@ class TraceReport(dict):
             logger.warning('cannot send trace since not all fields are set')
             return False
 
+        out = None
+        err = None
         try:
             # take care of the encoding
             data = dumps(self).replace('"', '\\"')
-            # remove the ipv item since it's for internal pilot use only
+            # remove the ipv and workdir items since they are for internal pilot use only
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
+            data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
 
             ssl_certificate = self.get_ssl_certificate()
 
@@ -174,18 +179,88 @@ class TraceReport(dict):
             if self.ipv == 'IPv4':
                 command += ' -4'
 
+            # stream the output to files to prevent massive reponses that could overwhelm subprocess.communicate() in execute()
+            outname, errname = self.get_trace_curl_filenames(name='trace_curl_last')
+            out, err = self.get_trace_curl_files(outname, errname)
             cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
-            exit_code, stdout, stderr = execute(cmd, mute=False, timeout=300)
-            logger.debug(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
-            if exit_code or 'ExceptionClass' in stdout:
-                logger.warning('failed to send traces to rucio: %s' % stdout)
+            exit_code = execute2(cmd, out, err, 300)
+            logger.debug(f'exit_code={exit_code}')
+
+            # always append the output to trace_curl.std{out|err}
+            outname_final, _ = self.get_trace_curl_filenames(name='trace_curl')
+            _ = append_to_file(outname, outname_final)
+
+            # handle errors that only appear in stdout (curl)
+            if not exit_code:
+                exit_code = self.assign_error(out)
+                logger.debug(f'updated curl exit_code={exit_code}')
+
         except Exception:
             # if something fails, log it but ignore
             logger.error('tracing failed: %s' % str(exc_info()))
         else:
             logger.info("tracing report sent")
 
+        # close the file objects
+        if out:
+            out.close()
+        if err:
+            err.close()
+
         return True
+
+    def assign_error(self, out):
+        """
+        Browse the stdout from curl line by line and look for errors.
+        """
+
+        exit_code = 0
+        count = 0
+        while True:
+            count += 1
+
+            # Get next line from file
+            line = out.readline()
+
+            # if line is empty
+            # end of file is reached
+            if not line:
+                break
+            if 'ExceptionClass' in line.strip():
+                logger.warning(f'curl failure: {line.strip()}')
+                exit_code = 1
+                break
+
+        return exit_code
+
+    def get_trace_curl_filenames(self, name='trace_curl'):
+        """
+        Return file names for the curl stdout and stderr.
+
+        :param name: name pattern (str)
+        :return: stdout file name (str), stderr file name (str).
+        """
+
+        return os.path.join(self.workdir, f'{name}.stdout'), os.path.join(self.workdir, f'{name}.stderr')
+
+    def get_trace_curl_files(self, outpath, errpath):
+        """
+        Return file objects for the curl stdout and stderr.
+
+        :param outpath: path for stdout (str)
+        :param errpath: path for stderr (str)
+        :return: out (file), err (file).
+        """
+
+        try:
+            out = open(outpath, 'wb')
+            err = open(errpath, 'wb')
+        except IOError as error:
+            logger.warning(f'failed to open curl stdout/err: {error}')
+            out = None
+            err = None
+
+        return out, err
 
     def get_ssl_certificate(self):
         """
