@@ -13,7 +13,7 @@ jobs:
             matrix:
                 python-version: ['3.8', '3.9', '3.10', '3.11']
         env:
-            FLAKE8_VERSION: "==3.8.4"
+            FLAKE8_VERSION: "==3.9.18"
             FLAKE8_CONFIG: ".flake8"
         steps:
             - name: Checkout Pilot3 repo
