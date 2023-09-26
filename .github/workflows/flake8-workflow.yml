@@ -19,7 +19,7 @@ jobs:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
     env:
-      FLAKE8_VERSION: "==3.9.18"
+      FLAKE8_VERSION: "==6.1.0"
       FLAKE8_CONFIG: ".flake8"
     steps:
     - uses: actions/checkout@v3

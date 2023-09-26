@@ -311,7 +311,7 @@ if __name__ == '__main__':  # noqa: C901
 
     # generate the trace report
     trace_report = TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), localSite=args.localsite,
-                               remoteSite=args.remotesite, dataset="", eventType=args.eventtype)
+                               remoteSite=args.remotesite, dataset="", eventType=args.eventtype, workdir=args.workdir)
     job = Job(produserid=args.produserid, jobid=args.jobid, taskid=args.taskid, jobdefinitionid=args.jobdefinitionid)
     trace_report.init(job)
 
@@ -328,7 +328,7 @@ if __name__ == '__main__':  # noqa: C901
     xfiles = None
     activity = 'pw'
 
-    client = StageOutClient(infoservice, logger=logger, trace_report=trace_report)
+    client = StageOutClient(infoservice, logger=logger, trace_report=trace_report, workdir=args.workdir)
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, job=job, output_dir=args.outputdir,
                   catchall=args.catchall, rucio_host=args.rucio_host)  # , mode='stage-out')
 

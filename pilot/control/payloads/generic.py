@@ -417,8 +417,8 @@ class Executor(object):
             try:
                 out = open(os.path.join(self.__job.workdir, self.__coprocess_stdout_name), 'wb')
                 err = open(os.path.join(self.__job.workdir, self.__coprocess_stderr_name), 'wb')
-            except Exception as error:
-                logger.warning('failed to open coprocess stdout/err: %s', error)
+            except IOError as error:
+                logger.warning(f'failed to open coprocess stdout/err: {error}')
                 out = None
                 err = None
         else:

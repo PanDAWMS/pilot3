@@ -11,7 +11,6 @@
 
 import os
 import time
-import re
 import subprocess
 from glob import glob
 from typing import Any
@@ -46,7 +45,10 @@ from pilot.util.processes import (
     get_subprocesses,
     reap_zombies
 )
-from pilot.util.psutils import is_process_running
+from pilot.util.psutils import (
+    is_process_running,
+    find_pid_by_command_and_ppid
+)
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
     get_local_disk_space,
@@ -535,28 +537,12 @@ def utility_monitor(job):  # noqa: C901
 
         if utcmd == 'MemoryMonitor':
             if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
-                try:
-                    _ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
-                    prmon = f'prmon --pid {job.pid}'
-                    pid = None
-                    pattern = r'\b\d+\b'
-                    for line in _ps.stdout.split('\n'):
-                        # line=atlprd55  16451  0.0  0.0   2944  1148 ?        SN   17:42   0:00 prmon --pid 13096 ..
-                        if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
-                            matches = re.findall(pattern, line)
-                            if matches:
-                                pid = matches[0]
-                                logger.info(f'extracting prmon pid from line: {line}')
-                                break
-                    if pid:
-                        logger.info(f'{prmon} command has pid={pid} (appending to cmd dictionary)')
-                        job.utilities[utcmd].append(pid)
-                    else:
-                        logger.info(f'could not extract any pid from ps for cmd={prmon}')
-
-                except subprocess.CalledProcessError as exc:
-                    logger.warning(f"error: {exc}")
+                pid = find_pid_by_command_and_ppid('prmon', job.pid)
+                if pid:
+                    logger.info(f'prmon command has pid {pid} (appending to cmd dictionary)')
+                    job.utilities[utcmd].append(pid)
+                else:
+                    logger.info('could not find any pid for prmon command')
 
         # make sure the subprocess is still running
         if not utproc.poll() is None:
