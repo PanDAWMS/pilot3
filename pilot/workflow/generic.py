@@ -55,6 +55,9 @@ def interrupt(args, signum, frame):
     #if str(sig) == 'SIGUSR1':
     #    logger.info('ignore intercepted SIGUSR1 aimed at child process')
     #    return
+    if str(sig) == 'SIGSTOP':
+        logger.info('intercepted SIGSTOP')
+        return
 
     args.signal_counter += 1
 
