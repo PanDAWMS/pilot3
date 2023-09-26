@@ -183,7 +183,7 @@ class TraceReport(dict):
             outname, errname = self.get_trace_curl_filenames(name='trace_curl_last')
             out, err = self.get_trace_curl_files(outname, errname)
             logger.debug(f'using {outname} and {errname} to store curl output')
-            cmd = f'{command} --connect-timeout 20 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
+            cmd = f'{command} --connect-timeout 100 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
             exit_code = execute2(cmd, out, err, 300)
             logger.debug(f'exit_code={exit_code}')
 
