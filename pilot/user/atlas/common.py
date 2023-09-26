@@ -1643,7 +1643,7 @@ def get_outfiles_records(subfiles):
         }
 
         nentries = subfile.get('nentries', 'UNDEFINED')
-        if type(nentries) == int:
+        if isinstance(nentries, int):
             res[subfile['name']]['nentries'] = nentries
         else:
             logger.warning("nentries is undefined in job report")
