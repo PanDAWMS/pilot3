@@ -73,6 +73,11 @@ def get_job_metrics_string(job, extra={}):
         else:
             logger.info("will not add max space = %d B to job metrics", max_space)
 
+    # is there a detected rucio trace service error?
+    trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
+    if trace_exit_code != '0':
+        job_metrics += get_job_metrics_entry("rucioTraceError", trace_exit_code)
+
     # add job and machine feature data if available
     job_metrics = add_features(job_metrics, corecount, add=['hs06'])
 

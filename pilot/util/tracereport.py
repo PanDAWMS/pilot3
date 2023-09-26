@@ -203,6 +203,9 @@ class TraceReport(dict):
                 self.close(out, err)
             if not exit_code:
                 logger.info('no errors were detected from curl operation')
+            else:
+                logger.debug(f"setting env var RUCIO_TRACE_ERROR to \'{exit_code}\' to be sent with job metrics")
+                os.environ['RUCIO_TRACE_ERROR'] = str(exit_code)
 
         except Exception:
             # if something fails, log it but ignore
