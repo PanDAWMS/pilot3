@@ -1,0 +1,45 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: flake8-workflow
+
+on:
+  push:
+    branches: [ "master", "next" ]
+  pull_request:
+    branches: [ "master", "next" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+    env:
+      FLAKE8_VERSION: "==3.9.18"
+      FLAKE8_CONFIG: ".flake8"
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ matrix.python-version }}
+        architecture: x64
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "flake8${{ env.FLAKE8_VERSION }}" 'pep8-naming' 'flake8-blind-except'
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Setup env
+      run: |
+        pwd
+        ls -lah
+        pip freeze
+        flake8 --version
+        if [[ ${{ env.FLAKE8_CONFIG }} != ".flake8" ]]; then rm .flake8; fi
+    - name: Flake8
+      run: flake8 --config ${{ env.FLAKE8_CONFIG}} pilot.py pilot/
+  
