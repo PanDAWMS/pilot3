@@ -5,7 +5,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
 
 """
 Base loader class to retrive data from Ext sources (file, url)
@@ -202,7 +202,7 @@ def merge_dict_data(d1, d2, keys=[], common=True, left=True, right=True, rec=Fal
 
     ### TODO: verify and configure logic later
 
-    if not (type(d1) == type(d2) and type(d1) is dict):
+    if not (isinstance(d1, dict) and isinstance(d2, dict)):
         return d2
 
     ret = d1.copy()

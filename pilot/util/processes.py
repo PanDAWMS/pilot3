@@ -551,7 +551,7 @@ def get_instant_cpu_consumption_time(pid):
     cstime = None
 
     hz = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
-    if type(hz) != int:
+    if not isinstance(hz, int):
         logger.warning('unknown SC_CLK_TCK: %s', str(hz))
         return 0.0
 

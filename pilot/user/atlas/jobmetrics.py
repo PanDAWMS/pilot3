@@ -12,9 +12,11 @@ import re
 import logging
 
 from pilot.api import analytics
+from pilot.common.exception import FileHandlingFailure
+from pilot.util.config import config
 from pilot.util.jobmetrics import get_job_metrics_entry
 from pilot.util.features import MachineFeatures, JobFeatures
-from pilot.util.filehandling import find_last_line
+from pilot.util.filehandling import find_last_line, read_file
 from pilot.util.math import float_to_rounded_string
 
 from .cpu import get_core_count
@@ -24,11 +26,12 @@ from .utilities import get_memory_monitor_output_filename
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job):
+def get_job_metrics_string(job, extra={}):
     """
     Get the job metrics string.
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 
@@ -72,6 +75,11 @@ def get_job_metrics_string(job):
         else:
             logger.info("will not add max space = %d B to job metrics", max_space)
 
+    # is there a detected rucio trace service error?
+    trace_exit_code = get_trace_exit_code(job.workdir)
+    if trace_exit_code != '0':
+        job_metrics += get_job_metrics_entry("rucioTraceError", trace_exit_code)
+
     # add job and machine feature data if available
     job_metrics = add_features(job_metrics, corecount, add=['hs06'])
 
@@ -86,7 +94,35 @@ def get_job_metrics_string(job):
         job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
         job_metrics += get_job_metrics_entry("sessionIP", job.jupyter_session_ip)
 
+    # add any additional info
+    if extra:
+        for entry in extra:
+            job_metrics += get_job_metrics_entry(entry, extra.get(entry))
+
     return job_metrics
+
+
+def get_trace_exit_code(workdir):
+    """
+    Look for any rucio trace curl problems using an env var and a file.
+
+    :param workdir: payload work directory (str)
+    :return: curl exit code (str).
+    """
+
+    trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
+    if trace_exit_code == '0':
+        # look for rucio_trace_error_file in case middleware container is used
+        path = os.path.join(workdir, config.Rucio.rucio_trace_error_file)
+        if os.path.exists(path):
+            try:
+                trace_exit_code = read_file(path)
+            except FileHandlingFailure as exc:
+                logger.warning(f'failed to read {path}: {exc}')
+            else:
+                logger.debug(f'read {trace_exit_code} from file {path}')
+
+    return trace_exit_code
 
 
 def add_features(job_metrics, corecount, add=[]):
@@ -183,7 +219,7 @@ def add_event_number(job_metrics, workdir):
     return job_metrics
 
 
-def get_job_metrics(job):
+def get_job_metrics(job, extra={}):
     """
     Return a properly formatted job metrics string.
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
@@ -193,12 +229,13 @@ def get_job_metrics(job):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 
     # get job metrics string
-    job_metrics = get_job_metrics_string(job)
+    job_metrics = get_job_metrics_string(job, extra=extra)
 
     # correct for potential initial and trailing space
     job_metrics = job_metrics.lstrip().rstrip()

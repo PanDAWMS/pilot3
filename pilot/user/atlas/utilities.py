@@ -162,12 +162,15 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
 
         ps = get_ps_info(pgrp)
         #logger.debug('ps:\n%s' % ps)
+        #_pid = os.getpid()
+        #logger.debug(f'current pid={_pid}')
+        #logger.debug(f'current ppid={os.getppid()}')  # /bin/bash parent process (parent to pilot and prmon, ..)
 
         # lookup the process id using ps aux
         logger.debug(f'attempting to identify pid from job id ({jobid})')
         _pid = get_pid_for_jobid(ps, jobid)
         if _pid:
-            logger.debug('discovered pid=%d for job id %s' % (_pid, jobid))
+            logger.debug(f'discovered pid={_pid} for job id {jobid}')
             break
 
         #logger.debug('attempting to identify pid from transform name and its output')
@@ -176,7 +179,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         #    logger.debug('discovered pid=%d for transform name \"%s\"' % (_pid, transformation))
         #    break
 
-        logger.warning('payload pid has not yet been identified (#%d/#%d)' % (i + 1, imax))
+        logger.warning(f'payload pid has not yet been identified (#{i + 1}/#{imax})')
 
         # wait until the payload has launched
         time.sleep(5)
@@ -185,7 +188,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     if _pid:
         pid = _pid
 
-    logger.info('will use pid=%d for memory monitor' % pid)
+    logger.info(f'will use pid={pid} for memory monitor')
 
     return pid
 
@@ -549,7 +552,7 @@ def get_average_summary_dictionary_prmon(path):
 
         def filter_value(value):
             """ Inline function used to remove any string or None values from data. """
-            if type(value) == str or value is None:
+            if isinstance(value, str) or value is None:
                 return False
             else:
                 return True
@@ -641,7 +644,7 @@ def convert_text_file_to_dictionary(path):
                     _l = [_f for _f in _l.split('\t') if _f]
 
                     # define dictionary keys
-                    if type(_l[0]) == str and not header_locked:
+                    if isinstance(_l[0], str) and not header_locked:
                         summary_keys = _l
                         for key in _l:
                             dictionary[key] = []

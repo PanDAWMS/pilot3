@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job):
+def get_job_metrics(job, extra={}):
     """
     Return a properly formatted job metrics string.
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
@@ -23,7 +23,8 @@ def get_job_metrics(job):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 

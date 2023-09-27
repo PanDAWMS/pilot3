@@ -86,6 +86,9 @@ def float_to_rounded_string(num, precision=3):
     Convert float to a string with a desired number of digits (the precision).
     E.g. num=3.1415, precision=2 -> '3.14'.
 
+    round_to_n = lambda x, n: x if x == 0 else round(x, -int(math.floor(math.log10(abs(x)))) + (n - 1))
+      round_to_n(x=0.123,n=2)
+      0.12
     :param num: number to be converted (float).
     :param precision: number of desired digits (int)
     :raises NotDefined: for undefined precisions and float conversions to Decimal.
