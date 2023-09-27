@@ -12,9 +12,11 @@ import re
 import logging
 
 from pilot.api import analytics
+from pilot.common.exception import FileHandlingFailure
+from pilot.util.config import config
 from pilot.util.jobmetrics import get_job_metrics_entry
 from pilot.util.features import MachineFeatures, JobFeatures
-from pilot.util.filehandling import find_last_line
+from pilot.util.filehandling import find_last_line, read_file
 from pilot.util.math import float_to_rounded_string
 
 from .cpu import get_core_count
@@ -74,7 +76,7 @@ def get_job_metrics_string(job, extra={}):
             logger.info("will not add max space = %d B to job metrics", max_space)
 
     # is there a detected rucio trace service error?
-    trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
+    trace_exit_code = get_trace_exit_code(job.workdir)
     if trace_exit_code != '0':
         job_metrics += get_job_metrics_entry("rucioTraceError", trace_exit_code)
 
@@ -98,6 +100,29 @@ def get_job_metrics_string(job, extra={}):
             job_metrics += get_job_metrics_entry(entry, extra.get(entry))
 
     return job_metrics
+
+
+def get_trace_exit_code(workdir):
+    """
+    Look for any rucio trace curl problems using an env var and a file.
+
+    :param workdir: payload work directory (str)
+    :return: curl exit code (str).
+    """
+
+    trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
+    if trace_exit_code == '0':
+        # look for rucio_trace_error_file in case middleware container is used
+        path = os.path.join(workdir, config.Rucio.rucio_trace_error_file)
+        if os.path.exists(path):
+            try:
+                trace_exit_code = read_file(path)
+            except FileHandlingFailure as exc:
+                logger.warning(f'failed to read {path}: {exc}')
+            else:
+                logger.debug(f'read {trace_exit_code} from file {path}')
+
+    return trace_exit_code
 
 
 def add_features(job_metrics, corecount, add=[]):

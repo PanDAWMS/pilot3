@@ -19,7 +19,8 @@ from os import environ, getuid
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
-from pilot.util.filehandling import append_to_file
+from pilot.common.exception import FileHandlingFailure
+from pilot.util.filehandling import append_to_file, write_file
 
 import logging
 logger = logging.getLogger(__name__)
@@ -204,6 +205,15 @@ class TraceReport(dict):
             if not exit_code:
                 logger.info('no errors were detected from curl operation')
             else:
+                # better to store exit code in file since env var will not be seen outside container in case middleware
+                # container is used
+                path = os.path.join(self.workdir, config.Rucio.rucio_trace_error_file)
+                try:
+                    write_file(path, str(exit_code))
+                except FileHandlingFailure as exc:
+                    logger.warning(f'failed to store curl exit code to file: {exc}')
+                else:
+                    logger.info(f'wrote rucio trace exit code {exit_code} to file {path}')
                 logger.debug(f"setting env var RUCIO_TRACE_ERROR to \'{exit_code}\' to be sent with job metrics")
                 os.environ['RUCIO_TRACE_ERROR'] = str(exit_code)
 

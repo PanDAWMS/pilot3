@@ -14,7 +14,6 @@ import time
 import subprocess
 from glob import glob
 from typing import Any
-from re import findall
 from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
@@ -93,10 +92,6 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
 
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
-
-        # verify that the process is still alive (again)
-        if not still_running(job.pid):
-            return 0, ""
 
         try:
             cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
