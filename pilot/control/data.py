@@ -185,7 +185,7 @@ def create_trace_report(job, label='stage-in'):
 
     event_type, localsite, remotesite = get_trace_report_variables(job, label=label)
     trace_report = TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), localSite=localsite, remoteSite=remotesite,
-                               dataset="", eventType=event_type)
+                               dataset="", eventType=event_type, workdir=job.workdir)
     trace_report.init(job)
 
     return trace_report
@@ -239,7 +239,7 @@ def _stage_in(args, job):
                 client = StageInESClient(job.infosys, logger=logger, trace_report=trace_report)
                 activity = 'es_events_read'
             else:
-                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report, ipv=args.internet_protocol_version)
+                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report, ipv=args.internet_protocol_version, workdir=job.workdir)
                 activity = 'pr'
             use_pcache = job.infosys.queuedata.use_pcache
             # get the proper input file destination (normally job.workdir unless stager workflow)
@@ -950,7 +950,7 @@ def _do_stageout(job, xdata, activity, queue, title, output_dir='', rucio_host='
             # create the trace report
             trace_report = create_trace_report(job, label=label)
 
-            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv)
+            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir)
             kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job, output_dir=output_dir,
                           catchall=job.infosys.queuedata.catchall, rucio_host=rucio_host)  #, mode='stage-out')
             # prod analy unification: use destination preferences from PanDA server for unified queues

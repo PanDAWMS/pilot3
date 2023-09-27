@@ -360,6 +360,8 @@ def process_remote_file_traces(path, job, not_opened_turls):
             logger.warning('failed to read back base trace report (cannot send trace reports)')
         else:
             # update and send the trace info
+            if 'workdir' not in base_trace_report:
+                base_trace_report['workdir'] = job.workdir
             for fspec in job.indata:
                 if fspec.status == 'remote_io':
                     base_trace_report.update(url=fspec.turl)
@@ -1641,7 +1643,7 @@ def get_outfiles_records(subfiles):
         }
 
         nentries = subfile.get('nentries', 'UNDEFINED')
-        if type(nentries) == int:
+        if isinstance(nentries, int):
             res[subfile['name']]['nentries'] = nentries
         else:
             logger.warning("nentries is undefined in job report")

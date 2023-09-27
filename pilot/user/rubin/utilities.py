@@ -250,7 +250,7 @@ def get_average_summary_dictionary_prmon(path):
 
         def filter_value(value):
             """ Inline function used to remove any string or None values from data. """
-            if type(value) == str or value is None:
+            if isinstance(value, str) or value is None:
                 return False
             else:
                 return True
@@ -342,7 +342,7 @@ def convert_text_file_to_dictionary(path):
                     _l = [_f for _f in _l.split('\t') if _f]
 
                     # define dictionary keys
-                    if type(_l[0]) == str and not header_locked:
+                    if isinstance(_l[0], str) and not header_locked:
                         summary_keys = _l
                         for key in _l:
                             dictionary[key] = []

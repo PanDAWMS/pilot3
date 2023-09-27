@@ -15,10 +15,10 @@ import threading
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
 from time import sleep
 from signal import SIGTERM, SIGKILL
-from typing import Any
+from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.loggingsupport import flush_handler
+#from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     exit_code = 0
     stdout = ''
     stderr = ''
+
     # Acquire the lock before creating the subprocess
     with execute_lock:
         process = subprocess.Popen(exe,
@@ -89,23 +90,93 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
-            flush_handler(name="stream_handler")
+            # flush_handler(name="stream_handler")
             stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
             logger.warning(stderr)
             exit_code = errors.COMMANDTIMEDOUT
             stderr = kill_all(process, stderr)
+        except Exception as exc:
+            logger.warning(f'exception caused when executing command: {executable}: {exc}')
+            exit_code = errors.UNKNOWNEXCEPTION
+            stderr = kill_all(process, str(exc))
         else:
             exit_code = process.poll()
 
     # wait for the process to finish
     # (not strictly necessary when process.communicate() is used)
-    process.wait()
+    try:
+        # wait for the process to complete with a timeout of 60 seconds
+        process.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        # Handle the case where the process did not complete within the timeout
+        print("process did not complete within the timeout of 60s - terminating")
+        process.terminate()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
+
+
+def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
+
+    exit_code = None
+
+    def _timeout_handler():
+        # This function is called when the timeout occurs
+        nonlocal exit_code  # Use nonlocal to modify the outer variable
+        logger.warning("subprocess execution timed out")
+        exit_code = -2
+        process.terminate()  # Terminate the subprocess if it's still running
+        logger.info(f'process terminated after {timeout_seconds}s')
+
+    obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
+    if not kwargs.get('mute', False):
+        print_executable(executable, obscure=obscure)
+
+    exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
+
+    # Create the subprocess with stdout and stderr redirection to files
+    process = subprocess.Popen(exe,
+                               stdout=stdout_file,
+                               stderr=stderr_file,
+                               cwd=kwargs.get('cwd', os.getcwd()),
+                               preexec_fn=os.setsid,
+                               encoding='utf-8',
+                               errors='replace')
+
+    # Set up a timer for the timeout
+    timeout_timer = threading.Timer(timeout_seconds, _timeout_handler)
+
+    try:
+        # Start the timer
+        timeout_timer.start()
+
+        # wait for the process to finish
+        try:
+            # wait for the process to complete with a timeout (this will likely never happen since a timer is used)
+            process.wait(timeout=timeout_seconds + 10)
+        except subprocess.TimeoutExpired:
+            # Handle the case where the process did not complete within the timeout
+            timeout_seconds = timeout_seconds + 10
+            logger.warning(f"process wait did not complete within the timeout of {timeout_seconds}s - terminating")
+            exit_code = -2
+            process.terminate()
+    except Exception as exc:
+        logger.warning(f'execution caught: {exc}')
+    finally:
+        # Cancel the timer to avoid it firing after the subprocess has completed
+        timeout_timer.cancel()
+
+    if exit_code == -2:
+        # the process was terminated due to a time-out
+        exit_code = errors.COMMANDTIMEDOUT
+    else:
+        # get the exit code after a normal finish
+        exit_code = process.returncode
+
+    return exit_code
 
 
 def get_timeout(requested_timeout):
@@ -158,18 +229,24 @@ def kill_all(process: Any, stderr: str) -> str:
 
     try:
         logger.warning('killing lingering subprocess and process group')
-        process.kill()
+        sleep(1)
+        # process.kill()
         kill_process_group(getpgid(process.pid))
     except ProcessLookupError as exc:
         stderr += f'\n(kill process group) ProcessLookupError={exc}'
+    except Exception as exc:
+        stderr += f'\n(kill_all 1) exception caught: {exc}'
     try:
         logger.warning('killing lingering process')
+        sleep(1)
         kill(process.pid, SIGTERM)
         logger.warning('sleeping a bit before sending SIGKILL')
         sleep(10)
         kill(process.pid, SIGKILL)
     except ProcessLookupError as exc:
         stderr += f'\n(kill process) ProcessLookupError={exc}'
+    except Exception as exc:
+        stderr += f'\n(kill_all 2) exception caught: {exc}'
     logger.warning(f'sent soft kill signals - final stderr: {stderr}')
     return stderr
 

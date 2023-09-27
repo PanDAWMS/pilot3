@@ -30,7 +30,7 @@ def get_job_metrics_entry(name, value):
     return job_metrics_entry
 
 
-def get_job_metrics(job):
+def get_job_metrics(job, extra={}):
     """
     Return a properly formatted job metrics string.
     Job metrics are highly user specific, so this function merely calls a corresponding get_job_metrics() in the
@@ -42,7 +42,8 @@ def get_job_metrics(job):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object.
+    :param job: job object
+    :param extra: any extra information to be added (dict)
     :return: job metrics (string).
     """
 
@@ -53,6 +54,6 @@ def get_job_metrics(job):
         job_metrics = None
         logger.warning(f'function not implemented in jobmetrics module: {exc}')
     else:
-        job_metrics = job_metrics_module.get_job_metrics(job)
+        job_metrics = job_metrics_module.get_job_metrics(job, extra=extra)
 
     return job_metrics

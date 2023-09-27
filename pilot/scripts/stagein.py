@@ -405,7 +405,7 @@ if __name__ == '__main__':
 
     # generate the trace report
     trace_report = TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), localSite=args.localsite, remoteSite=args.remotesite, dataset="",
-                               eventType=args.eventtype)
+                               eventType=args.eventtype, workdir=args.workdir)
     job = Job(produserid=args.produserid, jobid=args.jobid, taskid=args.taskid, jobdefinitionid=args.jobdefinitionid)
     trace_report.init(job)
 
@@ -423,7 +423,7 @@ if __name__ == '__main__':
         client = StageInESClient(infoservice, logger=logger, trace_report=trace_report)
         activity = 'es_events_read'
     else:
-        client = StageInClient(infoservice, logger=logger, trace_report=trace_report)
+        client = StageInClient(infoservice, logger=logger, trace_report=trace_report, workdir=args.workdir)
         activity = 'pr'
     kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, use_pcache=args.usepcache, use_bulk=False,
                   use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall, rucio_host=args.rucio_host)
