@@ -7,14 +7,16 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+from re import findall
 import os
+import subprocess
 try:
     import psutil
 except ImportError:
     print('FAILED; psutil module could not be imported')
-    is_psutil_available = False
+    _is_psutil_available = False
 else:
-    is_psutil_available = True
+    _is_psutil_available = True
 
 # from pilot.common.exception import MiddlewareImportFailure
 
@@ -37,13 +39,48 @@ def is_process_running(pid):
     :raises: MiddlewareImportFailure if psutil module is not available.
     """
 
-    if not is_psutil_available:
+    if not _is_psutil_available:
         is_running = is_process_running_by_pid(pid)
         logger.warning(f'using /proc/{pid} instead of psutil (is_running={is_running})')
         return is_running
         # raise MiddlewareImportFailure("required dependency could not be imported: psutil")
     else:
         return psutil.pid_exists(pid)
+
+
+def get_pid(jobpid):
+    """
+    Try to figure out the pid for the memory monitoring tool.
+    Attempt to use psutil, but use a fallback to ps-command based code if psutil is not available.
+
+    :param jobpid: job.pid (int)
+    :return: pid (int|None).
+    """
+
+    pid = None
+
+    if _is_psutil_available:
+        pid = find_pid_by_command_and_ppid('prmon', jobpid)
+    else:
+        try:
+            _ps = subprocess.run(['ps', 'aux', str(os.getpid())], stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True, check=True, encoding='utf-8')
+            prmon = f'prmon --pid {jobpid}'
+            pid = None
+            pattern = r'\b\d+\b'
+            for line in _ps.stdout.split('\n'):
+                # line=atlprd55  16451  0.0  0.0   2944  1148 ?        SN   17:42   0:00 prmon --pid 13096 ..
+                if prmon in line and f';{prmon}' not in line:  # ignore the line that includes the setup
+                    matches = findall(pattern, line)
+                    if matches:
+                        pid = matches[0]
+                        logger.info(f'extracting prmon pid from line: {line}')
+                        break
+
+        except subprocess.CalledProcessError as exc:
+            logger.warning(f"error: {exc}")
+
+    return pid
 
 
 def find_pid_by_command_and_ppid(command, payload_pid):
@@ -55,7 +92,7 @@ def find_pid_by_command_and_ppid(command, payload_pid):
     :return: process id (int) or None
     """
 
-    if not is_psutil_available:
+    if not _is_psutil_available:
         logger.warning('find_pid_by_command_and_ppid(): psutil not available - aborting')
         return None
 

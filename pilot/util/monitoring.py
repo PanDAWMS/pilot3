@@ -14,6 +14,7 @@ import time
 import subprocess
 from glob import glob
 from typing import Any
+from re import findall
 from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
@@ -47,7 +48,7 @@ from pilot.util.processes import (
 )
 from pilot.util.psutils import (
     is_process_running,
-    find_pid_by_command_and_ppid
+    get_pid
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
@@ -537,12 +538,12 @@ def utility_monitor(job):  # noqa: C901
 
         if utcmd == 'MemoryMonitor':
             if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
-                pid = find_pid_by_command_and_ppid('prmon', job.pid)
+                pid = get_pid(job.pid)
                 if pid:
-                    logger.info(f'prmon command has pid {pid} (appending to cmd dictionary)')
+                    logger.info(f'memory monitor command has pid {pid} (appending to cmd dictionary)')
                     job.utilities[utcmd].append(pid)
                 else:
-                    logger.info('could not find any pid for prmon command')
+                    logger.info('could not find any pid for memory monitor command')
 
         # make sure the subprocess is still running
         if not utproc.poll() is None:
