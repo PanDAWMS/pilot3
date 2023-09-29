@@ -138,29 +138,42 @@ def get_child_processes(parent_pid):
     if not _is_psutil_available:
         logger.warning('get_child_processes(): psutil not available - using legacy code as a fallback')
         return get_child_processes_legacy(parent_pid)
+    else:
+        return get_all_descendant_processes(parent_pid)
 
-    child_processes = []
 
-    # Iterate through all running processes
-    for process in psutil.process_iter(attrs=['pid', 'ppid']):
+def get_all_descendant_processes(parent_pid):
+    """
+    Recursively find child processes using the given parent pid as a starting point.
+
+    :param parent_pid: parent process id (int)
+    :return: descendant process ids (list).
+    """
+
+    def find_descendant_processes(pid):
         try:
-            process_info = process.info()
-            pid = process_info['pid']
-            ppid = process_info['ppid']
-
-            # Check if the process has the specified parent PID
-            if ppid == parent_pid:
-                child_processes.append(pid)
+            descendants = []
+            for process in psutil.process_iter(attrs=['pid', 'ppid']):
+                process_info = process.info
+                child_pid = process_info['pid']
+                ppid = process_info['ppid']
+                if ppid == pid:
+                    descendants.append(child_pid)
+                    descendants.extend(find_descendant_processes(child_pid))
+            return descendants
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
+            return []
 
-    return child_processes
+    all_descendant_processes = find_descendant_processes(parent_pid)
+    return all_descendant_processes
 
 
 def get_child_processes_legacy(parent_pid):
     """
     Return a list of all child processes belonging to the same parent process id.
-    Using a fallback to /proc/{pid} in case psutil is not available.
+    Note: this approach is not efficient if one is to find all child processes using
+    the parent pid as a starting point. Better to use a recursive function using psutil.
+    This method should be removed once psutil is available everywhere.
 
     :param parent_pid: parent process id (int)
     :return: child processes (list).
