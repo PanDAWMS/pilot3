@@ -124,3 +124,77 @@ def get_parent_pid(pid):
         return parent_pid
     except psutil.NoSuchProcess:
         return None
+
+
+def get_child_processes(parent_pid):
+    """
+    Return a list of all child processes belonging to the same parent process id.
+    Using a fallback to /proc/{pid} in case psutil is not available.
+
+    :param parent_pid: parent process id (int)
+    :return: child processes (list).
+    """
+
+    if not _is_psutil_available:
+        logger.warning('get_child_processes(): psutil not available - using legacy code as a fallback')
+        return get_child_processes_legacy(parent_pid)
+
+    child_processes = []
+
+    # Iterate through all running processes
+    for process in psutil.process_iter(attrs=['pid', 'ppid']):
+        try:
+            process_info = process.info()
+            pid = process_info['pid']
+            ppid = process_info['ppid']
+
+            # Check if the process has the specified parent PID
+            if ppid == parent_pid:
+                child_processes.append(pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    return child_processes
+
+
+def get_child_processes_legacy(parent_pid):
+    """
+    Return a list of all child processes belonging to the same parent process id.
+    Using a fallback to /proc/{pid} in case psutil is not available.
+
+    :param parent_pid: parent process id (int)
+    :return: child processes (list).
+    """
+
+    child_processes = []
+
+    # Iterate through all directories in /proc
+    for _pid in os.listdir('/proc'):
+        if not _pid.isdigit():
+            continue  # Skip non-numeric directories
+
+        try:
+            pid = int(_pid)
+        except ValueError as exc:
+            logger.warning(f'exception caught: got an unexpected value for pid={_pid}: {exc}')
+            continue
+
+        try:
+            # Read the command line of the process
+            with open(f'/proc/{pid}/cmdline', 'rb') as cmdline_file:
+                cmdline = cmdline_file.read().decode().replace('\x00', ' ')
+
+            # Read the parent PID of the process
+            with open(f'/proc/{pid}/stat', 'rb') as stat_file:
+                stat_info = stat_file.read().decode()
+                parts = stat_info.split()
+                ppid = int(parts[3])  # can throw a ValueError
+
+            # Check if the parent PID matches the specified parent process
+            if ppid == parent_pid:
+                child_processes.append((pid, cmdline))
+
+        except (ValueError, FileNotFoundError, PermissionError):
+            continue  # Process may have terminated or we don't have permission
+
+    return child_processes

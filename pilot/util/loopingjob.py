@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-20223
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
@@ -13,7 +13,8 @@ from pilot.util.config import config
 from pilot.util.container import execute  #, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes, reap_zombies
+from pilot.util.processes import kill_processes, find_zombies, handle_zombies, reap_zombies
+from pilot.util.psutils import get_child_processes
 from pilot.util.timing import time_stamp
 
 import os
