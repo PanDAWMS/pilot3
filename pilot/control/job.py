@@ -3001,7 +3001,7 @@ def preliminary_server_update(job, args, diagnostics):
     :param diagnostics: error diagnostics (string).
     """
 
-    logger.debug(f'could have sent diagnostics={diagnostics}')
+    logger.warning(f'will send preliminary diagnostics (and pretend job is still running)={diagnostics}')
     piloterrorcode = job.piloterrorcode
     piloterrorcodes = job.piloterrorcodes
     piloterrordiags = job.piloterrordiags

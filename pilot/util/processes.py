@@ -160,11 +160,13 @@ def dump_stack_trace(pid):
         logger.info("skipping pstack dump for zombie process")
 
 
-def kill_processes(pid):
+def kill_processes(pid, korphans=True, ps_cache=None, nap=10):
     """
     Kill process belonging to the process group that the given pid belongs to.
 
-    :param pid: process id (int).
+    :param pid: process id (int)
+    :param nap: napping time between kill signals in seconds (int)
+    :param korphans: kill orphans (bool).
     """
 
     # if there is a known subprocess pgrp, then it should be enough to kill the group in one go
@@ -174,12 +176,13 @@ def kill_processes(pid):
     except Exception:
         pgrp = 0
     if pgrp != 0:
-        status = kill_process_group(pgrp)
+        status = kill_process_group(pgrp, nap=nap)
 
     if not status:
         # firstly find all the children process IDs to be killed
         children = []
-        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        if not ps_cache:
+            _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
         find_processes_in_group(children, pid, ps_cache)
 
         # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -213,7 +216,8 @@ def kill_processes(pid):
     # kill any remaining orphan processes
     # note: this should no longer be necessary since ctypes has made sure all subprocesses are parented
     # if orphan process killing is not desired, set env var PILOT_NOKILL
-    kill_orphans()
+    if korphans:
+        kill_orphans()
 
     # kill any lingering defunct processes
     try:
@@ -254,7 +258,7 @@ def kill_defunct_children(pid):
             pass
 
 
-def kill_child_processes(pid):
+def kill_child_processes(pid, ps_cache=None):
     """
     Kill child processes.
 
@@ -263,7 +267,8 @@ def kill_child_processes(pid):
     """
     # firstly find all the children process IDs to be killed
     children = []
-    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+    if not ps_cache:
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
     find_processes_in_group(children, pid, ps_cache)
 
     # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -304,7 +309,7 @@ def kill_process(pid, hardkillonly=False):
     if not hardkillonly:
         kill(pid, signal.SIGTERM)
 
-        _t = 10
+        _t = 3
         logger.info("sleeping %d s to allow process to exit", _t)
         time.sleep(_t)
 
@@ -938,36 +943,6 @@ def handle_zombies(zombies, job=None):
             # kill_process(pid, hardkillonly=True)  # useless for zombies - they are already dead
             if job:
                 job.zombies.append(pid)
-
-
-def get_child_processes(parent_pid):
-    child_processes = []
-
-    # Iterate through all directories in /proc
-    for pid in os.listdir('/proc'):
-        if not pid.isdigit():
-            continue  # Skip non-numeric directories
-
-        pid = int(pid)
-        try:
-            # Read the command line of the process
-            with open(f'/proc/{pid}/cmdline', 'rb') as cmdline_file:
-                cmdline = cmdline_file.read().decode().replace('\x00', ' ')
-
-            # Read the parent PID of the process
-            with open(f'/proc/{pid}/stat', 'rb') as stat_file:
-                stat_info = stat_file.read().decode()
-                parts = stat_info.split()
-                ppid = int(parts[3])
-
-            # Check if the parent PID matches the specified parent process
-            if ppid == parent_pid:
-                child_processes.append((pid, cmdline))
-
-        except (FileNotFoundError, PermissionError):
-            continue  # Process may have terminated or we don't have permission
-
-    return child_processes
 
 
 def reap_zombies(pid: int = -1):

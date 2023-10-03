@@ -5,7 +5,7 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-20223
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
@@ -13,7 +13,8 @@ from pilot.util.config import config
 from pilot.util.container import execute  #, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_processes, find_zombies, handle_zombies, get_child_processes, reap_zombies
+from pilot.util.processes import kill_process, find_zombies, handle_zombies, reap_zombies
+from pilot.util.psutils import get_child_processes
 from pilot.util.timing import time_stamp
 
 import os
@@ -199,21 +200,14 @@ def kill_looping_job(job):
         _, stdout, _ = execute(cmd, mute=True)
         logger.info(f"{cmd} + '\n': {stdout}")
 
-    parent_pid = os.getpid()
-    child_processes = get_child_processes(parent_pid)
-    if child_processes:
-        logger.info(f"child processes of PID {parent_pid}:")
-        for pid, cmdline in child_processes:
-            logger.info(f"PID {pid}: {cmdline}")
-
     # set the relevant error code
     if job.state == 'stagein':
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINTIMEOUT)
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINTIMEOUT, priority=True)
     elif job.state == 'stageout':
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEOUTTIMEOUT)
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEOUTTIMEOUT, priority=True)
     else:
         # most likely in the 'running' state, but use the catch-all 'else'
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOOPINGJOB)
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOOPINGJOB, priority=True)
     set_pilot_state(job=job, state="failed")
 
     # remove any lingering input files from the work dir
@@ -223,7 +217,19 @@ def kill_looping_job(job):
         if _ec != 0:
             logger.warning('failed to remove all files')
 
-    kill_processes(job.pid)
+    parent_pid = os.getpid()
+    #logger.info(f'killing main command process id in case it is still running: {job.pid}')
+    #kill_processes(job.pid)
+
+    child_processes = get_child_processes(parent_pid)
+    if child_processes:
+        logger.info(f"child processes of pilot (PID {parent_pid}) to be killed:")
+        for pid, cmdline in child_processes:
+            logger.info(f"PID {pid}: {cmdline}")
+        #_, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        for pid, _ in child_processes:
+            #kill_processes(pid, korphans=False, ps_cache=ps_cache, nap=1)
+            kill_process(pid)
 
 
 def get_looping_job_limit():
