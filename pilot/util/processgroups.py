@@ -17,11 +17,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def kill_process_group(pgrp):
+def kill_process_group(pgrp, nap=10):
     """
     Kill the process group.
     DO NOT MOVE TO PROCESSES.PY - will lead to circular import since execute() needs it as well.
     :param pgrp: process group id (int).
+    :param nap: napping time between kill signals in seconds (int)
     :return: boolean (True if SIGTERM followed by SIGKILL signalling was successful)
     """
 
@@ -39,7 +40,6 @@ def kill_process_group(pgrp):
         logger.info(f"SIGTERM sent to process group {pgrp}")
 
     if _sleep:
-        nap = 10
         logger.info(f"sleeping {nap} s to allow processes to exit")
         sleep(nap)
 

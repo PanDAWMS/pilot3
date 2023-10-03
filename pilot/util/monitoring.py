@@ -366,6 +366,7 @@ def verify_looping_job(current_time, mt, job, args):
     # only perform looping job check if desired and enough time has passed since start
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__('pilot.user.%s.loopingjob_definitions' % pilot_user, globals(), locals(), [pilot_user], 0)
+
     runcheck = loopingjob_definitions.allow_loopingjob_detection()
     if not job.looping_check and runcheck:
         logger.debug('looping check not desired')
@@ -373,6 +374,7 @@ def verify_looping_job(current_time, mt, job, args):
 
     time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
     looping_verification_time = convert_to_int(config.Pilot.looping_verification_time, default=600)
+
     if time_since_start < looping_verification_time:
         logger.debug(f'no point in running looping job algorithm since time since last payload start={time_since_start} s < '
                      f'looping verification time={looping_verification_time} s')
