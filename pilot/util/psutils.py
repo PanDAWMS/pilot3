@@ -124,3 +124,91 @@ def get_parent_pid(pid):
         return parent_pid
     except psutil.NoSuchProcess:
         return None
+
+
+def get_child_processes(parent_pid):
+    """
+    Return a list of all child processes belonging to the same parent process id.
+    Using a fallback to /proc/{pid} in case psutil is not available.
+
+    :param parent_pid: parent process id (int)
+    :return: child processes (list).
+    """
+
+    if not _is_psutil_available:
+        logger.warning('get_child_processes(): psutil not available - using legacy code as a fallback')
+        return get_child_processes_legacy(parent_pid)
+    else:
+        return get_all_descendant_processes(parent_pid)
+
+
+def get_all_descendant_processes(parent_pid):
+    """
+    Recursively find child processes using the given parent pid as a starting point.
+
+    :param parent_pid: parent process id (int)
+    :return: descendant process ids and cmdline (list).
+    """
+
+    def find_descendant_processes(pid):
+        try:
+            descendants = []
+            for process in psutil.process_iter(attrs=['pid', 'ppid', 'cmdline']):
+                process_info = process.info
+                child_pid = process_info['pid']
+                ppid = process_info['ppid']
+                cmdline = process_info['cmdline']
+                if ppid == pid:
+                    descendants.append((child_pid, cmdline))
+                    descendants.extend(find_descendant_processes(child_pid))
+            return descendants
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return []
+
+    all_descendant_processes = find_descendant_processes(parent_pid)
+    return all_descendant_processes
+
+
+def get_child_processes_legacy(parent_pid):
+    """
+    Return a list of all child processes belonging to the same parent process id.
+    Note: this approach is not efficient if one is to find all child processes using
+    the parent pid as a starting point. Better to use a recursive function using psutil.
+    This method should be removed once psutil is available everywhere.
+
+    :param parent_pid: parent process id (int)
+    :return: child processes (list).
+    """
+
+    child_processes = []
+
+    # Iterate through all directories in /proc
+    for _pid in os.listdir('/proc'):
+        if not _pid.isdigit():
+            continue  # Skip non-numeric directories
+
+        try:
+            pid = int(_pid)
+        except ValueError as exc:
+            logger.warning(f'exception caught: got an unexpected value for pid={_pid}: {exc}')
+            continue
+
+        try:
+            # Read the command line of the process
+            with open(f'/proc/{pid}/cmdline', 'rb') as cmdline_file:
+                cmdline = cmdline_file.read().decode().replace('\x00', ' ')
+
+            # Read the parent PID of the process
+            with open(f'/proc/{pid}/stat', 'rb') as stat_file:
+                stat_info = stat_file.read().decode()
+                parts = stat_info.split()
+                ppid = int(parts[3])  # can throw a ValueError
+
+            # Check if the parent PID matches the specified parent process
+            if ppid == parent_pid:
+                child_processes.append((pid, cmdline))
+
+        except (ValueError, FileNotFoundError, PermissionError):
+            continue  # Process may have terminated or we don't have permission
+
+    return child_processes
