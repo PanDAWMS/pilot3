@@ -2894,8 +2894,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         jobs[i].state = 'failed'
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
                         jobs[i].completed = True
-                        if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
-                            send_state(jobs[i], args, jobs[i].state)
+                        #if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
+                        send_state(jobs[i], args, jobs[i].state)
                         if jobs[i].pid:
                             logger.debug('killing payload processes')
                             kill_processes(jobs[i].pid)
