@@ -2986,6 +2986,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
 
         n += 1
 
+        if abort_job:
+            logger.warning('cannot recover job monitoring - aborting pilot')
+            args.graceful_stop.set()
+
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
         abort = should_abort(args, label='job:job_monitor')
         if abort:
