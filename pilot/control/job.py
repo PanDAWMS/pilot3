@@ -355,13 +355,9 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         # update the last heartbeat time
         args.last_heartbeat = time.time()
 
-
-
-
-        if state == 'running':
-            test_tobekilled = True
-
-
+        # to test 'tobekilled' server instruction - pilot will abort after stage-in
+        #if state == 'running':
+        #    test_tobekilled = True
 
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
