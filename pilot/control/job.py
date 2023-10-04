@@ -355,6 +355,14 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
         # update the last heartbeat time
         args.last_heartbeat = time.time()
 
+
+
+
+        if state == 'running':
+            test_tobekilled = True
+
+
+
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
 
@@ -2606,7 +2614,7 @@ def check_for_abort_job(args, caller=''):
     """
     abort_job = False
     if args.abort_job.is_set():
-        logger.warning('%s detected an abort_job request (signal=%s)', caller, args.signal)
+        logger.warning(f'{caller} detected an abort_job request (signal=args.signal)')
         abort_job = True
 
     return abort_job
