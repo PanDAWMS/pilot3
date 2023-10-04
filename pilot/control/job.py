@@ -2881,6 +2881,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         error_code = get_signal_error(args.signal)
                     elif abort_job:  # i.e. no kill signal
                         logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
+                        # set error code so the server can be informed
+                        error_code = errors.PANDAKILL
                     elif os.environ.get('REACHED_MAXTIME', None):
                         # the batch system max time has been reached, time to abort (in the next step)
                         logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
