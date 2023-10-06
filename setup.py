@@ -33,4 +33,4 @@ setup(
     package_data={'': ['PILOTVERSION']},
     include_package_data=True,
     scripts=[]
-    )
+)
