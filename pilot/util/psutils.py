@@ -142,15 +142,16 @@ def get_child_processes(parent_pid):
         return get_all_descendant_processes(parent_pid)
 
 
-def get_all_descendant_processes(parent_pid):
+def get_all_descendant_processes(parent_pid, top_pid=os.getpid()):
     """
     Recursively find child processes using the given parent pid as a starting point.
 
     :param parent_pid: parent process id (int)
+    :param top_pid: do not include os.getpid() in the list (int)
     :return: descendant process ids and cmdline (list).
     """
 
-    def find_descendant_processes(pid):
+    def find_descendant_processes(pid, top_pid):
         try:
             descendants = []
             for process in psutil.process_iter(attrs=['pid', 'ppid', 'cmdline']):
@@ -158,14 +159,14 @@ def get_all_descendant_processes(parent_pid):
                 child_pid = process_info['pid']
                 ppid = process_info['ppid']
                 cmdline = process_info['cmdline']
-                if ppid == pid:
+                if ppid == pid and child_pid != top_pid:
                     descendants.append((child_pid, cmdline))
-                    descendants.extend(find_descendant_processes(child_pid))
+                    descendants.extend(find_descendant_processes(child_pid, top_pid))
             return descendants
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return []
 
-    all_descendant_processes = find_descendant_processes(parent_pid)
+    all_descendant_processes = find_descendant_processes(parent_pid, top_pid)
     return all_descendant_processes
 
 
