@@ -881,6 +881,7 @@ def get_subprocesses(pid):
     """
 
     pids = get_child_processes(pid)
+    logger.debug(f'child processes for pid={pid}: {pids}')
     return [pid[0] for pid in pids]
     #cmd = f'ps -opid --no-headers --ppid {pid}'
     #_, out, _ = execute(cmd)
