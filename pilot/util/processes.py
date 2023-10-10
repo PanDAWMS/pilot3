@@ -17,6 +17,7 @@ from pilot.util.container import execute
 from pilot.util.auxiliary import whoami, grep_str
 from pilot.util.filehandling import read_file, remove_dir_tree
 from pilot.util.processgroups import kill_process_group
+from pilot.util.psutils import get_child_processes
 from pilot.util.timer import timeout
 
 import logging
@@ -879,9 +880,11 @@ def get_subprocesses(pid):
     :return: list of subprocess PIDs.
     """
 
-    cmd = f'ps -opid --no-headers --ppid {pid}'
-    _, out, _ = execute(cmd)
-    return [int(line) for line in out.splitlines()] if out else []
+    pids = get_child_processes(pid)
+    return [pid[0] for pid in pids]
+    #cmd = f'ps -opid --no-headers --ppid {pid}'
+    #_, out, _ = execute(cmd)
+    #return [int(line) for line in out.splitlines()] if out else []
 
 
 def identify_numbers_and_strings(string):
