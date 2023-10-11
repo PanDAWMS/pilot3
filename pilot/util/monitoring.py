@@ -42,12 +42,12 @@ from pilot.util.processes import (
     get_current_cpu_consumption_time,
     kill_processes,
     get_number_of_child_processes,
-    get_subprocesses,
     reap_zombies
 )
 from pilot.util.psutils import (
     is_process_running,
-    get_pid
+    get_pid,
+    get_subprocesses
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (

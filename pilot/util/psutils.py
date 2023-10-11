@@ -213,3 +213,19 @@ def get_child_processes_legacy(parent_pid):
             continue  # Process may have terminated or we don't have permission
 
     return child_processes
+
+
+def get_subprocesses(pid):
+    """
+    Return the subprocesses belonging to the given PID as a list.
+
+    :param pid: main process PID (int).
+    :return: list of subprocess PIDs.
+    """
+
+    pids = get_child_processes(pid)
+    logger.debug(f'child processes for pid={pid}: {pids}')
+    return [pid[0] for pid in pids]
+    #cmd = f'ps -opid --no-headers --ppid {pid}'
+    #_, out, _ = execute(cmd)
+    #return [int(line) for line in out.splitlines()] if out else []

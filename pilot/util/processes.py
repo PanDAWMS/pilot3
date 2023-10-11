@@ -17,7 +17,6 @@ from pilot.util.container import execute
 from pilot.util.auxiliary import whoami, grep_str
 from pilot.util.filehandling import read_file, remove_dir_tree
 from pilot.util.processgroups import kill_process_group
-from pilot.util.psutils import get_child_processes
 from pilot.util.timer import timeout
 
 import logging
@@ -870,22 +869,6 @@ def is_child(pid, pandaid_pid, dictionary):
         else:
             # try another pid
             return is_child(ppid, pandaid_pid, dictionary)
-
-
-def get_subprocesses(pid):
-    """
-    Return the subprocesses belonging to the given PID.
-
-    :param pid: main process PID (int).
-    :return: list of subprocess PIDs.
-    """
-
-    pids = get_child_processes(pid)
-    logger.debug(f'child processes for pid={pid}: {pids}')
-    return [pid[0] for pid in pids]
-    #cmd = f'ps -opid --no-headers --ppid {pid}'
-    #_, out, _ = execute(cmd)
-    #return [int(line) for line in out.splitlines()] if out else []
 
 
 def identify_numbers_and_strings(string):
