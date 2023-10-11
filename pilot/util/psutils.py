@@ -215,16 +215,20 @@ def get_child_processes_legacy(parent_pid):
     return child_processes
 
 
-def get_subprocesses(pid):
+def get_subprocesses(pid, debug=False):
     """
     Return the subprocesses belonging to the given PID as a list.
 
-    :param pid: main process PID (int).
+    :param pid: main process PID (int)
+    :param debug: control debug mode (bool)
     :return: list of subprocess PIDs.
     """
 
     pids = get_child_processes(pid)
-    logger.debug(f'child processes for pid={pid}: {pids}')
+    if debug:  # always dump for looping jobs e.g.
+        logger.info(f'child processes for pid={pid}: {pids}')
+    else:  # otherwise, only in debug mode
+        logger.debug(f'child processes for pid={pid}: {pids}')
     return [pid[0] for pid in pids]
     #cmd = f'ps -opid --no-headers --ppid {pid}'
     #_, out, _ = execute(cmd)

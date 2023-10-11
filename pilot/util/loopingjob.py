@@ -92,7 +92,7 @@ def create_core_dump(job):
         return
 
     # get the pid of the youngest child belonging to the payload
-    pids = get_subprocesses(job.pid)
+    pids = get_subprocesses(job.pid, debug=True)
     if not pids:
         pid = job.pid
         logger.info(f'the payload process ({pid}) has no children')
@@ -103,7 +103,7 @@ def create_core_dump(job):
     exit_code, stdout, stderr = execute(cmd)
     #exit_code = execute_command(cmd)
     if exit_code == 0:
-        path = locate_core_file(pid=job.pid)
+        path = locate_core_file(pid=pid)
         if path:
             try:
                 copy(path, job.workdir)
