@@ -1336,5 +1336,9 @@ def verify_container_script(path):
             match = re.match(url_pattern, lines[0])
             if match:
                 # result is in match.group(0) - but do not dump since it contains sensitive token info
-                logger.warning(f'found sensitive token info in {path} - removing file')
+                logger.warning(f'found sensitive token information in {path} - removing file')
                 remove(path)
+            else:
+                logger.debug(f'no sensitive information in {path}')
+        else:
+            logger.debug(f'no sensitive information in {path}')
