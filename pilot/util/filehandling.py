@@ -872,7 +872,7 @@ def scan_file(path, error_messages, warning_message=None):
 
     :param path: path to file (string).
     :param error_messages: list of error messages.
-    :param warning_message: optional warning message to printed with any of the error_messages have been found (string).
+    :param warning_message: optional warning message to be printed with any of the error_messages have been found (string).
     :return: Boolean. (note: True means the error was found)
     """
 
@@ -1316,3 +1316,25 @@ def append_to_file(from_file: str, to_file: str) -> bool:
         logger.warning(f"an error occurred while processing the file: {exc}")
 
     return status
+
+
+def verify_container_script(path):
+    """
+    If the container_script.sh contains sensitive token info, remove it before creating the log.
+
+    :param path: path to container script (string).
+    """
+
+    if os.path.exists(path):
+        url_pattern = (
+            r"docker\ login\ docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+            r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)\ "
+            r"\-u\ \S+\ \-p\ \S+;"
+        )
+        lines = grep([url_pattern], path)
+        if lines:
+            match = re.match(url_pattern, lines[0])
+            if match:
+                # result is in match.group(0) - but do not dump since it contains sensitive token info
+                logger.warning(f'found sensitive token info in {path} - removing file')
+                remove(path)

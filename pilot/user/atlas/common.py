@@ -65,12 +65,20 @@ from pilot.util.constants import (
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
-    copy, copy_pilot_source, calculate_checksum,
-    get_guid, get_local_file_size,
-    remove, remove_dir_tree, remove_core_dumps, read_file, read_json,
+    copy,
+    copy_pilot_source,
+    calculate_checksum,
+    get_disk_usage,
+    get_guid,
+    get_local_file_size,
+    remove,
+    remove_dir_tree,
+    remove_core_dumps,
+    read_file,
+    read_json,
     update_extension,
+    verify_container_script,
     write_file,
-    get_disk_usage
 )
 from pilot.util.processes import (
     convert_ps_to_dict,
@@ -2205,6 +2213,9 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
 
     # remove special files
     remove_special_files(workdir, dir_list, outputfiles)
+
+    # remove container_script.sh if it contains token info
+    verify_container_script(os.path.join(workdir, config.Container.container_script))
 
     # run a second pass to clean up any broken links
     logger.debug('cleaning up broken links')
