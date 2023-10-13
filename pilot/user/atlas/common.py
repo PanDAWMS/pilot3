@@ -71,13 +71,13 @@ from pilot.util.filehandling import (
     get_disk_usage,
     get_guid,
     get_local_file_size,
+    grep,
     remove,
     remove_dir_tree,
     remove_core_dumps,
     read_file,
     read_json,
     update_extension,
-    verify_container_script,
     write_file,
 )
 from pilot.util.processes import (
@@ -2959,3 +2959,29 @@ def get_pilot_id(jobid):
     """
 
     return os.environ.get("GTAG", "unknown")
+
+
+def verify_container_script(path):
+    """
+    If the container_script.sh contains sensitive token info, remove it before creating the log.
+
+    :param path: path to container script (string).
+    """
+
+    if os.path.exists(path):
+        url_pattern = (
+            r"docker\ login\ docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+            r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)\ "
+            r"\-u\ \S+\ \-p\ \S+;"
+        )
+        lines = grep([url_pattern], path)
+        if lines:
+            match = re.match(url_pattern, lines[0])
+            if match:
+                # result is in match.group(0) - but do not dump since it contains sensitive token info
+                logger.warning(f'found sensitive token information in {path} - removing file')
+                remove(path)
+            else:
+                logger.debug(f'no sensitive information in {path}')
+        else:
+            logger.debug(f'no sensitive information in {path}')
