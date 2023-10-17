@@ -742,6 +742,11 @@ class Executor(object):
             # note: no need to run any main payload in HPO Horovod jobs on Kubernetes
             if os.environ.get('HARVESTER_HOROVOD', '') == '':
                 proc = self.run_payload(self.__job, cmd, self.__out, self.__err)
+                if not proc:
+                    # something went wrong, abort
+                    exit_code = errors.UNKNOWNEXCEPTION
+                    diagnostics = 'command execution failed, check log for clues'
+                    break
             else:
                 proc = None
 

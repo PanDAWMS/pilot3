@@ -36,7 +36,10 @@ try:
 except ImportError:
     pass
 
-from .container import create_root_container_command  #, create_middleware_container_command
+from .container import (
+    create_root_container_command,
+    verify_container_script
+)  #, create_middleware_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -83,7 +86,6 @@ from pilot.util.filehandling import (
     get_disk_usage,
     get_guid,
     get_local_file_size,
-    grep,
     remove,
     remove_dir_tree,
     remove_core_dumps,
@@ -2971,29 +2973,3 @@ def get_pilot_id(jobid):
     """
 
     return os.environ.get("GTAG", "unknown")
-
-
-def verify_container_script(path):
-    """
-    If the container_script.sh contains sensitive token info, remove it before creating the log.
-
-    :param path: path to container script (string).
-    """
-
-    if os.path.exists(path):
-        url_pattern = (
-            r"docker\ login\ docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
-            r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)\ "
-            r"\-u\ \S+\ \-p\ \S+;"
-        )
-        lines = grep([url_pattern], path)
-        if lines:
-            match = re.match(url_pattern, lines[0])
-            if match:
-                # result is in match.group(0) - but do not dump since it contains sensitive token info
-                logger.warning(f'found sensitive token information in {path} - removing file')
-                remove(path)
-            else:
-                logger.debug(f'no sensitive information in {path}')
-        else:
-            logger.debug(f'no sensitive information in {path}')

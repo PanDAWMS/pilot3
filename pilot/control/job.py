@@ -1154,7 +1154,7 @@ def hide_secrets(job):
         except FileHandlingFailure as exc:
             logger.warning(f'failed to store user secrets: {exc}')
         logger.info('user secrets saved to file')
-        job.pandasecrets = 'hidden'
+        #job.pandasecrets = 'hidden'
     else:
         logger.debug('no user secrets for this job')
 

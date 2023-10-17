@@ -33,7 +33,11 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import (
+    grep,
+    remove,
+    write_file
+)
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -445,6 +449,12 @@ def alrb_wrapper(cmd, workdir, job=None):
         # get the proper release setup script name, and create the script if necessary
         release_setup, cmd = create_release_setup(cmd, atlas_setup, full_atlas_setup, job.swrelease,
                                                   job.workdir, queuedata.is_cvmfs)
+
+        # prepend the docker login if necessary
+        #path = os.path.join(job.workdir, config.Pilot.pandasecrets)
+        #if os.path.exists(path):
+
+        #if has_docker_token(job.pandasecrets):
 
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
@@ -899,3 +909,58 @@ def get_middleware_container(label=None):
     logger.info('using image: %s for middleware container', path)
 
     return path
+
+
+def has_docker_token(line):
+    """
+    Does the given line contain a docker token?
+
+    :param line: panda secret (string)
+    :return: True or False (bool).
+    """
+
+    found = False
+
+    if line:
+        url_pattern = get_url_pattern()
+        match = re.match(url_pattern, line)
+        if match:
+            logger.warning('the given line contains a docker token')
+            found = True
+
+    return found
+
+
+def get_url_pattern() -> str:
+    """
+    Return the URL pattern for secret verification.
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        r"docker\ login\ docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+        r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)\ "
+        r"\-u\ \S+\ \-p\ \S+;"
+    )
+
+
+def verify_container_script(path):
+    """
+    If the container_script.sh contains sensitive token info, remove it before creating the log.
+
+    :param path: path to container script (string).
+    """
+
+    if os.path.exists(path):
+        url_pattern = get_url_pattern()
+        lines = grep([url_pattern], path)
+        if lines:
+            has_token = has_docker_token(lines[0])
+            if has_token:
+                logger.warning(f'found sensitive token information in {path} - removing file')
+                remove(path)
+            else:
+                logger.debug(f'no sensitive information in {path}')
+        else:
+            logger.debug(f'no sensitive information in {path}')
