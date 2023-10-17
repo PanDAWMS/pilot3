@@ -20,10 +20,12 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
 
+import json
 import os
 import pipes
 import re
 import logging
+from typing import Any
 
 # for user container test: import urllib
 
@@ -376,7 +378,7 @@ def get_container_options(container_options):
     return opts
 
 
-def alrb_wrapper(cmd, workdir, job=None):
+def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
     """
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
@@ -440,7 +442,7 @@ def alrb_wrapper(cmd, workdir, job=None):
         # add the jobid to be used as an identifier for the payload running inside the container
         # it is used to identify the pid for the process to be tracked by the memory monitor
         if 'export PandaID' not in alrb_setup:
-            alrb_setup += "export PandaID=%s;" % job.jobid
+            alrb_setup += f"export PandaID={job.jobid};"
 
         # add TMPDIR
         cmd = "export TMPDIR=/srv;export GFORTRAN_TMPDIR=/srv;" + cmd
@@ -454,22 +456,25 @@ def alrb_wrapper(cmd, workdir, job=None):
         #path = os.path.join(job.workdir, config.Pilot.pandasecrets)
         #if os.path.exists(path):
 
-        #if has_docker_token(job.pandasecrets):
+        if has_docker_token(job.pandasecrets):
+            cmd = add_docker_login(cmd, job.pandasecrets)
+        else:
+            logger.debug('did not see any pandasecrets')
 
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
             cmd = replace_last_command(cmd, job.containeroptions.get('containerExec'))
-            logger.debug('updated cmd with containerExec: %s', cmd)
+            logger.debug(f'updated cmd with containerExec: {cmd}')
 
         # write the full payload command to a script file
         container_script = config.Container.container_script
-        logger.debug('command to be written to container script file:\n\n%s:\n\n%s\n', container_script, cmd)
+        logger.debug(f'command to be written to container script file:\n\n{container_script}:\n\n{cmd}\n')
         try:
             write_file(os.path.join(job.workdir, container_script), cmd, mute=False)
             os.chmod(os.path.join(job.workdir, container_script), 0o755)  # Python 2/3
         # except (FileHandlingFailure, FileNotFoundError) as exc:  # Python 3
         except (FileHandlingFailure, OSError) as exc:  # Python 2/3
-            logger.warning('exception caught: %s', exc)
+            logger.warning(f'exception caught: {exc}')
             return ""
 
         # also store the command string in the job object
@@ -482,9 +487,61 @@ def alrb_wrapper(cmd, workdir, job=None):
         execargs = job.containeroptions.get('execArgs', None)
         if execargs:
             cmd += ' ' + execargs
-        logger.debug('\n\nfinal command:\n\n%s\n', cmd)
+        logger.debug(f'\n\nfinal command:\n\n{cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
+
+    return cmd
+
+
+def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
+    """
+    Add docker login to user command.
+
+    The pandasecrets dictionary was found to contain login information (username + token). This function
+    will add it to the payload command that will be run in the user container.
+
+    :param cmd: payload command (str)
+    :param pandasecrets: panda secrets (dict)
+    :return: updated payload command (str).
+    """
+
+    pattern = r'docker://[^/]+/'
+
+    docker_tokens = pandasecrets.get('DOCKER_TOKENS', None)
+    if docker_tokens:
+        try:
+            docker_token = json.loads(docker_tokens)
+            if docker_token:
+                token_dict = docker_token[0]
+                username = token_dict.get('username', None)
+                token = token_dict.get('token', None)
+                registry_path = token_dict.get('registry_path', None)
+                if username and token and registry_path:
+                    # extract the registry (e.g. docker://gitlab-registry.cern.ch/) from the path
+                    try:
+                        match = re.search(pattern, registry_path)
+                        if match:
+                            cmd = f'docker login {match.group(0)} -u {username} -p {token}; ' + cmd
+                        else:
+                            logger.warning(f'failed to extract registry from {registry_path}')
+                    except re.error as regex_error:
+                        err = str(regex_error)
+                        entry = err.find('token')
+                        err = err[:entry]  # cut away any token
+                        logger.warning(f'error in regular expression: {err}')
+                else:
+                    logger.warning(
+                        'either username, token, or registry_path was not set in DOCKER_TOKENS dictionary')
+            else:
+                logger.warning('failed to convert DOCKER_TOKENS str to dict')
+        except json.JSONDecodeError as json_error:
+            err = str(json_error)
+            entry = err.find('token')
+            err = err[:entry]  # cut away any token
+            logger.warning(f'error decoding JSON data: {err}')
+    else:
+        logger.warning('failed to read DOCKER_TOKENS key from panda secrets')
 
     return cmd
 
