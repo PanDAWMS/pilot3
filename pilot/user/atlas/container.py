@@ -453,13 +453,13 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
                                                   job.workdir, queuedata.is_cvmfs)
 
         # prepend the docker login if necessary
-        #path = os.path.join(job.workdir, config.Pilot.pandasecrets)
-        #if os.path.exists(path):
-
-        if has_docker_token(job.pandasecrets):
+        # does the pandasecrets dictionary contain any docker login info?
+        pandasecrets = str(job.pandasecrets)
+        if pandasecrets and "token" in pandasecrets and \
+                has_docker_pattern(pandasecrets, pattern=r'docker://[^/]+/'):
+            # if so, add it do the container script
+            logger.info('adding sensitive docker login info')
             cmd = add_docker_login(cmd, job.pandasecrets)
-        else:
-            logger.debug('did not see any pandasecrets')
 
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
@@ -507,8 +507,8 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
     """
 
     pattern = r'docker://[^/]+/'
-    docker_tokens = pandasecrets.get('DOCKER_TOKENS', None)
-
+    tmp = json.loads(pandasecrets)
+    docker_tokens = tmp.get('DOCKER_TOKENS', None)
     if docker_tokens:
         try:
             docker_token = json.loads(docker_tokens)
@@ -968,24 +968,40 @@ def get_middleware_container(label=None):
     return path
 
 
-def has_docker_token(line):
+def has_docker_pattern(line, pattern=None):
     """
-    Does the given line contain a docker token?
+    Does the given line contain a docker pattern?
 
     :param line: panda secret (string)
+    :param pattern: regular expression pattern (raw string)
     :return: True or False (bool).
     """
 
     found = False
 
     if line:
-        url_pattern = get_url_pattern()
-        match = re.match(url_pattern, line)
+        # if no given pattern, look for a general docker registry URL
+        url_pattern = get_url_pattern() if not pattern else pattern
+        match = re.search(url_pattern, line)
         if match:
             logger.warning('the given line contains a docker token')
             found = True
 
     return found
+
+
+def get_docker_pattern() -> str:
+    """
+    Return the docker login URL pattern for secret verification.
+
+    Example: docker login <registry URL> -u <username> -p <token>
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
+    )
 
 
 def get_url_pattern() -> str:
@@ -996,9 +1012,8 @@ def get_url_pattern() -> str:
     """
 
     return (
-        r"docker\ login\ docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
-        r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)\ "
-        r"\-u\ \S+\ \-p\ \S+;"
+        r"docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+        r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)"
     )
 
 
@@ -1010,10 +1025,10 @@ def verify_container_script(path):
     """
 
     if os.path.exists(path):
-        url_pattern = get_url_pattern()
+        url_pattern = r'docker\ login'  # docker login <registry> -u <username> -p <token>
         lines = grep([url_pattern], path)
         if lines:
-            has_token = has_docker_token(lines[0])
+            has_token = has_docker_pattern(lines[0], pattern=url_pattern)
             if has_token:
                 logger.warning(f'found sensitive token information in {path} - removing file')
                 remove(path)
