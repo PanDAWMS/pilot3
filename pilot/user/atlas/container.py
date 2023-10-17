@@ -508,6 +508,8 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
 
     pattern = r'docker://[^/]+/'
     docker_tokens = pandasecrets.get('DOCKER_TOKENS', None)
+
+
     if docker_tokens:
         try:
             docker_token = json.loads(docker_tokens)
