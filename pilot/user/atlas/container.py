@@ -464,11 +464,14 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
             cmd = replace_last_command(cmd, job.containeroptions.get('containerExec'))
-            logger.debug(f'updated cmd with containerExec: {cmd}')
 
         # write the full payload command to a script file
         container_script = config.Container.container_script
-        logger.debug(f'command to be written to container script file:\n\n{container_script}:\n\n{cmd}\n')
+        _cmd = obscure_token(cmd)  # obscure any token if present
+        if _cmd:
+            logger.info(f'command to be written to container script file:\n\n{container_script}:\n\n{_cmd}\n')
+        else:
+            logger.warning('will not show container script file since the user token could not be obscured')
         try:
             write_file(os.path.join(job.workdir, container_script), cmd, mute=False)
             os.chmod(os.path.join(job.workdir, container_script), 0o755)  # Python 2/3
@@ -490,6 +493,25 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
         logger.debug(f'\n\nfinal command:\n\n{cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
+
+    return cmd
+
+
+def obscure_token(cmd: str) -> str:
+    """
+    Obscure any user token from the payload command.
+
+    :param cmd: payload command (str)
+    :return: updated command (str).
+    """
+
+    try:
+        match = re.search(r'-p (\S+);', cmd)
+        if match:
+            cmd = cmd.replace(match.group(1), '********')
+    except (re.error, AttributeError, IndexError):
+        logger.warning('an exception was thrown while trying to obscure the user token')
+        cmd = ''
 
     return cmd
 
