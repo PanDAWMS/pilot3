@@ -925,7 +925,7 @@ class StageInClient(StagingClient):
                     if not os.path.exists(_workdir):
                         path = os.path.join('/srv', config.Pilot.base_trace_report)
                     if not os.path.exists(path):
-                        self.logger.debug('writing base trace report to: %s', path)
+                        self.logger.debug(f'writing base trace report to: {path}')
                         write_json(path, self.trace_report)
                 else:
                     self.trace_report.send()

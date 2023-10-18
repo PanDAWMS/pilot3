@@ -291,7 +291,7 @@ if __name__ == '__main__':
             processed_turls_dictionary[turl] = False
 
         # write dictionary to file with results
-        _status = write_json(os.path.join(args.workdir, config.Pilot.remotefileverification_dictionary), processed_turls_dictionary)
+        write_json(os.path.join(args.workdir, config.Pilot.remotefileverification_dictionary), processed_turls_dictionary)
     else:
         message('no TURLs to verify')
 

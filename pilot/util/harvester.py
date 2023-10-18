@@ -84,23 +84,22 @@ def remove_job_request_file():
         logger.debug('there is no job request file')
 
 
-def request_new_jobs(njobs=1):
+def request_new_jobs(njobs: int = 1):
     """
     Inform Harvester that the pilot is ready to process new jobs by creating a job request file with the desired
     number of jobs.
 
     :param njobs: Number of jobs. Default is 1 since on grids and clouds the pilot does not know how many jobs it can
-    process before it runs out of time.
-    :return:
+    process before it runs out of time
+    :raises: FileHandlingFailure if write_json() fails.
     """
 
     path = get_job_request_file_name()
     dictionary = {'nJobs': njobs}
 
     # write it to file
-    try:
-        write_json(path, dictionary)
-    except FileHandlingFailure:
+    ec = write_json(path, dictionary)
+    if ec:
         raise FileHandlingFailure
 
 
@@ -282,26 +281,21 @@ def publish_work_report(work_report=None, worker_attributes_file="worker_attribu
     """
 
     if work_report:
-        try:
-            work_report['timestamp'] = time_stamp()
-            if "outputfiles" in work_report:
-                del (work_report["outputfiles"])
-            if "inputfiles" in work_report:
-                del (work_report["inputfiles"])
-            if "xml" in work_report:
-                del (work_report["xml"])
-            if write_json(worker_attributes_file, work_report):
-                logger.info("work report published: {0}".format(work_report))
-                return True
-            else:
-                logger.error("work report publish failed: {0}".format(work_report))
-                return False
-        except IOError:
-            logger.error("job report copy failed")
+        work_report['timestamp'] = time_stamp()
+        if "outputfiles" in work_report:
+            del (work_report["outputfiles"])
+        if "inputfiles" in work_report:
+            del (work_report["inputfiles"])
+        if "xml" in work_report:
+            del (work_report["xml"])
+
+        ec = write_json(worker_attributes_file, work_report)
+        if ec:
+            logger.error("work report publish failed: {0}".format(work_report))
             return False
-        except Exception as e:
-            logger.error("write json file failed: {0}".format(e))
-            return False
+        else:
+            logger.info("work report published: {0}".format(work_report))
+            return True
     else:
         # No work_report return False
         return False

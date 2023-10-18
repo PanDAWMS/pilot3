@@ -481,7 +481,7 @@ if __name__ == '__main__':
     if err:
         errcode, err = extract_error_info(err)
     add_to_dictionary(file_dictionary, 'error', err, errcode, None, None)
-    _status = write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
+    write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
     if err:
         message("containerised file transfers failed: %s" % err)
         exit(TRANSFER_ERROR)

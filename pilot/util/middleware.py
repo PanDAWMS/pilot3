@@ -212,17 +212,11 @@ def get_command(job, xdata, queue, script, eventtype, localsite, remotesite, ext
         filedata_dictionary = get_filedata(xdata)
 
         # write file data to file
-        try:
-            status = write_json(path.join(job.workdir, config.Container.stagein_replica_dictionary), filedata_dictionary)
-        except Exception as exc:
-            diagnostics = f'exception caught in get_command(): {exc}'
+        status = write_json(path.join(job.workdir, config.Container.stagein_replica_dictionary), filedata_dictionary)
+        if not status:
+            diagnostics = 'failed to write replica dictionary to file'
             logger.warning(diagnostics)
             raise PilotException(diagnostics)
-        else:
-            if not status:
-                diagnostics = 'failed to write replica dictionary to file'
-                logger.warning(diagnostics)
-                raise PilotException(diagnostics)
 
     # copy pilot source into container directory, unless it is already there
     diagnostics = copy_pilot_source(job.workdir)

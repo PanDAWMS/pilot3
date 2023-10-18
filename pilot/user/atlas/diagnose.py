@@ -702,15 +702,11 @@ def overwrite_metadata(metadata, path):
         logger.info(f'backed up original metadata file: {path}')
 
     # store the updated metadata
-    try:
-        status = write_json(path, metadata)
-    except (IOError, FileHandlingFailure) as exc:
-        logger.warning(f'caught exception while writing metadata json: {exc}')
+    status = write_json(path, metadata)
+    if status:
+        logger.info(f'overwrote {path} with updated metadata')
     else:
-        if status:
-            logger.info(f'overwrote {path} with updated metadata')
-        else:
-            logger.warning(f'failed to overwrite {path} with updated metadata (ignore)')
+        logger.warning(f'failed to overwrite {path} with updated metadata (ignore)')
 
 
 def get_frontier_details(job_report_dictionary):

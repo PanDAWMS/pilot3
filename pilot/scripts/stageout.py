@@ -390,7 +390,7 @@ if __name__ == '__main__':  # noqa: C901
     path = os.path.join(args.workdir, config.Container.stageout_status_dictionary)
     if os.path.exists(path):
         path += '.log'
-    _status = write_json(path, file_dictionary)
+    write_json(path, file_dictionary)
     if err:
         message("containerised file transfers failed: %s" % err)
         exit(TRANSFER_ERROR)
