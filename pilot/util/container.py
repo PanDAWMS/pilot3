@@ -192,7 +192,7 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
     return exit_code
 
 
-def get_timeout(requested_timeout):
+def get_timeout(requested_timeout: int) -> int:
     """
     Define the timeout to be used with subprocess.communicate().
 
