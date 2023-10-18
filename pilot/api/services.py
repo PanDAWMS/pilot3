@@ -25,16 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Services(object):
+class Services:
     """
     High-level base class for Benchmark(), MemoryMonitoring() and Analytics() classes.
     """
-
-    def __init__(self, *args):
-        """
-        Init function.
-
-        :param args:
-        """
-
-        pass
