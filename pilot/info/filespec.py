@@ -174,19 +174,19 @@ class FileSpec(BaseData):
         if not is_rootfile:
             return False
 
-        is_directaccess = False  ## default value
+        _is_directaccess = False  ## default value
         if self.accessmode == 'direct':
-            is_directaccess = True
+            _is_directaccess = True
         elif self.accessmode == 'copy':
-            is_directaccess = False
+            _is_directaccess = False
 
         if ensure_replica:
 
             allowed_replica_schemas = allowed_replica_schemas or ['root', 'dcache', 'dcap', 'file', 'https']
             if not self.turl or not any([self.turl.startswith('%s://' % e) for e in allowed_replica_schemas]):
-                is_directaccess = False
+                _is_directaccess = False
 
-        return is_directaccess
+        return _is_directaccess
 
     def get_storage_id_and_path_convention(self):
         """
