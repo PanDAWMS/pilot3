@@ -38,13 +38,19 @@ def interpret(job):
     """
 
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
-    message = 'payload stdout dump\n'
-    message += read_file(stdout)
-    logger.debug(message)
+    if os.path.exists(stdout):
+        message = 'payload stdout dump\n'
+        message += read_file(stdout)
+        logger.debug(message)
+    else:
+        logger.warning('payload produced no stdout')
     stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
-    message = 'payload stderr dump\n'
-    message += read_file(stderr)
-    logger.debug(message)
+    if os.path.exists(stderr):
+        message = 'payload stderr dump\n'
+        message += read_file(stderr)
+        logger.debug(message)
+    else:
+        logger.info('payload produced no stderr')
 
     return 0
 

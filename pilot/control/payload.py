@@ -39,7 +39,7 @@ from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extr
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread
+from pilot.common.exception import ExcThread, PilotException
 from pilot.util.realtimelogger import get_realtime_logger
 
 import logging
@@ -274,9 +274,14 @@ def execute_payloads(queues, traces, args):  # noqa: C901
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
                 logger.warning(f'exception caught: {error}')
-                if 'error code:' in error and 'message:' in error:
-                    error_code, diagnostics = extract_error_info(error)
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                if isinstance(error, PilotException):
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error._errorCode, msg=error._message)
+                elif isinstance(error, str):
+                    if 'error code:' in error and 'message:' in error:
+                        error_code, diagnostics = extract_error_info(error)
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                    else:
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
                 else:
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
 
