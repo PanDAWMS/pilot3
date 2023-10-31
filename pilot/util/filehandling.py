@@ -19,6 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+import fnmatch
 import hashlib
 import io
 import logging
@@ -1339,3 +1340,23 @@ def append_to_file(from_file: str, to_file: str) -> bool:
         logger.warning(f"an error occurred while processing the file: {exc}")
 
     return status
+
+
+def find_files_with_pattern(directory, pattern):
+    """
+    Find files in a directory that match a specified pattern.
+
+    :param directory: The directory to search for files (str)
+    :param pattern: The pattern to match filenames (str)
+    :return: a list of matching filenames found in the directory (list).
+    """
+
+    try:
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"directory '{directory}' does not exist")
+
+        # return all matching files
+        return [f for f in os.listdir(directory) if fnmatch.fnmatch(f, pattern)]
+    except (FileNotFoundError, PermissionError) as exc:
+        logger.warning(f"exception caught while finding files: {exc}")
+        return []

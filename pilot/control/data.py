@@ -70,7 +70,8 @@ from pilot.util.filehandling import (
     remove,
     write_file,
     copy,
-    get_directory_size
+    get_directory_size,
+    find_files_with_pattern
 )
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import (
@@ -901,19 +902,20 @@ def copy_special_files(tardir):
     :param tardir: path to tar directory (str).
     """
 
+    # general pattern, typically xrdlog.txt. The pilot might produce multiple files, xrdlog.txt-LFN1..N
     xrd_logfile = os.environ.get('XRD_LOGFILE', None)
     if xrd_logfile:
         # xrootd is then expected to have produced a corresponding log file
         pilot_home = os.environ.get('PILOT_HOME', None)
         if pilot_home:
-            path = os.path.join(pilot_home, xrd_logfile)
-            if os.path.exists(path):
+            # find all log files
+            matching_files = find_files_with_pattern(pilot_home, f'{xrd_logfile}*')
+            for logfile in matching_files:
+                path = os.path.join(pilot_home, logfile)
                 try:
                     copy(path, tardir)
                 except (NoSuchFile, FileHandlingFailure) as exc:
-                    logger.warning(f'caught exception when copying {xrd_logfile}: {exc}')
-            else:
-                logger.warning(f'could not find the expected {xrd_logfile} in {pilot_home}')
+                    logger.warning(f'caught exception when copying {logfile}: {exc}')
         else:
             logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
 

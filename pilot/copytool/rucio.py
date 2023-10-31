@@ -44,6 +44,7 @@ from .common import (
     resolve_common_transfer_errors,
     verify_catalog_checksum,
     get_timeout,
+    rename_xrdlog
 )
 from pilot.util.config import config
 
@@ -119,6 +120,7 @@ def copy_in(files, **kwargs):
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
@@ -401,6 +403,7 @@ def copy_out(files, **kwargs):  # noqa: C901
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
