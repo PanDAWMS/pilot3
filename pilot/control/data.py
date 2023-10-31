@@ -832,6 +832,9 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     if pilot_home != current_dir:
         os.chdir(pilot_home)
 
+    # copy special files if they exist (could be made experiment specific if there's a need for it)
+    copy_special_files(workdir)
+
     # perform special cleanup (user specific) prior to log file creation
     if cleanup:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -889,6 +892,30 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         copy(fullpath, orgworkdir)
     except (NoSuchFile, FileHandlingFailure) as exc:
         logger.warning(f'caught exception when copying tarball: {exc}')
+
+
+def copy_special_files(tardir):
+    """
+    Copy any special files into the directory to be tarred up.
+
+    :param tardir: path to tar directory (str).
+    """
+
+    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    if xrd_logfile:
+        # xrootd is then expected to have produced a corresponding log file
+        pilot_home = os.environ.get('PILOT_HOME', None)
+        if pilot_home:
+            path = os.path.join(pilot_home, xrd_logfile)
+            if os.path.exists(path):
+                try:
+                    copy(path, tardir)
+                except (NoSuchFile, FileHandlingFailure) as exc:
+                    logger.warning(f'caught exception when copying {xrd_logfile}: {exc}')
+            else:
+                logger.warning(f'could not find the expected {xrd_logfile} in {pilot_home}')
+        else:
+            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
 
 
 def get_tar_timeout(dirsize: float) -> int:
