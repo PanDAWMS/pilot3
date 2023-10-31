@@ -623,7 +623,7 @@ def get_pilot_source_dir() -> str:
 
 def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any, internet_protocol_version: str) -> None:
     """
-    Send worker info to the server to let it know that the worker has started
+    Send worker info to the server to let it know that the worker has started.
     Note: the function can fail, but if it does, it will be ignored.
 
     :param status: 'started' or 'finished' (string).
