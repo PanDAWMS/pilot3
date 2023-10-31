@@ -29,6 +29,7 @@ import subprocess
 import time
 import queue
 from typing import Any
+from pathlib import Path
 
 from pilot.api.data import (
     StageInClient,
@@ -909,7 +910,9 @@ def copy_special_files(tardir):
         pilot_home = os.environ.get('PILOT_HOME', None)
         if pilot_home:
             # find all log files
-            matching_files = find_files_with_pattern(pilot_home, f'{xrd_logfile}*')
+            # suffix = Path(xrd_logfile).suffix  # .txt
+            stem = Path(xrd_logfile).stem  # xrdlog
+            matching_files = find_files_with_pattern(pilot_home, f'{stem}*')
             for logfile in matching_files:
                 path = os.path.join(pilot_home, logfile)
                 try:
