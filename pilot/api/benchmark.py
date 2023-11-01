@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
+"""Benchmark prototype."""
+
 from .services import Services
 
 import logging
@@ -26,9 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class Benchmark(Services):
-    """
-    Benchmark service class.
-    """
+    """Benchmark service class."""
 
     def __init__(self, *args):
         """
@@ -36,5 +36,4 @@ class Benchmark(Services):
 
         :param args:
         """
-
         pass

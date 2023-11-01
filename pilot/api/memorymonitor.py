@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
+"""API for memory monitoring."""
+
 from os import getcwd
 from .services import Services
 
@@ -27,9 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryMonitoring(Services):
-    """
-    Memory monitoring service class.
-    """
+    """Memory monitoring service class."""
 
     user = ""     # Pilot user, e.g. 'ATLAS'
     pid = 0       # Job process id
@@ -40,9 +40,8 @@ class MemoryMonitoring(Services):
         """
         Init function.
 
-        :param kwargs:
+        :param kwargs: kwargs dictionary.
         """
-
         for key in kwargs:
             setattr(self, key, kwargs[key])
 
@@ -57,35 +56,30 @@ class MemoryMonitoring(Services):
         """
         Return the full command for the memory monitor.
 
-        :return: command string.
+        :return: command string (str).
         """
-
         return self._cmd
 
     def execute(self):
         """
         Execute the memory monitor command.
-        Return the process.
 
-        :return: process.
+        :return: process (currently None).
         """
-
         return None
 
     def get_filename(self):
         """
-        ..
+        Return the filename from the memory monitor tool.
 
-        :return:
+        :return: fiename (str).
         """
-
         return ""
 
     def get_results(self):
         """
-        ..
+        Return the results from the memory monitoring.
 
-        :return:
+        :return: results (currently None).
         """
-
         return None

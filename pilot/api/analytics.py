@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
+"""Functions for performing analytics including fitting of data."""
+
 from .services import Services
 from pilot.common.exception import NotDefined, NotSameLength, UnknownException
 from pilot.util.filehandling import get_table_from_file
@@ -29,9 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class Analytics(Services):
-    """
-    Analytics service class.
-    """
+    """Analytics service class."""
 
     _fit = None
 
@@ -41,21 +41,20 @@ class Analytics(Services):
 
         :param kwargs:
         """
-
         self._fit = None
 
     def fit(self, x, y, model='linear'):
         """
         Fitting function.
+
         For a linear model: y(x) = slope * x + intersect
 
         :param x: list of input data (list of floats or ints).
         :param y: list of input data (list of floats or ints).
         :param model: model name (string).
         :raises UnknownException: in case Fit() fails.
-        :return:
+        :return: fit.
         """
-
         try:
             self._fit = Fit(x=x, y=y, model=model)
         except Exception as e:
@@ -70,9 +69,6 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined.
         :return: slope (float).
         """
-
-        slope = None
-
         if self._fit:
             slope = self._fit.slope()
         else:
@@ -87,9 +83,6 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined.
         :return: intersect (float).
         """
-
-        intersect = None
-
         if self._fit:
             intersect = self._fit.intersect()
         else:
@@ -104,9 +97,6 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined.
         :return: chi2 (float).
         """
-
-        x2 = None
-
         if self._fit:
             x2 = self._fit.chi2()
         else:
@@ -116,6 +106,7 @@ class Analytics(Services):
 
     def get_table(self, filename, header=None, separator="\t", convert_to_float=True):
         """
+        Return a table from file.
 
         :param filename: full path to input file (string).
         :param header: header string.
@@ -123,13 +114,13 @@ class Analytics(Services):
         :param convert_to_float: boolean, if True, all values will be converted to floats.
         :return: dictionary.
         """
-
         return get_table_from_file(filename, header=header, separator=separator, convert_to_float=convert_to_float)
 
     def get_fitted_data(self, filename, x_name='Time', y_name='pss+swap', precision=2, tails=True):
         """
         Return a properly formatted job metrics string with analytics data.
-        Currently the function returns a fit for PSS+Swap vs time, whose slope measures memory leaks.
+
+        Currently, the function returns a fit for PSS+Swap vs time, whose slope measures memory leaks.
 
         :param filename: full path to memory monitor output (string).
         :param x_name: optional string, name selector for table column.
@@ -138,7 +129,6 @@ class Analytics(Services):
         :param tails: should tails (first and last values) be used? (boolean).
         :return: {"slope": slope, "chi2": chi2} (float strings with desired precision).
         """
-
         slope = ""
         chi2 = ""
         table = self.get_table(filename)
@@ -204,11 +194,7 @@ class Analytics(Services):
         return {"slope": slope, "chi2": chi2}
 
     def find_limit(self, _x, _y, _chi2_org, norg, change_limit=0.25, edge="right", steps=5):
-        """
-        Use an iterative approach to find the limits of the distributions that can be used for the final fit.
-        """
-
-        limit = 0
+        """Use an iterative approach to find the limits of the distributions that can be used for the final fit."""
         _chi2_prev = _chi2_org
         found = False
         iterations = 0
@@ -254,13 +240,13 @@ class Analytics(Services):
 
     def extract_from_table(self, table, x_name, y_name):
         """
+        Extract x and y from a table.
 
         :param table: dictionary with columns.
         :param x_name: column name to be extracted (string).
         :param y_name: column name to be extracted (may contain '+'-sign) (string).
         :return: x (list), y (list).
         """
-
         x = table.get(x_name, [])
         if '+' not in y_name:
             y = table.get(y_name, [])
@@ -282,9 +268,7 @@ class Analytics(Services):
 
 
 class Fit(object):
-    """
-    Low-level fitting class.
-    """
+    """Low-level fitting class."""
 
     _model = 'linear'  # fitting model
     _x = None  # x values
@@ -304,7 +288,6 @@ class Fit(object):
         :param kwargs:
         :raises PilotException: NotImplementedError for unknown fitting model, NotDefined if input data not defined.
         """
-
         # extract parameters
         self._model = kwargs.get('model', 'linear')
         self._x = kwargs.get('x', None)
@@ -335,7 +318,6 @@ class Fit(object):
 
         :return: fitting object.
         """
-
         return self
 
     def value(self, t):
@@ -344,7 +326,6 @@ class Fit(object):
 
         :return: intersect (float).
         """
-
         return self._slope * t + self._intersect
 
     def set_chi2(self):
@@ -353,7 +334,6 @@ class Fit(object):
 
         :return:
         """
-
         y_observed = self._y
         y_expected = []
         #i = 0
@@ -372,7 +352,6 @@ class Fit(object):
 
         :return: chi2 (float).
         """
-
         return self._chi2
 
     def set_slope(self):
@@ -381,7 +360,6 @@ class Fit(object):
 
         :return:
         """
-
         if self._ss2 and self._ss and self._ss != 0:
             self._slope = self._ss2 / float(self._ss)
         else:
@@ -393,7 +371,6 @@ class Fit(object):
 
         :return: slope (float).
         """
-
         return self._slope
 
     def set_intersect(self):
@@ -402,7 +379,6 @@ class Fit(object):
 
         :return:
         """
-
         if self._ym and self._slope and self._xm:
             self._intersect = self._ym - self._slope * self._xm
         else:
@@ -414,5 +390,4 @@ class Fit(object):
 
         :return: intersect (float).
         """
-
         return self._intersect
