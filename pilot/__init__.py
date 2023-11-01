@@ -19,3 +19,5 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
+
+"""Default init."""

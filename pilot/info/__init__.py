@@ -20,7 +20,7 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 """
-Pilot Information component
+Pilot Information component.
 
 A set of low-level information providers to aggregate, prioritize (overwrite),
 hide dependency to external storages and expose (queue, site, storage, etc) details
@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     """
     Set up all necessary site information for given PandaQueue name.
+
     Resolve everything from the specified queue name (passed via `args.queue`)
     and fill extra lookup structure (Populate `args.info`).
 
@@ -55,7 +56,6 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     :param args: input (shared) arguments
     :return: None
     """
-
     # ## initialize info service
     infosys.init(args.queue)
 

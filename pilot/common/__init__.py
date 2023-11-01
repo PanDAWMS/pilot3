@@ -18,3 +18,6 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+
+"""Default init."""

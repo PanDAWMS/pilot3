@@ -18,3 +18,5 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
+
+"""Default init."""
