@@ -20,7 +20,10 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
+"""Error codes set by the pilot."""
+
 import re
+from typing import Any
 
 
 class ErrorCodes:
@@ -317,20 +320,17 @@ class ErrorCodes:
     recoverable_error_codes = [0] + put_error_codes
 
     def reset_pilot_errors(self):
-        """
-        Reset the class static variables related with pilot errors.
-        """
+        """Reset the class static variables related with pilot errors."""
         ErrorCodes.pilot_error_codes = []
         ErrorCodes.pilot_error_diags = []
 
-    def get_kill_signal_error_code(self, signal):
+    def get_kill_signal_error_code(self, signal: str) -> int:
         """
         Match a kill signal with a corresponding Pilot error code.
 
-        :param signal: signal name (string).
-        :return: Pilot error code (integer).
+        :param signal: signal name (str).
+        :return: Pilot error code (int).
         """
-
         signals_dictionary = {'SIGTERM': self.SIGTERM,
                               'SIGQUIT': self.SIGQUIT,
                               'SIGSEGV': self.SIGSEGV,
@@ -340,32 +340,31 @@ class ErrorCodes:
 
         return signals_dictionary.get(signal, self.KILLSIGNAL)
 
-    def get_error_message(self, errorcode):
+    def get_error_message(self, errorcode: int) -> str:
         """
         Return the error message corresponding to the given error code.
 
-        :param errorcode:
-        :return: errormessage (string)
+        :param errorcode: error code (int)
+        :return: errormessage (str).
         """
+        return self._error_messages.get(errorcode, f"unknown error code: {errorcode}")
 
-        return self._error_messages.get(errorcode, "Unknown error code: %d" % errorcode)
-
-    def add_error_code(self, errorcode, priority=False, msg=None):
+    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> (list, list):
         """
         Add pilot error code to list of error codes.
+
         This function adds the given error code to the list of all errors that have occurred. This is needed since
         several errors can happen; e.g. a stage-in error can be followed by a stage-out error during the log transfer.
         The full list of errors is dumped to the log, but only the first error is reported to the server.
         The function also sets the corresponding error message.
 
-        :param errorcode: pilot error code (integer)
+        :param errorcode: pilot error code (int)
         :param pilot_error_codes: list of pilot error codes (list of integers)
         :param pilot_error_diags: list of pilot error diags (list of strings)
-        :param priority: if set to True, the new errorcode will be added to the error code list first (highest priority)
-        :param msg: error message (more detailed) to overwrite standard error message (string).
-        :return: pilot_error_codes, pilot_error_diags
+        :param priority: if set to True, the new errorcode will be added to the error code list first (highest priority) (bool)
+        :param msg: error message (more detailed) to overwrite standard error message (str).
+        :return: pilot_error_codes (list), pilot_error_diags (list).
         """
-
         # do nothing if the error code has already been added
         pilot_error_codes = ErrorCodes.pilot_error_codes
         pilot_error_diags = ErrorCodes.pilot_error_diags
@@ -380,15 +379,15 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode):
+    def remove_error_code(self, errorcode: int) -> (list, list):
         """
         Silently remove an error code and its diagnostics from the internal error lists.
+
         There is no warning or exception thrown in case the error code is not present in the lists.
 
-        :param errorcode: error code (int).
-        :return: pilot_error_codes, pilot_error_diags
+        :param errorcode: error code (int)
+        :return: pilot_error_codes (list), pilot_error_diags (list).
         """
-
         pilot_error_codes = ErrorCodes.pilot_error_codes
         pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode in pilot_error_codes:
@@ -403,17 +402,15 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def report_errors(self):
+    def report_errors(self) -> str:
         """
         Report all errors that occurred during running.
+
         The function should be called towards the end of running a job.
 
-        :param pilot_error_codes: list of pilot error codes (list of integers)
-        :param pilot_error_diags: list of pilot error diags (list of strings)
-        :return: error_report (string)
+        :return: error_report (str).
         """
-
-        i = 0
+        counter = 0
         pilot_error_codes = ErrorCodes.pilot_error_codes
         pilot_error_diags = ErrorCodes.pilot_error_diags
         if pilot_error_codes == []:
@@ -421,19 +418,19 @@ class ErrorCodes:
         else:
             report = "Nr.\tError code\tError diagnostics"
             for errorcode in pilot_error_codes:
-                i += 1
-                report += "\n%d.\t%d\t%s" % (i, errorcode, pilot_error_diags[i - 1])
+                counter += 1
+                report += f"\n{counter}.\t{errorcode}\t{pilot_error_diags[counter - 1]}"
 
         return report
 
-    def resolve_transform_error(self, exit_code, stderr):
+    def resolve_transform_error(self, exit_code: int, stderr: str) -> int:
         """
         Assign a pilot error code to a specific transform error.
-        :param exit_code: transform exit code.
-        :param stderr: transform stderr
-        :return: pilot error code (int)
-        """
 
+        :param exit_code: transform exit code (int)
+        :param stderr: transform stderr (str)
+        :return: pilot error code (int).
+        """
         if exit_code and "Not mounting requested bind point" in stderr:
             exit_code = self.SINGULARITYBINDPOINTFAILURE
         elif exit_code == 251:
@@ -463,13 +460,13 @@ class ErrorCodes:
 
         return exit_code
 
-    def extract_stderr_error(self, stderr):
+    def extract_stderr_error(self, stderr: str) -> str:
         """
         Extract the ERROR message from the payload stderr.
-        :param stderr: string.
-        :return: string.
-        """
 
+        :param stderr: stderr (str).
+        :return: error message (str).
+        """
         # first look for special messages (ie cases not containing ERROR, Error or error labels)
         if "command not found" in stderr:
             msg = stderr
@@ -477,23 +474,23 @@ class ErrorCodes:
             msg = self.get_message_for_pattern([r"ERROR\s*:\s*(.*)", r"Error\s*:\s*(.*)", r"error\s*:\s*(.*)"], stderr)
         return msg
 
-    def extract_stderr_warning(self, stderr):
+    def extract_stderr_warning(self, stderr: str) -> str:
         """
         Extract the WARNING message from the payload stderr.
-        :param stderr: string.
-        :return: string.
-        """
 
+        :param stderr: stderr (str)
+        :return: warning message (str).
+        """
         return self.get_message_for_pattern([r"WARNING\s*:\s*(.*)", r"Warning\s*:\s*(.*)", r"warning\s*:\s*(.*)"], stderr)
 
-    def get_message_for_pattern(self, patterns, stderr):
+    def get_message_for_pattern(self, patterns: list, stderr: str) -> str:
         """
+        Extract message from stderr for given patterns.
 
-        :param patterns: list of patterns.
-        :param stderr: string.
-        :return: string.
+        :param patterns: list of patterns (list)
+        :param stderr: stderr (str)
+        :return: message (str).
         """
-
         msg = ""
         for pattern in patterns:
             found = re.findall(pattern, stderr)
@@ -503,16 +500,16 @@ class ErrorCodes:
 
         return msg
 
-    def format_diagnostics(self, code, diag):
+    def format_diagnostics(self, code: int, diag: str) -> str:
         """
         Format the error diagnostics by adding the standard error message and the tail of the longer piloterrordiag.
+
         If there is any kind of failure handling the diagnostics string, the standard error description will be returned.
 
-        :param code: standard error code (int).
-        :param diag: dynamic error diagnostics (string).
-        :return: formatted error diagnostics (string).
+        :param code: standard error code (int)
+        :param diag: dynamic error diagnostics (str)
+        :return: formatted error diagnostics (str).
         """
-
         max_message_length = 256
         try:
             standard_message = self._error_messages[code] + ":"
@@ -557,12 +554,11 @@ class ErrorCodes:
         return error_message
 
     @classmethod
-    def is_recoverable(self, code=0):
+    def is_recoverable(self, code: int = 0) -> bool:
         """
         Determine whether code is a recoverable error code or not.
 
-        :param code: Pilot error code (int).
-        :return: boolean.
+        :param code: Pilot error code (int)
+        :return: is recoverable error (bool).
         """
-
         return code in self.recoverable_error_codes

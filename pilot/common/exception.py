@@ -20,9 +20,7 @@
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 
-"""
-Exceptions in pilot
-"""
+"""Exceptions set by the pilot."""
 
 import time
 import threading
