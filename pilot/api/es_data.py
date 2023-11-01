@@ -64,7 +64,7 @@ class StageInESClient(StageInClient):
                     fspec.scope = 'transient'
                 if storage_id:
                     fspec.ddmendpoint = self.infosys.get_ddmendpoint(storage_id)
-                logger.info("Processed file with storage id: %s", fspec)
+                logger.info(f"Processed file with storage id: {fspec}")
         return None
 
 
