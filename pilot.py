@@ -21,6 +21,8 @@
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+"""This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
+
 from __future__ import print_function  # Python 2 (2to3 complains about this)
 from __future__ import absolute_import
 
@@ -75,12 +77,10 @@ errors = ErrorCodes()
 
 def main() -> int:
     """
-    Main function of PanDA Pilot 2.
     Prepare for and execute the requested workflow.
 
     :return: exit code (int).
     """
-
     # get the logger
     logger = logging.getLogger(__name__)
 
@@ -154,12 +154,11 @@ def main() -> int:
 
 def str2bool(var: str) -> bool:
     """
-    Helper function to convert string to bool.
+    Convert string to bool.
 
     :param var: string to be converted to bool (str)
     :return: converted string (bool).
     """
-
     if isinstance(var, bool):  # does this ever happen?
         return var
 
@@ -179,7 +178,6 @@ def get_args() -> Any:
 
     :return: args (arg parser object - type <class 'argparse.Namespace'>).
     """
-
     arg_parser = argparse.ArgumentParser()
 
     # pilot log creation
@@ -468,12 +466,12 @@ def get_args() -> Any:
 def create_main_work_dir() -> (int, str):
     """
     Create and return the pilot's main work directory.
+
     The function also sets args.mainworkdir and cd's into this directory.
     Note: args, used in this function, is defined in outer scope.
 
     :return: exit code (int), main work directory (string).
     """
-
     exitcode = 0
 
     if args.workdir != "":
@@ -494,13 +492,13 @@ def create_main_work_dir() -> (int, str):
     return exitcode, _mainworkdir
 
 
-def set_environment_variables() -> None:
+def set_environment_variables():
     """
-    Set environment variables. To be replaced with singleton implementation.
+    Set relevant environment variables.
+
     This function sets PILOT_WORK_DIR, PILOT_HOME, PILOT_SITENAME, PILOT_USER and PILOT_VERSION and others.
     Note: args and mainworkdir, used in this function, are defined in outer scope.
     """
-
     # working directory as set with a pilot option (e.g. ..)
     environ['PILOT_WORK_DIR'] = args.workdir  # TODO: replace with singleton
 
@@ -552,13 +550,11 @@ def set_environment_variables() -> None:
 def wrap_up() -> int:
     """
     Perform cleanup and terminate logging.
+
     Note: args and mainworkdir, used in this function, are defined in outer scope.
 
     :return: exit code (int).
     """
-
-    exitcode = 0
-
     # cleanup pilot workdir if created
     if args.sourcedir != mainworkdir and args.cleanup:
         chdir(args.sourcedir)
@@ -614,7 +610,6 @@ def get_pilot_source_dir() -> str:
 
     :return: full path to pilot source directory (string).
     """
-
     cwd = getcwd()
     if exists(join(join(cwd, 'pilot3'), 'pilot.py')):  # in case wrapper has untarred src as pilot3 in init dir
         cwd = join(cwd, 'pilot3')
@@ -624,6 +619,7 @@ def get_pilot_source_dir() -> str:
 def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any, internet_protocol_version: str) -> None:
     """
     Send worker info to the server to let it know that the worker has started.
+
     Note: the function can fail, but if it does, it will be ignored.
 
     :param status: 'started' or 'finished' (string).
@@ -633,7 +629,6 @@ def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any
     :param logger: logging object.
     :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (string).
     """
-
     # worker node structure to be sent to the server
     data = {}
     data['workerID'] = os.environ.get('HARVESTER_WORKER_ID', None)
@@ -648,11 +643,8 @@ def send_worker_status(status: str, queue: str, url: str, port: str, logger: Any
         logger.warning('workerID/harvesterID not known, will not send worker status to server')
 
 
-def set_lifetime() -> None:
-    """
-    Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds).
-    """
-
+def set_lifetime():
+    """Update the pilot lifetime if set by an environment variable (PANDAPILOT_LIFETIME) (in seconds)."""
     lifetime = os.environ.get('PANDAPILOT_LIFETIME', None)
     if lifetime:
         try:
@@ -663,12 +655,12 @@ def set_lifetime() -> None:
             args.lifetime = _lifetime
 
 
-def set_redirectall() -> None:
+def set_redirectall():
     """
     Set args redirectall field.
+
     Currently not used.
     """
-
     redirectall = os.environ.get('PANDAPILOT_REDIRECTALL', False)
     if not redirectall:
         try:
@@ -679,13 +671,12 @@ def set_redirectall() -> None:
             args.redirectall = redirectall
 
 
-def list_zombies() -> None:
+def list_zombies():
     """
     Make sure there are no remaining defunct processes still lingering.
 
     Note: can be used to find zombies, but zombies can't be killed..
     """
-
     found = find_defunct_subprocesses(os.getpid())
     if found:
         logging.info(f'found these defunct processes: {found}')
@@ -694,8 +685,6 @@ def list_zombies() -> None:
 
 
 if __name__ == '__main__':
-    # Main function of pilot module.
-
     # get the args from the arg parser
     args = get_args()
     args.last_heartbeat = time.time()

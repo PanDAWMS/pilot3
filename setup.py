@@ -20,6 +20,8 @@
 # - Fernando Barreiro Megino, fernando.harald.barreiro.megino@cern.ch, 2019
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""Setup module for pip installation."""
+
 import sys
 
 from setuptools import setup, find_packages
