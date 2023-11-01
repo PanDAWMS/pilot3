@@ -25,7 +25,6 @@ import logging
 import os
 import re
 from typing import Any
-from pathlib import Path
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.filehandling import (
@@ -240,29 +239,3 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
 
     # reg exp the output to get real error message
     return output_line_scan(ret, output)
-
-
-def rename_xrdlog(lfn):
-    """
-    In case an xroot client logfile was created, rename it.
-
-    :param lfn: local file name (str).
-    """
-
-    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
-    if xrd_logfile:
-        # xrootd is then expected to have produced a corresponding log file
-        pilot_home = os.environ.get('PILOT_HOME', None)
-        if pilot_home:
-            path = os.path.join(pilot_home, xrd_logfile)
-            suffix = Path(xrd_logfile).suffix  # .txt
-            stem = Path(xrd_logfile).stem  # xrdlog
-            if os.path.exists(path):
-                try:
-                    os.rename(path, f'{stem}-{lfn}{suffix}')
-                except Exception as exc:
-                    logger.warning(f'exception caught while renaming file: {exc}')
-            else:
-                logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
-        else:
-            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')

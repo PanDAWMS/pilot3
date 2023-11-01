@@ -72,7 +72,8 @@ from pilot.util.filehandling import (
     write_file,
     copy,
     get_directory_size,
-    find_files_with_pattern
+    find_files_with_pattern,
+    rename_xrdlog
 )
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import (
@@ -896,22 +897,25 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         logger.warning(f'caught exception when copying tarball: {exc}')
 
 
-def copy_special_files(tardir):
+def copy_special_files(tardir: str):
     """
     Copy any special files into the directory to be tarred up.
 
     :param tardir: path to tar directory (str).
     """
-
     # general pattern, typically xrdlog.txt. The pilot might produce multiple files, xrdlog.txt-LFN1..N
     xrd_logfile = os.environ.get('XRD_LOGFILE', None)
     if xrd_logfile:
         # xrootd is then expected to have produced a corresponding log file
         pilot_home = os.environ.get('PILOT_HOME', None)
         if pilot_home:
-            # find all log files
-            # suffix = Path(xrd_logfile).suffix  # .txt
+            #suffix = Path(xrd_logfile).suffix  # .txt
             stem = Path(xrd_logfile).stem  # xrdlog
+
+            # in case the payload also produced an xrdlog.txt file, rename it
+            rename_xrdlog('payload')
+
+            # find all log files
             matching_files = find_files_with_pattern(pilot_home, f'{stem}*')
             for logfile in matching_files:
                 path = os.path.join(pilot_home, logfile)

@@ -1360,3 +1360,29 @@ def find_files_with_pattern(directory, pattern):
     except (FileNotFoundError, PermissionError) as exc:
         logger.warning(f"exception caught while finding files: {exc}")
         return []
+
+
+def rename_xrdlog(name: str):
+    """
+    Rename xroot client logfile if it was created.
+
+    :param name: local file name (str).
+    """
+
+    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    if xrd_logfile:
+        # xrootd is then expected to have produced a corresponding log file
+        pilot_home = os.environ.get('PILOT_HOME', None)
+        if pilot_home:
+            path = os.path.join(pilot_home, xrd_logfile)
+            suffix = Path(xrd_logfile).suffix  # .txt
+            stem = Path(xrd_logfile).stem  # xrdlog
+            if os.path.exists(path):
+                try:
+                    os.rename(path, f'{stem}-{name}{suffix}')
+                except (NoSuchFile, IOError) as exc:
+                    logger.warning(f'exception caught while renaming file: {exc}')
+            else:
+                logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
+        else:
+            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')

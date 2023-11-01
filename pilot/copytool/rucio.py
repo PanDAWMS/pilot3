@@ -43,10 +43,10 @@ from pilot.util.timer import (
 from .common import (
     resolve_common_transfer_errors,
     verify_catalog_checksum,
-    get_timeout,
-    rename_xrdlog
+    get_timeout
 )
 from pilot.util.config import config
+from pilot.util.filehandling import rename_xrdlog
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
