@@ -2160,7 +2160,7 @@ def remove_special_files(workdir, dir_list, outputfiles):
     """
 
     # note: these should be partial file/dir names, not containing any wildcards
-    exceptions_list = ["runargs", "runwrapper", "jobReport", "log."]
+    exceptions_list = ["runargs", "runwrapper", "jobReport", "log.", "xrdlog"]
 
     to_delete = []
     for _dir in dir_list:
