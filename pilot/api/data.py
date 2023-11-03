@@ -391,7 +391,11 @@ class StagingClient(object):
             fdat.replicas.append(rinfo)
 
         if not fdat.replicas:
-            self.logger.warning('no replicas were selected (verify replica type, allow_lan/wan and domain values)')
+            name = replica.get('name', '[unknown lfn]')
+            self.logger.warning(
+                f'{name}: no replicas were selected (verify replica type, read_lan/wan, allow_lan/wan and domain values)'
+            )
+            self.logger.warning('e.g. check that read_lan is set for the relevant RSE in CRIC')
 
         return fdat
 
