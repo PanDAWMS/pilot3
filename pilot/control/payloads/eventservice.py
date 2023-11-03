@@ -20,6 +20,7 @@
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
 
+"""Executor module for event service payloads."""
 
 import os
 import time
@@ -33,12 +34,23 @@ logger = logging.getLogger(__name__)
 
 
 class Executor(generic.Executor):
+    """Executor class for event service payloads."""
+
     def __init__(self, args, job, out, err, traces):
-        super(Executor, self).__init__(args, job, out, err, traces)
+        """
+        Set initial values.
+
+        :param args: args object
+        :param job:
+        :param out:
+        :param err:
+        :param traces:
+        """
+        super().__init__(args, job, out, err, traces)
 
     def run_payload(self, job, cmd, out, err):
         """
-        (add description)
+        Run the payload for the given job.
 
         :param job: job object.
         :param cmd: (unused in ES mode)
@@ -46,7 +58,6 @@ class Executor(generic.Executor):
         :param err: stderr file object.
         :return:
         """
-
         self.pre_setup(job)
 
         # get the payload command from the user specific code

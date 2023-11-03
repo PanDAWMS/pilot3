@@ -20,6 +20,8 @@
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
 
+"""Executor module for event service merge payloads."""
+
 import os
 
 from pilot.control.payloads import generic
@@ -30,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 class Executor(generic.Executor):
+    """Executor class for event service merge payloads."""
+
     def __init__(self, args, job, out, err, traces):
         super(Executor, self).__init__(args, job, out, err, traces)
 

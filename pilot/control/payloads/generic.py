@@ -23,6 +23,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
+"""Executor module for generic payloads."""
+
 import time
 import os
 import signal
@@ -48,6 +50,8 @@ errors = ErrorCodes()
 
 
 class Executor(object):
+    """Executor class for generic payloads."""
+
     def __init__(self, args, job, out, err, traces):
         self.__args = args
         self.__job = job
