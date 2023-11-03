@@ -19,16 +19,12 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
-import logging
+"""Droid dummy module."""
 
-logger = logging.getLogger(__name__)
+# import logging
+# logger = logging.getLogger(__name__)
 
 
-def run():
-    """
-    Dummy run function.
-
-    :return:
-    """
-
-    pass
+def run() -> None:
+    """Run functions."""
+    return
