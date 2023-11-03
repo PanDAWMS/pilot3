@@ -163,12 +163,12 @@ def get_payload_executor(args, job, out, err, traces):
     """
     Get payload executor function for different payload.
 
-    :param args: args object.
-    :param job: job object.
-    :param out:
-    :param err:
-    :param traces: traces object.
-    :return: instance of a payload executor
+    :param args: args object
+    :param job: job object
+    :param out: stdout file object
+    :param err: stderr file object
+    :param traces: traces object
+    :return: instance of a payload executor.
     """
     if job.is_eventservice:  # True for native HPO workflow as well
         payload_executor = eventservice.Executor(args, job, out, err, traces)
