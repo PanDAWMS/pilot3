@@ -39,11 +39,11 @@ class Executor(generic.Executor):
         """
         Set initial values.
 
-        :param args: args object
-        :param job: job object
-        :param out: stdout file object
-        :param err: stderr file object
-        :param traces: traces object.
+        :param args: args object (Any)
+        :param job: job object (Any)
+        :param out: stdout file object (TextIO)
+        :param err: stderr file object (TextIO)
+        :param traces: traces object (Any).
         """
         super().__init__(args, job, out, err, traces)
 
