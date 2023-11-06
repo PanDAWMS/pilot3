@@ -1,14 +1,26 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
 import os
@@ -27,7 +39,7 @@ from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extr
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread
+from pilot.common.exception import ExcThread, PilotException
 from pilot.util.realtimelogger import get_realtime_logger
 
 import logging
@@ -151,12 +163,12 @@ def get_payload_executor(args, job, out, err, traces):
     """
     Get payload executor function for different payload.
 
-    :param args: args object.
-    :param job: job object.
-    :param out:
-    :param err:
-    :param traces: traces object.
-    :return: instance of a payload executor
+    :param args: args object
+    :param job: job object
+    :param out: stdout file object
+    :param err: stderr file object
+    :param traces: traces object
+    :return: instance of a payload executor.
     """
     if job.is_eventservice:  # True for native HPO workflow as well
         payload_executor = eventservice.Executor(args, job, out, err, traces)
@@ -262,9 +274,14 @@ def execute_payloads(queues, traces, args):  # noqa: C901
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
                 logger.warning(f'exception caught: {error}')
-                if 'error code:' in error and 'message:' in error:
-                    error_code, diagnostics = extract_error_info(error)
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                if isinstance(error, PilotException):
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error._errorCode, msg=error._message)
+                elif isinstance(error, str):
+                    if 'error code:' in error and 'message:' in error:
+                        error_code, diagnostics = extract_error_info(error)
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code, msg=diagnostics)
+                    else:
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
                 else:
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
 

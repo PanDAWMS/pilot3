@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
@@ -14,7 +26,7 @@ from pilot.util.container import execute  #, execute_command
 from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import kill_process, find_zombies, handle_zombies, reap_zombies
-from pilot.util.psutils import get_child_processes
+from pilot.util.psutils import get_child_processes, get_subprocesses
 from pilot.util.timing import time_stamp
 
 import os
@@ -91,11 +103,19 @@ def create_core_dump(job):
         logger.warning('cannot create core file since pid or workdir is unknown')
         return
 
-    cmd = f'gdb --pid {job.pid} -ex \'generate-core-file\' -ex quit'
+    # get the pid of the youngest child belonging to the payload
+    pids = get_subprocesses(job.pid, debug=True)
+    if not pids:
+        pid = job.pid
+        logger.info(f'the payload process ({pid}) has no children')
+    else:
+        logger.info(f'the payload process ({job.pid}) has the following children: {pids}')
+        pid = pids[-1]
+    cmd = f'gdb --pid {pid} -ex \'generate-core-file\' -ex quit'
     exit_code, stdout, stderr = execute(cmd)
     #exit_code = execute_command(cmd)
     if exit_code == 0:
-        path = locate_core_file(pid=job.pid)
+        path = locate_core_file(pid=pid)
         if path:
             try:
                 copy(path, job.workdir)

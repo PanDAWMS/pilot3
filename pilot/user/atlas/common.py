@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 from collections import defaultdict
@@ -24,7 +36,10 @@ try:
 except ImportError:
     pass
 
-from .container import create_root_container_command  #, create_middleware_container_command
+from .container import (
+    create_root_container_command,
+    verify_container_script
+)  #, create_middleware_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -65,12 +80,19 @@ from pilot.util.constants import (
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
-    copy, copy_pilot_source, calculate_checksum,
-    get_guid, get_local_file_size,
-    remove, remove_dir_tree, remove_core_dumps, read_file, read_json,
+    copy,
+    copy_pilot_source,
+    calculate_checksum,
+    get_disk_usage,
+    get_guid,
+    get_local_file_size,
+    remove,
+    remove_dir_tree,
+    remove_core_dumps,
+    read_file,
+    read_json,
     update_extension,
     write_file,
-    get_disk_usage
 )
 from pilot.util.processes import (
     convert_ps_to_dict,
@@ -1992,11 +2014,13 @@ def get_redundants():
         '(will use internal list)'), filename)
 
     # else return the following
-    dir_list = ["AtlasProduction*",
+    dir_list = [".asetup.save",
+                "AtlasProduction*",
                 "AtlasPoint1",
                 "AtlasTier0",
                 "buildJob*",
                 "CDRelease*",
+                "ckpt*",
                 "csc*.log",
                 "DBRelease*",
                 "EvgenJobOptions",
@@ -2006,14 +2030,21 @@ def get_redundants():
                 "geomDB",
                 "geomDB_sqlite",
                 "home",
+                "LICENSE",
+                "madevent",
                 "o..pacman..o",
                 "pacman-*",
                 "python*",
+                "requirements.txt",
                 "runAthena*",
+                "runGen-*",
+                "scratch",
+                "setup.cfg",
                 "share",
                 "sources.*",
                 "sqlite*",
                 "sw",
+                "stage*.sh",
                 "tcf_*",
                 "triggerDB",
                 "trusted.caches",
@@ -2023,23 +2054,16 @@ def get_redundants():
                 "*.py",
                 "*.pyc",
                 "*.root*",
-                "JEM",
                 "tmp*",
                 "*.tmp",
                 "*.TMP",
-                "MC11JobOptions",
-                "scratch",
                 "*.writing",
                 "pwg*",
                 "pwhg*",
                 "*PROC*",
-                "madevent",
                 "*proxy",
-                "ckpt*",
                 "*runcontainer*",
                 "*job.log.tgz",
-                "runGen-*",
-                "runAthena-*",
                 "pandawnutil/*",
                 "src/*",
                 "singularity_cachedir",
@@ -2059,7 +2083,8 @@ def get_redundants():
                 "*.part*",
                 "docs/",
                 "/venv/",
-                "/pilot3"]
+                "/pilot3",
+                "%1"]
 
     return dir_list
 
@@ -2135,7 +2160,7 @@ def remove_special_files(workdir, dir_list, outputfiles):
     """
 
     # note: these should be partial file/dir names, not containing any wildcards
-    exceptions_list = ["runargs", "runwrapper", "jobReport", "log."]
+    exceptions_list = ["runargs", "runwrapper", "jobReport", "log.", "xrdlog"]
 
     to_delete = []
     for _dir in dir_list:
@@ -2202,6 +2227,9 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
 
     # remove special files
     remove_special_files(workdir, dir_list, outputfiles)
+
+    # remove container_script.sh if it contains token info
+    verify_container_script(os.path.join(workdir, config.Container.container_script))
 
     # run a second pass to clean up any broken links
     logger.debug('cleaning up broken links')

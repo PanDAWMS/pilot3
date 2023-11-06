@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 import json
 import os
@@ -690,15 +702,11 @@ def overwrite_metadata(metadata, path):
         logger.info(f'backed up original metadata file: {path}')
 
     # store the updated metadata
-    try:
-        status = write_json(path, metadata)
-    except (IOError, FileHandlingFailure) as exc:
-        logger.warning(f'caught exception while writing metadata json: {exc}')
+    status = write_json(path, metadata)
+    if status:
+        logger.info(f'overwrote {path} with updated metadata')
     else:
-        if status:
-            logger.info(f'overwrote {path} with updated metadata')
-        else:
-            logger.warning(f'failed to overwrite {path} with updated metadata (ignore)')
+        logger.warning(f'failed to overwrite {path} with updated metadata (ignore)')
 
 
 def get_frontier_details(job_report_dictionary):

@@ -21,4 +21,3 @@ copytool components
     mv
     rucio
     xrdcp
-

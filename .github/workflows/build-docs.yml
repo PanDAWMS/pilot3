@@ -32,4 +32,3 @@ jobs:
                 READDOCS_TOKEN: ${{ secrets.READDOCS_TOKEN }}
                 READDOCS_HOOK: ${{ secrets.READDOCS_HOOK }}
               run: curl -X POST -d "token=$READDOCS_TOKEN" $READDOCS_HOOK
-
