@@ -1,17 +1,31 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
-# - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
 
+import json
 import os
 import pipes
 import re
 import logging
+from typing import Any
 
 # for user container test: import urllib
 
@@ -21,7 +35,11 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import (
+    grep,
+    remove,
+    write_file
+)
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -360,7 +378,7 @@ def get_container_options(container_options):
     return opts
 
 
-def alrb_wrapper(cmd, workdir, job=None):
+def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
     """
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
@@ -424,7 +442,7 @@ def alrb_wrapper(cmd, workdir, job=None):
         # add the jobid to be used as an identifier for the payload running inside the container
         # it is used to identify the pid for the process to be tracked by the memory monitor
         if 'export PandaID' not in alrb_setup:
-            alrb_setup += "export PandaID=%s;" % job.jobid
+            alrb_setup += f"export PandaID={job.jobid};"
 
         # add TMPDIR
         cmd = "export TMPDIR=/srv;export GFORTRAN_TMPDIR=/srv;" + cmd
@@ -434,20 +452,32 @@ def alrb_wrapper(cmd, workdir, job=None):
         release_setup, cmd = create_release_setup(cmd, atlas_setup, full_atlas_setup, job.swrelease,
                                                   job.workdir, queuedata.is_cvmfs)
 
+        # prepend the docker login if necessary
+        # does the pandasecrets dictionary contain any docker login info?
+        pandasecrets = str(job.pandasecrets)
+        if pandasecrets and "token" in pandasecrets and \
+                has_docker_pattern(pandasecrets, pattern=r'docker://[^/]+/'):
+            # if so, add it do the container script
+            logger.info('adding sensitive docker login info')
+            cmd = add_docker_login(cmd, job.pandasecrets)
+
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
             cmd = replace_last_command(cmd, job.containeroptions.get('containerExec'))
-            logger.debug('updated cmd with containerExec: %s', cmd)
 
         # write the full payload command to a script file
         container_script = config.Container.container_script
-        logger.debug('command to be written to container script file:\n\n%s:\n\n%s\n', container_script, cmd)
+        _cmd = obscure_token(cmd)  # obscure any token if present
+        if _cmd:
+            logger.info(f'command to be written to container script file:\n\n{container_script}:\n\n{_cmd}\n')
+        else:
+            logger.warning('will not show container script file since the user token could not be obscured')
         try:
             write_file(os.path.join(job.workdir, container_script), cmd, mute=False)
             os.chmod(os.path.join(job.workdir, container_script), 0o755)  # Python 2/3
         # except (FileHandlingFailure, FileNotFoundError) as exc:  # Python 3
         except (FileHandlingFailure, OSError) as exc:  # Python 2/3
-            logger.warning('exception caught: %s', exc)
+            logger.warning(f'exception caught: {exc}')
             return ""
 
         # also store the command string in the job object
@@ -460,9 +490,80 @@ def alrb_wrapper(cmd, workdir, job=None):
         execargs = job.containeroptions.get('execArgs', None)
         if execargs:
             cmd += ' ' + execargs
-        logger.debug('\n\nfinal command:\n\n%s\n', cmd)
+        logger.debug(f'\n\nfinal command:\n\n{cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
+
+    return cmd
+
+
+def obscure_token(cmd: str) -> str:
+    """
+    Obscure any user token from the payload command.
+
+    :param cmd: payload command (str)
+    :return: updated command (str).
+    """
+
+    try:
+        match = re.search(r'-p (\S+);', cmd)
+        if match:
+            cmd = cmd.replace(match.group(1), '********')
+    except (re.error, AttributeError, IndexError):
+        logger.warning('an exception was thrown while trying to obscure the user token')
+        cmd = ''
+
+    return cmd
+
+
+def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
+    """
+    Add docker login to user command.
+
+    The pandasecrets dictionary was found to contain login information (username + token). This function
+    will add it to the payload command that will be run in the user container.
+
+    :param cmd: payload command (str)
+    :param pandasecrets: panda secrets (dict)
+    :return: updated payload command (str).
+    """
+
+    pattern = r'docker://[^/]+/'
+    tmp = json.loads(pandasecrets)
+    docker_tokens = tmp.get('DOCKER_TOKENS', None)
+    if docker_tokens:
+        try:
+            docker_token = json.loads(docker_tokens)
+            if docker_token:
+                token_dict = docker_token[0]
+                username = token_dict.get('username', None)
+                token = token_dict.get('token', None)
+                registry_path = token_dict.get('registry_path', None)
+                if username and token and registry_path:
+                    # extract the registry (e.g. docker://gitlab-registry.cern.ch/) from the path
+                    try:
+                        match = re.search(pattern, registry_path)
+                        if match:
+                            cmd = f'docker login {match.group(0)} -u {username} -p {token}; ' + cmd
+                        else:
+                            logger.warning(f'failed to extract registry from {registry_path}')
+                    except re.error as regex_error:
+                        err = str(regex_error)
+                        entry = err.find('token')
+                        err = err[:entry]  # cut away any token
+                        logger.warning(f'error in regular expression: {err}')
+                else:
+                    logger.warning(
+                        'either username, token, or registry_path was not set in DOCKER_TOKENS dictionary')
+            else:
+                logger.warning('failed to convert DOCKER_TOKENS str to dict')
+        except json.JSONDecodeError as json_error:
+            err = str(json_error)
+            entry = err.find('token')
+            err = err[:entry]  # cut away any token
+            logger.warning(f'error decoding JSON data: {err}')
+    else:
+        logger.warning('failed to read DOCKER_TOKENS key from panda secrets')
 
     return cmd
 
@@ -887,3 +988,73 @@ def get_middleware_container(label=None):
     logger.info('using image: %s for middleware container', path)
 
     return path
+
+
+def has_docker_pattern(line, pattern=None):
+    """
+    Does the given line contain a docker pattern?
+
+    :param line: panda secret (string)
+    :param pattern: regular expression pattern (raw string)
+    :return: True or False (bool).
+    """
+
+    found = False
+
+    if line:
+        # if no given pattern, look for a general docker registry URL
+        url_pattern = get_url_pattern() if not pattern else pattern
+        match = re.search(url_pattern, line)
+        if match:
+            logger.warning('the given line contains a docker token')
+            found = True
+
+    return found
+
+
+def get_docker_pattern() -> str:
+    """
+    Return the docker login URL pattern for secret verification.
+
+    Example: docker login <registry URL> -u <username> -p <token>
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
+    )
+
+
+def get_url_pattern() -> str:
+    """
+    Return the URL pattern for secret verification.
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        r"docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+        r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)"
+    )
+
+
+def verify_container_script(path):
+    """
+    If the container_script.sh contains sensitive token info, remove it before creating the log.
+
+    :param path: path to container script (string).
+    """
+
+    if os.path.exists(path):
+        url_pattern = r'docker\ login'  # docker login <registry> -u <username> -p <token>
+        lines = grep([url_pattern], path)
+        if lines:
+            has_token = has_docker_pattern(lines[0], pattern=url_pattern)
+            if has_token:
+                logger.warning(f'found sensitive token information in {path} - removing file')
+                remove(path)
+            else:
+                logger.debug(f'no sensitive information in {path}')
+        else:
+            logger.debug(f'no sensitive information in {path}')

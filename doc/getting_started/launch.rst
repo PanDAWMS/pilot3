@@ -66,12 +66,3 @@ this to `managed` while `user` is the value for user jobs. Setting it to `test` 
 ``--allow_same_user``: Multi-jobs will only come from same taskID and thus same user (boolean).
 
 ``--pilot_user``: Pilot user (string). E.g. name of experiment.
-
-
-
-
-
-
-
-
-

@@ -1,16 +1,27 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
-# from pilot.util.filehandling import read_file
-
 import logging
 import os
+from json import dumps, loads
 
 from pilot.util.filehandling import read_file
 from pilot.common.exception import FileHandlingFailure
@@ -18,14 +29,7 @@ from pilot.common.exception import FileHandlingFailure
 logger = logging.getLogger(__name__)
 
 
-class Features(object):
-
-    def __init__(self):
-        """
-        Default init.
-        """
-
-        pass
+class Features:
 
     def get_data_members(self):
         """
@@ -43,18 +47,16 @@ class Features(object):
         :return: class dictionary.
         """
 
-        from json import dumps, loads
         # convert class data members to a dictionary string (dumps), then to a dictionary (loads)
         # note that all data members will remain as strings
         return loads(dumps(self, default=lambda par: par.__dict__))
 
-    def set(self, path, label):
+    def set(self, path: str, label: str):
         """
         Set all values.
 
-        :param path: path to job or machine features directory.
-        :param label: machine or job string.
-        :return:
+        :param path: path to job or machine features directory (str)
+        :param label: machine or job string (str)
         """
 
         if path and os.path.exists(path):
@@ -73,9 +75,8 @@ class Features(object):
                 if value:
                     value = value[:-1] if value.endswith('\n') else value
                     setattr(self, member, value)
-        else:
-            if path:
-                logger.warning(f'{label} features path does not exist (path=\"{path}\")')
+        elif path:
+            logger.warning(f'{label} features path does not exist (path=\"{path}\")')
 
 
 class MachineFeatures(Features):

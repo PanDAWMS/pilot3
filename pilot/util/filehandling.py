@@ -1,12 +1,25 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+import fnmatch
 import hashlib
 import io
 import logging
@@ -16,7 +29,8 @@ import subprocess
 import tarfile
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping as MappingABC
+from collections.abc import Iterable as IterableABC
 from functools import partial, reduce
 from glob import glob
 from json import load, JSONDecodeError
@@ -24,7 +38,7 @@ from json import dump as dumpjson
 from mmap import mmap
 from pathlib import Path
 from shutil import copy2, rmtree
-from typing import Any
+from typing import Any, IO, Union, Mapping, Iterable
 from zipfile import ZipFile, ZIP_DEFLATED
 from zlib import adler32
 
@@ -35,24 +49,24 @@ from .math import diff_lists
 logger = logging.getLogger(__name__)
 
 
-def get_pilot_work_dir(workdir):
+def get_pilot_work_dir(workdir: str) -> str:
     """
     Return the full path to the main PanDA Pilot work directory. Called once at the beginning of the batch job.
 
-    :param workdir: The full path to where the main work directory should be created
+    :param workdir: The full path to where the main work directory should be created (str)
     :return: The name of main work directory
     """
 
     return os.path.join(workdir, f"PanDA_Pilot3_{os.getpid()}_{int(time.time())}")
 
 
-def mkdirs(workdir, chmod=0o770):
+def mkdirs(workdir: str, chmod: int = 0o770) -> None:
     """
     Create a directory.
     Perform a chmod if set.
 
-    :param workdir: Full path to the directory to be created
-    :param chmod: chmod code (default 0770) (octal).
+    :param workdir: Full path to the directory to be created (str)
+    :param chmod: chmod code (default 0770) (octal int)
     :raises PilotException: MKDirFailure.
     """
 
@@ -64,12 +78,12 @@ def mkdirs(workdir, chmod=0o770):
         raise MKDirFailure(exc) from exc
 
 
-def rmdirs(path):
+def rmdirs(path: str) -> bool:
     """
     Remove directory in path.
 
-    :param path: path to directory to be removed (string).
-    :return: Boolean (True if success).
+    :param path: path to directory to be removed (str)
+    :return: True if success, otherwise False (bool).
     """
 
     status = False
@@ -84,12 +98,12 @@ def rmdirs(path):
     return status
 
 
-def read_file(filename, mode='r'):
+def read_file(filename: str, mode: str = 'r') -> str:
     """
     Open, read and close a file.
-    :param filename: file name (string).
-    :param mode:
-    :return: file contents (string).
+    :param filename: file name (str)
+    :param mode: file mode (str)
+    :return: file contents (str).
     """
 
     out = ""
@@ -101,17 +115,18 @@ def read_file(filename, mode='r'):
     return out
 
 
-def write_file(path, contents, mute=True, mode='w', unique=False):
+def write_file(path: str, contents: Any, mute: bool = True, mode: str = 'w', unique: bool = False) -> bool:
     """
     Write the given contents to a file.
     If unique=True, then if the file already exists, an index will be added (e.g. 'out.txt' -> 'out-1.txt')
-    :param path: full path for file (string).
-    :param contents: file contents (object).
-    :param mute: boolean to control stdout info message.
-    :param mode: file mode (e.g. 'w', 'r', 'a', 'wb', 'rb') (string).
-    :param unique: file must be unique (Boolean).
-    :raises PilotException: FileHandlingFailure.
-    :return: True if successful, otherwise False.
+
+    :param path: full path for file (str)
+    :param contents: file contents (Any)
+    :param mute: boolean to control stdout info message (bool)
+    :param mode: file mode (e.g. 'w', 'r', 'a', 'wb', 'rb') (str)
+    :param unique: file must be unique (bool)
+    :raises PilotException: FileHandlingFailure
+    :return: True if successful, otherwise False (bool).
     """
 
     status = False
@@ -139,15 +154,15 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
     return status
 
 
-def open_file(filename, mode):
+def open_file(filename: str, mode: str) -> IO:
     """
     Open and return a file pointer for the given mode.
     Note: the caller needs to close the file.
 
-    :param filename: file name (string).
-    :param mode: file mode (character).
-    :raises PilotException: FileHandlingFailure.
-    :return: file pointer.
+    :param filename: file name (str)
+    :param mode: file mode (str)
+    :raises PilotException: FileHandlingFailure
+    :return: file pointer (IO).
     """
 
     _file = None
@@ -159,11 +174,11 @@ def open_file(filename, mode):
     return _file
 
 
-def find_text_files():
+def find_text_files() -> list:
     """
     Find all non-binary files.
 
-    :return: list of files.
+    :return: list of files (list).
     """
 
     files = []
@@ -180,12 +195,12 @@ def find_text_files():
     return files
 
 
-def get_files(pattern="*.log"):
+def get_files(pattern: str = "*.log") -> list:
     """
     Find all files whose names follow the given pattern.
 
-    :param pattern: file name pattern (string).
-    :return: list of files.
+    :param pattern: file name pattern (str)
+    :return: list of files (list).
     """
 
     files = []
@@ -201,13 +216,13 @@ def get_files(pattern="*.log"):
     return files
 
 
-def tail(filename, nlines=10):
+def tail(filename: str, nlines: int = 10) -> str:
     """
     Return the last n lines of a file.
     Note: the function uses the posix tail function.
 
-    :param filename: name of file to do the tail on (string).
-    :param nlines: number of lines (int).
+    :param filename: name of file to do the tail on (str)
+    :param nlines: number of lines (int)
     :return: file tail (str).
     """
 
@@ -218,12 +233,12 @@ def tail(filename, nlines=10):
     return stdout
 
 
-def head(filename, count=20):
+def head(filename: str, count: int = 20) -> list:
     """
     Return the first several line from the given file.
 
-    :param filename: file name (string).
-    :param count: number of lines (int).
+    :param filename: file name (str)
+    :param count: number of lines (int)
     :return: head lines (list).
     """
 
@@ -235,7 +250,7 @@ def head(filename, count=20):
     return ret
 
 
-def grep(patterns, file_name):
+def grep(patterns: list, file_name: str) -> list:
     """
     Search for the patterns in the given list in a file.
 
@@ -245,9 +260,9 @@ def grep(patterns, file_name):
         CaloTrkMuIdAlg2.sysExecute()             ERROR St9bad_alloc
         AthAlgSeq.sysExecute()                   FATAL  Standard std::exception is caught
 
-    :param patterns: list of regexp patterns.
-    :param file_name: file name (string).
-    :return: list of matched lines in file.
+    :param patterns: list of regexp patterns (list)
+    :param file_name: file name (str)
+    :return: list of matched lines in file (list).
     """
 
     matched_lines = []
@@ -272,7 +287,8 @@ def grep(patterns, file_name):
     return matched_lines
 
 
-def convert(data):
+def convert(data: Union[str, Mapping, Iterable]) -> Union[str, dict, list]:
+
     """
     Convert unicode data to utf-8.
 
@@ -298,37 +314,43 @@ def convert(data):
 
     if isinstance(data, str):
         ret = str(data)
-    elif isinstance(data, Mapping):
+    elif isinstance(data, MappingABC):
         ret = dict(list(map(convert, iter(list(data.items())))))
-    elif isinstance(data, Iterable):
+    elif isinstance(data, IterableABC):
         ret = type(data)(list(map(convert, data)))
     else:
         ret = data
     return ret
 
 
-def is_json(input_file):
+def is_json(input_file: str) -> bool:
     """
     Check if the file is in JSON format.
-    The function reads the first character of the file, and if it is "{" then returns True.
 
-    :param input_file: file name (string)
-    :return: Boolean.
+    This function reads the first few characters of the input file and checks if they match the JSON format.
+    It returns True if the file appears to be in JSON format based on the initial characters, and False otherwise.
+
+    :param input_file: The name of the file to be checked (str)
+    :return: True if the file appears to be in JSON format, False otherwise (bool).
     """
+    try:
+        with open(input_file, 'r', encoding='utf-8') as file:
+            first_chars = file.read(4)  # Read the first 4 characters
+            return first_chars.strip().startswith("{")
+    except FileNotFoundError:
+        logger.warning(f'no such file: {input_file}')
+        return False  # File not found
+    except Exception as exc:
+        logger.warning(f"exception caught: {exc}")
+        return False  # Return False in case of other exceptions
 
-    with open(input_file, encoding='utf-8') as unknown_file:
-        first_char = unknown_file.read(1)
-        if first_char == '{':
-            return True
-        return False
 
-
-def read_list(filename):
+def read_list(filename: str) -> list:
     """
-    Read a list from a JSON file.
+    Read the contents of a JSON file into a list.
 
-    :param filename: file name (string).
-    :return: list.
+    :param filename: file name (str)
+    :return: file content (list).
     """
 
     _list = []
@@ -343,13 +365,13 @@ def read_list(filename):
     return convert(_list)
 
 
-def read_json(filename):
+def read_json(filename: str) -> dict:
     """
     Read a dictionary with unicode to utf-8 conversion
 
-    :param filename:
+    :param filename: file name (str)
     :raises PilotException: FileHandlingFailure, ConversionFailure
-    :return: json dictionary
+    :return: json dictionary (dict).
     """
 
     dictionary = None
@@ -373,7 +395,9 @@ def read_json(filename):
     return dictionary
 
 
-def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': ')):
+def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, indent: int = 4,
+               separators: tuple = (',', ': ')) -> bool:
+
     """
     Write the dictionary to a JSON file.
 
@@ -392,7 +416,7 @@ def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': '))
         with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
     except IOError as exc:
-        raise FileHandlingFailure(exc) from exc
+        logger.warning(f'exception caught in write_json: {exc}')
     else:
         status = True
 
@@ -872,7 +896,7 @@ def scan_file(path, error_messages, warning_message=None):
 
     :param path: path to file (string).
     :param error_messages: list of error messages.
-    :param warning_message: optional warning message to printed with any of the error_messages have been found (string).
+    :param warning_message: optional warning message to be printed with any of the error_messages have been found (string).
     :return: Boolean. (note: True means the error was found)
     """
 
@@ -1316,3 +1340,49 @@ def append_to_file(from_file: str, to_file: str) -> bool:
         logger.warning(f"an error occurred while processing the file: {exc}")
 
     return status
+
+
+def find_files_with_pattern(directory, pattern):
+    """
+    Find files in a directory that match a specified pattern.
+
+    :param directory: The directory to search for files (str)
+    :param pattern: The pattern to match filenames (str)
+    :return: a list of matching filenames found in the directory (list).
+    """
+
+    try:
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"directory '{directory}' does not exist")
+
+        # return all matching files
+        return [f for f in os.listdir(directory) if fnmatch.fnmatch(f, pattern)]
+    except (FileNotFoundError, PermissionError) as exc:
+        logger.warning(f"exception caught while finding files: {exc}")
+        return []
+
+
+def rename_xrdlog(name: str):
+    """
+    Rename xroot client logfile if it was created.
+
+    :param name: local file name (str).
+    """
+
+    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    if xrd_logfile:
+        # xrootd is then expected to have produced a corresponding log file
+        pilot_home = os.environ.get('PILOT_HOME', None)
+        if pilot_home:
+            path = os.path.join(pilot_home, xrd_logfile)
+            suffix = Path(xrd_logfile).suffix  # .txt
+            stem = Path(xrd_logfile).stem  # xrdlog
+            if os.path.exists(path):
+                try:
+                    os.rename(path, f'{stem}-{name}{suffix}')
+                except (NoSuchFile, IOError) as exc:
+                    logger.warning(f'exception caught while renaming file: {exc}')
+            else:
+                logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
+        else:
+            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')

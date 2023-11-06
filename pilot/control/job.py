@@ -1,8 +1,20 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
@@ -354,6 +366,10 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     if res is not None:
         # update the last heartbeat time
         args.last_heartbeat = time.time()
+
+        # to test 'tobekilled' server instruction - pilot will abort after stage-in
+        #if state == 'running':
+        #    test_tobekilled = True
 
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
@@ -1138,7 +1154,7 @@ def hide_secrets(job):
         except FileHandlingFailure as exc:
             logger.warning(f'failed to store user secrets: {exc}')
         logger.info('user secrets saved to file')
-        job.pandasecrets = 'hidden'
+        #job.pandasecrets = 'hidden'
     else:
         logger.debug('no user secrets for this job')
 
@@ -2606,7 +2622,7 @@ def check_for_abort_job(args, caller=''):
     """
     abort_job = False
     if args.abort_job.is_set():
-        logger.warning('%s detected an abort_job request (signal=%s)', caller, args.signal)
+        logger.warning(f'{caller} detected an abort_job request (signal=args.signal)')
         abort_job = True
 
     return abort_job
@@ -2877,6 +2893,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         error_code = get_signal_error(args.signal)
                     elif abort_job:  # i.e. no kill signal
                         logger.info('tobekilled seen by job_monitor (error code should already be set) - abort job only')
+                        # set error code so the server can be informed
+                        error_code = errors.PANDAKILL
                     elif os.environ.get('REACHED_MAXTIME', None):
                         # the batch system max time has been reached, time to abort (in the next step)
                         logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
@@ -2888,8 +2906,8 @@ def job_monitor(queues, traces, args):  # noqa: C901
                         jobs[i].state = 'failed'
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
                         jobs[i].completed = True
-                        if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
-                            send_state(jobs[i], args, jobs[i].state)
+                        #if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
+                        send_state(jobs[i], args, jobs[i].state)
                         if jobs[i].pid:
                             logger.debug('killing payload processes')
                             kill_processes(jobs[i].pid)
@@ -2977,6 +2995,10 @@ def job_monitor(queues, traces, args):  # noqa: C901
         #        check_job_monitor_waiting_time(args, peeking_time, abort_override=abort_job)
 
         n += 1
+
+        if abort_job:
+            logger.warning('cannot recover job monitoring - aborting pilot')
+            args.graceful_stop.set()
 
         # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
         abort = should_abort(args, label='job:job_monitor')

@@ -1,8 +1,20 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
@@ -17,6 +29,7 @@ import subprocess
 import time
 import queue
 from typing import Any
+from pathlib import Path
 
 from pilot.api.data import (
     StageInClient,
@@ -58,7 +71,9 @@ from pilot.util.filehandling import (
     remove,
     write_file,
     copy,
-    get_directory_size
+    get_directory_size,
+    find_files_with_pattern,
+    rename_xrdlog
 )
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import (
@@ -820,6 +835,9 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     if pilot_home != current_dir:
         os.chdir(pilot_home)
 
+    # copy special files if they exist (could be made experiment specific if there's a need for it)
+    copy_special_files(workdir)
+
     # perform special cleanup (user specific) prior to log file creation
     if cleanup:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -877,6 +895,36 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
         copy(fullpath, orgworkdir)
     except (NoSuchFile, FileHandlingFailure) as exc:
         logger.warning(f'caught exception when copying tarball: {exc}')
+
+
+def copy_special_files(tardir: str):
+    """
+    Copy any special files into the directory to be tarred up.
+
+    :param tardir: path to tar directory (str).
+    """
+    # general pattern, typically xrdlog.txt. The pilot might produce multiple files, xrdlog.txt-LFN1..N
+    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    if xrd_logfile:
+        # xrootd is then expected to have produced a corresponding log file
+        pilot_home = os.environ.get('PILOT_HOME', None)
+        if pilot_home:
+            #suffix = Path(xrd_logfile).suffix  # .txt
+            stem = Path(xrd_logfile).stem  # xrdlog
+
+            # in case the payload also produced an xrdlog.txt file, rename it
+            rename_xrdlog('payload')
+
+            # find all log files
+            matching_files = find_files_with_pattern(pilot_home, f'{stem}*')
+            for logfile in matching_files:
+                path = os.path.join(pilot_home, logfile)
+                try:
+                    copy(path, tardir)
+                except (NoSuchFile, FileHandlingFailure) as exc:
+                    logger.warning(f'caught exception when copying {logfile}: {exc}')
+        else:
+            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
 
 
 def get_tar_timeout(dirsize: float) -> int:

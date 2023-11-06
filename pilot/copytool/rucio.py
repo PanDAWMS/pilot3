@@ -1,8 +1,20 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
@@ -31,9 +43,10 @@ from pilot.util.timer import (
 from .common import (
     resolve_common_transfer_errors,
     verify_catalog_checksum,
-    get_timeout,
+    get_timeout
 )
 from pilot.util.config import config
+from pilot.util.filehandling import rename_xrdlog
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -107,6 +120,7 @@ def copy_in(files, **kwargs):
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
@@ -389,6 +403,7 @@ def copy_out(files, **kwargs):  # noqa: C901
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return

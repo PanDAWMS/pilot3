@@ -20,5 +20,3 @@ eventservice components
     esmanager
     esmessage
     esprocess
-
-

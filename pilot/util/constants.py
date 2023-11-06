@@ -1,20 +1,32 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 from os import environ
 
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
-VERSION = '6'   # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '9'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '10'     # build number should be reset to '1' for every new development cycle
+VERSION = '7'   # version number is '1' for first release, '0' until then, increased for bigger updates
+REVISION = '0'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '36'     # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1

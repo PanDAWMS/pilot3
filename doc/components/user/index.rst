@@ -17,5 +17,3 @@ user components
 
     atlas/index
     generic/index
-
-
