@@ -424,7 +424,7 @@ def get_job_status_from_server(job_id, url, port):
     while trial <= max_trials:
         try:
             # open connection
-            ret = https.request('{pandaserver}/server/panda/getStatus'.format(pandaserver=pandaserver), data=data)
+            ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -599,7 +599,7 @@ def add_data_structure_ids(data, version_tag, job):
 
     # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
@@ -607,10 +607,10 @@ def add_data_structure_ids(data, version_tag, job):
         if not job.batchid:
             job.batchtype, job.batchid = get_batchsystem_jobid()
         if job.batchtype and job.batchid:
-            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, job.batchtype, version_tag, pilotversion)
+            data['pilotID'] = f"{pilotid}|{job.batchtype}|{version_tag}|{pilotversion}"
             data['batchID'] = job.batchid
         else:
-            data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
+            data['pilotID'] = f"{pilotid}|{version_tag}|{pilotversion}"
     else:
         logger.warning('pilotid not available')
 
@@ -740,7 +740,7 @@ def process_debug_mode(job):
     # for gdb commands, use the proper gdb version (the system one may be too old)
     if job.debug_command.startswith('gdb '):
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         user.preprocess_debug_command(job)
 
     if job.debug_command:
@@ -794,7 +794,7 @@ def get_general_command_stdout(job):
     # for gdb, we might have to process the debug command (e.g. to identify the proper pid to debug)
     if 'gdb ' in job.debug_command and '--pid %' in job.debug_command:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         job.debug_command = user.process_debug_command(job.debug_command, job.jobid)
 
     if job.debug_command:
@@ -930,7 +930,7 @@ def add_timing_and_extracts(data, job, state, args):
     extracts = ""
     if state == 'failed' or state == 'holding':
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
         extracts = user.get_log_extracts(job, state)
         if extracts != "":
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
@@ -950,7 +950,7 @@ def add_memory_info(data, workdir, name=""):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+    utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
     try:
         utility_node = utilities.get_memory_monitor_info(workdir, name=name)
         data.update(utility_node)
@@ -1062,7 +1062,7 @@ def validate(queues, traces, args):
             # Define a new parent group
             os.setpgrp()
 
-            job_dir = os.path.join(args.mainworkdir, 'PanDA_Pilot-%s' % job.jobid)
+            job_dir = os.path.join(args.mainworkdir, f'PanDA_Pilot-{job.jobid}')
             logger.debug(f'creating job working directory: {job_dir}')
             try:
                 os.mkdir(job_dir)
@@ -1095,7 +1095,7 @@ def validate(queues, traces, args):
             # hide any secrets
             hide_secrets(job)
 
-            create_symlink(from_path='../%s' % config.Pilot.pilotlog, to_path=os.path.join(job_dir, config.Pilot.pilotlog))
+            create_symlink(from_path=f'../{config.Pilot.pilotlog}', to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
             # handle proxy in unified dispatch
             if args.verify_proxy:
@@ -1107,7 +1107,7 @@ def validate(queues, traces, args):
 
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+            utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
             try:
                 utilities.precleanup()
             except Exception as error:
@@ -1171,7 +1171,7 @@ def verify_ctypes(queues, job):
     try:
         import ctypes
     except (ModuleNotFoundError, ImportError) as error:
-        diagnostics = 'ctypes python module could not be imported: %s' % error
+        diagnostics = f'ctypes python module could not be imported: {error}'
         logger.warning(diagnostics)
         #job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOCTYPES, msg=diagnostics)
         #logger.debug('Failed to validate job=%s', job.jobid)
@@ -1248,7 +1248,7 @@ def store_jobid(jobid, init_dir):
 
     try:
         mode = 'a' if os.path.exists(path) else 'w'
-        write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)
+        write_file(path, f"{str(jobid)}\n", mode=mode, mute=False)
     except Exception as error:
         logger.warning(f'exception caught while trying to store job id: {error}')
 
@@ -1456,13 +1456,13 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     currenttime = time.time()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    common = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    common = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     if not common.allow_timefloor(submitmode):
         timefloor = 0
 
     # should the proxy be verified?
     if verify_proxy:
-        userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+        userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
         # is the proxy still valid?
         exit_code, diagnostics = userproxy.verify_proxy(test=False)
@@ -1610,7 +1610,7 @@ def locate_job_definition(args):
     if args.harvester_datadir:
         paths = [os.path.join(args.harvester_datadir, config.Pilot.pandajobdata)]
     else:
-        paths = [os.path.join("%s/.." % args.sourcedir, config.Pilot.pandajobdata),
+        paths = [os.path.join(f"{args.sourcedir}/..", config.Pilot.pandajobdata),
                  os.path.join(args.sourcedir, config.Pilot.pandajobdata),
                  os.path.join(os.environ['PILOT_WORK_DIR'], config.Pilot.pandajobdata)]
 
@@ -1857,12 +1857,12 @@ def get_fake_job(input=True):
                'transferType': 'NULL',
                'destinationDblock': job_name,
                'dispatchDBlockToken': 'NULL',
-               'jobPars': '--maxEvents=1 --inputHITSFile HITS.06828093._000096.pool.root.1 --outputRDOFile RDO_%s.root' % job_name,
+               'jobPars': f'--maxEvents=1 --inputHITSFile HITS.06828093._000096.pool.root.1 --outputRDOFile RDO_{job_name}.root',
                'attemptNr': 0,
                'swRelease': 'Atlas-20.1.4',
                'nucleus': 'NULL',
                'maxCpuCount': 0,
-               'outFiles': 'RDO_%s.root,%s.job.log.tgz' % (job_name, job_name),
+               'outFiles': f'RDO_{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': 1000,
                'scopeIn': 'mc15_13TeV',
                'PandaID': '0',
@@ -1873,7 +1873,7 @@ def get_fake_job(input=True):
                'jobName': job_name,
                'ddmEndPointIn': 'UTA_SWT2_DATADISK',
                'taskID': 'NULL',
-               'logFile': '%s.job.log.tgz' % job_name}
+               'logFile': f'{job_name}.job.log.tgz'}
     elif config.Pilot.testjobtype == 'user':
         logger.info('creating fake test user job definition')
         res = {'jobsetID': 'NULL',
@@ -1918,7 +1918,7 @@ def get_fake_job(input=True):
                'swRelease': 'Atlas-20.7.6',
                'nucleus': 'NULL',
                'maxCpuCount': '0',
-               'outFiles': '%s.root,%s.job.log.tgz' % (job_name, job_name),
+               'outFiles': f'{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': '1000',
                'scopeIn': 'data15_13TeV',
                'PandaID': '0',
@@ -1929,7 +1929,7 @@ def get_fake_job(input=True):
                'jobName': job_name,
                'ddmEndPointIn': 'SWT2_CPB_SCRATCHDISK',
                'taskID': 'NULL',
-               'logFile': '%s.job.log.tgz' % job_name}
+               'logFile': f'{job_name}.job.log.tgz'}
     else:
         logger.warning(f'unknown test job type: {config.Pilot.testjobtype}')
 
@@ -2243,7 +2243,7 @@ def has_job_completed(queues, args):
         pass
     else:
         make_job_report(job)
-        cmd = 'ls -lF %s' % os.environ.get('PILOT_HOME')
+        cmd = f"ls -lF {os.environ.get('PILOT_HOME')}"
         logger.debug(f'{cmd}:\n')
         _, stdout, _ = execute(cmd)
         logger.debug(stdout)
@@ -2530,7 +2530,7 @@ def update_server(job, args):
 
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     metadata = user.get_metadata(job.workdir)
     try:
         user.update_server(job)
@@ -2681,7 +2681,7 @@ def fast_monitor_tasks(job):
     exit_code = 0
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.monitoring' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.monitoring', globals(), locals(), [pilot_user], 0)
     try:
         exit_code = user.fast_monitor_tasks(job)
     except Exception as exc:
@@ -3073,7 +3073,7 @@ def download_new_proxy(role='production', proxy_type='', workdir=''):
     logger.info(f'attempt to download a new proxy (proxy_type={proxy_type})')
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
     voms_role = user.get_voms_role(role=role)
     ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)

@@ -120,7 +120,7 @@ class StagingClient(object):
         self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), ipv=self.ipv, workdir=self.workdir)
 
         if not self.acopytools:
-            msg = 'failed to initilize StagingClient: no acopytools options found, acopytools=%s' % self.acopytools
+            msg = f'failed to initilize StagingClient: no acopytools options found, acopytools={self.acopytools}'
             logger.error(msg)
             self.trace_report.update(clientState='BAD_COPYTOOL', stateReason=msg)
             self.trace_report.send()
@@ -165,7 +165,7 @@ class StagingClient(object):
         for replica in replicas:
             pfn = replica.get('pfn')
             for schema in allowed_schemas:
-                if pfn and (not schema or pfn.startswith('%s://' % schema)):
+                if pfn and (not schema or pfn.startswith(f'{schema}://')):
                     return replica
 
     def prepare_sources(self, files, activities=None):
@@ -522,12 +522,12 @@ class StagingClient(object):
 
             try:
                 if name not in self.copytool_modules:
-                    raise PilotException('passed unknown copytool with name=%s .. skipped' % name,
+                    raise PilotException(f'passed unknown copytool with name={name} .. skipped',
                                          code=ErrorCodes.UNKNOWNCOPYTOOL)
 
                 module = self.copytool_modules[name]['module_name']
                 self.logger.info('trying to use copytool=%s for activity=%s', name, activity)
-                copytool = __import__('pilot.copytool.%s' % module, globals(), locals(), [module], 0)
+                copytool = __import__(f'pilot.copytool.{module}', globals(), locals(), [module], 0)
                 #self.trace_report.update(protocol=name)
 
             except PilotException as exc:
@@ -575,7 +575,7 @@ class StagingClient(object):
                 self.logger.warning('caught time-out exception: %s', caught_errors[0])
             else:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
-            details = str(caught_errors) + ":" + 'failed to transfer files using copytools=%s' % copytools
+            details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
             self.logger.fatal(details)
             raise PilotException(details, code=code)
 
@@ -610,7 +610,7 @@ class StagingClient(object):
 
             protocols = self.resolve_protocol(fspec, allowed_schemas)
             if not protocols and 'mv' not in self.infosys.queuedata.copytools:  # no protocols found
-                error = 'Failed to resolve protocol for file=%s, allowed_schemas=%s, fspec=%s' % (fspec.lfn, allowed_schemas, fspec)
+                error = f'Failed to resolve protocol for file={fspec.lfn}, allowed_schemas={allowed_schemas}, fspec={fspec}'
                 self.logger.error("resolve_protocol: %s", error)
                 raise PilotException(error, code=ErrorCodes.NOSTORAGEPROTOCOL)
 
@@ -644,7 +644,7 @@ class StagingClient(object):
         for fdat in files:
             ddm = ddmconf.get(fdat.ddmendpoint)
             if not ddm:
-                error = 'Failed to resolve output ddmendpoint by name=%s (from PanDA), please check configuration.' % fdat.ddmendpoint
+                error = f'Failed to resolve output ddmendpoint by name={fdat.ddmendpoint} (from PanDA), please check configuration.'
                 self.logger.error("resolve_protocols: %s, fspec=%s", error, fdat)
                 raise PilotException(error, code=ErrorCodes.NOSTORAGE)
 
@@ -677,7 +677,7 @@ class StagingClient(object):
         allowed_schemas = allowed_schemas or [None]
         for schema in allowed_schemas:
             for pdat in fspec.protocols:
-                if schema is None or pdat.get('endpoint', '').startswith("%s://" % schema):
+                if schema is None or pdat.get('endpoint', '').startswith(f"{schema}://"):
                     protocols.append(pdat)
 
         return protocols
@@ -731,7 +731,7 @@ class StageInClient(StagingClient):
             schemas = 'any' if not allowed_schemas[0] else ','.join(allowed_schemas)
             pschemas = 'any' if primary_schemas and not primary_schemas[0] else ','.join(primary_schemas or [])
 
-            error = 'Failed to find replica for file=%s, domain=%s, allowed_schemas=%s, pschemas=%s, fspec=%s' % (fspec.lfn, domain, schemas, pschemas, fspec)
+            error = f'Failed to find replica for file={fspec.lfn}, domain={domain}, allowed_schemas={schemas}, pschemas={pschemas}, fspec={fspec}'
             self.logger.info("resolve_replica: %s", error)
             return None
 
@@ -824,7 +824,7 @@ class StageInClient(StagingClient):
                     self.logger.info("[stage-in] No WAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
                                      fspec.lfn, primary_schemas, allowed_schemas)
                 if not replica:
-                    raise ReplicasNotFound('No replica found for lfn=%s (allow_lan=%s, allow_wan=%s)' % (fspec.lfn, fspec.allow_lan, fspec.allow_wan))
+                    raise ReplicasNotFound(f'No replica found for lfn={fspec.lfn} (allow_lan={fspec.allow_lan}, allow_wan={fspec.allow_wan})')
 
                 if replica.get('pfn'):
                     fspec.turl = replica['pfn']
@@ -851,7 +851,7 @@ class StageInClient(StagingClient):
             return files
 
         if not copytool.is_valid_for_copy_in(remain_files):
-            msg = 'input is not valid for transfers using copytool=%s' % copytool
+            msg = f'input is not valid for transfers using copytool={copytool}'
             self.logger.warning(msg)
             self.logger.debug('input: %s', remain_files)
             self.trace_report.update(clientState='NO_REPLICA', stateReason=msg)
@@ -1058,7 +1058,7 @@ class StageOutClient(StagingClient):
         :param lfn: repliva LFN (str)
         :param prefix: prefix (str).
         """
-        s = '%s:%s' % (scope, lfn)
+        s = f'{scope}:{lfn}'
         hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
 
         #paths = [prefix] + scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
@@ -1085,7 +1085,7 @@ class StageOutClient(StagingClient):
             # consider only deterministic sites (output destination) - unless local input/output
             ddm = ddmconf.get(fspec.ddmendpoint)
             if not ddm:
-                raise PilotException('Failed to resolve ddmendpoint by name=%s' % fspec.ddmendpoint)
+                raise PilotException(f'Failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
             # path = protocol.get('path', '').rstrip('/')
             # if not (ddm.is_deterministic or (path and path.endswith('/rucio'))):
