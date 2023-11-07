@@ -78,7 +78,6 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
         else:
             logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
             # is commented: no user proxy should be in the command the container will execute
-            # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
             x509 = x509_payload
     else:
         logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
@@ -101,19 +100,12 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
         limit = 1
 
     # add setup for arcproxy if it exists
-    #arcproxy_setup = "%s/atlas.cern.ch/repo/sw/arc/client/latest/slc6/x86_64/setup.sh" % get_file_system_root_path()
     if x509 is None:
         x509 = os.environ.get('X509_USER_PROXY', '')
     if x509 != '':
         envsetup = f'export X509_USER_PROXY={x509};'
     else:
         envsetup = ''
-
-    # envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
-    #if os.environ.get('ALRB_noGridMW', '').lower() != "yes":
-    #    envsetup += "lsetup emi;"
-    #else:
-    #    logger.warning('Skipping "lsetup emi" as ALRB_noGridMW=YES')
 
     # first try to use arcproxy since voms-proxy-info is not working properly on SL6
     #  (memory issues on queues with limited memory)
@@ -125,12 +117,6 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
         pass  # go to next test
     else:
         return 0, diagnostics
-
-    #exit_code, diagnostics = verify_vomsproxy(envsetup, limit)
-    #if exit_code != 0:
-    #    return exit_code, diagnostics
-    #else:
-    #    return 0, diagnostics
 
     return 0, diagnostics
 
@@ -255,10 +241,11 @@ def check_time_left(proxyname, validity, limit):
     # test bad proxy
     #if proxyname == 'proxy':
     #    seconds_left = 1000
-    logger.info("cache: check %s validity: wanted=%dh (%ds with grace) left=%.2fh (now=%d validity=%d left=%d)",
-                proxyname, limit, limit * 3600 - 20 * 60, float(seconds_left) / 3600, tnow, validity, seconds_left)
+    logger.info(f"cache: check {proxyname} validity: wanted={limit}h ({limit * 3600 - 20 * 60}s with grace) "
+                f"left={float(seconds_left) / 3600:.2f}h (now={tnow} validity={validity} left={seconds_left}s)")
+
     if seconds_left < limit * 3600 - 20 * 60:
-        diagnostics = 'cert/proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
+        diagnostics = f'cert/proxy is about to expire: {float(seconds_left) / 3600:.2f}h'
         logger.warning(diagnostics)
         exit_code = errors.CERTIFICATEHASEXPIRED if proxyname == 'cert' else errors.VOMSPROXYABOUTTOEXPIRE
     else:
@@ -313,11 +300,10 @@ def verify_gridproxy(envsetup, limit):
 
     if limit:
         # next clause had problems: grid-proxy-info -exists -valid 0.166666666667:00
-        #cmd = "%sgrid-proxy-info -exists -valid %s:00" % (envsetup, str(limit))
         # more accurate calculation of HH:MM
         limit_hours = int(limit * 60) / 60
         limit_minutes = int(limit * 60 + .999) - limit_hours * 60
-        cmd = "%sgrid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
+        cmd = f"{envsetup}grid-proxy-info -exists -valid {limit_hours}:{limit_minutes:02}"
     else:
         cmd = f"{envsetup}grid-proxy-info -exists -valid 24:00"
 
@@ -356,8 +342,8 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     validity_end = None  # not detected
     validity_end_cert = None  # not detected
 
-    logger.debug('stdout = %s', stdout)
-    logger.debug('stderr = %s', stderr)
+    logger.debug(f'stdout = {stdout}')
+    logger.debug(f'stderr = {stderr}')
 
     if _ec != 0:
         if "Unable to verify signature! Server certificate possibly not installed" in stdout:

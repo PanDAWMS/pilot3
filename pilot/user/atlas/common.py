@@ -30,11 +30,7 @@ from random import randint
 from signal import SIGTERM, SIGUSR1
 
 # from tarfile import ExFileObject
-
-try:
-    from functools import reduce  # Python 3
-except ImportError:
-    pass
+from functools import reduce
 
 from .container import (
     create_root_container_command,
@@ -462,9 +458,7 @@ def get_payload_command(job):
 
     resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
 
-    # Python 3, level -1 -> 0
-    modname = f'pilot.user.atlas.resource.{resource_name}'
-    resource = __import__(modname, globals(), locals(), [resource_name], 0)
+    resource = __import__(f'pilot.user.atlas.resource.{resource_name}', globals(), locals(), [resource_name], 0)
 
     # make sure that remote file can be opened before executing payload
     catchall = job.infosys.queuedata.catchall.lower() if job.infosys.queuedata.catchall else ''
@@ -565,10 +559,6 @@ def get_payload_command(job):
 
     # Explicitly add the ATHENA_PROC_NUMBER (or JOB value)
     cmd = add_athena_proc_number(cmd)
-
-    #if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
-    #    cmd = 'export PYTHONPATH=/usr/lib64/python3.6:/usr/local/lib/python3.6/site-packages/dask:$PYTHONPATH' + cmd
-
     if job.dask_scheduler_ip:
         cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
 
@@ -959,10 +949,10 @@ def get_guids_from_jobparams(jobparams, infiles, infilesguids):
     if directreadinginputfiles != []:
         _infiles = directreadinginputfiles[0].split(",")
     else:
-        match = re.search(r"-i ([A-Za-z0-9.\[\],_-]+) ", jobparams)  # Python 3 (added r)
+        match = re.search(r"-i ([A-Za-z0-9.\[\],_-]+) ", jobparams)
         if match is not None:
             compactinfiles = match.group(1)
-            match = re.search(r'(.*)\[(.+)\](.*)\[(.+)\]', compactinfiles)  # Python 3 (added r)
+            match = re.search(r'(.*)\[(.+)\](.*)\[(.+)\]', compactinfiles)
             if match is not None:
                 infiles = []
                 head = match.group(1)
@@ -1366,13 +1356,9 @@ def extract_output_file_guids(job):
             # job definition (March 18 change, v 2.5.2)
             if lfn in data:
                 data[lfn].guid = fdat['file_guid']
-                logger.info((
-                    'set guid=%s for lfn=%s '
-                    '(value taken from job report)'), data[lfn].guid, lfn)
+                logger.info(f'set guid={data[lfn].guid} for lfn={lfn} (value taken from job report)')
             else:  # found new entry
-                logger.warning((
-                    'pilot no longer considers output files not mentioned '
-                    'in job definition (lfn=%s)'), lfn)
+                logger.warning(f'pilot no longer considers output files not mentioned in job definition (lfn={lfn})')
                 continue
 
                 #if job.outdata:
@@ -1391,12 +1377,12 @@ def extract_output_file_guids(job):
     for fspec in job.outdata:
         if fspec.guid != data[fspec.lfn].guid:
             fspec.guid = data[fspec.lfn].guid
-            logger.debug('reset guid=%s for lfn=%s', fspec.guid, fspec.lfn)
+            logger.debug(f'reset guid={fspec.guid} for lfn={fspec.lfn}')
         else:
             if fspec.guid:
-                logger.debug('verified guid=%s for lfn=%s', fspec.guid, fspec.lfn)
+                logger.debug(f'verified guid={fspec.guid} for lfn={fspec.lfn}')
             else:
-                logger.warning('guid not set for lfn=%s', fspec.lfn)
+                logger.warning(f'guid not set for lfn={fspec.lfn}')
     #if extra:
         #logger.info('found extra output files in job report,
         # will overwrite output file list: extra=%s' % extra)
@@ -1434,43 +1420,32 @@ def verify_output_files(job):
     output = job.metadata.get('files', {}).get('output', None)
     if not output and output is not None:
         # ie empty list, output=[] - are all known output files in allowNoOutput?
-        logger.warning((
-            'encountered an empty output file list in job report, '
-            'consulting allowNoOutput list'))
+        logger.warning('encountered an empty output file list in job report, consulting allowNoOutput list')
         failed = False
         for lfn in lfns_jobdef:
             if lfn not in job.allownooutput:
                 if job.is_analysis():
-                    logger.warning((
-                        'lfn %s is not in allowNoOutput list - '
-                        'ignore for user job'),
-                        lfn
-                    )
+                    logger.warning(f'lfn {lfn} is not in allowNoOutput list - ignore for user job')
                 else:
                     failed = True
-                    logger.warning(
-                        'lfn %s is not in allowNoOutput list - job will fail',
-                        lfn
-                    )
+                    logger.warning(f'lfn {lfn} is not in allowNoOutput list - job will fail')
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.MISSINGOUTPUTFILE)
                     break
             else:
-                logger.info('lfn %s listed in allowNoOutput - will be removed from stage-out', lfn)
+                logger.info(f'lfn {lfn} listed in allowNoOutput - will be removed from stage-out')
                 remove_from_stageout(lfn, job)
 
     elif output is None:
         # ie job report is ancient / output could not be extracted
-        logger.warning((
-            'output file list could not be extracted from job report '
-            '(nothing to verify)'))
+        logger.warning('output file list could not be extracted from job report (nothing to verify)')
     else:
         verified, nevents = verify_extracted_output_files(output, lfns_jobdef, job)
         failed = (not verified)
         if nevents > 0 and not failed and job.nevents == 0:
             job.nevents = nevents
-            logger.info('number of events from summed up output files: %d', nevents)
+            logger.info(f'number of events from summed up output files: {nevents}')
         else:
-            logger.info('number of events previously set to %d', job.nevents)
+            logger.info(f'number of events previously set to {job.nevents}')
 
     status = (not failed)
 
@@ -1513,61 +1488,41 @@ def verify_extracted_output_files(output, lfns_jobdef, job):
     for lfn in lfns_jobdef:
         if lfn not in output_jobrep and lfn not in job.allownooutput:
             if job.is_analysis():
-                logger.warning((
-                    'output file %s from job definition is not present '
-                    'in job report and is not listed in allowNoOutput'), lfn)
+                logger.warning(f'output file {lfn} from job definition is not present in job report and '
+                               f'is not listed in allowNoOutput')
             else:
-                logger.warning((
-                    'output file %s from job definition is not present '
-                    'in job report and is not listed in allowNoOutput - '
-                    'job will fail'), lfn)
+                logger.warning(f'output file {lfn} from job definition is not present in job report and '
+                               f'is not listed in allowNoOutput - job will fail')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.MISSINGOUTPUTFILE)
                 failed = True
                 break
-
         if lfn not in output_jobrep and lfn in job.allownooutput:
-            logger.warning((
-                'output file %s from job definition is not present '
-                'in job report but is listed in allowNoOutput - '
-                'remove from stage-out'), lfn)
+            logger.warning(f'output file {lfn} from job definition is not present in job report but '
+                           f'is listed in allowNoOutput - remove from stage-out')
             remove_from_stageout(lfn, job)
         else:
             nentries = output_jobrep[lfn]
             if nentries == "UNDEFINED":
-                logger.warning((
-                    'encountered file with nentries=UNDEFINED - '
-                    'will ignore %s'), lfn)
-
+                logger.warning(f'encountered file with nentries=UNDEFINED - will ignore {lfn}')
             elif nentries is None:
-
                 if lfn not in job.allownooutput:
-                    logger.warning((
-                        'output file %s is listed in job report, '
-                        'but has no events and is not listed in '
-                        'allowNoOutput - will ignore'), lfn)
+                    logger.warning(f'output file {lfn} is listed in job report, but has no events and '
+                                   f'is not listed in allowNoOutput - will ignore')
                 else:
-                    logger.warning((
-                        'output file %s is listed in job report, '
-                        'nentries is None and is listed in allowNoOutput - '
-                        'remove from stage-out'), lfn)
+                    logger.warning(f'output file {lfn} is listed in job report, nentries is None and is listed in '
+                                   f'allowNoOutput - remove from stage-out')
                     remove_from_stageout(lfn, job)
-
             elif nentries == 0:
-
                 if lfn not in job.allownooutput:
-                    logger.warning((
-                        'output file %s is listed in job report, '
-                        'has zero events and is not listed in '
-                        'allowNoOutput - will ignore'), lfn)
+                    logger.warning(f'output file {lfn} is listed in job report, has zero events and '
+                                   f'is not listed in allowNoOutput - will ignore')
                 else:
-                    logger.warning((
-                        'output file %s is listed in job report, '
-                        'has zero events and is listed in allowNoOutput - '
-                        'remove from stage-out'), lfn)
+                    logger.warning(f'output file {lfn} is listed in job report, has zero events and is listed in '
+                                   f'allowNoOutput - remove from stage-out')
                     remove_from_stageout(lfn, job)
 
             elif type(nentries) is int and nentries:
-                logger.info('output file %s has %d event(s)', lfn, nentries)
+                logger.info(f'output file {lfn} has {nentries} event(s)')
                 nevents += nentries
             else:  # should not reach this step
                 logger.warning(f'case not handled for output file {lfn} with {nentries} event(s) (ignore)')
@@ -1588,7 +1543,7 @@ def remove_from_stageout(lfn, job):
     outdata = []
     for fspec in job.outdata:
         if fspec.lfn == lfn:
-            logger.info('removing %s from stage-out list', lfn)
+            logger.info(f'removing {lfn} from stage-out list')
         else:
             outdata.append(fspec)
     job.outdata = outdata
@@ -1611,22 +1566,16 @@ def remove_no_output_files(job):
 
         if filename in job.allownooutput:
             if os.path.exists(path):
-                logger.info((
-                    "file %s is listed in allowNoOutput but exists "
-                    "(will not be removed from list of files to be "
-                    "staged-out)"), filename)
+                logger.info(f"file {filename} is listed in allowNoOutput but exists (will not be removed from "
+                            f"list of files to be staged-out)")
                 _outfiles.append(filename)
             else:
-                logger.info((
-                    "file %s is listed in allowNoOutput and does not exist "
-                    "(will be removed from list of files to be staged-out)"), filename)
+                logger.info(f"file {filename} is listed in allowNoOutput and does not exist (will be removed from list of files to be staged-out)")
         else:
             if os.path.exists(path):
-                logger.info("file %s is not listed in allowNoOutput (will be staged-out)", filename)
+                logger.info(f"file {filename} is not listed in allowNoOutput (will be staged-out)")
             else:
-                logger.warning((
-                    "file %s is not listed in allowNoOutput and "
-                    "does not exist (job will fail)"), filename)
+                logger.warning(f"file {filename} is not listed in allowNoOutput and does not exist (job will fail)")
             _outfiles.append(filename)
 
     # now remove the unwanted fspecs
@@ -1703,9 +1652,9 @@ def parse_jobreport_data(job_report):  # noqa: C901
     work_attributes["outputfiles"] = []
 
     if "ATHENA_PROC_NUMBER" in os.environ:
-        logger.debug("ATHENA_PROC_NUMBER: %s", os.environ["ATHENA_PROC_NUMBER"])
-        work_attributes['core_count'] = int(os.environ["ATHENA_PROC_NUMBER"])
-        core_count = int(os.environ["ATHENA_PROC_NUMBER"])
+        logger.debug(f"ATHENA_PROC_NUMBER: {os.environ['ATHENA_PROC_NUMBER']}")
+        work_attributes['core_count'] = int(os.environ['ATHENA_PROC_NUMBER'])
+        core_count = int(os.environ['ATHENA_PROC_NUMBER'])
 
     dictq = DictQuery(job_report)
     dictq.get("resource/transform/processedEvents", work_attributes, "nEvents")
@@ -1740,12 +1689,11 @@ def parse_jobreport_data(job_report):  # noqa: C901
         work_attributes.update(fin_report)
 
     workdir_size = get_disk_usage('.')
-    work_attributes['jobMetrics'] = 'coreCount=%s nEvents=%s dbTime=%s dbData=%s workDirSize=%s' % \
-                                    (core_count,
-                                        work_attributes["nEvents"],
-                                        work_attributes["dbTime"],
-                                        work_attributes["dbData"],
-                                        workdir_size)
+    work_attributes['jobMetrics'] = f"coreCount={core_count} " \
+                                    f"nEvents={work_attributes['nEvents']} " \
+                                    f"dbTime={work_attributes['dbTime']} " \
+                                    f"dbData={work_attributes['dbData']} " \
+                                    f"workDirSize={workdir_size}"
     del work_attributes["dbData"]
     del work_attributes["dbTime"]
 
@@ -1788,7 +1736,7 @@ def get_resimevents(jobreport_dictionary):
 
     executor_dictionary = get_executor_dictionary(jobreport_dictionary)
     if executor_dictionary != {}:
-        for fmt in list(executor_dictionary.keys()):  # "ReSim", Python 2/3
+        for fmt in list(executor_dictionary.keys()):  # "ReSim"
             if 'resimevents' in executor_dictionary[fmt]:
                 try:
                     resimevents = int(executor_dictionary[fmt]['resimevents'])
@@ -1813,28 +1761,25 @@ def get_db_info(jobreport_dictionary):
     """
 
     db_time = 0
-    try:
-        db_data = long(0)  # Python 2  # noqa: F821
-    except NameError:
-        db_data = 0  # Python 3
+    db_data = 0
 
     executor_dictionary = get_executor_dictionary(jobreport_dictionary)
     if executor_dictionary != {}:
-        for fmt in list(executor_dictionary.keys()):  # "RAWtoESD", .., Python 2/3
+        for fmt in list(executor_dictionary.keys()):  # "RAWtoESD", ..,
             if 'dbData' in executor_dictionary[fmt]:
                 try:
                     db_data += executor_dictionary[fmt]['dbData']
                 except Exception:
                     pass
             else:
-                logger.warning("format %s has no such key: dbData", fmt)
+                logger.warning(f"format {fmt} has no such key: dbData")
             if 'dbTime' in executor_dictionary[fmt]:
                 try:
                     db_time += executor_dictionary[fmt]['dbTime']
                 except Exception:
                     pass
             else:
-                logger.warning("format %s has no such key: dbTime", fmt)
+                logger.warning(f"format {fmt} has no such key: dbTime")
 
     return db_time, db_data
 
@@ -1848,11 +1793,7 @@ def get_db_info_str(db_time, db_data):
     :param db_data: long integer
     :return: db_time_s, db_data_s (strings)
     """
-
-    try:
-        zero = long(0)  # Python 2  # noqa: F821
-    except NameError:
-        zero = 0  # Python 3
+    zero = 0
 
     db_data_s = ""
     if db_data != zero:
@@ -1877,18 +1818,15 @@ def get_cpu_times(jobreport_dictionary):
     conversion_factor (output consistent with set_time_consumed())
     """
 
-    try:
-        total_cpu_time = long(0)  # Python 2 # noqa: F821
-    except NameError:
-        total_cpu_time = 0  # Python 3
+    total_cpu_time = 0
 
     executor_dictionary = get_executor_dictionary(jobreport_dictionary)
     if executor_dictionary != {}:
-        for fmt in list(executor_dictionary.keys()):  # "RAWtoESD", .., Python 2/3
+        for fmt in list(executor_dictionary.keys()):  # "RAWtoESD", ..,
             try:
                 total_cpu_time += executor_dictionary[fmt]['cpuTime']
             except KeyError:
-                logger.warning("format %s has no such key: cpuTime", fmt)
+                logger.warning(f"format {fmt} has no such key: cpuTime")
             except Exception:
                 pass
 
@@ -1998,9 +1936,7 @@ def get_redundants():
     #    if dir_list:
     #        return dir_list
 
-    logger.debug((
-        'list of redundant files could not be read from external file: %s '
-        '(will use internal list)'), filename)
+    logger.debug(f'list of redundant files could not be read from external file: {filename} (will use internal list)')
 
     # else return the following
     dir_list = [".asetup.save",
@@ -2207,7 +2143,7 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
     try:
         cleanup_payload(workdir, outputfiles, removecores=not debugmode)
     except OSError as exc:
-        logger.warning("failed to execute cleanup_payload(): %s", exc)
+        logger.warning(f"failed to execute cleanup_payload(): {exc}")
 
     # explicitly remove any soft linked archives (.a files)
     # since they will be dereferenced by the tar command (--dereference option)
@@ -2232,7 +2168,7 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
         islooping = errors.LOOPINGJOB in piloterrors
         ismemerror = errors.PAYLOADEXCEEDMAXMEM in piloterrors
         if not islooping and not ismemerror:
-            logger.debug('removing \'workDir\' from workdir=%s', workdir)
+            logger.debug(f'removing \'workDir\' from workdir={workdir}')
             remove_dir_tree(path)
 
     # remove additional dirs
@@ -2240,7 +2176,7 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
     for additional in additionals:
         path = os.path.join(workdir, additional)
         if os.path.exists(path):
-            logger.debug('removing \'%s\' from workdir=%s', additional, workdir)
+            logger.debug(f"removing \'{additional}\' from workdir={workdir}")
             remove_dir_tree(path)
 
     list_work_dir(workdir)
@@ -2264,7 +2200,7 @@ def download_command(process, workdir):
         # Try to download the trf (skip when user container is to be used)
         exitcode, _, cmd = get_analysis_trf(cmd, workdir)
         if exitcode != 0:
-            logger.warning('cannot execute command due to previous error: %s', cmd)
+            logger.warning(f'cannot execute command due to previous error: {cmd}')
             return {}
 
         # update the preprocess command (the URL should be stripped)
@@ -2414,16 +2350,16 @@ def post_prestagein_utility_command(**kwargs):
     stdout = kwargs.get('output', None)
 
     if stdout:
-        logger.debug('processing stdout for label=%s', label)
+        logger.debug(f'processing stdout for label={label}')
         xcache_proxy(stdout)
     else:
-        logger.warning('no output for label=%s', label)
+        logger.warning(f'no output for label={label}')
 
     alrb_xcache_files = os.environ.get('ALRB_XCACHE_FILES', '')
     if alrb_xcache_files:
         cmd = 'cat $ALRB_XCACHE_FILES/settings.sh'
         _, _stdout, _ = execute(cmd)
-        logger.debug('cmd=%s:\n\n%s\n\n', cmd, _stdout)
+        logger.debug(f'cmd={cmd}:\n\n{_stdout}\n\n')
 
 
 def xcache_proxy(output):
@@ -2439,7 +2375,7 @@ def xcache_proxy(output):
         if 'ALRB_XCACHE_PROXY' in line:
             suffix = '_REMOTE' if 'REMOTE' in line else ''
             name = f'ALRB_XCACHE_PROXY{suffix}'
-            pattern = r'\ export\ ALRB_XCACHE_PROXY%s\=\"(.+)\"' % suffix
+            pattern = fr'\ export\ ALRB_XCACHE_PROXY{suffix}\=\"(.+)\"'
             set_xcache_var(line, name=name, pattern=pattern)
 
         elif 'ALRB_XCACHE_MYPROCESS' in line:
@@ -2502,8 +2438,8 @@ def xcache_activation_command(workdir='', jobid=''):
     # add 'xcache list' which will also kill any
     # orphaned processes lingering in the system
     command += (
-        "lsetup xcache; xcache list; "
-        "xcache start -d $PWD/%s/xcache -C centos7 --disklow 4g --diskhigh 5g -b 4" % jobid)
+        f"lsetup xcache; xcache list; xcache start -d $PWD/{jobid}/xcache -C centos7 --disklow 4g --diskhigh 5g -b 4"
+    )
 
     return {'command': command, 'args': ''}
 
@@ -2524,17 +2460,17 @@ def xcache_deactivation_command(workdir='', jobid=''):
 
     path = os.environ.get('ALRB_XCACHE_LOG', None)
     if path and os.path.exists(path):
-        logger.debug('copying xcache messages log file (%s) to work dir (%s)', path, workdir)
+        logger.debug(f'copying xcache messages log file ({path}) to work dir ({workdir})')
         dest = os.path.join(workdir, 'xcache-messages.log')
         try:
             copy(path, dest)
         except Exception as exc:
-            logger.warning('exception caught copying xcache log: %s', exc)
+            logger.warning(f'exception caught copying xcache log: {exc}')
     else:
         if not path:
             logger.warning('ALRB_XCACHE_LOG is not set')
         if path and not os.path.exists(path):
-            logger.warning('path does not exist: %s', path)
+            logger.warning(f'path does not exist: {path}')
     command = f"{get_asetup(asetup=False)} "
     command += "lsetup xcache; xcache kill"  # -C centos7
 
@@ -2580,11 +2516,11 @@ def get_utility_command_setup(name, job, setup=None):
 
         # update the pgrp if the pid changed
         if pid not in (job.pid, -1):
-            logger.debug('updating pgrp=%d for pid=%d', job.pgrp, pid)
+            logger.debug(f'updating pgrp={job.pgrp} for pid={pid}')
             try:
                 job.pgrp = os.getpgid(pid)
             except Exception as exc:
-                logger.warning('os.getpgid(%d) failed with: %s', pid, exc)
+                logger.warning(f'os.getpgid({pid}) failed with: {exc}')
         return setup
 
     if name == 'NetworkMonitor' and setup:
@@ -2614,7 +2550,7 @@ def get_utility_command_execution_order(name):
     if name == 'MemoryMonitor':
         return UTILITY_AFTER_PAYLOAD_STARTED
 
-    logger.warning('unknown utility name: %s', name)
+    logger.warning(f'unknown utility name: {name}')
     return UTILITY_AFTER_PAYLOAD_STARTED
 
 
@@ -2672,8 +2608,8 @@ def verify_lfn_length(outdata):
     # loop over all output files
     for fspec in outdata:
         if len(fspec.lfn) > max_length:
-            diagnostics = "LFN too long (length: %d, must be less than %d characters): %s" % \
-                          (len(fspec.lfn), max_length, fspec.lfn)
+            diagnostics = f"LFN too long (length: {len(fspec.lfn)}, " \
+                          f"must be less than {max_length} characters): {fspec.lfn}"
             exitcode = errors.LFNTOOLONG
             break
 
@@ -2705,17 +2641,14 @@ def verify_ncores(corecount):
     # otherwise use ATHENA_PROC_NUMBER directly; ATHENA_PROC_NUMBER_JOB
     # will always be the value from the job definition)
     if athena_proc_number:
-        logger.info((
-            "encountered a set ATHENA_PROC_NUMBER (%d), "
-            "will not overwrite it"), athena_proc_number)
+        logger.info(f"encountered a set ATHENA_PROC_NUMBER ({athena_proc_number}), will not overwrite it")
         logger.info('set ATHENA_CORE_NUMBER to same value as ATHENA_PROC_NUMBER')
         os.environ['ATHENA_CORE_NUMBER'] = str(athena_proc_number)
     else:
         os.environ['ATHENA_PROC_NUMBER_JOB'] = str(corecount)
         os.environ['ATHENA_CORE_NUMBER'] = str(corecount)
-        logger.info((
-            "set ATHENA_PROC_NUMBER_JOB and ATHENA_CORE_NUMBER to %s "
-            "(ATHENA_PROC_NUMBER will not be overwritten)"), corecount)
+        logger.info(f"set ATHENA_PROC_NUMBER_JOB and ATHENA_CORE_NUMBER to {corecount} "
+                    f"(ATHENA_PROC_NUMBER will not be overwritten)")
 
 
 def verify_job(job):
@@ -2801,7 +2734,7 @@ def update_server(job):
 
     path = os.path.join(job.workdir, get_memory_monitor_output_filename())
     if not os.path.exists(path):
-        logger.warning('path does not exist: %s', path)
+        logger.warning(f'path does not exist: {path}')
         return
 
     # convert memory monitor text output to json and return the selection
@@ -2812,37 +2745,23 @@ def update_server(job):
         # update the path and tell curl to send it
         new_path = update_extension(path=path, extension='json')
 
-        #out = read_json(new_path)
-        #logger.debug('prmon json=\n%s' % out)
-        # logger.debug('final logstash prmon dictionary: %s' % str(metadata_dictionary))
+        # out = read_json(new_path)
+        # logger.debug(f'prmon json=\n{out}')
+        # logger.debug(f'final logstash prmon dictionary: {metadata_dictionary}')
         url = 'https://pilot.atlas-ml.org'  # 'http://collector.atlas-ml.org:80'
-
-        # cmd = (
-        #    "curl --connect-timeout 20 --max-time 120 "
-        #    "-H \"Content-Type: application/json\" -X POST -d \'%s\' %s" % \
-        #      (str(metadata_dictionary).replace("'", '"'), url)
-        #)
-
-        # curl --connect-timeout 20 --max-time 120 -H
-        # "Content-Type: application/json" -X POST --upload-file test.json
-        # https://pilot.atlas-ml.org
         cmd = (
-            "curl --connect-timeout 20 --max-time 120 "
-            "-H \"Content-Type: application/json\" "
-            "-X POST "
-            "--upload-file %s %s" % (new_path, url)
+            f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
+            f"--upload-file {new_path} {url}"
         )
-        #cmd = "curl --connect-timeout 20 --max-time 120 -F
-        #  'data=@%s' %s" % (new_path, url)
         # send metadata to logstash
         try:
             _, stdout, stderr = execute(cmd, usecontainer=False)
         except Exception as exc:
-            logger.warning('exception caught: %s', exc)
+            logger.warning(f'exception caught: {exc}')
         else:
             logger.debug('sent prmon JSON dictionary to logstash server')
-            logger.debug('stdout: %s', stdout)
-            logger.debug('stderr: %s', stderr)
+            logger.debug(f'stdout: {stdout}')
+            logger.debug(f'stderr: {stderr}')
     else:
         msg = 'no prmon json available - cannot send anything to logstash server'
         logger.warning(msg)
@@ -2861,9 +2780,7 @@ def preprocess_debug_command(job):
     # get the general setup command and then verify it if required
     resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
 
-    # Python 3, level: -1 -> 0
-    modname = f'pilot.user.atlas.resource.{resource_name}'
-    resource = __import__(modname, globals(), locals(), [resource_name], 0)
+    resource = __import__(f'pilot.user.atlas.resource.{resource_name}', globals(), locals(), [resource_name], 0)
 
     cmd = resource.get_setup_command(job, preparesetup)
     if not cmd.endswith(';'):
@@ -2901,7 +2818,6 @@ def process_debug_command(debug_command, pandaid):
     cmd = 'ps axo pid,ppid,pgid,args'
     _, stdout, _ = execute(cmd)
     if stdout:
-        #logger.debug('ps=\n\n%s\n' % stdout)
         # convert the ps output to a dictionary
         dictionary = convert_ps_to_dict(stdout)
 
@@ -2921,16 +2837,14 @@ def process_debug_command(debug_command, pandaid):
             try:
                 child = is_child(pid, pandaid_pid, trimmed_dictionary)
             except RuntimeError as rte:
-                logger.warning((
-                    'too many recursions: %s '
-                    '(cannot identify athena process)'), rte)
+                logger.warning(f'too many recursions: {rte} (cannot identify athena process)')
             else:
                 if child:
-                    logger.info('pid=%d is a child process of the trf of this job', pid)
-                    debug_command = debug_command.replace('--pid %', '--pid %d' % pid)
-                    logger.info('updated debug command: %s', debug_command)
+                    logger.info(f'pid={pid} is a child process of the trf of this job')
+                    debug_command = debug_command.replace('--pid %', f'--pid {pid}')
+                    logger.info(f'updated debug command: {debug_command}')
                     break
-                logger.info('pid=%d is not a child process of the trf of this job', pid)
+                logger.info(f'pid={pid} is not a child process of the trf of this job')
 
         if not pids or '--pid %' in debug_command:
             logger.debug('athena is not yet running (no corresponding pid)')

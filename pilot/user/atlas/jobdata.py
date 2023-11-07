@@ -46,7 +46,7 @@ def jobparams_prefiltering(value):
 
     # add more items to the exclusions as necessary
 
-    logger.debug('exclusions = %s', str(exclusions))
+    logger.debug(f'exclusions = {exclusions}')
     return exclusions, value
 
 
