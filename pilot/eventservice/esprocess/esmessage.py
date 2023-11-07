@@ -58,17 +58,17 @@ class MessageThread(threading.Thread):
         try:
             import yampl
         except Exception as e:
-            raise MessageFailure("Failed to import yampl: %s" % e)
+            raise MessageFailure(f"Failed to import yampl: {e}")
         logger.info('finished to import yampl')
 
         logger.info('start to setup yampl server socket.')
         try:
             if self._socket_name is None or len(self._socket_name) == 0:
-                self._socket_name = 'EventService_EventRanges_' + str(os.getpid())
+                self._socket_name = f'EventService_EventRanges_{os.getpid()}'
             self.__message_server = yampl.ServerSocket(self._socket_name, context)
-        except Exception as e:
-            raise MessageFailure("Failed to setup yampl server socket: %s %s" % (e, traceback.print_exc()))
-        logger.info('finished to setup yampl server socket(socket_name: %s, context:%s).' % (self._socket_name, context))
+        except Exception as exc:
+            raise MessageFailure(f"failed to setup yampl server socket: {exc} {traceback.print_exc()}")
+        logger.info(f'finished to setup yampl server socket(socket_name: {self._socket_name}, context:{context}).')
 
     def get_yampl_socket_name(self):
         return self._socket_name
@@ -81,7 +81,7 @@ class MessageThread(threading.Thread):
 
         :raises MessageFailure: When failed to send a message to the payload.
         """
-        logger.debug('Send a message to yampl: %s' % message)
+        logger.debug(f'Send a message to yampl: {message}')
         try:
             if not self.__message_server:
                 raise MessageFailure("No message server.")
@@ -132,13 +132,13 @@ class MessageThread(threading.Thread):
                     time.sleep(0.01)
                 else:
                     self.__message_queue.put(buf.decode('utf8'))  # Python 2 and 3
-        except PilotException as e:
+        except PilotException as exc:
             self.terminate()
-            logger.error("Pilot Exception: Message thread got an exception, will finish: %s, %s" % (e.get_detail(), traceback.format_exc()))
-            # raise e
-        except Exception as e:
+            logger.error(f"Pilot Exception: Message thread got an exception, will finish: {exc.get_detail()}, {traceback.format_exc()}")
+            # raise exc
+        except Exception as exc:
             self.terminate()
-            logger.error("Message thread got an exception, will finish: %s" % str(e))
-            # raise MessageFailure(e)
+            logger.error(f"Message thread got an exception, will finish: {exc}")
+            # raise MessageFailure(exc)
         self.terminate()
         logger.info('Message thread finished.')

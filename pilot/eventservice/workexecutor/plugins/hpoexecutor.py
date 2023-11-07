@@ -68,7 +68,7 @@ class HPOExecutor(BaseExecutor):
         try:
             checksum = calculate_checksum(pfn, algorithm=config.File.checksum_type)
         except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-            logger.warning('caught exception: %s', exc)
+            logger.warning(f'caught exception: {exc}')
             checksum = ''  # fail later
         filesize = os.path.getsize(pfn)
         file_data = {'scope': 'transient',
@@ -132,7 +132,7 @@ class HPOExecutor(BaseExecutor):
                         Fro 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
         """
 
-        logger.info("Handling out message: %s" % message)
+        logger.info(f"Handling out message: {message}")
 
         self.__all_out_messages.append(message)
 
@@ -148,7 +148,6 @@ class HPOExecutor(BaseExecutor):
         """
 
         job = self.get_job()
-        # logger.info("job.infosys.queuedata.es_stageout_gap: %s" % job.infosys.queuedata.es_stageout_gap)
         if len(self.__queued_out_messages):
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
                 out_messages = []
@@ -179,7 +178,7 @@ class HPOExecutor(BaseExecutor):
         Initialize and run ESProcess.
         """
         try:
-            logger.info("starting ES HPOExecutor with thread ident: %s" % self.ident)
+            logger.info(f"starting ES HPOExecutor with thread ident: {self.ident}")
             if self.is_set_payload():
                 payload = self.get_payload()
             elif self.is_retrieve_payload():
@@ -187,7 +186,7 @@ class HPOExecutor(BaseExecutor):
             else:
                 logger.error("Payload is not set but is_retrieve_payload is also not set. No payloads.")
 
-            logger.info("payload: %s" % payload)
+            logger.info(f"payload: {payload}")
 
             logger.info("Starting ESProcess")
             proc = ESProcess(payload, waiting_time=999999)
@@ -202,21 +201,18 @@ class HPOExecutor(BaseExecutor):
             logger.info('ESProcess started to run')
 
             exit_code = None
-            try:
-                iteration = long(0)  # Python 2  # noqa: F821
-            except Exception:
-                iteration = 0  # Python 3
+            iteration = 0
             while proc.is_alive():
                 iteration += 1
                 if self.is_stop():
-                    logger.info('Stop is set. breaking -- stop process pid=%s' % proc.pid)
+                    logger.info(f'Stop is set. breaking -- stop process pid={proc.pid}')
                     proc.stop()
                     break
                 self.stageout_es()
 
                 exit_code = proc.poll()
                 if iteration % 60 == 0:
-                    logger.info('running: iteration=%d pid=%s exit_code=%s' % (iteration, proc.pid, exit_code))
+                    logger.info(f'running: iteration={iteration} pid={proc.pid} exit_code={exit_code}')
                 time.sleep(5)
 
             while proc.is_alive():
@@ -228,8 +224,8 @@ class HPOExecutor(BaseExecutor):
 
             self.exit_code = proc.poll()
 
-        except Exception as e:
-            logger.error('Execute payload failed: %s, %s' % (e, traceback.format_exc()))
+        except Exception as exc:
+            logger.error(f'execute payload failed: {exc}, {traceback.format_exc()}')
             self.clean()
             self.exit_code = -1
         logger.info('ES HPO executor finished')

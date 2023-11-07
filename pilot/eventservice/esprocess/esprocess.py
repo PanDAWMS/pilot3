@@ -113,13 +113,13 @@ class ESProcess(threading.Thread):
         try:
             self.__message_thread = MessageThread(self.__message_queue, socketname, context)
             self.__message_thread.start()
-        except PilotException as e:
-            logger.error("Failed to start message thread: %s" % e.get_detail())
+        except PilotException as exc:
+            logger.error(f"Failed to start message thread: {exc.get_detail()}")
             self.__ret_code = -1
-        except Exception as e:
-            logger.error("Failed to start message thread: %s" % str(e))
+        except Exception as exc:
+            logger.error(f"Failed to start message thread: {exc}")
             self.__ret_code = -1
-            raise MessageFailure(e)
+            raise MessageFailure(exc)
         logger.info("finished to init message thread")
 
     def stop_message_thread(self):
@@ -138,13 +138,13 @@ class ESProcess(threading.Thread):
 
         is_ca = "--CA" in executable
         if is_ca:
-            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\' " % (socket_name)
+            preexec_socket_config = f" --preExec 'ConfigFlags.MP.EventRangeChannel=\"{socket_name}\"' "
         else:
             preexec_socket_config = \
-                " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % (socket_name)
+                f" --preExec 'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"{socket_name}\"' "
 
         if "PILOT_EVENTRANGECHANNEL" in executable:
-            executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
+            executable = f"export PILOT_EVENTRANGECHANNEL=\"{socket_name}\"; " + executable
         elif "--preExec" not in executable:
             executable = executable.strip()
             if executable.endswith(";"):
@@ -153,14 +153,14 @@ class ESProcess(threading.Thread):
         else:
             if "import jobproperties as jps" in executable:
                 executable = executable.replace("import jobproperties as jps;",
-                                                "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % (socket_name))
+                                                f"import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"{socket_name}\";")
                 if is_ca:
                     logger.warning("Found jobproperties config in CA job")
             else:
                 if "--preExec " in executable:
                     executable = executable.replace("--preExec ", preexec_socket_config)
                 else:
-                    logger.warn("--preExec has an unknown format - expected \'--preExec \"\' or \"--preExec \'\", got: %s" % (executable))
+                    logger.warn(f"--preExec has an unknown format - expected '--preExec \"' or \"--preExec '\", got: {executable}")
 
         return executable
 
@@ -187,11 +187,11 @@ class ESProcess(threading.Thread):
                 try:
                     executable, diagnostics = containerise_executable(executable, job=self.__payload['job'], workdir=workdir)
                     if diagnostics:
-                        msg = 'containerisation of executable failed: %s' % diagnostics
+                        msg = f'containerisation of executable failed: {diagnostics}'
                         logger.warning(msg)
                         raise SetupFailure(msg)
                 except Exception as e:
-                    msg = 'exception caught while preparing container command: %s' % e
+                    msg = f'exception caught while preparing container command: {e}'
                     logger.warning(msg)
                     raise SetupFailure(msg)
             else:
@@ -202,19 +202,17 @@ class ESProcess(threading.Thread):
             self.pid = self.__process.pid
             self.__payload['job'].pid = self.pid
             self.__is_payload_started = True
-            logger.debug("Started new processs (executable: %s, stdout: %s, stderr: %s, pid: %s)" % (executable,
-                                                                                                     output_file_fd,
-                                                                                                     error_file_fd,
-                                                                                                     self.__process.pid))
+            logger.debug(f"started new processs (executable: {executable}, stdout: {output_file_fd}, "
+                         f"stderr: {error_file_fd}, pid: {self.__process.pid})")
             if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].corecount:
                 self.corecount = int(self.__payload['job'].corecount)
-        except PilotException as e:
-            logger.error("Failed to start payload process: %s, %s" % (e.get_detail(), traceback.format_exc()))
+        except PilotException as exc:
+            logger.error(f"Failed to start payload process: {exc.get_detail()}, {traceback.format_exc()}")
             self.__ret_code = -1
-        except Exception as e:
-            logger.error("Failed to start payload process: %s, %s" % (str(e), traceback.format_exc()))
+        except Exception as exc:
+            logger.error(f"Failed to start payload process: {exc}, {traceback.format_exc()}")
             self.__ret_code = -1
-            raise SetupFailure(e)
+            raise SetupFailure(exc)
         logger.info("finished initializing payload process")
 
     def get_file(self, workdir, file_label='output_file', file_name='ES_payload_output.txt'):
@@ -270,7 +268,7 @@ class ESProcess(threading.Thread):
         """
         executable = self.__payload['executable']
         executable = self.init_yampl_socket(executable)
-        return 'cd %s; %s' % (workdir, executable)
+        return f'cd {workdir}; {executable}'
 
     def set_get_event_ranges_hook(self, hook):
         """
@@ -332,8 +330,8 @@ class ESProcess(threading.Thread):
 
         if self.__no_more_event_time and time.time() - self.__no_more_event_time > self.__waiting_time:
             self.__ret_code = -1
-            raise Exception('Too long time (%s seconds) since "No more events" is injected' %
-                            (time.time() - self.__no_more_event_time))
+            raise Exception(f'Too long time ({time.time() - self.__no_more_event_time} seconds) '
+                            f'since \"No more events\" is injected')
 
         if self.__monitor_log_time is None or self.__monitor_log_time < time.time() - 10 * 60:
             self.__monitor_log_time = time.time()
@@ -351,10 +349,10 @@ class ESProcess(threading.Thread):
                 logger.info("Payload finished with no more events")
             else:
                 self.__ret_code = self.__process.poll()
-                raise RunPayloadFailure("Payload process is not alive: %s" % self.__process.poll())
+                raise RunPayloadFailure(f"Payload process is not alive: {self.__process.poll()}")
 
         if self.__stop.is_set() and time.time() > self.__stop_set_time + self.__stop_delay:
-            logger.info("Stop has been set for %s seconds, which is more than the stop wait time. Will terminate" % self.__stop_delay)
+            logger.info(f"Stop has been set for {self.__stop_delay} seconds, which is more than the stop wait time. Will terminate")
             self.terminate()
 
     def has_running_children(self):
@@ -383,7 +381,7 @@ class ESProcess(threading.Thread):
         """
         Get one event range to be sent to payload
         """
-        logger.debug("Number of cached event ranges: %s" % len(self.event_ranges_cache))
+        logger.debug(f"Number of cached event ranges: {len(self.event_ranges_cache)}")
         if not self.event_ranges_cache:
             event_ranges = self.get_event_ranges()
             if event_ranges:
@@ -407,17 +405,17 @@ class ESProcess(threading.Thread):
         if not num_ranges:
             num_ranges = self.corecount
 
-        logger.debug('getting event ranges(num_ranges=%s)' % num_ranges)
+        logger.debug(f'getting event ranges(num_ranges={num_ranges})')
         if not self.get_event_ranges_hook:
             raise SetupFailure("get_event_ranges_hook is not set")
 
         try:
-            logger.debug('calling get_event_ranges hook(%s) to get event ranges.' % self.get_event_ranges_hook)
+            logger.debug(f'calling get_event_ranges hook({self.get_event_ranges_hook}) to get event ranges.')
             event_ranges = self.get_event_ranges_hook(num_ranges)
-            logger.debug('got event ranges: %s' % event_ranges)
+            logger.debug(f'got event ranges: {event_ranges}')
             return event_ranges
         except Exception as e:
-            raise MessageFailure("Failed to get event ranges: %s" % e)
+            raise MessageFailure(f"Failed to get event ranges: {e}")
 
     def send_event_ranges_to_payload(self, event_ranges):
         """
@@ -435,7 +433,7 @@ class ESProcess(threading.Thread):
             if type(event_ranges) is not list:
                 event_ranges = [event_ranges]
             msg = json.dumps(event_ranges)
-        logger.debug('send event ranges to payload: %s' % msg)
+        logger.debug(f'send event ranges to payload: {msg}')
         self.__message_thread.send(msg)
 
     def parse_out_message(self, message):
@@ -449,7 +447,7 @@ class ESProcess(threading.Thread):
                  UnknownException: when other unknown exception is caught.
         """
 
-        logger.debug('parsing message: %s' % message)
+        logger.debug(f'parsing message: {message}')
         try:
             if message.startswith("/"):
                 parts = message.split(",")
@@ -473,7 +471,7 @@ class ESProcess(threading.Thread):
                         ret = {'id': event_range_id, 'status': 'failed', 'message': message}
                         return ret
                     else:
-                        raise Exception("Failed to parse %s" % message)
+                        raise Exception(f"Failed to parse {message}")
                 else:
                     pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9A-Za-z._\-]+)\:\ ?(.+)")
                     found = re.findall(pattern, message)
@@ -481,7 +479,7 @@ class ESProcess(threading.Thread):
                     ret = {'id': event_range_id, 'status': 'failed', 'message': message}
                     return ret
             else:
-                raise UnknownException("Unknown message %s" % message)
+                raise UnknownException(f"Unknown message {message}")
         except PilotException as e:
             raise e
         except Exception as e:
@@ -498,17 +496,17 @@ class ESProcess(threading.Thread):
                  RunPayloadFailure: when failed to handle an output or error message.
         """
 
-        logger.debug('handling out message: %s' % message)
+        logger.debug(f'handling out message: {message}')
         if not self.handle_out_message_hook:
             raise SetupFailure("handle_out_message_hook is not set")
 
         try:
             message_status = self.parse_out_message(message)
-            logger.debug('parsed out message: %s' % message_status)
-            logger.debug('calling handle_out_message hook(%s) to handle parsed message.' % self.handle_out_message_hook)
+            logger.debug(f'parsed out message: {message_status}')
+            logger.debug(f'calling handle_out_message hook({self.handle_out_message_hook}) to handle parsed message.')
             self.handle_out_message_hook(message_status)
         except Exception as e:
-            raise RunPayloadFailure("Failed to handle out message: %s" % e)
+            raise RunPayloadFailure(f"Failed to handle out message: {e}")
 
     def handle_messages(self):
         """
@@ -520,7 +518,7 @@ class ESProcess(threading.Thread):
         except queue.Empty:
             pass
         else:
-            logger.debug('received message from payload: %s' % message)
+            logger.debug(f'received message from payload: {message}')
             if "Ready for events" in message:
                 event_ranges = self.get_event_range_to_payload()
                 if not event_ranges:
@@ -556,7 +554,7 @@ class ESProcess(threading.Thread):
                     if self.__process.poll() == 0:
                         logger.info("payload finished successfully.")
                     else:
-                        logger.error("payload finished with error code: %s" % self.__process.poll())
+                        logger.error(f"payload finished with error code: {self.__process.poll()}")
                 else:
                     for i in range(time_to_wait * 10):
                         if not self.__process.poll() is None:
@@ -567,20 +565,18 @@ class ESProcess(threading.Thread):
                         if self.__process.poll() == 0:
                             logger.info("payload finished successfully.")
                         else:
-                            logger.error("payload finished with error code: %s" % self.__process.poll())
+                            logger.error(f"payload finished with error code: {self.__process.poll()}")
                     else:
                         logger.info('terminating payload process.')
                         pgid = os.getpgid(self.__process.pid)
-                        logger.info('got process group id for pid %s: %s' % (self.__process.pid, pgid))
-                        # logger.info('send SIGTERM to process group: %s' % pgid)
-                        # os.killpg(pgid, signal.SIGTERM)
-                        logger.info('send SIGTERM to process: %s' % self.__process.pid)
+                        logger.info(f'got process group id for pid {self.__process.pid}: {pgid}')
+                        logger.info(f'send SIGTERM to process: {self.__process.pid}')
                         kill_child_processes(self.__process.pid)
                 self.__ret_code = self.__process.poll()
             else:
                 self.__ret_code = -1
         except Exception as e:
-            logger.error('Exception caught when terminating ESProcess: %s' % e)
+            logger.error(f'Exception caught when terminating ESProcess: {e}')
             self.__ret_code = -1
             self.stop()
             raise UnknownException(e)
@@ -602,17 +598,15 @@ class ESProcess(threading.Thread):
                     if self.__process.poll() == 0:
                         logger.info("payload finished successfully.")
                     else:
-                        logger.error("payload finished with error code: %s" % self.__process.poll())
+                        logger.error(f"payload finished with error code: {self.__process.poll()}")
                 else:
                     logger.info('killing payload process.')
                     pgid = os.getpgid(self.__process.pid)
-                    logger.info('got process group id for pid %s: %s' % (self.__process.pid, pgid))
-                    # logger.info('send SIGKILL to process group: %s' % pgid)
-                    # os.killpg(pgid, signal.SIGKILL)
-                    logger.info('send SIGKILL to process: %s' % self.__process.pid)
+                    logger.info(f'got process group id for pid {self.__process.pid}: {pgid}')
+                    logger.info(f'send SIGKILL to process: {self.__process.pid}')
                     kill_child_processes(self.__process.pid)
         except Exception as e:
-            logger.error('Exception caught when terminating ESProcess: %s' % e)
+            logger.error(f'Exception caught when terminating ESProcess: {e}')
             self.stop()
             raise UnknownException(e)
 
@@ -631,7 +625,7 @@ class ESProcess(threading.Thread):
                  UnknownException: when other unknown exception is caught.
         """
 
-        logger.info('start esprocess with thread ident: %s' % (self.ident))
+        logger.info(f'start esprocess with thread ident: {self.ident}')
         logger.debug('initializing')
         self.init()
         logger.debug('initialization finished.')
@@ -643,11 +637,11 @@ class ESProcess(threading.Thread):
                 self.handle_messages()
                 time.sleep(0.01)
             except PilotException as e:
-                logger.error('PilotException caught in the main loop: %s, %s' % (e.get_detail(), traceback.format_exc()))
+                logger.error(f'PilotException caught in the main loop: {e.get_detail()}, {traceback.format_exc()}')
                 # TODO: define output message exception. If caught 3 output message exception, terminate
                 self.stop()
             except Exception as e:
-                logger.error('Exception caught in the main loop: %s, %s' % (e, traceback.format_exc()))
+                logger.error(f'Exception caught in the main loop: {e}, {traceback.format_exc()}')
                 # TODO: catch and raise exceptions
                 # if catching dead process exception, terminate.
                 self.stop()

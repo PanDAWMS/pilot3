@@ -104,22 +104,22 @@ class BaseExecutor(threading.Thread, PluginFactory):
         return self.__is_retrieve_payload
 
     def retrieve_payload(self):
-        logger.info("Retrieving payload: %s" % self.args)
+        logger.info(f"Retrieving payload: {self.args}")
         jobs = self.communication_manager.get_jobs(njobs=1, args=self.args)
-        logger.info("Received jobs: %s" % jobs)
+        logger.info(f"Received jobs: {jobs}")
         if jobs:
             job = create_job(jobs[0], queue=self.queue)
 
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)  # Python 2/3
             cmd = user.get_payload_command(job)
-            logger.info("payload execution command: %s" % cmd)
+            logger.info(f"payload execution command: {cmd}")
 
             payload = {'executable': cmd,
                        'workdir': job.workdir,
                        'job': job}
-            logger.info("Retrieved payload: %s" % payload)
+            logger.info(f"Retrieved payload: {payload}")
             return payload
         return None
 
@@ -134,8 +134,8 @@ class BaseExecutor(threading.Thread, PluginFactory):
         if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena':
             old_queue_factor = queue_factor
             queue_factor = 1
-            logger.info("raythena - Changing queue_factor from %s to %s" % (old_queue_factor, queue_factor))
-        logger.info("Getting event ranges: (num_ranges: %s) (queue_factor: %s)" % (num_event_ranges, queue_factor))
+            logger.info(f"raythena - Changing queue_factor from {old_queue_factor} to {queue_factor}")
+        logger.info(f"Getting event ranges: (num_ranges: {num_event_ranges}) (queue_factor: {queue_factor})")
         if len(self.__event_ranges) < num_event_ranges:
             ret = self.communication_manager.get_event_ranges(num_event_ranges=num_event_ranges * queue_factor, job=self.get_job())
             for event_range in ret:
@@ -146,19 +146,19 @@ class BaseExecutor(threading.Thread, PluginFactory):
             if len(self.__event_ranges) > 0:
                 event_range = self.__event_ranges.pop(0)
                 ret.append(event_range)
-        logger.info("Received event ranges(num:%s): %s" % (len(ret), ret))
+        logger.info(f"Received event ranges(num:{len(ret)}): {ret}")
         return ret
 
     def update_events(self, messages):
-        logger.info("Updating event ranges: %s" % messages)
+        logger.info(f"Updating event ranges: {messages}")
         ret = self.communication_manager.update_events(messages)
-        logger.info("Updated event ranges status: %s" % ret)
+        logger.info(f"Updated event ranges status: {ret}")
         return ret
 
     def update_jobs(self, jobs):
-        logger.info("Updating jobs: %s" % jobs)
+        logger.info(f"Updating jobs: {jobs}")
         ret = self.communication_manager.update_jobs(jobs)
-        logger.info("Updated jobs status: %s" % ret)
+        logger.info(f"Updated jobs status: {ret}")
         return ret
 
     def run(self):

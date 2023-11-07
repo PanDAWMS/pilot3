@@ -83,9 +83,9 @@ class WorkExecutor(PluginFactory):
 
     def start(self):
         plugin_confs = self.get_plugin_confs()
-        logger.info("Plugin confs: %s" % plugin_confs)
+        logger.info(f"Plugin confs: {plugin_confs}")
         self.plugin = self.get_plugin(plugin_confs)
-        logger.info("WorkExecutor started with plugin: %s" % self.plugin)
+        logger.info(f"WorkExecutor started with plugin: {self.plugin}")
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
 
@@ -97,12 +97,12 @@ class WorkExecutor(PluginFactory):
             else:
                 self.plugin.set_payload(self.get_payload())
 
-        logger.info("Starting plugin: %s" % self.plugin)
+        logger.info(f"Starting plugin: {self.plugin}")
         self.plugin.start()
         logger.info("Waiting for payload to start")
         while self.plugin.is_alive():
             if self.plugin.is_payload_started():
-                logger.info("Payload started with pid: %s" % self.get_pid())
+                logger.info(f"Payload started with pid: {self.get_pid()}")
                 break
             time.sleep(1)
 

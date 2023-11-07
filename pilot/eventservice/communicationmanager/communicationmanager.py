@@ -257,7 +257,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
         if not job:
             resp_attrs = {'status': -1,
                           'content': None,
-                          'exception': exception.CommunicationFailure("Get events failed because job info missing(job: %s)" % job)}
+                          'exception': exception.CommunicationFailure(f"Get events failed because job info missing(job: {job})")}
             resp = CommunicationResponse(resp_attrs)
             raise resp.exception
 
@@ -361,9 +361,9 @@ class CommunicationManager(threading.Thread, PluginFactory):
         """
 
         confs = self.get_plugin_confs()
-        logger.info("Communication plugin confs: %s" % confs)
+        logger.info(f"Communication plugin confs: {confs}")
         communicator = self.get_plugin(confs)
-        logger.info("Communication: %s" % communicator)
+        logger.info(f"Communication: {communicator}")
 
         processor = {'request_get_jobs': {'pre_check': communicator.pre_check_get_jobs,
                                           'handler': communicator.request_get_jobs,
@@ -397,7 +397,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
                 if self.is_stop():
                     while not self.queues[process_type].empty():
                         req = self.queues[process_type].get()
-                        logger.info("Is going to stop, aborting request: %s" % req)
+                        logger.info(f"Is going to stop, aborting request: {req}")
                         req.abort = True
                         resp_attrs = {'status': None,
                                       'content': None,
@@ -408,14 +408,14 @@ class CommunicationManager(threading.Thread, PluginFactory):
                     if not pre_check_resp.status == 0:
                         continue
 
-                    logger.info("Processing %s" % process_type)
+                    logger.info(f"Processing {process_type}")
 
                     has_req = True
                     req = self.queues[process_type].get()
 
-                    logger.info("Processing %s request: %s" % (process_type, req))
+                    logger.info(f"Processing {process_type} request: {req}")
                     res = processor[process_type]['handler'](req)
-                    logger.info("Processing %s respone: %s" % (process_type, res))
+                    logger.info(f"Processing {process_type} respone: {res}")
 
                     if res.status is False:
                         req.response = res

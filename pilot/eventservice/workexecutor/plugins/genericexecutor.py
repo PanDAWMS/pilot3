@@ -149,12 +149,12 @@ class GenericExecutor(BaseExecutor):
         while len(self.__queued_out_messages) > 0:
             out_messages.append(self.__queued_out_messages.pop())
 
-        output_file = "EventService_premerge_%s.tar" % out_messages[0]['id']
+        output_file = f"EventService_premerge_{out_messages[0]['id']}.tar"
 
         ret_messages = []
         try:
             for out_msg in out_messages:
-                command = "tar -rf " + output_file + " --directory=%s %s" % (os.path.dirname(out_msg['output']), os.path.basename(out_msg['output']))
+                command = "tar -rf " + output_file + f" --directory={os.path.dirname(out_msg['output'])} {os.path.basename(out_msg['output'])}"
                 exit_code, stdout, stderr = execute(command)
                 if exit_code == 0:
                     ret_messages.append(out_msg)
@@ -327,7 +327,7 @@ class GenericExecutor(BaseExecutor):
         """
 
         try:
-            logger.info("starting ES GenericExecutor with thread identifier: %s" % (self.ident))
+            logger.info(f"starting ES GenericExecutor with thread identifier: {self.ident}")
             if self.is_set_payload():
                 payload = self.get_payload()
             elif self.is_retrieve_payload():

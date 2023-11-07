@@ -86,10 +86,10 @@ class PandaCommunicator(BaseCommunicator):
                     data[key] = getattr(req, value)
 
             for i in range(req.num_jobs):
-                logger.info("Getting jobs: %s" % data)
+                logger.info(f"Getting jobs: {data}")
                 url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-                res = https.request('{pandaserver}/server/panda/getJob'.format(pandaserver=url), data=data)
-                logger.info("Got jobs returns: %s" % res)
+                res = https.request(f'{url}/server/panda/getJob', data=data)
+                logger.info(f"Got jobs returns: {res}")
 
                 if res is None:
                     resp_attrs = {'status': None, 'content': None, 'exception': exception.CommunicationFailure("Get job failed to get response from Panda.")}
@@ -101,7 +101,7 @@ class PandaCommunicator(BaseCommunicator):
                 elif res['StatusCode'] != 0:
                     resp_attrs = {'status': res['StatusCode'],
                                   'content': None,
-                                  'exception': exception.CommunicationFailure("Get job from Panda returns a non-zero value: %s" % res['StatusCode'])}
+                                  'exception': exception.CommunicationFailure(f"Get job from Panda returns a non-zero value: {res['StatusCode']}")}
                     break
                 else:
                     jobs.append(res)
@@ -113,8 +113,8 @@ class PandaCommunicator(BaseCommunicator):
 
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
-            logger.error("Failed to get jobs: %s, %s" % (e, traceback.format_exc()))
-            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to get jobs: %s" % (traceback.format_exc()))}
+            logger.error(f"Failed to get jobs: {e}, {traceback.format_exc()}")
+            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to get jobs: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)
 
         self.get_jobs_lock.release()
@@ -156,10 +156,10 @@ class PandaCommunicator(BaseCommunicator):
                     'taskID': req.taskid,
                     'nRanges': req.num_ranges}
 
-            logger.info("Downloading new event ranges: %s" % data)
+            logger.info(f"Downloading new event ranges: {data}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request('{pandaserver}/server/panda/getEventRanges'.format(pandaserver=url), data=data)
-            logger.info("Downloaded event ranges: %s" % res)
+            res = https.request(f'{url}/server/panda/getEventRanges', data=data)
+            logger.info(f"Downloaded event ranges: {res}")
 
             if res is None:
                 resp_attrs = {'status': -1,
@@ -170,12 +170,12 @@ class PandaCommunicator(BaseCommunicator):
             else:
                 resp_attrs = {'status': res['StatusCode'],
                               'content': None,
-                              'exception': exception.CommunicationFailure("Get events from panda returns non-zero value: %s" % res['StatusCode'])}
+                              'exception': exception.CommunicationFailure(f"Get events from panda returns non-zero value: {res['StatusCode']}")}
 
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
-            logger.error("Failed to download event ranges: %s, %s" % (e, traceback.format_exc()))
-            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to get events: %s" % (traceback.format_exc()))}
+            logger.error(f"Failed to download event ranges: {e}, {traceback.format_exc()}")
+            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to get events: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)
 
         self.get_events_lock.release()
@@ -190,7 +190,7 @@ class PandaCommunicator(BaseCommunicator):
         try:
             pass
         except Exception as e:  # Python 2/3
-            logger.error("Failed to pre_check_update_events: %s, %s" % (e, traceback.format_exc()))
+            logger.error(f"Failed to pre_check_update_events: {e}, {traceback.format_exc()}")
         self.update_events_lock.release()
         return CommunicationResponse({'status': 0})
 
@@ -202,16 +202,16 @@ class PandaCommunicator(BaseCommunicator):
 
         resp = None
         try:
-            logger.info("Updating events: %s" % req)
+            logger.info(f"Updating events: {req}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request('{pandaserver}/server/panda/updateEventRanges'.format(pandaserver=url), data=req.update_events)
+            res = https.request(f'{url}/server/panda/updateEventRanges', data=req.update_events)
 
-            logger.info("Updated event ranges status: %s" % res)
+            logger.info(f"Updated event ranges status: {res}")
             resp_attrs = {'status': 0, 'content': res, 'exception': None}
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
-            logger.error("Failed to update event ranges: %s, %s" % (e, traceback.format_exc()))
-            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to update events: %s" % (traceback.format_exc()))}
+            logger.error(f"Failed to update event ranges: {e}, {traceback.format_exc()}")
+            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to update events: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)
 
         self.update_events_lock.release()
@@ -225,7 +225,7 @@ class PandaCommunicator(BaseCommunicator):
         try:
             pass
         except Exception as e:  # Python 2/3
-            logger.error("Failed to pre_check_update_jobs: %s, %s" % (e, traceback.format_exc()))
+            logger.error(f"Failed to pre_check_update_jobs: {e}, {traceback.format_exc()}")
         self.update_jobs_lock.release()
         return CommunicationResponse({'status': 0})
 
@@ -235,14 +235,14 @@ class PandaCommunicator(BaseCommunicator):
         """
 
         try:
-            logger.info("Updating job: %s" % job)
+            logger.info(f"Updating job: {job}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request('{pandaserver}/server/panda/updateJob'.format(pandaserver=url), data=job)
+            res = https.request(f'{url}/server/panda/updateJob', data=job)
 
-            logger.info("Updated jobs status: %s" % res)
+            logger.info(f"Updated jobs status: {res}")
             return res
         except Exception as e:  # Python 2/3
-            logger.error("Failed to update jobs: %s, %s" % (e, traceback.format_exc()))
+            logger.error(f"Failed to update jobs: {e}, {traceback.format_exc()}")
             return -1
 
     def update_jobs(self, req):
@@ -253,7 +253,7 @@ class PandaCommunicator(BaseCommunicator):
 
         resp = None
         try:
-            logger.info("Updating jobs: %s" % req)
+            logger.info(f"Updating jobs: {req}")
             res_list = []
             for job in req.jobs:
                 res = self.update_job(job)
@@ -261,8 +261,8 @@ class PandaCommunicator(BaseCommunicator):
             resp_attrs = {'status': 0, 'content': res_list, 'exception': None}
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
-            logger.error("Failed to update jobs: %s, %s" % (e, traceback.format_exc()))
-            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to update jobs: %s" % (traceback.format_exc()))}
+            logger.error(f"Failed to update jobs: {e}, {traceback.format_exc()}")
+            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to update jobs: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)
 
         self.update_jobs_lock.release()
@@ -275,17 +275,17 @@ class PandaCommunicator(BaseCommunicator):
         self.update_jobs_lock.acquire()
 
         try:
-            logger.info("Updating jobs: %s" % req)
+            logger.info(f"Updating jobs: {req}")
             data = {'jobList': json.dumps(req.jobs)}
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request('{pandaserver}/server/panda/updateJobsInBulk'.format(pandaserver=url), data=data)
+            res = https.request(f'{url}/server/panda/updateJobsInBulk', data=data)
 
-            logger.info("Updated jobs status: %s" % res)
+            logger.info(f"Updated jobs status: {res}")
             resp_attrs = {'status': 0, 'content': res, 'exception': None}
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
-            logger.error("Failed to update jobs: %s, %s" % (e, traceback.format_exc()))
-            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to update jobs: %s" % (traceback.format_exc()))}
+            logger.error(f"Failed to update jobs: {e}, {traceback.format_exc()}")
+            resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to update jobs: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)
 
         self.update_jobs_lock.release()

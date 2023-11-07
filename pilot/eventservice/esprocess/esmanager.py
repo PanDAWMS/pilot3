@@ -41,7 +41,7 @@ class ESManager:
         """
         logger.info('initializing hooks')
         if not isinstance(hook, ESHook):
-            raise Exception("hook(%s) is not instance of %s" % (hook, ESHook))
+            raise Exception(f"hook({hook}) is not instance of {ESHook}")
 
         self.__hook = hook
         logger.info('initialized hooks')
@@ -53,7 +53,7 @@ class ESManager:
 
         logger.debug('gettting payload')
         payload = self.__hook.get_payload()
-        logger.debug('got payload: %s' % payload)
+        logger.debug(f'got payload: {payload}')
 
         logger.info('init ESProcess')
         process = ESProcess(payload)
