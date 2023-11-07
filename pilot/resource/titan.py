@@ -58,11 +58,11 @@ def get_job(harvesterpath):
     #rank, max_ranks = get_ranks_info()
 
     pandaids = read_json(pandaids_list_filename)
-    logger.info('Got {0} job ids'.format(len(pandaids)))
+    logger.info(f'Got {len(pandaids)} job ids')
     pandaid = pandaids[rank]
     job_workdir = os.path.join(harvesterpath, str(pandaid))
 
-    logger.info('Rank: {2} with job {0} will have work directory {1}'.format(pandaid, job_workdir, rank))
+    logger.info(f'Rank: {rank} with job {pandaid} will have work directory {job_workdir}')
 
     job_def_filename = os.path.join(job_workdir, config.Harvester.pandajob_file)
     jobs_dict = read_json(job_def_filename)
@@ -132,7 +132,7 @@ def set_scratch_workdir(job, work_dir, args):
     job_scratch_dir = os.path.join(scratch_path, str(job.jobid))
     for inp_file in job.input_files:
         job.input_files[inp_file]["scratch_path"] = job_scratch_dir
-    logger.debug("Job scratch path: {0}".format(job_scratch_dir))
+    logger.debug(f"Job scratch path: {job_scratch_dir}")
     # special data, that should be preplaced in RAM disk
     dst_db_path = 'sqlite200/'
     dst_db_filename = 'ALLP200.db'
@@ -155,14 +155,14 @@ def set_scratch_workdir(job, work_dir, args):
             shutil.copyfile(src_file, scratch_path + dst_db_path + dst_db_filename)
             logger.debug("")
             sql_cp_time = time.time() - t0
-            logger.debug("Copy of sqlite files took: {0}".format(sql_cp_time))
+            logger.debug(f"Copy of sqlite files took: {sql_cp_time}")
             logger.debug("Prepare dst and copy geomDB files")
             t0 = time.time()
             if not os.path.exists(scratch_path + dst_db_path_2):
                 os.makedirs(scratch_path + dst_db_path_2)
             shutil.copyfile(src_file_2, scratch_path + dst_db_path_2 + dst_db_filename_2)
             geomdb_cp_time = time.time() - t0
-            logger.debug("Copy of geomDB files took: {0} s".format(geomdb_cp_time))
+            logger.debug(f"Copy of geomDB files took: {geomdb_cp_time} s")
             logger.debug("Prepare job scratch dir")
             t0 = time.time()
             if not os.path.exists(job_scratch_dir):
@@ -174,19 +174,19 @@ def set_scratch_workdir(job, work_dir, args):
                 shutil.copyfile(os.path.join(work_dir, inp_file),
                                 os.path.join(job.input_files[inp_file]["scratch_path"], inp_file))
             input_cp_time = time.time() - t0
-            logger.debug("Copy of input files took: {0} s".format(input_cp_time))
-        except IOError as e:
-            logger.error("I/O error({0}): {1}".format(e.errno, e.strerror))
-            logger.error("Copy to scratch failed, execution terminated': \n %s " % (sys.exc_info()[1]))
+            logger.debug(f"Copy of input files took: {input_cp_time} s")
+        except IOError as exc:
+            logger.error(f"I/O error({exc.errno}): {exc.strerror}")
+            logger.error(f"Copy to scratch failed, execution terminated': \n {sys.exc_info()[1]} ")
             raise FileHandlingFailure("Copy to RAM disk failed")
         finally:
             add_to_pilot_timing(job.jobid, PILOT_POST_STAGEIN, time.time(), args)
     else:
-        logger.info('Scratch directory (%s) dos not exist' % scratch_path)
+        logger.info(f'Scratch directory ({scratch_path}) dos not exist')
         return work_dir
 
     os.chdir(job_scratch_dir)
-    logger.debug("Current directory: {0}".format(os.getcwd()))
+    logger.debug(f"Current directory: {os.getcwd()}")
     true_dir = '/ccs/proj/csc108/AtlasReleases/21.0.15/nfs_db_files'
     pseudo_dir = "./poolcond"
     os.symlink(true_dir, pseudo_dir)
@@ -209,7 +209,7 @@ def process_jobreport(payload_report_file, job_scratch_path, job_communication_p
 
     try:
         logger.info(
-            "Copy of payload report [{0}] to access point: {1}".format(payload_report_file, job_communication_point))
+            f"Copy of payload report [{payload_report_file}] to access point: {job_communication_point}")
         # shrink jobReport
         job_report = read_json(src_file)
         if 'executor' in job_report:
@@ -220,7 +220,7 @@ def process_jobreport(payload_report_file, job_scratch_path, job_communication_p
         write_json(dst_file, job_report)
 
     except IOError:
-        logger.error("Job report copy failed, execution terminated':  \n %s " % (sys.exc_info()[1]))
+        logger.error(f"Job report copy failed, execution terminated':  \n {sys.exc_info()[1]} ")
         raise FileHandlingFailure("Job report copy from RAM failed")
 
 

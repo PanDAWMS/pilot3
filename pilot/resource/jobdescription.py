@@ -447,18 +447,21 @@ class JobDescription(object):
                 return self.__holder[key]
 
             if key in self.__input_file_keys:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.input_files[][%s] to "
-                                "access and manipulate this value.\n" % (key, self.__input_file_keys[key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.input_files[][{self.__input_file_keys[key]}] to "
+                                "access and manipulate this value.\n") + self.get_traceback())
                 return self.get_input_file_prop(key)
             if key in self.__output_file_keys:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.output_files[][%s] to"
-                                " access and manipulate this value.\n" % (key, self.__output_file_keys[key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.output_files[][{self.__output_file_keys[key]}] to "
+                                "access and manipulate this value.\n") + self.get_traceback())
                 return self.get_output_file_prop(key)
 
             snake_key = camel_to_snake(key)
             if snake_key in self.__key_aliases_snake:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.%s to access and "
-                                "manipulate this value.\n" % (key, self.__key_aliases_snake[snake_key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.{self.__key_aliases_snake[snake_key]} to access and "
+                                "manipulate this value.\n") + self.get_traceback())
                 return stringify_weird(self.__holder[self.__key_aliases_snake[snake_key]])
 
             if key in self.__soft_key_aliases:
@@ -473,27 +476,28 @@ class JobDescription(object):
                 return True
 
             if key in self.__input_file_keys:
-                err = "Key JobDescription.%s is read-only\n" % key
+                err = f"Key JobDescription.{key} is read-only\n"
                 if key == 'inFiles':
                     err += "Use JobDescription.input_files to manipulate input files"
                 else:
-                    err += "Use JobDescription.input_files[][%s] to set up this parameter in files description" %\
-                           self.__input_file_keys[key]
+                    err += f"Use JobDescription.input_files[][{self.__input_file_keys[key]}] to " \
+                           f"set up this parameter in files description"
                 raise AttributeError(err)
 
             if key in self.__output_file_keys:
-                err = "Key JobDescription.%s is read-only\n" % key
+                err = f"Key JobDescription.{key} is read-only\n"
                 if key == 'outFiles':
                     err += "Use JobDescription.output_files to manipulate output files"
                 else:
-                    err += "Use JobDescription.output_files[][%s] to set up this parameter in files description" %\
-                           self.__output_file_keys[key]
+                    err += f"Use JobDescription.output_files[][{self.__output_file_keys[key]}] to " \
+                           f"set up this parameter in files description"
                 raise AttributeError(err)
 
             snake_key = camel_to_snake(key)
             if snake_key in self.__key_aliases_snake:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.%s to access and"
-                                "manipulate this value.\n" % (key, self.__key_aliases_snake[snake_key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. Better to use "
+                                f"JobDescription.{self.__key_aliases_snake[snake_key]} to access and "
+                                "manipulate this value.\n") + self.get_traceback())
                 self.__holder[self.__key_aliases_snake[snake_key]] = parse_value(value)
 
             if key in self.__soft_key_aliases:
@@ -509,12 +513,9 @@ class JobDescription(object):
             if ii[0] < 3:
                 continue  # we don't need inner scopes of this and subsequent calls
             i = ii[1]
-            tb_str += '{file}:{line} (in {module}): {call}\n'.format(file=i[0],
-                                                                     line=i[1],
-                                                                     module=i[2],
-                                                                     call=i[3])
+            tb_str += f'{i[0]}:{i[1]} (in {i[2]}): {i[3]}\n'
         thread = threading.currentThread()
-        return 'Traceback: (latest call first)' + tb_str + 'Thread: %s(%d)' % (thread.getName(), thread.ident)
+        return 'Traceback: (latest call first)' + tb_str + f'Thread: {thread.getName()}({thread.ident})'
 
     def __getattr__(self, key):
         """
