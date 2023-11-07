@@ -50,9 +50,9 @@ def is_valid_for_copy_out(files):
 
 def _resolve_checksum_option(setup, **kwargs):
 
-    cmd = "%s --version" % copy_command
+    cmd = f"{copy_command} --version"
     if setup:
-        cmd = "source %s; %s" % (setup, cmd)
+        cmd = f"source {setup}; {cmd}"
 
     logger.info("Execute command (%s) to check xrdcp client version", cmd)
 
@@ -60,9 +60,9 @@ def _resolve_checksum_option(setup, **kwargs):
     logger.info("return code: %s", rcode)
     logger.info("return output: %s", stdout + stderr)
 
-    cmd = "%s -h" % copy_command
+    cmd = f"{copy_command} -h"
     if setup:
-        cmd = "source %s; %s" % (setup, cmd)
+        cmd = f"source {setup}; {cmd}"
 
     logger.info("Execute command (%s) to decide which option should be used to calc/verify file checksum..", cmd)
 
@@ -78,7 +78,7 @@ def _resolve_checksum_option(setup, **kwargs):
         logger.error('FAILED to execute command=%s: %s', cmd, output)
     else:
         if "--cksum" in output:
-            coption = "--cksum %s:print" % checksum_type
+            coption = f"--cksum {checksum_type}:print"
         elif "-adler" in output and checksum_type == 'adler32':
             coption = "-adler"
         elif "-md5" in output and checksum_type == 'md5':
@@ -100,9 +100,9 @@ def _stagefile(coption, source, destination, filesize, is_stagein, setup=None, *
 
     filesize_cmd, checksum_cmd, checksum_type = None, None, None
 
-    cmd = '%s -np -f %s %s %s' % (copy_command, coption, source, destination)
+    cmd = f'{copy_command} -np -f {coption} {source} {destination}'
     if setup:
-        cmd = "source %s; %s" % (setup, cmd)
+        cmd = f"source {setup}; {cmd}"
 
     #timeout = get_timeout(filesize)
     #logger.info("Executing command: %s, timeout=%s" % (cmd, timeout))

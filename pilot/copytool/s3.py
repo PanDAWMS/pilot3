@@ -96,7 +96,7 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
 
     ddm = ddmconf.get(fspec.ddmendpoint)
     if not ddm:
-        raise PilotException('failed to resolve ddmendpoint by name=%s' % fspec.ddmendpoint)
+        raise PilotException(f'failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
     if ddm.is_deterministic:
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), get_rucio_path(fspec.scope, fspec.lfn))
@@ -119,9 +119,9 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
 
         fspec.protocol_id = protocol.get('id')
     else:
-        raise PilotException('resolve_surl(): Failed to construct SURL for non deterministic ddm=%s: NOT IMPLEMENTED', fspec.ddmendpoint)
+        raise PilotException(f'resolve_surl(): Failed to construct SURL for non deterministic ddm={fspec.ddmendpoint}: NOT IMPLEMENTED')
 
-    logger.info('resolve_surl, surl: %s', surl)
+    logger.info(f'resolve_surl, surl: {surl}')
     # example:
     #   protocol = {u'path': u'/atlas-eventservice', u'endpoint': u's3://s3.cern.ch:443/', u'flavour': u'AWS-S3-SSL', u'id': 175}
     #   surl = 's3://s3.cern.ch:443//atlas-eventservice/EventService_premerge_24706191-5013009653-24039149400-322-5.tar'
@@ -142,7 +142,7 @@ def copy_in(files, **kwargs):
 
         # bucket = 'bucket'  # UPDATE ME
         path = os.path.join(dst, fspec.lfn)
-        logger.info('downloading surl %s to local file %s', fspec.surl, path)
+        logger.info(f'downloading surl {fspec.surl} to local file {path}')
         status, diagnostics = download_file(path, fspec.surl)
 
         if not status:  # an error occurred
@@ -174,11 +174,11 @@ def download_file(path, surl, object_name=None):
         s3 = session.client('s3', endpoint_url=endpoint)
         s3.download_file(bucket, object_name, path)
     except ClientError as error:
-        diagnostics = 'S3 ClientError: %s' % error
+        diagnostics = f'S3 ClientError: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
     except Exception as error:
-        diagnostics = 'exception caught in s3_client: %s' % error
+        diagnostics = f'exception caught in s3_client: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
 
@@ -198,7 +198,7 @@ def copy_out_extend(files, **kwargs):
     for fspec in files:
 
         # path = os.path.join(workdir, fspec.lfn)
-        logger.info('uploading %s to fspec.turl %s', workdir, fspec.turl)
+        logger.info(f'uploading {workdir} to {fspec.turl}')
 
         logfiles = []
         lfn = fspec.lfn.strip()
@@ -218,7 +218,7 @@ def copy_out_extend(files, **kwargs):
             logfile = os.path.basename(path)
             if os.path.exists(path):
                 full_url = os.path.join(fspec.turl, logfile)
-                logger.info('uploading %s to%s', path, full_url)
+                logger.info(f'uploading {path} to {full_url}')
                 status, diagnostics = upload_file(path, full_url)
 
                 if not status:  # an error occurred
@@ -228,7 +228,7 @@ def copy_out_extend(files, **kwargs):
                     fspec.status_code = error.get('rcode')
                     raise PilotException(error.get('error'), code=error.get('rcode'), state=error.get('state'))
             else:
-                diagnostics = 'local output file does not exist: %s' % path
+                diagnostics = f'local output file does not exist: {path}'
                 logger.warning(diagnostics)
                 fspec.status = 'failed'
                 fspec.status_code = errors.STAGEOUTFAILED
@@ -259,7 +259,7 @@ def copy_out(files, **kwargs):
         path = os.path.join(workdir, fspec.lfn)
         if os.path.exists(path):
             # bucket = 'bucket'  # UPDATE ME
-            logger.info('uploading %s to fspec.turl %s', path, fspec.turl)
+            logger.info(f'uploading {path} to {fspec.turl}')
             full_url = os.path.join(fspec.turl, fspec.lfn)
             status, diagnostics = upload_file(path, full_url)
 
@@ -270,7 +270,7 @@ def copy_out(files, **kwargs):
                 fspec.status_code = error.get('rcode')
                 raise PilotException(error.get('error'), code=error.get('rcode'), state=error.get('state'))
         else:
-            diagnostics = 'local output file does not exist: %s' % path
+            diagnostics = f'local output file does not exist: {path}'
             logger.warning(diagnostics)
             fspec.status = 'failed'
             fspec.status_code = errors.STAGEOUTFAILED
@@ -302,13 +302,13 @@ def upload_file(file_name, full_url, object_name=None):
         s3_client.upload_file(file_name, bucket, object_name)
         if object_name.endswith(config.Pilot.pilotlog):
             os.environ['GTAG'] = full_url
-            logger.debug("Set envvar GTAG with the pilotLot URL=%s", full_url)
+            logger.debug(f"Set envvar GTAG with the pilotLot URL={full_url}")
     except ClientError as error:
-        diagnostics = 'S3 ClientError: %s' % error
+        diagnostics = f'S3 ClientError: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
     except Exception as error:
-        diagnostics = 'exception caught in s3_client: %s' % error
+        diagnostics = f'exception caught in s3_client: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
 

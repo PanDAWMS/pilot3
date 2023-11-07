@@ -14,6 +14,7 @@
 # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
+# specific language governing permissions and limitations
 # under the License.
 #
 # Authors:
@@ -357,7 +358,7 @@ def copy_out(files, **kwargs):  # noqa: C901
 
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', None)
     for fspec in files:
-        logger.info('rucio copytool, uploading file with scope: %s and lfn: %s' % (str(fspec.scope), str(fspec.lfn)))
+        logger.info(f'rucio copytool, uploading file with scope: {fspec.scope} and lfn: {fspec.lfn}')
         localsite = localsite if localsite else fspec.ddmendpoint
         trace_report.update(localSite=localsite, remoteSite=fspec.ddmendpoint)
         trace_report.update(scope=fspec.scope, dataset=fspec.dataset, url=fspec.surl, filesize=fspec.filesize)
@@ -369,11 +370,11 @@ def copy_out(files, **kwargs):  # noqa: C901
         if summary:
             summary_file_path = os.path.join(cwd, 'rucio_upload.json')
 
-        logger.info('the file will be uploaded to %s' % str(fspec.ddmendpoint))
+        logger.info(f'the file will be uploaded to {fspec.ddmendpoint}')
         trace_report_out = []
         transfer_timeout = get_timeout(fspec.filesize)
         ctimeout = transfer_timeout + 10  # give the API a chance to do the time-out first
-        logger.info('overall transfer timeout=%s' % ctimeout)
+        logger.info(f'overall transfer timeout={ctimeout}')
 
         error_msg = ""
         ec = 0
@@ -389,7 +390,7 @@ def copy_out(files, **kwargs):  # noqa: C901
             trace_report.update(protocol=protocol)
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s to %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
+                msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
         except Exception as error:
             error_msg = str(error)
@@ -398,7 +399,7 @@ def copy_out(files, **kwargs):  # noqa: C901
             trace_report.update(protocol=protocol)
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s to %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
+                msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
         else:
             protocol = get_protocol(trace_report_out)
@@ -414,12 +415,12 @@ def copy_out(files, **kwargs):  # noqa: C901
 
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s from %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
+                msg = f" {fspec.scope}:{fspec.lfn} from {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
 
         if summary:  # resolve final pfn (turl) from the summary JSON
             if not os.path.exists(summary_file_path):
-                logger.error('Failed to resolve Rucio summary JSON, wrong path? file=%s' % summary_file_path)
+                logger.error(f'Failed to resolve Rucio summary JSON, wrong path? file={summary_file_path}')
             else:
                 with open(summary_file_path, 'rb') as f:
                     summary_json = json.load(f)
@@ -562,7 +563,7 @@ def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, 
         _file = {}
         _file['did_scope'] = fspec.scope
         _file['did_name'] = fspec.lfn
-        _file['did'] = '%s:%s' % (fspec.scope, fspec.lfn)
+        _file['did'] = f'{fspec.scope}:{fspec.lfn}'
         _file['rse'] = fspec.ddmendpoint
         _file['base_dir'] = fspec.workdir or dst
         _file['no_subdir'] = True

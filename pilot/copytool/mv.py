@@ -52,12 +52,12 @@ def create_output_list(files, init_dir):
         else:
             # Add ARC options to TURL
             checksumtype, checksum = list(fspec.checksum.items())[0]
-            arcturl += ':checksumtype=%s:checksumvalue=%s' % (checksumtype, checksum)
+            arcturl += f':checksumtype={checksumtype}:checksumvalue={checksum}'
 
-        logger.info('Adding to output.list: %s %s', fspec.lfn, arcturl)
+        logger.info(f'adding to output.list: {fspec.lfn} {arcturl}')
         # Write output.list
         with open(os.path.join(init_dir, 'output.list'), 'a') as f:
-            f.write('%s %s\n' % (fspec.lfn, arcturl))
+            f.write(f'{fspec.lfn} {arcturl}\n')
 
 
 def is_valid_for_copy_in(files):
@@ -182,7 +182,7 @@ def copy_out(files, copy_type="mv", **kwargs):
             raise StageOutFailure(stdout)
 
     # Create output list for ARC CE if necessary
-    logger.debug('init_dir for output.list=%s', os.path.dirname(kwargs.get('workdir')))
+    logger.debug(f"init_dir for output.list={os.path.dirname(kwargs.get('workdir'))}")
     output_dir = kwargs.get('output_dir', '')
     if not output_dir:
         create_output_list(files, os.path.dirname(kwargs.get('workdir')))
@@ -240,11 +240,11 @@ def move_all_files(files, copy_type, workdir, jobworkdir, mvfinaldest=False):
         # resolve canonical path
         source = os.path.realpath(source)
 
-        logger.info("transferring file %s from %s to %s", name, source, destination)
+        logger.info(f"transferring file {name} from {source} to {destination}")
 
         exit_code, stdout, stderr = copy_method(source, destination)
         if exit_code != 0:
-            logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+            logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
             fspec.status = 'failed'
             if fspec.filetype == 'input':
                 fspec.status_code = ErrorCodes.STAGEINFAILED

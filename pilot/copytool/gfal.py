@@ -92,9 +92,9 @@ def copy_in(files, **kwargs):
 
         timeout = get_timeout(fspec.filesize)
         source = fspec.turl
-        destination = "file://%s" % os.path.abspath(os.path.join(dst, fspec.lfn))
+        destination = f"file://{os.path.abspath(os.path.join(dst, fspec.lfn))}"
 
-        cmd = ['gfal-copy --verbose -f', ' -t %s' % timeout]
+        cmd = ['gfal-copy --verbose -f', f' -t {timeout}']
 
         if fspec.checksum:
             cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]  # Python 2/3
@@ -107,7 +107,7 @@ def copy_in(files, **kwargs):
             if rcode in [errno.ETIMEDOUT, errno.ETIME]:
                 error = {'rcode': ErrorCodes.STAGEINTIMEOUT,
                          'state': 'CP_TIMEOUT',
-                         'error': 'Copy command timed out: %s' % stderr}
+                         'error': f'Copy command timed out: {stderr}'}
             else:
                 error = resolve_common_transfer_errors(stdout + stderr, is_stagein=True)
             fspec.status = 'failed'
@@ -147,10 +147,10 @@ def copy_out(files, **kwargs):
 
         timeout = get_timeout(fspec.filesize)
 
-        source = "file://%s" % os.path.abspath(fspec.surl or os.path.join(src, fspec.lfn))
+        source = f"file://{os.path.abspath(fspec.surl or os.path.join(src, fspec.lfn))}"
         destination = fspec.turl
 
-        cmd = ['gfal-copy --verbose -f', ' -t %s' % timeout]
+        cmd = ['gfal-copy --verbose -f', f' -t {timeout}']
 
         if fspec.checksum:
             cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]  # Python 2/3
@@ -163,7 +163,7 @@ def copy_out(files, **kwargs):
             if rcode in [errno.ETIMEDOUT, errno.ETIME]:
                 error = {'rcode': ErrorCodes.STAGEOUTTIMEOUT,
                          'state': 'CP_TIMEOUT',
-                         'error': 'Copy command timed out: %s' % stderr}
+                         'error': f'Copy command timed out: {stderr}'}
             else:
                 error = resolve_common_transfer_errors(stdout + stderr, is_stagein=False)
             fspec.status = 'failed'
@@ -196,7 +196,7 @@ def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s" % (entry['name'], entry['source'], entry['destination']))
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         source = entry['source'] + '/' + entry['name']
         # why /*4 ? Because sometimes gfal-copy complains about file:// protocol (anyone knows why?)
@@ -207,7 +207,7 @@ def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s" % (exit_code, stdout, stderr))
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -228,7 +228,7 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s" % (entry['name'], entry['source'], entry['destination']))
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         destination = entry['destination'] + '/' + entry['name']
         # why /*4 ? Because sometimes gfal-copy complains about file:// protocol (anyone knows why?)
@@ -239,7 +239,7 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s" % (exit_code, stdout, stderr))
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -251,9 +251,9 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
 def move(source, destination, recursive=False):
     cmd = None
     if recursive:
-        cmd = "gfal-copy -r %s %s" % (source, destination)
+        cmd = f"gfal-copy -r {source} {destination}"
     else:
-        cmd = "gfal-copy %s %s" % (source, destination)
+        cmd = f"gfal-copy {source} {destination}"
     print(cmd)
     exit_code, stdout, stderr = execute(cmd)
 

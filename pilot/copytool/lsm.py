@@ -113,12 +113,12 @@ def copy_in(files, **kwargs):
         source = fspec.turl
         destination = os.path.join(dst, fspec.lfn)
 
-        logger.info("transferring file %s from %s to %s", fspec.lfn, source, destination)
+        logger.info(f"transferring file {fspec.lfn} from {source} to {destination}")
 
         exit_code, stdout, stderr = move(source, destination, dst_in=True, copysetup=copysetup)
 
         if exit_code != 0:
-            logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+            logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
 
             error = resolve_common_transfer_errors(stderr, is_stagein=True)
             fspec.status = 'failed'
@@ -173,7 +173,7 @@ def copy_out(files, **kwargs):
         ddm = ddmconf.get(fspec.ddmendpoint)
         token = ddm.token
         if not token:
-            diagnostics = "copy_out() failed to resolve token value for ddmendpoint=%s" % (fspec.ddmendpoint)
+            diagnostics = f"copy_out() failed to resolve token value for ddmendpoint={fspec.ddmendpoint}"
             trace_report.update(clientState='STAGEOUT_ATTEMPT_FAILED',
                                 stateReason=diagnostics,
                                 timeEnd=time())
@@ -187,19 +187,16 @@ def copy_out(files, **kwargs):
 
         # checksum has been calculated in the previous step - transfer_files() in api/data
         # note: pilot is handing over checksum to the command - which will/should verify it after the transfer
-        checksum = "adler32:%s" % fspec.checksum.get('adler32')
+        checksum = f"adler32:{fspec.checksum.get('adler32')}"
 
         # define the command options
         opts = {'--size': fspec.filesize,
                 '-t': token,
                 '--checksum': checksum,
                 '--guid': fspec.guid}
-        try:
-            opts = " ".join(["%s %s" % (k, v) for (k, v) in opts.iteritems()])  # Python 2
-        except Exception:
-            opts = " ".join(["%s %s" % (k, v) for (k, v) in list(opts.items())])  # Python 3
+        opts = " ".join([f"{k} {v}" for (k, v) in list(opts.items())])
 
-        logger.info("transferring file %s from %s to %s", fspec.lfn, source, destination)
+        logger.info(f"transferring file {fspec.lfn} from {source} to {destination}")
 
         nretries = 1  # input parameter to function?
         for retry in range(nretries):
@@ -259,7 +256,7 @@ def move_all_files_in(files, nretries=1):
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s", entry['name'], entry['source'], entry['destination'])
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         source = entry['source'] + '/' + entry['name']
         destination = os.path.join(entry['destination'], entry['name'])
@@ -268,7 +265,7 @@ def move_all_files_in(files, nretries=1):
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -289,7 +286,7 @@ def move_all_files_out(files, nretries=1):
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s", entry['name'], entry['source'], entry['destination'])
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         destination = entry['destination'] + '/' + entry['name']
         source = os.path.join(entry['source'], entry['name'])
@@ -298,7 +295,7 @@ def move_all_files_out(files, nretries=1):
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -319,18 +316,18 @@ def move(source, destination, dst_in=True, copysetup="", options=None):
 
     # copysetup = '/osg/mwt2/app/atlas_app/atlaswn/setup.sh'
     if copysetup != "":
-        cmd = 'source %s;' % copysetup
+        cmd = f'source {copysetup};'
     else:
         cmd = ''
 
-    args = "%s %s" % (source, destination)
+    args = f"{source} {destination}"
     if options:
-        args = "%s %s" % (options, args)
+        args = f"{options} {args}"
 
     if dst_in:
-        cmd += "lsm-get %s" % args
+        cmd += f"lsm-get {args}"
     else:
-        cmd += "lsm-put %s" % args
+        cmd += f"lsm-put {args}"
 
     try:
         exit_code, stdout, stderr = execute(cmd, usecontainer=False, copytool=True)  #, timeout=get_timeout(fspec.filesize))
@@ -343,7 +340,7 @@ def move(source, destination, dst_in=True, copysetup="", options=None):
         stderr = ''
         logger.warning(stdout)
 
-    logger.info('exit_code=%d, stdout=%s, stderr=%s', exit_code, stdout, stderr)
+    logger.info(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
     return exit_code, stdout, stderr
 
 
