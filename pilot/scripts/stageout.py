@@ -318,8 +318,8 @@ if __name__ == '__main__':  # noqa: C901
     # get the file info
     lfns, scopes, ddmendpoints, datasets, guids = get_file_lists(args.lfns, args.scopes, args.ddmendpoints, args.datasets, args.guids)
     if len(lfns) != len(scopes) or len(lfns) != len(ddmendpoints) or len(lfns) != len(datasets) or len(lfns) != len(guids):
-        message('file lists not same length: len(lfns)=%d, len(scopes)=%d, len(ddmendpoints)=%d, len(datasets)=%d, len(guids)=%d' %
-                (len(lfns), len(scopes), len(ddmendpoints), len(datasets), len(guids)))
+        message(f'file lists not same length: len(lfns)={len(lfns)}, len(scopes)={len(scopes)}, '
+                f'len(ddmendpoints)={len(ddmendpoints)}, len(datasets)={len(datasets)}, len(guids)={len(guids)}')
 
     # generate the trace report
     trace_report = TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), localSite=args.localsite,
@@ -380,8 +380,8 @@ if __name__ == '__main__':  # noqa: C901
             add_to_dictionary(file_dictionary, fspec.lfn, fspec.status, fspec.status_code,
                               fspec.surl, fspec.turl, fspec.checksum.get('adler32'), fspec.filesize)
             status = fspec.status if fspec.status else "(not transferred)"
-            message(" -- lfn=%s, status_code=%s, status=%s, surl=%s, turl=%s, checksum=%s, filesize=%s" %
-                    (fspec.lfn, fspec.status_code, status, fspec.surl, fspec.turl, fspec.checksum.get('adler32'), fspec.filesize))
+            message(f" -- lfn={fspec.lfn}, status_code={fspec.status_code}, status={status}, surl={fspec.surl}, "
+                    f"turl={fspec.turl}, checksum={fspec.checksum.get('adler32')}, filesize={fspec.filesize}")
 
     # add error info, if any
     if err:
@@ -392,9 +392,9 @@ if __name__ == '__main__':  # noqa: C901
         path += '.log'
     write_json(path, file_dictionary)
     if err:
-        message("containerised file transfers failed: %s" % err)
+        message(f"containerised file transfers failed: {err}")
         exit(TRANSFER_ERROR)
 
-    message("wrote %s" % path)
+    message(f"wrote {path}")
     message("containerised file transfers finished")
     exit(0)

@@ -126,11 +126,11 @@ def check_flags(must, must_not, flags):
     failed = False
     for flag in must:
         if not any([re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags]):
-            logging.debug("Missing must-have: {0}".format(flag))
+            logging.debug(f"Missing must-have: {flag}")
             failed = True
     for flag in must_not:
         if not any([re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags]):
-            logging.debug("Present must-not-have: {0}".format(flag))
+            logging.debug(f"Present must-not-have: {flag}")
             failed = True
     return failed
 
@@ -140,25 +140,25 @@ def all_version_checks(flag_string, name):
     Architecture is assigned to the CPU based on the check_flags() function
     """
     flag_list = flag_string.split()
-    logging.debug("-------Checking V4 for {0}--------".format(name))
+    logging.debug(f"-------Checking V4 for {name}--------")
     failed_v4 = check_flags(must_v4, must_not_v4, flag_list)
     if not failed_v4:
         return "x86-64-v4"
     else:
         pass
-    logging.debug("-------Checking V3 for {0}--------".format(name))
+    logging.debug(f"-------Checking V3 for {name}--------")
     failed_v3 = check_flags(must_v3, must_not_v3, flag_list)
     if not failed_v3:
         return "x86-64-v3"
     else:
         pass
-    logging.debug("-------Checking V2 for {0}--------".format(name))
+    logging.debug(f"-------Checking V2 for {name}--------")
     failed_v2 = check_flags(must_v2, must_not_v2, flag_list)
     if not failed_v2:
         return "x86-64-v2"
     else:
         pass
-    logging.debug("-------Defaulting {0} to V1--------".format(name))
+    logging.debug(f"-------Defaulting {name} to V1--------")
     if failed_v2 and failed_v3 and failed_v4:
         return "x86-64-v1"
 

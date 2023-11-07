@@ -116,7 +116,7 @@ def get_file_lists(turls):
     try:
         _turls = turls.split(',')
     except Exception as error:
-        message("exception caught: %s" % error)
+        message(f"exception caught: {error}")
 
     return {'turls': _turls}
 
@@ -136,16 +136,16 @@ def try_open_file(turl, queues):
     _timeout = 30 * 1000  # 30 s per file
     try:
         _ = ROOT.TFile.SetOpenTimeout(_timeout)
-        # message("internal TFile.Open() time-out set to %d ms" % _timeout)
-        message('opening %s' % turl)
+        # message(f"internal TFile.Open() time-out set to {_timeout} ms")
+        message(f'opening {turl}')
         in_file = ROOT.TFile.Open(turl)
     except Exception as exc:
-        message('caught exception: %s' % exc)
+        message(f'caught exception: {exc}')
     else:
         if in_file and in_file.IsOpen():
             in_file.Close()
             turl_opened = True
-            message('closed %s' % turl)
+            message(f'closed {turl}')
     queues.opened.put(turl) if turl_opened else queues.unopened.put(turl)
     queues.result.put(turl)
 
@@ -206,7 +206,8 @@ def interrupt(args, signum, frame):
         sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
     except Exception:
         sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
-    logger.warning(f'caught signal: {sig} in FRAME=\n%s', '\n'.join(traceback.format_stack(frame)))
+    tmp = '\n'.join(traceback.format_stack(frame))
+    logger.warning(f'caught signal: {sig} in FRAME=\n{tmp}')
     cmd = f'ps aux | grep {os.getpid()}'
     out = subprocess.getoutput(cmd)
     logger.info(f'{cmd}:\n{out}')
@@ -230,7 +231,7 @@ if __name__ == '__main__':
     try:
         logname = config.Pilot.remotefileverification_log
     except Exception as error:
-        print("caught exception: %s (skipping remote file open verification)" % error)
+        print(f"caught exception: {error} (skipping remote file open verification)")
         exit(1)
     else:
         if not logname:
@@ -254,7 +255,7 @@ if __name__ == '__main__':
     queues.unopened = queue.Queue()
     threads = []
 
-    message('will attempt to open %d file(s) using %d thread(s)' % (len(turls), args.nthreads))
+    message(f'will attempt to open {len(turls)} file(s) using {args.nthreads} thread(s)')
 
     if turls:
         # make N calls to begin with
@@ -271,7 +272,7 @@ if __name__ == '__main__':
                 message("reached time-out")
                 break
             except Exception as error:
-                message("caught exception: %s" % error)
+                message(f"caught exception: {error}")
 
             thread = spawn_file_open_thread(queues, turls)
             if thread:

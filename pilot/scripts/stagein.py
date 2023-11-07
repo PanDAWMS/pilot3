@@ -314,7 +314,7 @@ def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, dir
         _storagetokens = storagetokens.split(',')
         _guids = guids.split(',')
     except (NameError, TypeError, ValueError) as error:
-        message("exception caught: %s" % error)
+        message(f"exception caught: {error}")
 
     file_list_dictionary = {'lfns': _lfns, 'scopes': _scopes, 'filesizes': _filesizes, 'checksums': _checksums,
                             'allowlans': _allowlans, 'allowwans': _allowwans, 'directaccesslans': _directaccesslans,
@@ -396,7 +396,7 @@ if __name__ == '__main__':
     try:
         replica_dictionary = read_json(os.path.join(args.workdir, args.replicadictionary))
     except ConversionFailure as exc:
-        message('exception caught reading json: %s' % exc)
+        message(f'exception caught reading json: {exc}')
         exit(1)
 
 #    file_list_dictionary = get_file_lists(args.lfns, args.scopes, args.filesizes, args.checksums, args.allowlans,
@@ -475,7 +475,7 @@ if __name__ == '__main__':
         for fspec in xfiles:
             add_to_dictionary(file_dictionary, fspec.lfn, fspec.status, fspec.status_code, fspec.turl, fspec.ddmendpoint)
             status = fspec.status if fspec.status else "(not transferred)"
-            message(" -- lfn=%s, ddmendpoint=%s, status_code=%s, status=%s" % (fspec.lfn, fspec.ddmendpoint, fspec.status_code, status))
+            message(f" -- lfn={fspec.lfn}, ddmendpoint={fspec.ddmendpoint}, status_code={fspec.status_code}, status={status}")
 
     # add error info, if any
     if err:
@@ -483,7 +483,7 @@ if __name__ == '__main__':
     add_to_dictionary(file_dictionary, 'error', err, errcode, None, None)
     write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
     if err:
-        message("containerised file transfers failed: %s" % err)
+        message(f"containerised file transfers failed: {err}")
         exit(TRANSFER_ERROR)
 
     message("containerised file transfers finished")
