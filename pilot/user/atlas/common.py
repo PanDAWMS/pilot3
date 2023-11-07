@@ -125,8 +125,8 @@ def sanity_check():
     #    from rucio.client.uploadclient import UploadClient
     #    # note: must do something with Download/UploadClients or flake8
     # will complain - but do not instantiate
-    #except Exception as e:
-    #    logger.warning('sanity check failed: %s' % e)
+    #except Exception as exc:
+    #    logger.warning(f'sanity check failed: {exc}')
     #    exit_code = errors.MIDDLEWAREIMPORTFAILURE
 
     return exit_code
@@ -159,15 +159,15 @@ def validate(job):
     if status:
         if job.imagename and job.imagename.startswith('/'):
             if os.path.exists(job.imagename):
-                logger.info('verified that image exists: %s', job.imagename)
+                logger.info(f'verified that image exists: {job.imagename}')
             else:
                 status = False
-                logger.warning('image does not exist: %s', job.imagename)
+                logger.warning(f'image does not exist: {job.imagename}')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.IMAGENOTFOUND)
 
     # cleanup job parameters if only copy-to-scratch
     #if job.only_copy_to_scratch():
-    #    logger.debug('job.params=%s' % job.jobparams)
+    #    logger.debug(f'job.params={job.jobparams}')
     #    if ' --usePFCTurl' in job.jobparams:
     #        logger.debug('cleaning up --usePFCTurl from job parameters
     #         since all input is copy-to-scratch')
@@ -214,17 +214,16 @@ def open_remote_files(indata, workdir, nthreads):
         if not os.path.exists(full_script_path):
             # do not set ec since this will be a pilot issue rather than site issue
             diagnostics = (
-                'cannot perform file open test - script path does '
-                'not exist: %s' % full_script_path
+                f'cannot perform file open test - script path does not exist: {full_script_path}'
             )
             logger.warning(diagnostics)
-            logger.warning('tested both path=%s and path=%s (none exists)', dir1, dir2)
+            logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
             return exitcode, diagnostics, not_opened
         try:
             copy(full_script_path, final_script_path)
         except PilotException as exc:
             # do not set ec since this will be a pilot issue rather than site issue
-            diagnostics = 'cannot perform file open test - pilot source copy failed: %s' % exc
+            diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
             logger.warning(diagnostics)
             return exitcode, diagnostics, not_opened
         else:
@@ -235,13 +234,13 @@ def open_remote_files(indata, workdir, nthreads):
             cmd = create_root_container_command(workdir, _cmd)
 
             timeout = get_timeout_for_remoteio(indata)
-            logger.info('executing file open verification script (timeout=%d):\n\n\'%s\'\n\n', timeout, cmd)
+            logger.info(f'executing file open verification script (timeout={timeout}):\n\n\'{cmd}\'\n\n')
 
             exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
             if config.Pilot.remotefileverification_log:
                 fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
                 write_file(fpath, stdout + stderr, mute=False)
-            logger.info('remote file open finished with ec=%d', exitcode)
+            logger.info(f'remote file open finished with ec={exitcode}')
 
             # error handling
             if exitcode:
@@ -309,16 +308,16 @@ def parse_remotefileverification_dictionary(workdir):
 
     file_dictionary = read_json(dictionary_path)
     if not file_dictionary:
-        diagnostics = 'could not read dictionary from %s' % dictionary_path
+        diagnostics = f'could not read dictionary from {dictionary_path}'
         logger.warning(diagnostics)
     else:
         for turl in file_dictionary:
             opened = file_dictionary[turl]
             if not opened:
-                logger.info('turl could not be opened: %s', turl)
+                logger.info(f'turl could not be opened: {turl}')
                 not_opened.append(turl)
             else:
-                logger.info('turl could be opened: %s', turl)
+                logger.info(f'turl could be opened: {turl}')
 
     if not_opened:
         exitcode = errors.REMOTEFILECOULDNOTBEOPENED
@@ -353,7 +352,7 @@ def extract_turls(indata):
     # turls = ""
     # for filespc in indata:
     # if filespc.status == 'remote_io':
-    # turls += filespc.turl if not turls else ",%s" % filespc.turl
+    # turls += filespc.turl if not turls else f",{filespc.turl}"
     # return turls
 
     return ",".join(
@@ -376,7 +375,7 @@ def process_remote_file_traces(path, job, not_opened_turls):
     try:
         base_trace_report = read_json(path)
     except PilotException as exc:
-        logger.warning('failed to open base trace report (cannot send trace reports): %s', exc)
+        logger.warning(f'failed to open base trace report (cannot send trace reports): {exc}')
     else:
         if not base_trace_report:
             logger.warning('failed to read back base trace report (cannot send trace reports)')
@@ -405,7 +404,7 @@ def process_remote_file_traces(path, job, not_opened_turls):
                     if trace_report:
                         trace_report.send()
                     else:
-                        logger.warning('failed to create trace report for turl=%s', fspec.turl)
+                        logger.warning(f'failed to create trace report for turl={fspec.turl}')
 
 
 def get_protocol(surl, event_type):
@@ -458,12 +457,13 @@ def get_payload_command(job):
 
     # Is it a user job or not?
     userjob = job.is_analysis()
-    logger.info('pilot is running a %s job', 'user analysis' if userjob else 'production')
+    tmp = 'user analysis' if userjob else 'production'
+    logger.info(f'pilot is running a {tmp} job')
 
     resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
 
     # Python 3, level -1 -> 0
-    modname = 'pilot.user.atlas.resource.%s' % resource_name
+    modname = f'pilot.user.atlas.resource.{resource_name}'
     resource = __import__(modname, globals(), locals(), [resource_name], 0)
 
     # make sure that remote file can be opened before executing payload
@@ -476,14 +476,13 @@ def get_payload_command(job):
             logger.debug('executing open_remote_files()')
             exitcode, diagnostics, not_opened_turls = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
-            logger.warning('caught std exception: %s', exc)
+            logger.warning(f'caught std exception: {exc}')
         else:
             # read back the base trace report
             path = os.path.join(job.workdir, config.Pilot.base_trace_report)
             if not os.path.exists(path):
-                logger.warning((
-                    'base trace report does not exist (%s) - input file '
-                    'traces should already have been sent'), path)
+                logger.warning(f'base trace report does not exist ({path}) - '
+                               f'input file traces should already have been sent')
             else:
                 process_remote_file_traces(path, job, not_opened_turls)
 
@@ -536,7 +535,7 @@ def get_payload_command(job):
 
     # prepend PanDA job id in case it is not there already (e.g. runcontainer jobs)
     if 'export PandaID' not in cmd:
-        cmd = "export PandaID=%s;" % job.jobid + cmd
+        cmd = f"export PandaID={job.jobid};" + cmd
 
     cmd = cmd.replace(';;', ';')
 
@@ -573,7 +572,7 @@ def get_payload_command(job):
     if job.dask_scheduler_ip:
         cmd += f'export DASK_SCHEDULER_IP={job.dask_scheduler_ip}; ' + cmd
 
-    logger.info('payload run command: %s', cmd)
+    logger.info(f'payload run command: {cmd}')
 
     return cmd
 
@@ -658,7 +657,7 @@ def get_normal_payload_command(cmd, job, preparesetup, userjob):
         if exitcode != 0:
             raise TrfDownloadFailure(diagnostics)
 
-        logger.debug('user analysis trf: %s', trf_name)
+        logger.debug(f'user analysis trf: {trf_name}')
 
         if preparesetup:
             _cmd = get_analysis_run_command(job, trf_name)
@@ -674,15 +673,15 @@ def get_normal_payload_command(cmd, job, preparesetup, userjob):
 
         if job.is_eventservice:
             if job.corecount:
-                cmd += '; export ATHENA_PROC_NUMBER=%s' % job.corecount
-                cmd += '; export ATHENA_CORE_NUMBER=%s' % job.corecount
+                cmd += f'; export ATHENA_PROC_NUMBER={job.corecount}'
+                cmd += f'; export ATHENA_CORE_NUMBER={job.corecount}'
             else:
                 cmd += '; export ATHENA_PROC_NUMBER=1'
                 cmd += '; export ATHENA_CORE_NUMBER=1'
 
         # Add the transform and the job parameters (production jobs)
         if preparesetup:
-            cmd += "; %s %s" % (job.transformation, job.jobparams)
+            cmd += f"; {job.transformation} {job.jobparams}"
         else:
             cmd += "; " + job.jobparams
 
@@ -703,12 +702,12 @@ def get_generic_payload_command(cmd, job, preparesetup, userjob):
         # Try to download the trf
         #if job.imagename != "" or "--containerImage" in job.jobparams:
         #    job.transformation = os.path.join(os.path.dirname(job.transformation), "runcontainer")
-        #    logger.warning('overwrote job.transformation, now set to: %s' % job.transformation)
+        #    logger.warning(f'overwrote job.transformation, now set to: {job.transformation}')
         exitcode, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
         if exitcode != 0:
             raise TrfDownloadFailure(diagnostics)
 
-        logger.debug('user analysis trf: %s', trf_name)
+        logger.debug(f'user analysis trf: {trf_name}')
 
         if preparesetup:
             _cmd = get_analysis_run_command(job, trf_name)
@@ -724,12 +723,12 @@ def get_generic_payload_command(cmd, job, preparesetup, userjob):
 
     elif verify_release_string(job.homepackage) != 'NULL' and job.homepackage != ' ':
         if preparesetup:
-            cmd = "python %s/%s %s" % (job.homepackage, job.transformation, job.jobparams)
+            cmd = f"python {job.homepackage}/{job.transformation} {job.jobparams}"
         else:
             cmd = job.jobparams
     else:
         if preparesetup:
-            cmd = "python %s %s" % (job.transformation, job.jobparams)
+            cmd = f"python {job.transformation} {job.jobparams}"
         else:
             cmd = job.jobparams
 
@@ -749,24 +748,22 @@ def add_athena_proc_number(cmd):
     try:
         value1 = int(os.environ['ATHENA_PROC_NUMBER_JOB'])
     except (TypeError, KeyError, ValueError) as exc:
-        logger.warning('failed to convert ATHENA_PROC_NUMBER_JOB to int: %s', exc)
+        logger.warning(f'failed to convert ATHENA_PROC_NUMBER_JOB to int: {exc}')
         value1 = None
     try:
         value2 = int(os.environ['ATHENA_CORE_NUMBER'])
     except (TypeError, KeyError, ValueError) as exc:
-        logger.warning('failed to convert ATHENA_CORE_NUMBER to int: %s', exc)
+        logger.warning(f'failed to convert ATHENA_CORE_NUMBER to int:{exc}')
         value2 = None
 
     if "ATHENA_PROC_NUMBER" not in cmd:
         if "ATHENA_PROC_NUMBER" in os.environ:
-            cmd = 'export ATHENA_PROC_NUMBER=%s;' % os.environ['ATHENA_PROC_NUMBER'] + cmd
+            cmd = f"export ATHENA_PROC_NUMBER={os.environ['ATHENA_PROC_NUMBER']};" + cmd
         elif "ATHENA_PROC_NUMBER_JOB" in os.environ and value1:
             if value1 > 1:
-                cmd = 'export ATHENA_PROC_NUMBER=%d;' % value1 + cmd
+                cmd = f'export ATHENA_PROC_NUMBER={value1};' + cmd
             else:
-                logger.info((
-                    "will not add ATHENA_PROC_NUMBER to cmd "
-                    "since the value is %s"), str(value1))
+                logger.info(f"will not add ATHENA_PROC_NUMBER to cmd since the value is {value1}")
         else:
             logger.warning((
                 "don't know how to set ATHENA_PROC_NUMBER "
@@ -776,9 +773,9 @@ def add_athena_proc_number(cmd):
 
     if 'ATHENA_CORE_NUMBER' in os.environ and value2:
         if value2 > 1:
-            cmd = 'export ATHENA_CORE_NUMBER=%d;' % value2 + cmd
+            cmd = f'export ATHENA_CORE_NUMBER={value2 + cmd};'
         else:
-            logger.info("will not add ATHENA_CORE_NUMBER to cmd since the value is %s", str(value2))
+            logger.info(f"will not add ATHENA_CORE_NUMBER to cmd since the value is {value2}")
     else:
         logger.warning((
             'there is no ATHENA_CORE_NUMBER in os.environ '
@@ -831,7 +828,7 @@ def add_makeflags(job_core_count, cmd):
             if core_count >= 1:
                 # Note: the original request (AF) was to use j%d
                 # and not -j%d, now using the latter
-                cmd += "export MAKEFLAGS=\'-j%d QUICK=1 -l1\';" % (core_count)
+                cmd += f"export MAKEFLAGS=\'-j{core_count} QUICK=1 -l1\';"
 
     # make sure that MAKEFLAGS is always set
     if "MAKEFLAGS=" not in cmd:
@@ -880,28 +877,28 @@ def get_analysis_run_command(job, trf_name):  # noqa: C901
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
-        cmd += './%s %s' % (trf_name, job.jobparams)
+        cmd += f'./{trf_name} {job.jobparams}'
     else:
         if job.is_analysis() and job.imagename:
-            cmd += './%s %s' % (trf_name, job.jobparams)
+            cmd += f'./{trf_name} {job.jobparams}'
         else:
-            cmd += 'python %s %s' % (trf_name, job.jobparams)
+            cmd += f'python {trf_name} {job.jobparams}'
 
         imagename = job.imagename
         # check if image is on disk as defined by envar PAYLOAD_CONTAINER_LOCATION
         payload_container_location = os.environ.get('PAYLOAD_CONTAINER_LOCATION')
         if payload_container_location is not None:
-            logger.debug("$PAYLOAD_CONTAINER_LOCATION = %s", payload_container_location)
+            logger.debug(f"$PAYLOAD_CONTAINER_LOCATION = {payload_container_location}")
             # get container name
             containername = imagename.rsplit('/')[-1]
             image_location = os.path.join(payload_container_location, containername)
             if os.path.exists(image_location):
-                logger.debug("image exists at %s", image_location)
+                logger.debug(f"image exists at {image_location}")
                 imagename = image_location
 
         # restore the image name if necessary
         if 'containerImage' not in cmd and 'runcontainer' in trf_name:
-            cmd += ' --containerImage=%s' % imagename
+            cmd += f' --containerImage={imagename}'
 
     # add control options for PFC turl and direct access
     #if job.indata:   ## DEPRECATE ME (anisyonk)
@@ -931,7 +928,7 @@ def get_analysis_run_command(job, trf_name):  # noqa: C901
         lfns, guids = job.get_lfns_and_guids()
         _guids = get_guids_from_jobparams(job.jobparams, lfns, guids)
         if _guids:
-            cmd += ' --inputGUIDs \"%s\"' % (str(_guids))
+            cmd += f' --inputGUIDs "{str(_guids)}"'
 
     return cmd
 
@@ -974,7 +971,7 @@ def get_guids_from_jobparams(jobparams, infiles, infilesguids):
                 attr = match.group(4).split(',')
 
                 for idx, item in enumerate(body):
-                    lfn = '%s%s%s%s' % (head, item, tail, attr[idx])
+                    lfn = f'{head}{item}{tail}{attr[idx]}'
                     infiles.append(lfn)
             else:
                 infiles = [compactinfiles]
@@ -985,7 +982,7 @@ def get_guids_from_jobparams(jobparams, infiles, infilesguids):
         try:
             index = infiles.index(infile)
         except ValueError as exc:
-            logger.warning("exception caught: %s (direct reading will fail)", exc)
+            logger.warning(f"exception caught: {exc} (direct reading will fail)")
         else:
             # add the corresponding guid to the list
             guidlist.append(infilesguids[index])
@@ -1111,7 +1108,7 @@ def update_job_data(job):
     if 'exeErrorDiag' in job.metadata:
         job.exeerrordiag = job.metadata['exeErrorDiag']
         if job.exeerrordiag:
-            logger.warning('payload failed: exeErrorDiag=%s', job.exeerrordiag)
+            logger.warning(f'payload failed: exeErrorDiag={job.exeerrordiag}')
 
     # determine what should be staged out
     job.stageout = stageout  # output and log file or only log file
@@ -1120,7 +1117,7 @@ def update_job_data(job):
     try:
         work_attributes = parse_jobreport_data(job.metadata)
     except Exception as exc:
-        logger.warning('failed to parse job report (cannot set job.nevents): %s', exc)
+        logger.warning(f'failed to parse job report (cannot set job.nevents): {exc}')
     else:
         # note: the number of events can be set already at this point
         # if the value was extracted from the job report (a more thorough
@@ -1142,7 +1139,7 @@ def update_job_data(job):
         try:
             verify_output_files(job)
         except Exception as exc:
-            logger.warning('exception caught while trying verify output files: %s', exc)
+            logger.warning(f'exception caught while trying verify output files: {exc}')
     else:
         if not job.allownooutput:  # i.e. if it's an empty list/string, do nothing
             logger.debug((
@@ -1175,11 +1172,7 @@ def validate_output_data(job):
     for dat in job.outdata:
         if not dat.guid:
             dat.guid = get_guid()
-            logger.warning(
-                'guid not set: generated guid=%s for lfn=%s',
-                dat.guid,
-                dat.lfn
-            )
+            logger.warning(f'guid not set: generated guid={dat.guid} for lfn={dat.lfn}')
         # is the output file following the naming convention?
         found = re.findall(pattern, dat.lfn)
         if found:
@@ -1238,7 +1231,7 @@ def get_stageout_label(job):
             if job.exeerrorcode == 0:
                 stageout = "all"
             else:
-                logger.info('payload failed: exeErrorCode=%d', job.exeerrorcode)
+                logger.info(f'payload failed: exeErrorCode={job.exeerrorcode}')
                 stageout = "log"
 
     return stageout
@@ -1255,12 +1248,10 @@ def update_output_for_hpo(job):
     try:
         new_outdata = discover_new_outdata(job)
     except Exception as exc:
-        logger.warning('exception caught while discovering new outdata: %s', exc)
+        logger.warning(f'exception caught while discovering new outdata: {exc}')
     else:
         if new_outdata:
-            logger.info((
-                'replacing job outdata with discovered output '
-                '(%d file(s))'), len(new_outdata))
+            logger.info(f'replacing job outdata with discovered output ({len(new_outdata)} file(s))')
             job.outdata = new_outdata
 
 
@@ -1318,7 +1309,7 @@ def discover_new_output(name_pattern, workdir):
     """
 
     new_output = {}
-    outputs = glob("%s/%s_*" % (workdir, name_pattern))
+    outputs = glob(f"{workdir}/{name_pattern}_*")
     if outputs:
         lfns = [os.path.basename(path) for path in outputs]
         for lfn, path in list(zip(lfns, outputs)):
@@ -1579,9 +1570,7 @@ def verify_extracted_output_files(output, lfns_jobdef, job):
                 logger.info('output file %s has %d event(s)', lfn, nentries)
                 nevents += nentries
             else:  # should not reach this step
-                logger.warning((
-                    'case not handled for output file %s with %s event(s) '
-                    '(ignore)'), lfn, str(nentries))
+                logger.warning(f'case not handled for output file {lfn} with {nentries} event(s) (ignore)')
 
     status = (not failed)
     return status, nevents
@@ -1867,11 +1856,11 @@ def get_db_info_str(db_time, db_data):
 
     db_data_s = ""
     if db_data != zero:
-        db_data_s = "%s" % (db_data)
+        db_data_s = f"{db_data}"
 
     db_time_s = ""
     if db_time != 0:
-        db_time_s = "%.2f" % (db_time)
+        db_time_s = f"{db_time:.2f}"
 
     return db_time_s, db_data_s
 
@@ -1955,7 +1944,7 @@ def cleanup_payload(workdir, outputfiles=None, removecores=True):
     if removecores:
         remove_core_dumps(workdir)
 
-    for ampdir in glob('%s/athenaMP-workers-*' % workdir):
+    for ampdir in glob(f'{workdir}/athenaMP-workers-*'):
         for (root, _, files) in os.walk(ampdir):
             for filename in files:
                 path = os.path.abspath(os.path.join(root, filename))
@@ -2144,9 +2133,9 @@ def list_work_dir(workdir):
     :param workdir: directory name (string).
     """
 
-    cmd = 'ls -lF %s' % workdir
+    cmd = f'ls -lF {workdir}'
     _, stdout, stderr = execute(cmd)
-    logger.debug('%s:\n' % stdout + stderr)
+    logger.debug(f'{stdout}:\n' + stderr)
 
 
 def remove_special_files(workdir, dir_list, outputfiles):
@@ -2449,7 +2438,7 @@ def xcache_proxy(output):
     for line in output.split('\n'):
         if 'ALRB_XCACHE_PROXY' in line:
             suffix = '_REMOTE' if 'REMOTE' in line else ''
-            name = 'ALRB_XCACHE_PROXY%s' % suffix
+            name = f'ALRB_XCACHE_PROXY{suffix}'
             pattern = r'\ export\ ALRB_XCACHE_PROXY%s\=\"(.+)\"' % suffix
             set_xcache_var(line, name=name, pattern=pattern)
 
@@ -2508,7 +2497,7 @@ def xcache_activation_command(workdir='', jobid=''):
     # the above (depending on whether you are on the same machine or not)
     # example:
     # ${ALRB_XCACHE_PROXY}root://atlasxrootd-kit.gridka.de:1094//pnfs/gridka.de/../DAOD_FTAG4.24348858._000020.pool.root.1
-    command = "%s " % get_asetup(asetup=False)
+    command = f"{get_asetup(asetup=False)} "
 
     # add 'xcache list' which will also kill any
     # orphaned processes lingering in the system
@@ -2546,7 +2535,7 @@ def xcache_deactivation_command(workdir='', jobid=''):
             logger.warning('ALRB_XCACHE_LOG is not set')
         if path and not os.path.exists(path):
             logger.warning('path does not exist: %s', path)
-    command = "%s " % get_asetup(asetup=False)
+    command = f"{get_asetup(asetup=False)} "
     command += "lsetup xcache; xcache kill"  # -C centos7
 
     return {'command': command, 'args': '-p $ALRB_XCACHE_MYPROCESS'}
@@ -2780,7 +2769,7 @@ def get_metadata(workdir):
 
     path = os.path.join(workdir, config.Payload.jobreport)
     metadata = read_file(path) if os.path.exists(path) else None
-    logger.debug('metadata=%s', str(metadata))
+    logger.debug(f'metadata={metadata}')
 
     return metadata
 
@@ -2873,7 +2862,7 @@ def preprocess_debug_command(job):
     resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
 
     # Python 3, level: -1 -> 0
-    modname = 'pilot.user.atlas.resource.%s' % resource_name
+    modname = f'pilot.user.atlas.resource.{resource_name}'
     resource = __import__(modname, globals(), locals(), [resource_name], 0)
 
     cmd = resource.get_setup_command(job, preparesetup)
