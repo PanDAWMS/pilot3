@@ -185,7 +185,7 @@ class InfoService(object):
             if ddmendpoints:
                 not_resolved = set(ddmendpoints) - set(r)
                 if not_resolved:
-                    raise PilotException("internal error: Failed to load storage details for ddms=%s" % sorted(not_resolved))
+                    raise PilotException(f"internal error: Failed to load storage details for ddms={sorted(not_resolved)}")
             for ddm in r:
                 cache[ddm] = StorageData(r[ddm])
 

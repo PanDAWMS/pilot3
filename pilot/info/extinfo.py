@@ -82,7 +82,7 @@ class ExtInfoProvider(DataLoader):
                             'nretry': 3,
                             'sleep_time': lambda: 15 + random.randint(0, 30),  ## max sleep time 45 seconds between retries
                             'cache_time': 3 * 60 * 60,  # 3 hours
-                            'fname': os.path.join(cache_dir, 'agis_schedconf.agis.%s.json' % (pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues'))},
+                            'fname': os.path.join(cache_dir, f"agis_schedconf.agis.{pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues'}.json")},
                    'LOCAL': {'url': os.environ.get('LOCAL_AGIS_SCHEDCONF'),
                              'nretry': 1,
                              'cache_time': 3 * 60 * 60,  # 3 hours
@@ -91,7 +91,7 @@ class ExtInfoProvider(DataLoader):
                    }
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.setup', globals(), locals(), [pilot_user], 0)
         queuedata_source_priority = user.get_schedconfig_priority()
         priority = priority or queuedata_source_priority
         logger.debug(f'schedconfig priority={priority}')
@@ -111,7 +111,7 @@ class ExtInfoProvider(DataLoader):
         if url:
             cvmfs_path = url.replace('CVMFS_PATH', os.environ.get('ATLAS_SW_BASE', '/cvmfs'))
         else:
-            cvmfs_path = '%s/atlas.cern.ch/repo/sw/local/etc/%s' % (os.environ.get('ATLAS_SW_BASE', '/cvmfs'), fname)
+            cvmfs_path = f"{os.environ.get('ATLAS_SW_BASE', '/cvmfs')}/atlas.cern.ch/repo/sw/local/etc/{fname}"
 
         return cvmfs_path
 
@@ -140,7 +140,7 @@ class ExtInfoProvider(DataLoader):
         def jsonparser_panda(c):
             dat = json.loads(c)
             if dat and isinstance(dat, dict) and 'error' in dat:
-                raise Exception('response contains error, data=%s' % dat)
+                raise Exception(f'response contains error, data={dat}')
             return {pandaqueue: dat}
 
         queuedata_url = (os.environ.get('QUEUEDATA_SERVER_URL') or getattr(config.Information, 'queuedata_url', '')).format(**{'pandaqueue': pandaqueues[0]})
@@ -155,7 +155,7 @@ class ExtInfoProvider(DataLoader):
                             'nretry': 3,
                             'sleep_time': lambda: 15 + random.randint(0, 30),  # max sleep time 45 seconds between retries
                             'cache_time': 3 * 60 * 60,  # 3 hours
-                            'fname': os.path.join(cache_dir, 'agis_schedconf.agis.%s.json' % (pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues'))},
+                            'fname': os.path.join(cache_dir, f"agis_schedconf.agis.{pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues'}.json")},
                    'LOCAL': {'url': None,
                              'nretry': 1,
                              'cache_time': 3 * 60 * 60,  # 3 hours
@@ -172,7 +172,7 @@ class ExtInfoProvider(DataLoader):
                    }
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.setup', globals(), locals(), [pilot_user], 0)
         queuedata_source_priority = user.get_queuedata_priority()
         priority = priority or queuedata_source_priority
         logger.debug(f'queuedata priority={priority}')
@@ -204,8 +204,7 @@ class ExtInfoProvider(DataLoader):
                             'nretry': 3,
                             'sleep_time': lambda: 15 + random.randint(0, 30),  ## max sleep time 45 seconds between retries
                             'cache_time': 3 * 60 * 60,  # 3 hours
-                            'fname': os.path.join(cache_dir, 'agis_ddmendpoints.agis.%s.json' %
-                                                  ('_'.join(ddmendpoints) or 'ALL'))},
+                            'fname': os.path.join(cache_dir, f"agis_ddmendpoints.agis.{'_'.join(ddmendpoints) or 'ALL'}.json")},
                    'CVMFS': {'url': cvmfs_path,
                              'nretry': 1,
                              'fname': os.path.join(cache_dir, getattr(config.Information, 'storages_cache', None) or 'agis_ddmendpoints.json')},
@@ -215,8 +214,7 @@ class ExtInfoProvider(DataLoader):
                             ## max sleep time 45 seconds between retries
                             'cache_time': 3 * 60 * 60,
                             # 3 hours
-                            'fname': os.path.join(cache_dir, 'agis_ddmendpoints.agis.%s.json' %
-                                                  ('_'.join(ddmendpoints) or 'ALL'))},
+                            'fname': os.path.join(cache_dir, f"agis_ddmendpoints.agis.{'_'.join(ddmendpoints) or 'ALL'}.json")},
                    'LOCAL': {'url': None,
                              'nretry': 1,
                              'cache_time': 3 * 60 * 60,  # 3 hours
@@ -225,7 +223,7 @@ class ExtInfoProvider(DataLoader):
                    }
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.setup' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.setup', globals(), locals(), [pilot_user], 0)
         ddm_source_priority = user.get_ddm_source_priority()
         if os.environ.get('PILOT_QUEUE', '') == 'GOOGLE_DASK':
             priority = ['LOCAL']

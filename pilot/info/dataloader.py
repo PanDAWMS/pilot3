@@ -111,10 +111,10 @@ class DataLoader(object):
                 try:
                     native_access = '://' not in url  ## trival check for file access, non accurate.. FIXME later if need
                     if native_access:
-                        logger.info('[attempt=%s/%s] loading data from file=%s' % (trial, nretry, url))
+                        logger.info(f'[attempt={trial}/{nretry}] loading data from file {url}')
                         content = _readfile(url)
                     else:
-                        logger.info('[attempt=%s/%s] loading data from url=%s' % (trial, nretry, url))
+                        logger.info(f'[attempt={trial}/{nretry}] loading data from url {url}')
                         req = urllib.request.Request(url)
                         req.add_header('User-Agent', ctx.user_agent)
                         content = urllib.request.urlopen(req, context=ctx.ssl_context, timeout=20).read()
@@ -124,16 +124,15 @@ class DataLoader(object):
                             if isinstance(content, bytes):  # if-statement will always be needed for python 3
                                 content = content.decode("utf-8")
                             f.write(content)
-                            logger.info('saved data from "%s" resource into file=%s, length=%.1fKb' %
-                                        (url, fname, len(content) / 1024.))
+                            logger.info(f'saved data from \"{url}\" resource into file {fname}, '
+                                        f'length={len(content) / 1024.:.1f}kB')
                     return content
-                except Exception as e:  # ignore errors, try to use old cache if any
-                    logger.warning('failed to load data from url=%s, error: %s .. trying to use data from cache=%s' %
-                                   (url, e, fname))
+                except Exception as exc:  # ignore errors, try to use old cache if any
+                    logger.warning(f"failed to load data from url {url}, error: {exc} .. trying to use data from cache={fname}")
                     # will try to use old cache below
                     if trial < nretry:
                         xsleep_time = sleep_time() if callable(sleep_time) else sleep_time
-                        logger.info("will try again after %ss.." % xsleep_time)
+                        logger.info(f"will try again after {xsleep_time} s..")
                         time.sleep(xsleep_time)
 
         if content is not None:  # just loaded data
@@ -143,8 +142,8 @@ class DataLoader(object):
         try:
             with open(fname, 'r') as f:
                 content = f.read()
-        except Exception as e:
-            logger.warning("cache file=%s is not available: %s .. skipped" % (fname, e))
+        except Exception as exc:
+            logger.warning(f"cache file={fname} is not available: {exc} .. skipped")
             return None
 
         return content
@@ -189,13 +188,14 @@ class DataLoader(object):
                 def jsonparser(c):
                     dat = json.loads(c)
                     if dat and isinstance(dat, dict) and 'error' in dat:
-                        raise Exception('response contains error, data=%s' % dat)
+                        raise Exception(f'response contains error, data={dat}')
                     return dat
                 parser = jsonparser
             try:
                 data = parser(content)
-            except Exception as e:
-                logger.fatal("failed to parse data from source=%s (resource=%s, cache=%s).. skipped, error=%s" % (dat.get('url'), key, dat.get('fname'), e))
+            except Exception as exc:
+                logger.fatal(f"failed to parse data from source={dat.get('url')} "
+                             f"(resource={key}, cache={dat.get('fname')}).. skipped, error={exc}")
                 data = None
             if data:
                 return data

@@ -100,7 +100,7 @@ class BaseData(object):
                 if callable(hvalidator):
                     value = hvalidator(raw, ktype, kname, defval=copy.deepcopy(getattr(self, kname, None)))
                 ## apply custom validation if defined
-                hvalidator = getattr(self, 'clean__%s' % kname, None)
+                hvalidator = getattr(self, f'clean__{kname}', None)
                 if callable(hvalidator):
                     value = hvalidator(raw, value)
 
@@ -245,6 +245,6 @@ class BaseData(object):
         ret = []
         attrs = [key for key in dir(self) if not callable(getattr(self, key)) and not key.startswith('_')]
         for key in sorted(attrs):
-            ret.append(" %s=%s" % (key, getattr(self, key)))
+            ret.append(f" {key}={getattr(self, key)}")
         ret.append('')
         return '\n'.join(ret)

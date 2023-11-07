@@ -77,6 +77,6 @@ class PilotConfigProvider(object):
         if hasattr(self.config.Information, 'acopytools'):  ## FIX ME LATER: Config API should reimplemented/fixed later
             data['acopytools'] = ast.literal_eval(self.config.Information.acopytools)
 
-        logger.info('queuedata: following keys will be overwritten by config values: %s' % data)
+        logger.info(f'queuedata: following keys will be overwritten by config values: {data}')
 
         return {pandaqueue: data}

@@ -81,7 +81,7 @@ class JobInfoProvider(object):
 
         data.update(self.job.overwrite_queuedata)  ## use job.overwrite_queuedata as a master source
 
-        logger.info('queuedata: following keys will be overwritten by Job values: %s' % data)
+        logger.info(f'queuedata: following keys will be overwritten by Job values: {data}')
 
         return {pandaqueue: data}
 
@@ -101,6 +101,6 @@ class JobInfoProvider(object):
             data.update((k, v) for k, v in list(master_data.items()) if k in set(ddmendpoints or master_data) & set(master_data))  # Python 3
 
         if data:
-            logger.info('storagedata: following data extracted from Job definition will be used: %s' % data)
+            logger.info(f'storagedata: following data extracted from Job definition will be used: {data}')
 
         return data

@@ -183,7 +183,7 @@ class FileSpec(BaseData):
         if ensure_replica:
 
             allowed_replica_schemas = allowed_replica_schemas or ['root', 'dcache', 'dcap', 'file', 'https']
-            if not self.turl or not any([self.turl.startswith('%s://' % e) for e in allowed_replica_schemas]):
+            if not self.turl or not any([self.turl.startswith(f'{e}://') for e in allowed_replica_schemas]):
                 _is_directaccess = False
 
         return _is_directaccess
@@ -205,6 +205,6 @@ class FileSpec(BaseData):
                 elif self.storage_token.isdigit():
                     storage_id = int(self.storage_token)
         except Exception as ex:
-            logger.warning("Failed to parse storage_token(%s): %s" % (self.storage_token, ex))
-        logger.info('storage_id: %s, path_convention: %s' % (storage_id, path_convention))
+            logger.warning(f"Failed to parse storage_token({self.storage_token}): {ex}")
+        logger.info(f'storage_id: {storage_id}, path_convention: {path_convention}')
         return storage_id, path_convention

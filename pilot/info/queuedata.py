@@ -121,8 +121,8 @@ class QueueData(BaseData):
 
         # DEBUG
         #import pprint
-        #logger.debug('initialize QueueData from raw:\n%s' % pprint.pformat(data))
-        logger.debug('Final parsed QueueData content:\n%s' % self)
+        #logger.debug(f'initialize QueueData from raw:\n{pprint.pformat(data)}')
+        logger.debug(f'final parsed QueueData content:\n{self}')
 
     def load(self, data):
         """
@@ -205,13 +205,13 @@ class QueueData(BaseData):
                 found = re.findall(pattern, self.catchall)
             if found:
                 self.container_options = found[0]
-                logger.info('container_options extracted from catchall: %s' % self.container_options)
+                logger.info(f'container_options extracted from catchall: {self.container_options}')
 
         # verify container_options: add the workdir if missing
         if self.container_options:
             if "${workdir}" not in self.container_options and " --contain" in self.container_options:  ## reimplement with shlex later
                 self.container_options = self.container_options.replace(" --contain", ",${workdir} --contain")
-                logger.info("Note: added missing ${workdir} to container_options: %s" % self.container_options)
+                logger.info(f"note: added missing $workdir to container_options: {self.container_options}")
 
         pass
 
