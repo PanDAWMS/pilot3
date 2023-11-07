@@ -108,20 +108,20 @@ class TestESWorkExecutorGrid(unittest.TestCase):
 
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
             cmd = user.get_payload_command(job)
-            logger.info("payload execution command: %s" % cmd)
+            logger.info(f"payload execution command: {cmd}")
 
             payload = {'executable': cmd,
                        'workdir': job.workdir,
-                       'output_file': 'pilot_test_%s_stdout.txt' % job['PandaID'],
-                       'error_file': 'pilot_test_%s_stderr.txt' % job['PandaID'],
+                       'output_file': f"pilot_test_{job['PandaID']}_stdout.txt",
+                       'error_file': f"pilot_test_{job['PandaID']}_stderr.txt",
                        'job': job}
             cls._payload = payload
-        except Exception as ex:
+        except Exception as exc:
             if cls._communicator_manager:
                 cls._communicator_manager.stop()
-            raise ex
+            raise exc
 
     @classmethod
     def tearDownClass(cls):
@@ -161,13 +161,13 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                 time.sleep(0.1)
             exit_code = executor.get_exit_code()
             self.assertEqual(exit_code, 0)
-        except Exception as ex:
-            logger.debug("Exception: %s, %s" % (ex, traceback.format_exc()))
+        except Exception as exc:
+            logger.debug(f"Exception: {exc}, {traceback.format_exc()}")
             if self.executor:
                 self.executor.stop()
                 while self.executor.is_alive():
                     time.sleep(0.1)
-            raise ex
+            raise exc
 
     @unittest.skipIf(True, "skip it")
     def test_workexecutor_update_events(self):
@@ -200,7 +200,7 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             logger.debug(ret)
 
             executor.stop()
-        except Exception as ex:
+        except Exception as exc:
             if self.executor:
                 self.executor.stop()
-            raise ex
+            raise exc

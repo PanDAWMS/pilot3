@@ -88,18 +88,18 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_destinations(xdata, activity='es_events')
             client.transfer(xdata, activity='es_events', **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageOutFailure("stageOut failed with error=%s" % e)
+            error = exception.StageOutFailure(f"stageOut failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
             for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+                logger.info(f" -- lfn={e.lfn}, status_code={e.status_code}, status={e.status}")
 
         if error:
-            logger.error('Failed to stage-out eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
     @unittest.skipIf(not check_env(), "No CVMFS")
@@ -131,18 +131,18 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_destinations(xdata, activity=['es_events', 'pw'])  # allow to write to `es_events` and `pw` astorages
             client.transfer(xdata, activity=['es_events', 'pw'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageOutFailure("stageOut failed with error=%s" % e)
+            error = exception.StageOutFailure(f"stageOut failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-out eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
     @unittest.skipIf(not check_env(), "No CVMFS")
@@ -174,18 +174,18 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_destinations(xdata, activity=['es_events_non_exist', 'pw'])  # allow to write to `es_events_non_exist` and `pw` astorages
             client.transfer(xdata, activity=['es_events_non_exist', 'pw'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageOutFailure("stageOut failed with error=%s" % e)
+            error = exception.StageOutFailure(f"stageOut failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-out eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
     @unittest.skipIf(not check_env(), "No CVMFS")
@@ -217,26 +217,26 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_destinations(xdata, activity=['es_events', 'pw'])  # allow to write to `es_events` and `pw` astorages
             client.transfer(xdata, activity=['es_events', 'pw'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageOutFailure("stageOut failed with error=%s" % e)
+            error = exception.StageOutFailure(f"stageOut failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-out eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
         storage_id = infosys.get_storage_id(file_spec.ddmendpoint)
-        logger.info('File %s staged out to %s(id: %s)' % (file_spec.lfn, file_spec.ddmendpoint, storage_id))
+        logger.info(f'File {file_spec.lfn} staged out to {file_spec.ddmendpoint}(id: {storage_id})')
 
         new_file_data = {'scope': 'test',
                          'lfn': file_spec.lfn,
-                         'storage_token': '%s/1000' % storage_id}
+                         'storage_token': f'{storage_id}/1000'}
         try:
             new_file_spec = FileSpec(filetype='input', **new_file_data)
 
@@ -246,18 +246,18 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_sources(xdata)
             client.transfer(xdata, activity=['es_events_read'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageInFailure("stagein failed with error=%s" % e)
+            error = exception.StageInFailure(f"stagein failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-in eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-in eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
     @unittest.skipIf(not check_env(), "No CVMFS")
@@ -289,26 +289,26 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_destinations(xdata, activity=['es_events_no_exist', 'pw'])  # allow to write to `es_events_no_exist` and `pw` astorages
             client.transfer(xdata, activity=['es_events_no_exist', 'pw'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageOutFailure("stageOut failed with error=%s" % e)
+            error = exception.StageOutFailure(f"stageOut failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-out eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-out eventservice file({output_file}): error={error.get_detail()}')
             raise error
 
         storage_id = infosys.get_storage_id(file_spec.ddmendpoint)
-        logger.info('File %s staged out to %s(id: %s)' % (file_spec.lfn, file_spec.ddmendpoint, storage_id))
+        logger.info(f'File {file_spec.lfn} staged out to {file_spec.ddmendpoint}(id: {storage_id})')
 
         new_file_data = {'scope': 'test',
                          'lfn': file_spec.lfn,
-                         'storage_token': '%s/1000' % storage_id}
+                         'storage_token': f'{storage_id}/1000'}
         try:
             new_file_spec = FileSpec(filetype='input', **new_file_data)
 
@@ -318,16 +318,16 @@ class TestStager(unittest.TestCase):
             kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
             client.prepare_sources(xdata)
             client.transfer(xdata, activity=['es_events_read'], **kwargs)
-        except exception.PilotException as error:  # Python 2/3
-            logger.error("Pilot Exeception: %s, %s" % (error.get_detail(), traceback.format_exc()))
-        except Exception as e:  # Python 2/3
+        except exception.PilotException as error:
+            logger.error(f"Pilot Exeception: {error.get_detail()}, {traceback.format_exc()}")
+        except Exception as exc:
             logger.error(traceback.format_exc())
-            error = exception.StageInFailure("stagein failed with error=%s" % e)
+            error = exception.StageInFailure(f"stagein failed with error={exc}")
         else:
             logger.info('Summary of transferred files:')
-            for e in xdata:
-                logger.info(" -- lfn=%s, status_code=%s, status=%s" % (e.lfn, e.status_code, e.status))
+            for fil in xdata:
+                logger.info(f" -- lfn={fil.lfn}, status_code={fil.status_code}, status={fil.status}")
 
         if error:
-            logger.error('Failed to stage-in eventservice file(%s): error=%s' % (output_file, error.get_detail()))
+            logger.error(f'Failed to stage-in eventservice file({output_file}): error={error.get_detail()}')
             raise error
