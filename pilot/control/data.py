@@ -147,7 +147,7 @@ def skip_special_files(job):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     try:
         user.update_stagein(job)
     except Exception as error:
@@ -374,7 +374,7 @@ def stage_in_auto(files):
     for _file in files:
         if not os.path.exists(_file['destination']):
             _file['status'] = 'failed'
-            _file['errmsg'] = 'Destination directory does not exist: %s' % _file['destination']
+            _file['errmsg'] = f"Destination directory does not exist: {_file['destination']}"
             _file['errno'] = 1
         else:
             _file['status'] = 'running'
@@ -388,8 +388,7 @@ def stage_in_auto(files):
         tmp_executable = objectcopy.deepcopy(executable)
 
         tmp_executable += ['--dir', _file['destination']]
-        tmp_executable.append('%s:%s' % (_file['scope'],
-                                         _file['name']))
+        tmp_executable.append(f"{_file['scope']}:{_file['name']}")
         process = subprocess.Popen(tmp_executable,
                                    bufsize=-1,
                                    stdout=subprocess.PIPE,
@@ -411,7 +410,7 @@ def stage_in_auto(files):
                         # the Details: string is set in rucio: lib/rucio/common/exception.py in __str__()
                         _file['errmsg'] = [detail for detail in stderr.split('\n') if detail.startswith('Details:')][0][9:-1]
                     except Exception as error:
-                        _file['errmsg'] = 'Could not find rucio error message details - please check stderr directly: %s' % error
+                        _file['errmsg'] = f'Could not find rucio error message details - please check stderr directly: {error}'
                 break
             else:
                 continue
@@ -436,7 +435,7 @@ def stage_out_auto(files):
     for _file in files:
         if not os.path.exists(_file['file']):
             _file['status'] = 'failed'
-            _file['errmsg'] = 'Source file does not exist: %s' % _file['file']
+            _file['errmsg'] = f"Source file does not exist: {_file['file']}"
             _file['errno'] = 1
         else:
             _file['status'] = 'running'
@@ -464,7 +463,7 @@ def stage_out_auto(files):
             tmp_executable += ['--guid', _file['guid']]
 
         if 'attach' in list(_file.keys()):  # Python 2/3
-            tmp_executable += ['--scope', _file['scope'], '%s:%s' % (_file['attach']['scope'], _file['attach']['name']), _file['file']]
+            tmp_executable += ['--scope', _file['scope'], f"{_file['attach']['scope']}:{_file['attach']['name']}", _file['file']]
         else:
             tmp_executable += ['--scope', _file['scope'], _file['file']]
 
@@ -486,7 +485,7 @@ def stage_out_auto(files):
                         # the Details: string is set in rucio: lib/rucio/common/exception.py in __str__()
                         _file['errmsg'] = [detail for detail in stderr.split('\n') if detail.startswith('Details:')][0][9:-1]
                     except Exception as error:
-                        _file['errmsg'] = 'Could not find rucio error message details - please check stderr directly: %s' % error
+                        _file['errmsg'] = f'Could not find rucio error message details - please check stderr directly: {error}'
                 break
             else:
                 continue
@@ -554,7 +553,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
 
             # does the user want to execute any special commands before stage-in?
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)  # Python 2/3
             cmd = user.get_utility_commands(job=job, order=UTILITY_BEFORE_STAGEIN)
             if cmd:
                 _, stdout, stderr = execute(cmd.get('command'))
@@ -608,7 +607,7 @@ def copytool_in(queues, traces, args):  # noqa: C901
                 if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'generic':
                     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
                     try:
-                        user = __import__('pilot.user.%s.metadata' % pilot_user, globals(), locals(), [pilot_user], 0)
+                        user = __import__(f'pilot.user.{pilot_user}.metadata', globals(), locals(), [pilot_user], 0)
                         file_dictionary = get_input_file_dictionary(job.indata)
                         xml = user.create_input_file_metadata(file_dictionary, job.workdir)
                         logger.info('created input file metadata:\n%s', xml)

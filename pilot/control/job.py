@@ -424,7 +424,7 @@ def get_job_status_from_server(job_id, url, port):
     while trial <= max_trials:
         try:
             # open connection
-            ret = https.request('{pandaserver}/server/panda/getStatus'.format(pandaserver=pandaserver), data=data)
+            ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -599,7 +599,7 @@ def add_data_structure_ids(data, version_tag, job):
 
     # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     pilotid = user.get_pilot_id(data['jobId'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
@@ -607,10 +607,10 @@ def add_data_structure_ids(data, version_tag, job):
         if not job.batchid:
             job.batchtype, job.batchid = get_batchsystem_jobid()
         if job.batchtype and job.batchid:
-            data['pilotID'] = "%s|%s|%s|%s" % (pilotid, job.batchtype, version_tag, pilotversion)
+            data['pilotID'] = f"{pilotid}|{job.batchtype}|{version_tag}|{pilotversion}"
             data['batchID'] = job.batchid
         else:
-            data['pilotID'] = "%s|%s|%s" % (pilotid, version_tag, pilotversion)
+            data['pilotID'] = f"{pilotid}|{version_tag}|{pilotversion}"
     else:
         logger.warning('pilotid not available')
 
@@ -740,7 +740,7 @@ def process_debug_mode(job):
     # for gdb commands, use the proper gdb version (the system one may be too old)
     if job.debug_command.startswith('gdb '):
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         user.preprocess_debug_command(job)
 
     if job.debug_command:
@@ -794,7 +794,7 @@ def get_general_command_stdout(job):
     # for gdb, we might have to process the debug command (e.g. to identify the proper pid to debug)
     if 'gdb ' in job.debug_command and '--pid %' in job.debug_command:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         job.debug_command = user.process_debug_command(job.debug_command, job.jobid)
 
     if job.debug_command:
@@ -922,15 +922,14 @@ def add_timing_and_extracts(data, job, state, args):
     """
 
     time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
-    data['pilotTiming'] = "%s|%s|%s|%s|%s|%s" % \
-                          (time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup)
+    data['pilotTiming'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
     logger.debug(f'could have reported time_log_creation={time_log_creation} s')
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
     extracts = ""
     if state == 'failed' or state == 'holding':
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
         extracts = user.get_log_extracts(job, state)
         if extracts != "":
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
@@ -950,7 +949,7 @@ def add_memory_info(data, workdir, name=""):
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+    utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
     try:
         utility_node = utilities.get_memory_monitor_info(workdir, name=name)
         data.update(utility_node)
@@ -1062,7 +1061,7 @@ def validate(queues, traces, args):
             # Define a new parent group
             os.setpgrp()
 
-            job_dir = os.path.join(args.mainworkdir, 'PanDA_Pilot-%s' % job.jobid)
+            job_dir = os.path.join(args.mainworkdir, f'PanDA_Pilot-{job.jobid}')
             logger.debug(f'creating job working directory: {job_dir}')
             try:
                 os.mkdir(job_dir)
@@ -1095,7 +1094,7 @@ def validate(queues, traces, args):
             # hide any secrets
             hide_secrets(job)
 
-            create_symlink(from_path='../%s' % config.Pilot.pilotlog, to_path=os.path.join(job_dir, config.Pilot.pilotlog))
+            create_symlink(from_path=f'../{config.Pilot.pilotlog}', to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
             # handle proxy in unified dispatch
             if args.verify_proxy:
@@ -1107,7 +1106,7 @@ def validate(queues, traces, args):
 
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-            utilities = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
+            utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
             try:
                 utilities.precleanup()
             except Exception as error:
@@ -1171,7 +1170,7 @@ def verify_ctypes(queues, job):
     try:
         import ctypes
     except (ModuleNotFoundError, ImportError) as error:
-        diagnostics = 'ctypes python module could not be imported: %s' % error
+        diagnostics = f'ctypes python module could not be imported: {error}'
         logger.warning(diagnostics)
         #job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOCTYPES, msg=diagnostics)
         #logger.debug('Failed to validate job=%s', job.jobid)
@@ -1248,7 +1247,7 @@ def store_jobid(jobid, init_dir):
 
     try:
         mode = 'a' if os.path.exists(path) else 'w'
-        write_file(path, "%s\n" % str(jobid), mode=mode, mute=False)
+        write_file(path, f"{jobid}\n", mode=mode, mute=False)
     except Exception as error:
         logger.warning(f'exception caught while trying to store job id: {error}')
 
@@ -1456,13 +1455,13 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     currenttime = time.time()
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    common = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    common = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     if not common.allow_timefloor(submitmode):
         timefloor = 0
 
     # should the proxy be verified?
     if verify_proxy:
-        userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+        userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
         # is the proxy still valid?
         exit_code, diagnostics = userproxy.verify_proxy(test=False)
@@ -1610,7 +1609,7 @@ def locate_job_definition(args):
     if args.harvester_datadir:
         paths = [os.path.join(args.harvester_datadir, config.Pilot.pandajobdata)]
     else:
-        paths = [os.path.join("%s/.." % args.sourcedir, config.Pilot.pandajobdata),
+        paths = [os.path.join(f"{args.sourcedir}/..", config.Pilot.pandajobdata),
                  os.path.join(args.sourcedir, config.Pilot.pandajobdata),
                  os.path.join(os.environ['PILOT_WORK_DIR'], config.Pilot.pandajobdata)]
 
@@ -1857,12 +1856,12 @@ def get_fake_job(input=True):
                'transferType': 'NULL',
                'destinationDblock': job_name,
                'dispatchDBlockToken': 'NULL',
-               'jobPars': '--maxEvents=1 --inputHITSFile HITS.06828093._000096.pool.root.1 --outputRDOFile RDO_%s.root' % job_name,
+               'jobPars': f'--maxEvents=1 --inputHITSFile HITS.06828093._000096.pool.root.1 --outputRDOFile RDO_{job_name}.root',
                'attemptNr': 0,
                'swRelease': 'Atlas-20.1.4',
                'nucleus': 'NULL',
                'maxCpuCount': 0,
-               'outFiles': 'RDO_%s.root,%s.job.log.tgz' % (job_name, job_name),
+               'outFiles': f'RDO_{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': 1000,
                'scopeIn': 'mc15_13TeV',
                'PandaID': '0',
@@ -1873,7 +1872,7 @@ def get_fake_job(input=True):
                'jobName': job_name,
                'ddmEndPointIn': 'UTA_SWT2_DATADISK',
                'taskID': 'NULL',
-               'logFile': '%s.job.log.tgz' % job_name}
+               'logFile': f'{job_name}.job.log.tgz'}
     elif config.Pilot.testjobtype == 'user':
         logger.info('creating fake test user job definition')
         res = {'jobsetID': 'NULL',
@@ -1918,7 +1917,7 @@ def get_fake_job(input=True):
                'swRelease': 'Atlas-20.7.6',
                'nucleus': 'NULL',
                'maxCpuCount': '0',
-               'outFiles': '%s.root,%s.job.log.tgz' % (job_name, job_name),
+               'outFiles': f'{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': '1000',
                'scopeIn': 'data15_13TeV',
                'PandaID': '0',
@@ -1929,7 +1928,7 @@ def get_fake_job(input=True):
                'jobName': job_name,
                'ddmEndPointIn': 'SWT2_CPB_SCRATCHDISK',
                'taskID': 'NULL',
-               'logFile': '%s.job.log.tgz' % job_name}
+               'logFile': f'{job_name}.job.log.tgz'}
     else:
         logger.warning(f'unknown test job type: {config.Pilot.testjobtype}')
 
@@ -2243,7 +2242,7 @@ def has_job_completed(queues, args):
         pass
     else:
         make_job_report(job)
-        cmd = 'ls -lF %s' % os.environ.get('PILOT_HOME')
+        cmd = f"ls -lF {os.environ.get('PILOT_HOME')}"
         logger.debug(f'{cmd}:\n')
         _, stdout, _ = execute(cmd)
         logger.debug(stdout)
@@ -2324,12 +2323,12 @@ def is_queue_empty(queues, queue):
         _queue = getattr(queues, queue)
         jobs = list(_queue.queue)
         if len(jobs) > 0:
-            logger.info('queue %s not empty: found %d job(s)', queue, len(jobs))
+            logger.info(f'queue {queue} not empty: found {len(jobs)} job(s)')
         else:
-            logger.info('queue %s is empty', queue)
+            logger.info(f'queue {queue} is empty')
             status = True
     else:
-        logger.warning('queue %s not present in %s', queue, queues._fields)
+        logger.warning(f'queue {queue} not present in {queues._fields}')
 
     return status
 
@@ -2351,12 +2350,12 @@ def order_log_transfer(queues, job):
     logger.debug('job added to data_out queue')
 
     # wait for the log transfer to finish
-    n = 0
+    counter = 0
     nmax = 60
-    while n < nmax:
+    while counter < nmax:
         # refresh the log_transfer since it might have changed
         log_transfer = job.get_status('LOG_TRANSFER')
-        logger.info('waiting for log transfer to finish (#%d/#%d): %s', n + 1, nmax, log_transfer)
+        logger.info(f'waiting for log transfer to finish (#{counter + 1}/#{nmax}): {log_transfer}')
         if is_queue_empty(queues, 'data_out') and \
                 (log_transfer == LOG_TRANSFER_DONE or log_transfer == LOG_TRANSFER_FAILED):  # set in data component
             logger.info('stage-out of log has completed')
@@ -2365,9 +2364,9 @@ def order_log_transfer(queues, job):
             if log_transfer == LOG_TRANSFER_IN_PROGRESS:  # set in data component, job object is singleton
                 logger.info('log transfer is in progress')
             time.sleep(2)
-            n += 1
+            counter += 1
 
-    logger.info('proceeding with server update (n=%d)', n)
+    logger.info('proceeding with server update')
 
 
 def wait_for_aborted_job_stageout(args, queues, job):
@@ -2385,7 +2384,7 @@ def wait_for_aborted_job_stageout(args, queues, job):
         time_since_kill = get_time_since('1', PILOT_KILL_SIGNAL, args)
         was_killed = was_pilot_killed(args.timing)
         if was_killed:
-            logger.info('%d s passed since kill signal was intercepted - make sure that stage-out has finished', time_since_kill)
+            logger.info(f'{time_since_kill} s passed since kill signal was intercepted - make sure that stage-out has finished')
     except Exception as error:
         logger.warning('exception caught: %s', error)
         time_since_kill = 60
@@ -2397,7 +2396,7 @@ def wait_for_aborted_job_stageout(args, queues, job):
     # if stage-out has not finished, we need to wait (less than two minutes or the batch system will issue
     # a hard SIGKILL)
     max_wait_time = 2 * 60 - time_since_kill - 5
-    logger.debug('using max_wait_time = %d s', max_wait_time)
+    logger.debug(f'using max_wait_time = {max_wait_time} s')
     t0 = time.time()
     while time.time() - t0 < max_wait_time:
         if job in queues.finished_data_out.queue or job in queues.failed_data_out.queue:
@@ -2530,7 +2529,7 @@ def update_server(job, args):
 
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     metadata = user.get_metadata(job.workdir)
     try:
         user.update_server(job)
@@ -2550,7 +2549,7 @@ def pause_queue_monitor(delay):
     :return:
     """
 
-    logger.warning('since job:queue_monitor is responsible for sending job updates, we sleep for %d s', delay)
+    logger.warning(f'since job:queue_monitor is responsible for sending job updates, we sleep for {delay} s')
     time.sleep(delay)
 
 
@@ -2639,7 +2638,7 @@ def interceptor(queues, traces, args):
     """
 
     # overall loop counter (ignoring the fact that more than one job may be running)
-    n = 0
+    counter = 0
     while not args.graceful_stop.is_set():
         time.sleep(0.1)
 
@@ -2654,10 +2653,10 @@ def interceptor(queues, traces, args):
             jobs = queues.monitored_payloads.queue
             if jobs:
                 for _ in range(len(jobs)):
-                    logger.info('interceptor loop %d: looking for communication file', n)
+                    logger.info(f'interceptor loop {counter}: looking for communication file')
             time.sleep(30)
 
-        n += 1
+        counter += 1
 
         if abort or abort_job:
             break
@@ -2681,7 +2680,7 @@ def fast_monitor_tasks(job):
     exit_code = 0
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.monitoring' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.monitoring', globals(), locals(), [pilot_user], 0)
     try:
         exit_code = user.fast_monitor_tasks(job)
     except Exception as exc:
@@ -2793,7 +2792,7 @@ def fast_job_monitor(queues, traces, args):
                     # perform the monitoring tasks
                     exit_code = fast_monitor_tasks(jobs[i])
                     if exit_code:
-                        logger.debug('fast monitoring reported an error: %d', exit_code)
+                        logger.debug(f'fast monitoring reported an error: {exit_code}')
 
     # proceed to set the job_aborted flag?
     if threads_aborted(caller='fast_job_monitor'):
@@ -2912,7 +2911,7 @@ def job_monitor(queues, traces, args):  # noqa: C901
                             logger.debug('killing payload processes')
                             kill_processes(jobs[i].pid)
 
-                    logger.info('monitor loop #%d: job %d:%s is in state \'%s\'', n, i, current_id, jobs[i].state)
+                    logger.info(f"monitor loop #{n}: job {i}:{current_id} is in state \'jobs[i].state\'")
                     if jobs[i].state == 'finished' or jobs[i].state == 'failed':
                         logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                         if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
@@ -3073,7 +3072,7 @@ def download_new_proxy(role='production', proxy_type='', workdir=''):
     logger.info(f'attempt to download a new proxy (proxy_type={proxy_type})')
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
     voms_role = user.get_voms_role(role=role)
     ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)
@@ -3131,7 +3130,7 @@ def check_job_monitor_waiting_time(args, peeking_time, abort_override=False):
     """
 
     waiting_time = int(time.time()) - peeking_time
-    msg = 'no jobs in monitored_payloads queue (waited for %d s)' % waiting_time
+    msg = f'no jobs in monitored_payloads queue (waited for {waiting_time} s)'
     if waiting_time > 60 * 60:
         msg += ' - aborting'
     #    abort = True
@@ -3180,37 +3179,37 @@ def make_job_report(job):
     logger.info('')
     logger.info('job summary report')
     logger.info('--------------------------------------------------')
-    logger.info('PanDA job id: %s', job.jobid)
-    logger.info('task id: %s', job.taskid)
+    logger.info(f'PanDA job id: {job.jobid}')
+    logger.info(f'task id: {job.taskid}')
     n = len(job.piloterrorcodes)
     if n > 0:
         for i in range(n):
-            logger.info('error %d/%d: %s: %s', i + 1, n, job.piloterrorcodes[i], job.piloterrordiags[i])
+            logger.info(f'error {i + 1}/{n}: {job.piloterrorcodes[i]}: {job.piloterrordiags[i]}')
     else:
         logger.info('errors: (none)')
     if job.piloterrorcode != 0:
-        logger.info('pilot error code: %d', job.piloterrorcode)
-        logger.info('pilot error diag: %s', job.piloterrordiag)
+        logger.info(f'pilot error code: {job.piloterrorcode}')
+        logger.info(f'pilot error diag: {job.piloterrordiag}')
     info = ""
     for key in job.status:
         info += key + " = " + job.status[key] + " "
-    logger.info('status: %s', info)
+    logger.info(f'status: {info}')
     s = ""
     if job.is_analysis() and job.state != 'finished':
         s = '(user job is recoverable)' if errors.is_recoverable(code=job.piloterrorcode) else '(user job is not recoverable)'
-    logger.info('pilot state: %s %s', job.state, s)
-    logger.info('transexitcode: %d', job.transexitcode)
-    logger.info('exeerrorcode: %d', job.exeerrorcode)
-    logger.info('exeerrordiag: %s', job.exeerrordiag)
-    logger.info('exitcode: %d', job.exitcode)
-    logger.info('exitmsg: %s', job.exitmsg)
-    logger.info('cpuconsumptiontime: %d %s', job.cpuconsumptiontime, job.cpuconsumptionunit)
-    logger.info('nevents: %d', job.nevents)
-    logger.info('neventsw: %d', job.neventsw)
-    logger.info('pid: %s', job.pid)
-    logger.info('pgrp: %s', str(job.pgrp))
-    logger.info('corecount: %d', job.corecount)
-    logger.info('event service: %s', str(job.is_eventservice))
-    logger.info('sizes: %s', str(job.sizes))
+    logger.info(f'pilot state: {job.state} {s}')
+    logger.info(f'transexitcode: {job.transexitcode}')
+    logger.info(f'exeerrorcode: {job.exeerrorcode}')
+    logger.info(f'exeerrordiag: {job.exeerrordiag}')
+    logger.info(f'exitcode: {job.exitcode}')
+    logger.info(f'exitmsg: {job.exitmsg}')
+    logger.info(f'cpuconsumptiontime: {job.cpuconsumptiontime} {job.cpuconsumptionunit}')
+    logger.info(f'nevents: {job.nevents}')
+    logger.info(f'neventsw: {job.neventsw}')
+    logger.info(f'pid: {job.pid}')
+    logger.info(f'pgrp: {job.pgrp}')
+    logger.info(f'corecount: {job.corecount}')
+    logger.info(f'event service: {job.is_eventservice}')
+    logger.info(f'sizes: {job.sizes}')
     logger.info('--------------------------------------------------')
     logger.info('')

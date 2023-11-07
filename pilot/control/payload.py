@@ -149,7 +149,7 @@ def _validate_payload(job):
 
     # perform user specific validation
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     try:
         status = user.validate(job)
     except Exception as error:
@@ -249,7 +249,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # some HPO jobs will produce new output files (following lfn name pattern), discover those and replace the job.outdata list
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             if job.is_hpo:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+                user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
                 try:
                     user.update_output_for_hpo(job)
                 except Exception as error:
@@ -269,7 +269,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             perform_initial_payload_error_analysis(job, exit_code)
 
             # was an error already found?
-            user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
+            user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
@@ -366,7 +366,7 @@ def get_rtlogging():
     rtlogging = None
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     try:
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         rtlogging = user.get_rtlogging()
     except Exception as exc:
         rtlogging = config.Pilot.rtlogging
