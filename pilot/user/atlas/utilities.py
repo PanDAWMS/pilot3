@@ -95,7 +95,7 @@ def get_memory_monitor_output_filename(suffix='txt'):
     :return: File name (string).
     """
 
-    return "memory_monitor_output.%s" % suffix
+    return f"memory_monitor_output.{suffix}"
 
 
 def get_memory_monitor_setup(pid, pgrp, jobid, workdir, command, setup="", use_container=True, transformation="", outdata=None, dump_ps=False):
@@ -132,8 +132,8 @@ def get_memory_monitor_setup(pid, pgrp, jobid, workdir, command, setup="", use_c
 
     cmd = "prmon"
     interval = 60
-    options = " --pid %d --filename %s --json-summary %s --interval %d" %\
-              (pid, get_memory_monitor_output_filename(), get_memory_monitor_summary_filename(), interval)
+    options = f" --pid {pid} --filename {get_memory_monitor_output_filename()} " \
+              f"--json-summary {get_memory_monitor_summary_filename()} --interval {interval}"
     cmd = "cd " + workdir + ";" + setup + cmd + options
 
     return cmd, pid
@@ -173,10 +173,6 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
             return -1
 
         ps = get_ps_info(pgrp)
-        #logger.debug('ps:\n%s' % ps)
-        #_pid = os.getpid()
-        #logger.debug(f'current pid={_pid}')
-        #logger.debug(f'current ppid={os.getppid()}')  # /bin/bash parent process (parent to pilot and prmon, ..)
 
         # lookup the process id using ps aux
         logger.debug(f'attempting to identify pid from job id ({jobid})')
@@ -184,12 +180,6 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         if _pid:
             logger.debug(f'discovered pid={_pid} for job id {jobid}')
             break
-
-        #logger.debug('attempting to identify pid from transform name and its output')
-        #_pid = get_pid_for_trf(ps, transformation, outdata) if outdata else None
-        #if _pid:
-        #    logger.debug('discovered pid=%d for transform name \"%s\"' % (_pid, transformation))
-        #    break
 
         logger.warning(f'payload pid has not yet been identified (#{i + 1}/#{imax})')
 
@@ -200,7 +190,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     if _pid:
         pid = _pid
 
-    logger.info(f'will use pid={pid} for memory monitor')
+    logger.info(f'will use pid {pid} for memory monitor')
 
     return pid
 
@@ -217,11 +207,7 @@ def get_ps_info(pgrp, whoami=None, options='axfo pid,user,args'):
     if not whoami:
         whoami = os.getuid()
 
-    cmd = "ps -u %s %s" % (whoami, options)
-    #cmd = "ps %s | grep %s" % (options, whoami)
-    #cmd = "ps %s | grep %s | awk -v p=%s '$1 == p {print $5}" % (options, whoami, pgrp)
-    #cmd = "ps %s | awk -v p=%s '$1 == p {print $5}" % (options, pgrp)
-    exit_code, stdout, stderr = execute(cmd)
+    exit_code, stdout, stderr = execute(f"ps -u {whoami} {options}")
 
     return stdout
 
@@ -243,10 +229,10 @@ def get_pid_for_jobid(ps, jobid):
             _pid = search(r'(\d+) ', line)
             try:
                 pid = int(_pid.group(1))
-            except Exception as e:
-                logger.warning('pid has wrong type: %s' % e)
+            except Exception as exc:
+                logger.warning(f'pid has wrong type: {exc}')
             else:
-                logger.debug('extracted pid=%d from ps output' % pid)
+                logger.debug(f'extracted pid {pid} from ps output')
             break
 
     return pid
@@ -269,7 +255,7 @@ def get_pid_for_trf(ps, transformation, outdata):
     # in the case of user analysis job, the transformation will contain a URL which should be stripped
     if "/" in transformation:
         transformation = transformation.split('/')[-1]
-    logger.debug('using transformation name: %s' % transformation)
+    logger.debug(f'using transformation name: {transformation}')
     for line in ps.split('\n'):
         if transformation in line:
             candidates.append(line)
@@ -283,15 +269,15 @@ def get_pid_for_trf(ps, transformation, outdata):
                     _pid = search(r'(\d+) ', line)
                     try:
                         pid = int(_pid.group(1))
-                    except Exception as e:
-                        logger.warning('pid has wrong type: %s' % e)
+                    except Exception as exc:
+                        logger.warning(f'pid has wrong type: {exc}')
                     else:
-                        logger.debug('extracted pid=%d from ps output' % pid)
+                        logger.debug(f'extracted pid {pid} from ps output')
                     break
             if pid:
                 break
     else:
-        logger.debug('pid not found in ps output for trf=%s' % transformation)
+        logger.debug(f'pid not found in ps output for trf={transformation}')
 
     return pid
 
@@ -319,12 +305,12 @@ def get_pid_for_command(ps, command="python pilot3/pilot.py"):
         _pid = search(r'(\d+) ', found)
         try:
             pid = int(_pid.group(1))
-        except Exception as e:
-            logger.warning('pid has wrong type: %s' % e)
+        except Exception as exc:
+            logger.warning(f'pid has wrong type: {exc}')
         else:
-            logger.debug('extracted pid=%d from ps output: %s' % (pid, found))
+            logger.debug(f'extracted pid {pid} from ps output: {found}')
     else:
-        logger.debug('command not found in ps output: %s' % command)
+        logger.debug(f'command not found in ps output: {command}')
 
     return pid
 
@@ -376,13 +362,13 @@ def get_memory_monitor_info_path(workdir, allowtxtfile=False):
         if os.path.exists(init_path):
             path = init_path
         else:
-            logger.info("neither %s, nor %s exist" % (path, init_path))
+            logger.info(f"neither {path}, nor {init_path} exist")
             path = ""
 
         if path == "" and allowtxtfile:
             path = os.path.join(workdir, get_memory_monitor_output_filename())
             if not os.path.exists(path):
-                logger.warning("file does not exist either: %s" % (path))
+                logger.warning(f"file does not exist either: {path}")
 
     return path
 
@@ -403,11 +389,11 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
     # Note that only the final json file will contain the totRBYTES, etc
     try:
         summary_dictionary = get_memory_values(workdir, name=name)
-    except Exception as e:
-        logger.warning('failed to get memory values from memory monitor tool: %s' % e)
+    except Exception as exc:
+        logger.warning(f'failed to get memory values from memory monitor tool: {exc}')
         summary_dictionary = {}
     else:
-        logger.debug("summary_dictionary=%s" % str(summary_dictionary))
+        logger.debug(f"summary_dictionary={summary_dictionary}")
 
     # Fill the node dictionary
     if summary_dictionary and summary_dictionary != {}:
@@ -428,8 +414,8 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
                 node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
                 node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
-            except Exception as e:
-                logger.warning("exception caught while parsing memory monitor file: %s" % e)
+            except Exception as exc:
+                logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
                 node['maxVMEM'] = -1
@@ -464,8 +450,8 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['vmem']
                 node['avgSWAP'] = summary_dictionary['Avg']['swap']
                 node['avgPSS'] = summary_dictionary['Avg']['pss']
-            except Exception as e:
-                logger.warning("exception caught while parsing prmon file: %s" % e)
+            except Exception as exc:
+                logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
                 node['maxVMEM'] = -1
@@ -512,8 +498,8 @@ def get_max_memory_monitor_value(value, maxvalue, totalvalue):  # noqa: C90
     ec = 0
     try:
         value_int = int(value)
-    except Exception as e:
-        logger.warning("exception caught: %s" % e)
+    except Exception as exc:
+        logger.warning(f"exception caught: {exc}")
         ec = 1
     else:
         totalvalue += value_int
@@ -618,7 +604,7 @@ def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
         dictionary['pandaid'] = jobid
 
         path = os.path.join(os.path.dirname(path), get_memory_monitor_output_filename(suffix='json'))
-        logger.debug('writing prmon dictionary to: %s' % path)
+        logger.debug(f'writing prmon dictionary to: {path}')
         write_json(path, dictionary)
     else:
         logger.debug('nothing to write (no prmon dictionary)')
@@ -668,7 +654,7 @@ def convert_text_file_to_dictionary(path):
                             value = convert_to_int(key)
                             dictionary[key_entry].append(value)
                 except Exception:
-                    logger.warning("unexpected format of utility output: %s" % line)
+                    logger.warning(f"unexpected format of utility output: {line}")
 
     return dictionary
 
@@ -737,8 +723,8 @@ def get_average_summary_dictionary(path):
                         rbytes = None
                         wbytes = None
                 except Exception:
-                    logger.warning("unexpected format of utility output: %s (expected format: Time, VMEM,"
-                                   " PSS, RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])" % (line))
+                    logger.warning(f"unexpected format of utility output: {line} (expected format: Time, VMEM, PSS, "
+                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])")
                 else:
                     # Convert to int
                     ec1, maxvmem, totalvmem = get_max_memory_monitor_value(vmem, maxvmem, totalvmem)
@@ -746,7 +732,7 @@ def get_average_summary_dictionary(path):
                     ec3, maxrss, totalrss = get_max_memory_monitor_value(rss, maxrss, totalrss)
                     ec4, maxswap, totalswap = get_max_memory_monitor_value(swap, maxswap, totalswap)
                     if ec1 or ec2 or ec3 or ec4:
-                        logger.warning("will skip this row of numbers due to value exception: %s" % (line))
+                        logger.warning(f"will skip this row of numbers due to value exception: {line}")
                     else:
                         n += 1
 
@@ -793,7 +779,7 @@ def get_memory_values(workdir, name=""):
     # Get the path to the proper memory info file (priority ordered)
     path = get_memory_monitor_info_path(workdir, allowtxtfile=True)
     if os.path.exists(path):
-        logger.info("using path: %s (trf name=%s)" % (path, name))
+        logger.info(f"using path: {path} (trf name={name})")
 
         # Does a JSON summary file exist? If so, there's no need to calculate maximums and averages in the pilot
         if path.lower().endswith('json'):
@@ -805,7 +791,7 @@ def get_memory_values(workdir, name=""):
                 summary_dictionary = get_average_summary_dictionary_prmon(path)
             else:
                 summary_dictionary = get_average_summary_dictionary(path)
-            logger.debug('summary_dictionary=%s (trf name=%s)' % (str(summary_dictionary), name))
+            logger.debug(f'summary_dictionary={str(summary_dictionary)} (trf name={name})')
     else:
         if path == "":
             logger.warning("filename not set for memory monitor output")
@@ -827,20 +813,20 @@ def post_memory_monitor_action(job):
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
-    i = 0
+    counter = 0
     maxretry = 20
-    while i <= maxretry:
+    while counter <= maxretry:
         if os.path.exists(path1):
             break
-        logger.info("taking a short nap (%d s) to allow the memory monitor to finish writing to the summary file (#%d/#%d)"
-                    % (nap, i, maxretry))
+        logger.info(f"taking a short nap ({nap} s) to allow the memory monitor to finish writing to the summary "
+                    f"file (#{counter}/#{maxretry})")
         time.sleep(nap)
-        i += 1
+        counter += 1
 
     try:
         copy(path1, path2)
-    except Exception as e:
-        logger.warning('failed to copy memory monitor output: %s' % e)
+    except Exception as exc:
+        logger.warning(f'failed to copy memory monitor output: {exc}')
 
 
 def precleanup():
@@ -853,7 +839,7 @@ def precleanup():
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
     if os.path.exists(path):
-        logger.info('removing no longer needed file: %s' % path)
+        logger.info(f'removing no longer needed file: {path}')
         remove(path)
 
 
