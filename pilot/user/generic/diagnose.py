@@ -65,7 +65,7 @@ def get_log_extracts(job, state):
     extracts = ""
     _extracts = get_pilot_log_extracts(job)
     if _extracts != "":
-        logger.warning('detected the following tail of warning/fatal messages in the pilot log:\n%s' % _extracts)
+        logger.warning(f'detected the following tail of warning/fatal messages in the pilot log:\n{_extracts}')
         if state == 'failed' or state == 'holding':
             extracts += _extracts
 
@@ -89,9 +89,9 @@ def get_pilot_log_extracts(job):
         if _tail != "":
             if extracts != "":
                 extracts += "\n"
-            extracts += "- Log from %s -\n" % config.Pilot.pilotlog
+            extracts += f"- Log from {config.Pilot.pilotlog} -\n"
             extracts += _tail
     else:
-        logger.warning('pilot log file does not exist: %s' % path)
+        logger.warning(f'pilot log file does not exist: {path}')
 
     return extracts

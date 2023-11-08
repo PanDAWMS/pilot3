@@ -58,20 +58,20 @@ def set_core_counts(**kwargs):
 
     job = kwargs.get('job', None)
     if job and job.pgrp:
-        cmd = "ps axo pgid,psr | sort | grep %d | uniq | awk '{print $1}' | grep -x %d | wc -l" % (job.pgrp, job.pgrp)
+        cmd = f"ps axo pgid,psr | sort | grep {job.pgrp} | uniq | awk '{{print $1}}' | grep -x {job.pgrp} | wc -l"
         exit_code, stdout, stderr = execute(cmd, mute=True)
-        logger.debug('%s: %s' % (cmd, stdout))
+        logger.debug(f'{cmd}: {stdout}')
         try:
             job.actualcorecount = int(stdout)
-        except Exception as e:
-            logger.warning('failed to convert number of actual cores to int: %s' % e)
+        except Exception as exc:
+            logger.warning(f'failed to convert number of actual cores to int: {exc}')
         else:
-            logger.debug('set number of actual cores to: %d' % job.actualcorecount)
+            logger.debug(f'set number of actual cores to: {job.actualcorecount}')
 
             # overwrite the original core count and add it to the list
             job.corecount = job.actualcorecount
             job.corecounts = add_core_count(job.actualcorecount)
-            logger.debug('current core counts list: %s' % str(job.corecounts))
+            logger.debug(f'current core counts list: {job.corecounts}')
 
     else:
         logger.debug('payload process group not set - cannot check number of cores used by payload')
