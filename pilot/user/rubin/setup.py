@@ -59,8 +59,8 @@ def get_analysis_trf(transform, workdir):
             logger.debug(f"jobopt_file = {jobopt_file} workdir = {workdir}")
             try:
                 copy(jobopt_file, workdir)
-            except Exception as e:
-                logger.error(f"could not copy file {jobopt_file} to {workdir} : {e}")
+            except Exception as exc:
+                logger.error(f"could not copy file {jobopt_file} to {workdir} : {exc}")
 
     if '/' in transform:
         transform_name = transform.split('/')[-1]
@@ -101,9 +101,9 @@ def get_analysis_trf(transform, workdir):
     path = os.path.join(workdir, transform_name)
     logger.debug(f"changing permission of {path} to 0o755")
     try:
-        os.chmod(path, 0o755)  # Python 2/3
-    except Exception as e:
-        diagnostics = f"failed to chmod {transform_name}: {e}"
+        os.chmod(path, 0o755)
+    except Exception as exc:
+        diagnostics = f"failed to chmod {transform_name}: {exc}"
         return errors.CHMODTRF, diagnostics, ""
 
     return ec, diagnostics, transform_name
@@ -149,7 +149,7 @@ def download_transform(url, transform_name, workdir):
     path = os.path.join(workdir, transform_name)
     ip_version = os.environ.get('PILOT_IP_VERSION', 'IPv6')
     command = 'curl' if ip_version == 'IPv6' else 'curl -4'
-    cmd = f'{command} -sS \"%s\" > %s' % (url, path)
+    cmd = f'{command} -sS \"{url}\" > {path}'
     trial = 1
     max_trials = 3
 
@@ -169,14 +169,14 @@ def download_transform(url, transform_name, workdir):
 
     # try to download the trf a maximum of 3 times
     while trial <= max_trials:
-        logger.info("executing command [trial %d/%d]: %s" % (trial, max_trials, cmd))
+        logger.info(f"executing command [trial {trial}/{max_trials}]: {cmd}")
 
         exit_code, stdout, stderr = execute(cmd, mute=True)
         if not stdout:
             stdout = "(None)"
         if exit_code != 0:
             # Analyze exit code / output
-            diagnostics = "curl command failed: %d, %s, %s" % (exit_code, stdout, stderr)
+            diagnostics = f"curl command failed: {exit_code}, {stdout}, {stderr}"
             logger.warning(diagnostics)
             if trial == max_trials:
                 logger.fatal(f'could not download transform: {stdout}')
