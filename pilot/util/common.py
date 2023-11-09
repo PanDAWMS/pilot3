@@ -36,10 +36,9 @@ def should_abort(args: Any, limit: int = 30, label: str = '') -> bool:
 
     :param args: pilot arguments object
     :param limit: optional time limit (int)
-    :param label: optional label prepending log messages (string)
-    :return: True if graceful_stop has been set (and less than optional time limit has passed since maxtime) or False (bool)
+    :param label: optional label prepending log messages (str)
+    :return: True if graceful_stop has been set (and less than optional time limit has passed since maxtime) or False (bool).
     """
-
     abort = False
     if args.graceful_stop.wait(1) or args.graceful_stop.is_set():  # 'or' added for 2.6 compatibility reasons
         if os.environ.get('REACHED_MAXTIME', None) and limit:
@@ -59,25 +58,23 @@ def should_abort(args: Any, limit: int = 30, label: str = '') -> bool:
 
 def was_pilot_killed(timing: dict) -> bool:
     """
-    Was the pilot killed by a KILL signal?
+    Check if the pilot was killed by a KILL signal (i.e., is about to be killed).
 
     :param timing: args.timing dictionary (dict)
-    :return: True if pilot was killed by KILL signal (bool).
+    :return: True if pilot was killed by KILL signal, False otherwise (bool).
     """
-
     return any(PILOT_KILL_SIGNAL in timing[i] for i in timing)
 
 
 def is_pilot_check(check: str = '') -> bool:
     """
-    Should the given pilot check be run?
+    Determine if the given pilot check is to be run.
 
     Consult config.Pilot.checks if the given check is listed.
 
-    :param check: name of check (string)
-    :return: True if check is present in config.Pilot.checks (and if config is outdated), False othersise (bool).
+    :param check: name of check (str)
+    :return: True if check is present in config.Pilot.checks (and if config is outdated), False otherwise (bool).
     """
-
     status = False
     if not check:
         return status

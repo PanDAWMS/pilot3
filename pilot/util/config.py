@@ -30,9 +30,7 @@ _default_cfg = _path if os.path.exists(_path) else _default_path
 
 
 class _ConfigurationSection():
-    """
-    Keep the settings for a section of the configuration file
-    """
+    """Keep the settings for a section of the configuration file."""
 
     def __getitem__(self, item: Any) -> Any:
         return getattr(self, item)
@@ -48,12 +46,11 @@ class _ConfigurationSection():
 
 def read(config_file: Any) -> Any:
     """
-    Read the settings from file and return a dot notation object
+    Read the settings from file and return a dot notation object.
 
-    :param config_file: file
-    :return: attribute object.
+    :param config_file: file (Any)
+    :return: attribute object (Any).
     """
-
     _config = configparser.ConfigParser()
     _config.read(config_file)
 
