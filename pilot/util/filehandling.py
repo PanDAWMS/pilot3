@@ -819,7 +819,7 @@ def calculate_adler32_checksum(filename):
         adler = adler + 2 ** 32
 
     # convert to hex
-    return "{0:08x}".format(adler)
+    return f"{adler:08x}"
 
 
 def calculate_md5_checksum(filename):
@@ -1027,10 +1027,10 @@ def get_nonexistant_path(fname_path):
         return fname_path
     filename, file_extension = os.path.splitext(fname_path)
     i = 1
-    new_fname = "{}-{}{}".format(filename, i, file_extension)
+    new_fname = f"{filename}-{i}{file_extension}"
     while os.path.exists(new_fname):
         i += 1
-        new_fname = "{}-{}{}".format(filename, i, file_extension)
+        new_fname = f"{filename}-{i}{file_extension}"
     return new_fname
 
 
@@ -1086,6 +1086,9 @@ def copy_pilot_source(workdir, filename=None):
 
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
+        # replace with:
+        # pat = f"{filename}" if filename else f"{filename}/*"
+        # cmd = f"cp -pr {pat} {srcdir} {workdir}"
         pat = '%s' if filename else '%s/*'
         cmd = f'cp -pr {pat} %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
