@@ -734,7 +734,7 @@ def get_average_summary_dictionary(path: str) -> dict:
     return summary_dictionary
 
 
-def get_memory_values(workdir, name=""):
+def get_memory_values(workdir: str, name: str = "") -> dict:
     """
     Find the values in the memory monitor output file.
 
@@ -746,11 +746,10 @@ def get_memory_values(workdir, name=""):
         "Avg":{"avgVMEM":19384236,"avgPSS":5023500,"avgRSS":6501489,"avgSwap":5964997},
         "Other":{"rchar":NN,"wchar":NN,"rbytes":NN,"wbytes":NN}}
 
-    :param workdir: relevant work directory (string).
-    :param name: name of memory monitor (string).
-    :return: memory values dictionary.
+    :param workdir: relevant work directory (str)
+    :param name: name of memory monitor (str)
+    :return: memory values dictionary (dict).
     """
-
     summary_dictionary = {}
 
     # Get the path to the proper memory info file (priority ordered)
@@ -779,14 +778,12 @@ def get_memory_values(workdir, name=""):
     return summary_dictionary
 
 
-def post_memory_monitor_action(job):
+def post_memory_monitor_action(job: Any):
     """
     Perform post action items for memory monitor.
 
-    :param job: job object.
-    :return:
+    :param job: job object (Any).
     """
-
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
@@ -808,11 +805,8 @@ def post_memory_monitor_action(job):
 
 def precleanup():
     """
-    Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
-
-    :return:
+    Remove any pre-existing files from previous jobs in the main work directory.
     """
-
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
     if os.path.exists(path):
@@ -826,7 +820,6 @@ def get_cpu_arch():
 
     If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
 
-    :return: CPU arch (string).
+    :return: CPU arch (str).
     """
-
     return ""
