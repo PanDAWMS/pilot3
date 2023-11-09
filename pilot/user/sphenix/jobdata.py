@@ -25,18 +25,18 @@
 #logger = logging.getLogger(__name__)
 
 
-def jobparams_prefiltering(value):
+def jobparams_prefiltering(value: str) -> (list, str):
     """
     Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
+
     The function can extract some fields from the job parameters to be put back later after actual filtering.
 
     E.g. ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" ' will otherwise become
     ' --athenaopts 'HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER' ' which will prevent the environmental variable to be unfolded.
 
-    :param value: job parameters (string).
-    :return: list of fields excluded from job parameters (list), updated job parameters (string).
+    :param value: job parameters (str)
+    :return: list of fields excluded from job parameters (list), updated job parameters (str).
     """
-
     exclusions = {}
 
     # Add regex patterns here
@@ -44,14 +44,14 @@ def jobparams_prefiltering(value):
     return exclusions, value
 
 
-def jobparams_postfiltering(value, exclusions={}):
+def jobparams_postfiltering(value: str, exclusions: dict = {}) -> str:
     """
     Perform post-filtering of raw job parameters.
+
     Any items in the optional exclusion list will be added (space separated) at the end of the job parameters.
 
     :param value: job parameters (string).
-    :param optional exclusions: exlusions dictionary from pre-filtering function (dictionary).
+    :param optional exclusions: exclusions dictionary from pre-filtering function (dictionary).
     :return: updated job parameters (string).
     """
-
     return value

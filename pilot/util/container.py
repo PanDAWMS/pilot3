@@ -43,14 +43,14 @@ execute_lock = threading.Lock()
 
 def execute(executable: Any, **kwargs: dict) -> Any:
     """
-    Execute the command and its options in the provided executable list.
+    Execute the command with its options in the provided executable list using subprocess time-out handler.
+
     The function also determines whether the command should be executed within a container.
 
     :param executable: command to be executed (string or list).
     :param kwargs: kwargs (dict)
     :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument)
     """
-
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
     #shell = kwargs.get("shell", False)
@@ -99,7 +99,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             return process
 
         try:
-            logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
+            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
@@ -133,7 +133,15 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
 
 def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
+    """
+    Execute the command with its options in the provided executable list using an internal timeout handler.
 
+    The function also determines whether the command should be executed within a container.
+
+    :param executable: command to be executed (string or list).
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument)
+    """
     exit_code = None
 
     def _timeout_handler():

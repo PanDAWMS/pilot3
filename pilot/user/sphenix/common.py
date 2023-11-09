@@ -23,7 +23,10 @@ import os
 import re
 from signal import SIGTERM
 
-from pilot.common.exception import TrfDownloadFailure
+from pilot.common.exception import (
+    TrfDownloadFailure,
+    FileHandlingFailure
+)
 from pilot.info import FileSpec
 from pilot.util.config import config
 from pilot.util.constants import (
@@ -55,7 +58,6 @@ def sanity_check():
 
     :return: exit code (0 if all is ok, otherwise non-zero exit code).
     """
-
     return 0
 
 
@@ -66,7 +68,6 @@ def validate(job):
     :param job: job object.
     :return: Boolean (True if validation is successful).
     """
-
     return True
 
 
@@ -89,7 +90,7 @@ def get_payload_command(job):
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
     else:
-        logger.debug('user analysis trf: %s' % trf_name)
+        logger.debug(f'user analysis trf: {trf_name}')
 
     return get_analysis_run_command(job, trf_name)
 
@@ -104,21 +105,20 @@ def get_analysis_run_command(job, trf_name):
     :param trf_name: name of the transform that will run the job (string). Used when containers are not used.
     :return: command (string).
     """
-
     cmd = ""
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        cmd += 'export X509_USER_PROXY=%s;' % os.environ.get('X509_USER_PROXY')
+        cmd += f"export X509_USER_PROXY={os.environ.get('X509_USER_PROXY')};"
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
-        cmd += './%s %s' % (trf_name, job.jobparams)
+        cmd += f'./{trf_name} {job.jobparams}'
     else:
         if trf_name:
-            cmd += './%s %s' % (trf_name, job.jobparams)
+            cmd += f'./{trf_name} {job.jobparams}'
         else:
-            cmd += 'python %s %s' % (trf_name, job.jobparams)
+            cmd += f'python {trf_name} {job.jobparams}'
 
     return cmd
 
@@ -132,7 +132,6 @@ def update_job_data(job):
     :param job: job object
     :return:
     """
-
     # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
     # output files and add them to the output file list
     outfiles = []
@@ -182,10 +181,9 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
     :param workdir: working directory (string).
     :param outputfiles: list of output files.
     :param piloterrors: list of Pilot assigned error codes (list).
-    :return:
+    :return: None
     """
-
-    pass
+    return
 
 
 def get_utility_commands(order=None, job=None):
@@ -217,7 +215,6 @@ def get_utility_commands(order=None, job=None):
     :param job: optional job object.
     :return: dictionary of utilities to be executed in parallel with the payload.
     """
-
     if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
         return {}
 
@@ -250,7 +247,6 @@ def get_utility_after_payload_started():
 
     :return: command (dictionary).
     """
-
     com = {}
     try:
         cmd = config.Pilot.utility_after_payload_started
@@ -272,7 +268,6 @@ def get_utility_command_setup(name, job, setup=None):
     :param setup: optional payload setup string.
     :return: utility command setup (string).
     """
-
     if name == 'MemoryMonitor':
         # must know if payload is running in a container or not
         # (enables search for pid in ps output)
@@ -301,11 +296,11 @@ def get_utility_command_setup(name, job, setup=None):
 
         # update the pgrp if the pid changed
         if pid not in (job.pid, -1):
-            logger.debug('updating pgrp=%d for pid=%d', job.pgrp, pid)
+            logger.debug(f'updating pgrp={job.pgrp} for pid {pid}')
             try:
                 job.pgrp = os.getpgid(pid)
             except Exception as exc:
-                logger.warning('os.getpgid(%d) failed with: %s', pid, exc)
+                logger.warning(f'os.getpgid({pid}) failed with: {exc}', pid, exc)
         return setup
 
     return ""
@@ -318,7 +313,6 @@ def get_utility_command_execution_order(name):
     :param name: utility name (string).
     :return: execution order constant (UTILITY_BEFORE_PAYLOAD or UTILITY_AFTER_PAYLOAD_STARTED)
     """
-
     # example implementation
     if name == 'monitor':
         return UTILITY_BEFORE_PAYLOAD
@@ -332,9 +326,7 @@ def post_utility_command_action(name, job):
 
     :param name: name of utility command (string).
     :param job: job object.
-    :return:
     """
-
     if name == 'MemoryMonitor':
         post_memory_monitor_action(job)
 
@@ -346,7 +338,6 @@ def get_utility_command_kill_signal(name):
     :param name:
     :return: kill signal
     """
-
     return SIGTERM
 
 
@@ -358,7 +349,6 @@ def get_utility_command_output_filename(name, selector=None):
     :param selector: optional special conditions flag (boolean).
     :return: filename (string).
     """
-
     if name == 'MemoryMonitor':
         filename = get_memory_monitor_summary_filename(selector=selector)
     else:
@@ -377,7 +367,6 @@ def verify_job(job):
     :param job: job object
     :return: Boolean.
     """
-
     return True
 
 
@@ -387,23 +376,24 @@ def update_stagein(job):
     See ATLAS code for an example.
 
     :param job: job object.
-    :return:
+    :return: None
     """
-
-    pass
+    return
 
 
 def get_metadata(workdir):
     """
     Return the metadata from file.
 
-    :param workdir: work directory (string)
-    :return:
+    :param workdir: work directory (str)
+    :return: metadata (str or None).
     """
-
     path = os.path.join(workdir, config.Payload.jobreport)
-    metadata = read_file(path) if os.path.exists(path) else None
-
+    try:
+        metadata = read_file(path) if os.path.exists(path) else None
+    except FileHandlingFailure as exc:
+        logger.warning(f'exception caught while opening file: {exc}')
+        metadata = None
     return metadata
 
 
@@ -414,10 +404,9 @@ def update_server(job):
     E.g. this can be used to send special information to a logstash.
 
     :param job: job object.
-    :return:
+    :return: None
     """
-
-    pass
+    return
 
 
 def post_prestagein_utility_command(**kwargs):
@@ -425,13 +414,11 @@ def post_prestagein_utility_command(**kwargs):
     Execute any post pre-stage-in utility commands.
 
     :param kwargs: kwargs (dictionary).
-    :return:
+    :return: None
     """
-
     # label = kwargs.get('label', 'unknown_label')
     # stdout = kwargs.get('output', None)
-
-    pass
+    return
 
 
 def process_debug_command(debug_command, pandaid):
@@ -441,10 +428,9 @@ def process_debug_command(debug_command, pandaid):
     to the server).
 
     :param debug_command: debug command (string), payload pid (int).
-    :param pandaid: PanDA id (string).
-    :return: updated debug command (string)
+    :param pandaid: PanDA id (str)
+    :return: updated debug command (str).
     """
-
     return debug_command
 
 
@@ -452,9 +438,9 @@ def allow_timefloor(submitmode):
     """
     Should the timefloor mechanism (multi-jobs) be allowed for the given submit mode?
 
-    :param submitmode: submit mode (string).
+    :param submitmode: submit mode (str).
+    :return: True (bool).
     """
-
     return True
 
 
@@ -463,10 +449,9 @@ def get_pilot_id(jobid):
     Get the pilot id from the environment variable GTAG.
     Update if necessary (do not used if you want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (int).
-    :return: pilot id (string).
+    :param jobid: PanDA job id - UNUSED (int)
+    :return: pilot id (str).
     """
-
     return os.environ.get("GTAG", "unknown")
 
 
@@ -476,7 +461,6 @@ def get_rtlogging():
 
     :return: rtlogging (str).
     """
-
     return 'logstash;http://splogstash.sdcc.bnl.gov:8080'
 
 
@@ -484,7 +468,6 @@ def get_rtlogging_ssl():
     """
     Return the proper ssl_enable and ssl_verify for real-time logging.
 
-    :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+    :return: ssl_enable (bool), ssl_verify (bool).
     """
-
     return False, False

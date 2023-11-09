@@ -19,25 +19,25 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+from typing import Any
 
-def allow_memory_usage_verifications():
+
+def allow_memory_usage_verifications() -> bool:
     """
     Should memory usage verifications be performed?
 
-    :return: boolean.
+    :return: False (bool).
     """
-
     return False
 
 
-def memory_usage(job):
+def memory_usage(job: Any) -> (int, str):
     """
     Perform memory usage verification.
 
-    :param job: job object
-    :return: exit code (int), diagnostics (string).
+    :param job: job object (Any)
+    :return: exit code (int), diagnostics (str).
     """
-
     exit_code = 0
     diagnostics = ""
 

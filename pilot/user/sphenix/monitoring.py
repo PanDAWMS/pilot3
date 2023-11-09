@@ -19,15 +19,16 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
 
+from typing import Any
 
-def fast_monitor_tasks(job):
+
+def fast_monitor_tasks(job: Any) -> int:
     """
     Perform fast monitoring tasks.
 
-    :param job: job object.
-    :return: exit code (int)
+    :param job: job object (Any)
+    :return: exit code (int).
     """
-
     exit_code = 0
 
     return exit_code

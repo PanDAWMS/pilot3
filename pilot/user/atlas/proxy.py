@@ -85,17 +85,18 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     return exit_code, diagnostics, x509
 
 
-def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
+def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False) -> (int, str):
     """
     Check for a valid voms/grid proxy longer than N hours.
+
     Use `limit` to set required time limit.
 
-    :param limit: time limit in hours (int).
-    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment
-    :param test: free Boolean test parameter.
-    :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
+    :param limit: time limit in hours (int)
+    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (bool)
+    :param proxy_id: proxy id (str)
+    :param test: free Boolean test parameter (bool)
+    :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str).
     """
-
     if limit is None:
         limit = 1
 
@@ -286,15 +287,14 @@ def verify_vomsproxy(envsetup, limit):
     return exit_code, diagnostics
 
 
-def verify_gridproxy(envsetup, limit):
+def verify_gridproxy(envsetup: str, limit: int) -> (int, str):
     """
     Verify proxy using grid-proxy-info command.
 
-    :param envsetup: general setup string for proxy commands (string).
-    :param limit: time limit in hours (int).
-    :return: exit code (int), error diagnostics (string).
+    :param envsetup: general setup string for proxy commands (str)
+    :param limit: time limit in hours (int)
+    :return: exit code (int), error diagnostics (str).
     """
-
     ec = 0
     diagnostics = ""
 
@@ -326,7 +326,7 @@ def verify_gridproxy(envsetup, limit):
     return ec, diagnostics
 
 
-def interpret_proxy_info(_ec, stdout, stderr, limit):
+def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int, str, int, int):
     """
     Interpret the output from arcproxy or voms-proxy-info.
 
@@ -334,9 +334,8 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     :param stdout: stdout from proxy command (string).
     :param stderr: stderr from proxy command (string).
     :param limit: time limit in hours (int).
-    :return: exit code (int), diagnostics (string). validity end cert, validity end in seconds if detected, None if not detected (int).
+    :return: exit code (int), diagnostics (str). validity end cert (int), validity end in seconds if detected, None if not detected (int).
     """
-
     exitcode = 0
     diagnostics = ""
     validity_end = None  # not detected
@@ -399,15 +398,14 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     return exitcode, diagnostics, validity_end_cert, validity_end
 
 
-def extract_time_left(stdout):
+def extract_time_left(stdout: str) -> (int, int, str):
     """
     Extract the time left for the cert and proxy from the proxy command.
     Some processing on the stdout is done.
 
-    :param stdout: stdout (string).
-    :return: validity_end_cert, validity_end, stdout (int, string))
+    :param stdout: stdout (str)
+    :return: validity_end_cert, validity_end, stdout (int, int, str)
     """
-
     validity_end_cert = None
     validity_end = None
 
@@ -442,15 +440,15 @@ def extract_time_left(stdout):
     return validity_end_cert, validity_end, stdout
 
 
-def extract_time_left_old(stdout):
+def extract_time_left_old(stdout: str) -> (int, str):
     """
     Extract the time left from the proxy command.
+
     Some processing on the stdout is done.
 
-    :param stdout: stdout (string).
-    :return: validity_end, stdout (int, string))
+    :param stdout: stdout (str)
+    :return: validity_end, stdout (int, str).
     """
-
     validity_end = None
 
     # remove the last \n in case there is one
@@ -475,11 +473,11 @@ def extract_time_left_old(stdout):
     return validity_end, stdout
 
 
-def getproxy_dictionary(voms_role):
+def getproxy_dictionary(voms_role: str) -> dict:
     """
-    Prepare the dictionary for the getProxy call.
+    Prepare the dictionary with the VOMS role and DN for the getProxy call.
 
-    :param voms_role: VOMS role (string).
+    :param voms_role: VOMS role (str)
+    :return: getProxy dictionary (dict).
     """
-
     return {'role': voms_role, 'dn': 'atlpilo2'} if voms_role == 'atlas' else {'role': voms_role}

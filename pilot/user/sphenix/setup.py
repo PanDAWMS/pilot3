@@ -24,6 +24,7 @@ import re
 import glob
 from time import sleep
 from datetime import datetime
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import NoSoftwareDir
@@ -38,50 +39,48 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def get_file_system_root_path():
+def get_file_system_root_path() -> str:
     """
     Return the root path of the local file system.
+
     The function returns "/cvmfs" or "/(some path)/cvmfs" in case the expected file system root path is not
     where it usually is (e.g. on an HPC). A site can set the base path by exporting ATLAS_SW_BASE.
 
-    :return: path (string)
+    :return: path (str).
     """
-
     return os.environ.get('ATLAS_SW_BASE', '/cvmfs')
 
 
-def get_alrb_export(add_if=False):
+def get_alrb_export(add_if: bool = False) -> str:
     """
     Return the export command for the ALRB path if it exists.
+
     If the path does not exist, return empty string.
 
-    :param add_if: Boolean. True means that an if statement will be placed around the export.
-    :return: export command
+    :param add_if: True means that an if statement will be placed around the export (bool)
+    :return: export command (str).
     """
-
-    path = "%s/atlas.cern.ch/repo" % get_file_system_root_path()
-    cmd = "export ATLAS_LOCAL_ROOT_BASE=%s/ATLASLocalRootBase;" % path if os.path.exists(path) else ""
-
-    # if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
+    path = f"{get_file_system_root_path()}/atlas.cern.ch/repo"
+    cmd = f"export ATLAS_LOCAL_ROOT_BASE={path}/ATLASLocalRootBase;" if os.path.exists(path) else ""
     if cmd and add_if:
         cmd = 'if [ -z \"$ATLAS_LOCAL_ROOT_BASE\" ]; then ' + cmd + ' fi;'
 
     return cmd
 
 
-def get_asetup(asetup=True, alrb=False, add_if=False):
+def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) -> str:
     """
-    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE
+    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
+
     Only include the actual asetup script if asetup=True. This is not needed if the jobPars contain the payload command
     but the pilot still needs to add the exports and the atlasLocalSetup.
 
-    :param asetup: Boolean. True value means that the pilot should include the asetup command.
-    :param alrb: Boolean. True value means that the function should return special setup used with ALRB and containers.
-    :param add_if: Boolean. True means that an if statement will be placed around the export.
-    :raises: NoSoftwareDir if appdir does not exist.
-    :return: source <path>/asetup.sh (string).
+    :param asetup: True value means that the pilot should include the asetup command (bool)
+    :param alrb: True value means that the function should return special setup used with ALRB and containers (bool)
+    :param add_if: True means that an if statement will be placed around the export (bool)
+    :raises: NoSoftwareDir if appdir does not exist
+    :return: source <path>/asetup.sh (str).
     """
-
     cmd = ""
     alrb_cmd = get_alrb_export(add_if=add_if)
     if alrb_cmd != "":
@@ -100,50 +99,50 @@ def get_asetup(asetup=True, alrb=False, add_if=False):
         if appdir != "":
             # make sure that the appdir exists
             if not os.path.exists(appdir):
-                msg = 'appdir does not exist: %s' % appdir
+                msg = f'appdir does not exist: {appdir}'
                 logger.warning(msg)
                 raise NoSoftwareDir(msg)
             if asetup:
-                cmd = "source %s/scripts/asetup.sh" % appdir
+                cmd = f"source {appdir}/scripts/asetup.sh"
 
     return cmd
 
 
-def get_analysis_trf(transform, workdir):
+def get_analysis_trf(transform: str, workdir: str) -> (int, str, str):
     """
     Prepare to download the user analysis transform with curl.
+
     The function will verify the download location from a known list of hosts.
 
     :param transform: full trf path (url) (string).
     :param workdir: work directory (string).
     :return: exit code (int), diagnostics (string), transform_name (string)
     """
-
     ec = 0
     diagnostics = ""
 
     # test if $HARVESTER_WORKDIR is set
     harvester_workdir = os.environ.get('HARVESTER_WORKDIR')
     if harvester_workdir is not None:
-        search_pattern = "%s/jobO.*.tar.gz" % harvester_workdir
-        logger.debug("search_pattern - %s" % search_pattern)
+        search_pattern = f"{harvester_workdir}/jobO.*.tar.gz"
+        logger.debug(f"search_pattern - {search_pattern}")
         jobopt_files = glob.glob(search_pattern)
         for jobopt_file in jobopt_files:
-            logger.debug("jobopt_file = %s workdir = %s" % (jobopt_file, workdir))
+            logger.debug(f"jobopt_file = {jobopt_file} workdir = {workdir}")
             try:
                 copy(jobopt_file, workdir)
             except Exception as e:
-                logger.error("could not copy file %s to %s : %s" % (jobopt_file, workdir, e))
+                logger.error(f"could not copy file {jobopt_file} to {workdir} : {e}")
 
     if '/' in transform:
         transform_name = transform.split('/')[-1]
     else:
-        logger.warning('did not detect any / in %s (using full transform name)' % transform)
+        logger.warning(f'did not detect any / in {transform} (using full transform name)')
         transform_name = transform
 
     # is the command already available? (e.g. if already downloaded by a preprocess/main process step)
     if os.path.exists(os.path.join(workdir, transform_name)):
-        logger.info('script %s is already available - no need to download again' % transform_name)
+        logger.info(f'script {transform_name} is already available - no need to download again')
         return ec, diagnostics, transform_name
 
     original_base_url = ""
@@ -155,14 +154,14 @@ def get_analysis_trf(transform, workdir):
             break
 
     if original_base_url == "":
-        diagnostics = "invalid base URL: %s" % transform
+        diagnostics = f"invalid base URL: {transform}"
         return errors.TRFDOWNLOADFAILURE, diagnostics, ""
 
     # try to download from the required location, if not - switch to backup
     status = False
     for base_url in get_valid_base_urls(order=original_base_url):
         trf = re.sub(original_base_url, base_url, transform)
-        logger.debug("attempting to download script: %s" % trf)
+        logger.debug(f"attempting to download script: {trf}")
         status, diagnostics = download_transform(trf, transform_name, workdir)
         if status:
             break
@@ -172,27 +171,27 @@ def get_analysis_trf(transform, workdir):
 
     logger.info("successfully downloaded script")
     path = os.path.join(workdir, transform_name)
-    logger.debug("changing permission of %s to 0o755" % path)
+    logger.debug(f"changing permission of {path} to 0o755")
     try:
         os.chmod(path, 0o755)  # Python 2/3
     except Exception as e:
-        diagnostics = "failed to chmod %s: %s" % (transform_name, e)
+        diagnostics = f"failed to chmod {transform_name}: {e}"
         return errors.CHMODTRF, diagnostics, ""
 
     return ec, diagnostics, transform_name
 
 
-def get_valid_base_urls(order=None):
+def get_valid_base_urls(order: str = "") -> list:
     """
     Return a list of valid base URLs from where the user analysis transform may be downloaded from.
+
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param order: order (string).
+    :param order: order (str)
     :return: valid base URLs (list).
     """
-
     valid_base_urls = []
     _valid_base_urls = ["https://storage.googleapis.com/drp-us-central1-containers",
                         "http://pandaserver-doma.cern.ch:25080/trf/user"]
@@ -208,19 +207,19 @@ def get_valid_base_urls(order=None):
     return valid_base_urls
 
 
-def download_transform(url, transform_name, workdir):
+def download_transform(url: str, transform_name: str, workdir: str):
     """
-    Download the transform from the given url
-    :param url: download URL with path to transform (string).
-    :param transform_name: trf name (string).
-    :param workdir: work directory (string).
-    :return:
-    """
+    Download the transform from the given url.
 
+    :param url: download URL with path to transform (str)
+    :param transform_name: trf name (str)
+    :param workdir: work directory (str)
+    :return: status (bool), diagnostics (str).
+    """
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
-    cmd = 'curl -sS \"%s\" > %s' % (url, path)
+    cmd = f'curl -sS "{url}" > {path}'
     trial = 1
     max_trials = 3
 
@@ -235,29 +234,29 @@ def download_transform(url, transform_name, workdir):
             status = True
         except Exception as error:
             status = False
-            diagnostics = "Failed to copy file %s to %s : %s" % (source_path, path, error)
+            diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
 
     # try to download the trf a maximum of 3 times
     while trial <= max_trials:
-        logger.info("executing command [trial %d/%d]: %s" % (trial, max_trials, cmd))
+        logger.info(f"executing command [trial {trial}/{max_trials}]: {cmd}")
 
         exit_code, stdout, stderr = execute(cmd, mute=True)
         if not stdout:
             stdout = "(None)"
         if exit_code != 0:
             # Analyze exit code / output
-            diagnostics = "curl command failed: %d, %s, %s" % (exit_code, stdout, stderr)
+            diagnostics = f"curl command failed: {exit_code}, {stdout}, {stderr}"
             logger.warning(diagnostics)
             if trial == max_trials:
-                logger.fatal('could not download transform: %s' % stdout)
+                logger.fatal(f'could not download transform: {stdout}')
                 status = False
                 break
             else:
                 logger.info("will try again after 60 s")
                 sleep(60)
         else:
-            logger.info("curl command returned: %s" % stdout)
+            logger.info(f"curl command returned: {stdout}")
             status = True
             break
         trial += 1
@@ -265,17 +264,17 @@ def download_transform(url, transform_name, workdir):
     return status, diagnostics
 
 
-def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})'):
+def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})') -> float:
     """
     Extract a more precise end of setup time from the payload stdout.
+
     File path should be verified already.
     The function will look for a date time in the beginning of the payload stdout with the given pattern.
 
-    :param path: path to payload stdout (string).
-    :param pattern: regular expression pattern (raw string).
+    :param path: path to payload stdout (str)
+    :param pattern: regular expression pattern (raw str)
     :return: time in seconds since epoch (float).
     """
-
     end_time = None
     head_list = head(path, count=50)
     time_string = find_pattern_in_list(head_list, pattern)
@@ -286,50 +285,50 @@ def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2}
     return end_time
 
 
-def get_schedconfig_priority():
+def get_schedconfig_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def get_queuedata_priority():
+def get_queuedata_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
-def get_ddm_source_priority():
+def get_ddm_source_priority() -> list:
     """
     Return the prioritized list for the DDM sources.
+
     This list is used to determine which source to use for the DDM endpoints, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_storage_data().
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def should_verify_setup(job):
+def should_verify_setup(job: Any) -> bool:
     """
-    Should the setup command be verified?
+    Determine if the setup command should be verified.
 
-    :param job: job object.
-    :return: Boolean.
+    :param job: job object (Any)
+    :return: False (bool).
     """
 
     return False
