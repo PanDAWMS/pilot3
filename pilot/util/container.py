@@ -31,7 +31,7 @@ from signal import SIGTERM, SIGKILL
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.common import obscure_token
+from pilot.util.auxiliary import obscure_token
 #from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 

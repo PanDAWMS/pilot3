@@ -21,7 +21,6 @@
 
 import os
 import logging
-import re
 from typing import Any
 
 from pilot.util.config import config
@@ -88,21 +87,3 @@ def is_pilot_check(check: str = '') -> bool:
         status = True  # to allow check to proceed when config file is outdated
 
     return status
-
-
-def obscure_token(cmd: str) -> str:
-    """
-    Obscure any user token from the payload command.
-
-    :param cmd: payload command (str)
-    :return: updated command (str).
-    """
-    try:
-        match = re.search(r'-p (\S+);', cmd)
-        if match:
-            cmd = cmd.replace(match.group(1), '********')
-    except (re.error, AttributeError, IndexError):
-        logger.warning('an exception was thrown while trying to obscure the user token')
-        cmd = ''
-
-    return cmd
