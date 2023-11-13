@@ -32,10 +32,7 @@ from signal import SIGTERM, SIGUSR1
 # from tarfile import ExFileObject
 from functools import reduce
 
-from .container import (
-    create_root_container_command,
-    verify_container_script
-)  #, create_middleware_container_command
+from .container import create_root_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -2153,8 +2150,7 @@ def remove_redundant_files(workdir, outputfiles=None, piloterrors=[], debugmode=
     # remove special files
     remove_special_files(workdir, dir_list, outputfiles)
 
-    # remove container_script.sh if it contains token info
-    verify_container_script(os.path.join(workdir, config.Container.container_script))
+    # verify_container_script(os.path.join(workdir, config.Container.container_script))
 
     # run a second pass to clean up any broken links
     logger.debug('cleaning up broken links')

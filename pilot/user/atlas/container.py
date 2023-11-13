@@ -452,15 +452,6 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
         release_setup, cmd = create_release_setup(cmd, atlas_setup, full_atlas_setup, job.swrelease,
                                                   job.workdir, queuedata.is_cvmfs)
 
-        # prepend the docker login if necessary
-        # does the pandasecrets dictionary contain any docker login info?
-        pandasecrets = str(job.pandasecrets)
-        if pandasecrets and "token" in pandasecrets and \
-                has_docker_pattern(pandasecrets, pattern=r'docker://[^/]+/'):
-            # if so, add it do the container script
-            logger.info('adding sensitive docker login info')
-            cmd = add_docker_login(cmd, job.pandasecrets)
-
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
             cmd = replace_last_command(cmd, job.containeroptions.get('containerExec'))
@@ -489,6 +480,16 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
         execargs = job.containeroptions.get('execArgs', None)
         if execargs:
             cmd += ' ' + execargs
+
+        # prepend the docker login if necessary
+        # does the pandasecrets dictionary contain any docker login info?
+        pandasecrets = str(job.pandasecrets)
+        if pandasecrets and "token" in pandasecrets and \
+                has_docker_pattern(pandasecrets, pattern=r'docker://[^/]+/'):
+            # if so, add it do the container script
+            logger.info('adding sensitive docker login info')
+            cmd = add_docker_login(cmd, job.pandasecrets)
+
         logger.debug(f'\n\nfinal command:\n\n{cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
