@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
+"""Functions for using ActiveMQ."""
+
 import socket
 import json
 import random
@@ -101,6 +103,7 @@ class Listener(connectionlistener):
 class ActiveMQ:
     """
     ActiveMQ class.
+
     Note: the class can be used for either topic or queue messages.
     E.g. 'topic': '/queue/panda.pilot' or '/topic/panda.pilot'
     X.509 authentication using SSL not possible since key+cert cannot easily be reached from WNs.
@@ -208,9 +211,7 @@ class ActiveMQ:
         self.logger.debug('sent message')
 
     def close_connections(self) -> None:
-        """
-        Close all open connections.
-        """
+        """Close all open connections."""
         for conn in self.connections:
             try:
                 conn.disconnect()

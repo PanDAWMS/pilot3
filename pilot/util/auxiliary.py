@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+"""Auxiliary functions."""
+
 import os
 import re
 import sys
@@ -50,10 +52,7 @@ errors = ErrorCodes()
 
 
 def pilot_version_banner() -> None:
-    """
-    Print a pilot version banner.
-    """
-
+    """Print a pilot version banner."""
     version = f'***  PanDA Pilot version {get_pilot_version()}  ***'
     logger.info('*' * len(version))
     logger.info(version)
@@ -90,16 +89,14 @@ def is_virtual_machine() -> bool:
 
 
 def display_architecture_info() -> None:
-    """
-    Display OS/architecture information from /etc/os-release.
-    """
+    """Display OS/architecture information from /etc/os-release."""
     logger.info("architecture information:")
     dump("/etc/os-release")
 
 
 def get_batchsystem_jobid() -> (str, int):
     """
-    Identify and return the batch system job id (will be reported to the server)
+    Identify and return the batch system job id (will be reported to the server).
 
     :return: batch system name (string), batch system job id (int)
     """
@@ -151,7 +148,7 @@ def get_globaljobid() -> str:
 
 def get_job_scheduler_id() -> str:
     """
-    Get the job scheduler id from the environment variable PANDA_JSID
+    Get the job scheduler id from the environment variable PANDA_JSID.
 
     :return: job scheduler id (str)
     """
@@ -373,7 +370,7 @@ def get_resource_name() -> str:
 
 def get_object_size(obj: Any, seen: Any = None) -> int:
     """
-    Recursively find the size of any objects
+    Recursively find the size of any objects.
 
     :param obj: object (Any)
     :param seen: logical seen variable (Any)
@@ -401,9 +398,7 @@ def get_object_size(obj: Any, seen: Any = None) -> int:
 
 
 def show_memory_usage() -> None:
-    """
-    Display the current memory usage by the pilot process.
-    """
+    """Display the current memory usage by the pilot process."""
     _, _stdout, _ = get_memory_usage(os.getpid())
     _value = extract_memory_usage_value(_stdout)
     logger.debug(f'current pilot memory usage:\n\n{_stdout}\n\nusage: {_value} kB\n')
@@ -528,7 +523,7 @@ def locate_core_file(cmd: str = '', pid: int = 0) -> str:
 
 
 def get_pid_from_command(cmd: str, pattern: str = r'gdb --pid (\d+)') -> int:
-    """
+    r"""
     Identify an explicit process id in the given command.
 
     Example:
@@ -567,6 +562,7 @@ def list_hardware() -> str:
 def get_display_info() -> (str, str):
     """
     Extract the product and vendor from the lshw command.
+
     E.g.
            product: GD 5446 [1013:B8]
            vendor: Cirrus Logic [1013]
@@ -719,6 +715,7 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
 def grep_str(patterns: list, stdout: str) -> list:
     """
     Search for the patterns in the given stdout.
+
     For expected large stdout, better to use FileHandling::grep()
 
     :param patterns: list of regexp patterns (list)
@@ -762,14 +759,13 @@ class TimeoutException(Exception):
     """Timeout exception."""
 
     def __init__(self, message: str, timeout: int = None, *args: Any):
-        """
-        Initialize variables.
-        """
+        """Initialize variables."""
         self.timeout = timeout
         self.message = message
         self._errorCode = 1334
         super(TimeoutException, self).__init__(*args)
 
     def __str__(self):
+        """Set and return the error string for string representation of the class instance."""
         tmp = f' : {repr(self.args)}' if self.args else ''
         return f"{self.__class__.__name__}: {self.message}, timeout={self.timeout} seconds{tmp}"
