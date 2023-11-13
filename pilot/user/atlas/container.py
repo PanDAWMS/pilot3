@@ -34,8 +34,8 @@ from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
-from pilot.util.auxiliary import obscure_token
 from pilot.util.config import config
+from pilot.util.container import obscure_token
 from pilot.util.filehandling import (
     grep,
     remove,

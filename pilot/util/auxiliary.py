@@ -737,24 +737,6 @@ def grep_str(patterns: list, stdout: str) -> list:
     return matched_lines
 
 
-def obscure_token(cmd: str) -> str:
-    """
-    Obscure any user token from the payload command.
-
-    :param cmd: payload command (str)
-    :return: updated command (str).
-    """
-    try:
-        match = re.search(r'-p (\S+);', cmd)
-        if match:
-            cmd = cmd.replace(match.group(1), '********')
-    except (re.error, AttributeError, IndexError):
-        logger.warning('an exception was thrown while trying to obscure the user token')
-        cmd = ''
-
-    return cmd
-
-
 class TimeoutException(Exception):
     """Timeout exception."""
 

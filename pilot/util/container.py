@@ -22,16 +22,16 @@
 import os
 import subprocess
 import logging
+import re
 import shlex
 import threading
 
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
-from time import sleep
 from signal import SIGTERM, SIGKILL
+from time import sleep
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.auxiliary import obscure_token
 #from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
@@ -332,3 +332,21 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
         logger.warning('container module could not be imported')
 
     return executable, ""
+
+
+def obscure_token(cmd: str) -> str:
+    """
+    Obscure any user token from the payload command.
+
+    :param cmd: payload command (str)
+    :return: updated command (str).
+    """
+    try:
+        match = re.search(r'-p (\S+);', cmd)
+        if match:
+            cmd = cmd.replace(match.group(1), '********')
+    except (re.error, AttributeError, IndexError):
+        logger.warning('an exception was thrown while trying to obscure the user token')
+        cmd = ''
+
+    return cmd
