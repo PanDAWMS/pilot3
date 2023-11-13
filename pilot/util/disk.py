@@ -20,6 +20,8 @@
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Paul Nilsson, Paul.Nilsson@cern.ch, 2021-23
 
+"""Functions for reporting disk usage."""
+
 import os
 from collections import namedtuple
 

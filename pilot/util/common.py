@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Common functions."""
+
 import os
 import logging
 from typing import Any

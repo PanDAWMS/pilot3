@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions for executing commands."""
+
 import os
 import subprocess
 import logging
@@ -217,7 +219,7 @@ def get_timeout(requested_timeout: int) -> int:
 
 def execute_command(command: str) -> str:
     """
-    Executes a command using subprocess without using the shell.
+    Execute a command using subprocess without using the shell.
 
     :param command: The command to execute (str)
     :return: The output of the command (str).

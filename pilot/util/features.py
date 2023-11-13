@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Machine and job features (for sites that support this CERN project)."""
+
 import logging
 import os
 from json import dumps, loads
@@ -81,9 +83,7 @@ class MachineFeatures(Features):
     """Machine features."""
 
     def __init__(self):
-        """
-        Initialize variables.
-        """
+        """Initialize variables."""
         super().__init__()
 
         # machine features
@@ -99,9 +99,7 @@ class JobFeatures(Features):
     """Job features."""
 
     def __init__(self):
-        """
-        Initialize variables.
-        """
+        """Initialize variables."""
         super().__init__()
 
         # job features

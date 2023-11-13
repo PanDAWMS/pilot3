@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""Functions for configuration file."""
+
 import os
 import re
 import configparser

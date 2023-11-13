@@ -20,6 +20,8 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Constamts."""
+
 from os import environ
 
 # Pilot version
