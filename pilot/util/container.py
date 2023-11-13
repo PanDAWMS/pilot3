@@ -31,6 +31,7 @@ from signal import SIGTERM, SIGKILL
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.common import obscure_token
 #from pilot.util.loggingsupport import flush_handler
 from pilot.util.processgroups import kill_process_group
 
@@ -285,6 +286,9 @@ def print_executable(executable: str, obscure: str = '') -> None:
             executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
     if obscure:
         executable_readable = executable_readable.replace(obscure, '********')
+
+    # also make sure there is no user token present. If so, obscure it as well
+    executable_readable = obscure_token(executable_readable)
 
     logger.info(f'executing command: {executable_readable}')
 

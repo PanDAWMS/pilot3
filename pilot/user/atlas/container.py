@@ -34,6 +34,7 @@ from pilot.common.exception import PilotException, FileHandlingFailure
 from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
+from pilot.util.common import obscure_token
 from pilot.util.config import config
 from pilot.util.filehandling import (
     grep,
@@ -458,9 +459,8 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
 
         # write the full payload command to a script file
         container_script = config.Container.container_script
-        _cmd = obscure_token(cmd)  # obscure any token if present
-        if _cmd:
-            logger.info(f'command to be written to container script file:\n\n{container_script}:\n\n{_cmd}\n')
+        if cmd:
+            logger.info(f'command to be written to container script file:\n\n{container_script}:\n\n{cmd}\n')
         else:
             logger.warning('will not show container script file since the user token could not be obscured')
         try:
@@ -490,28 +490,10 @@ def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
             logger.info('adding sensitive docker login info')
             cmd = add_docker_login(cmd, job.pandasecrets)
 
-        logger.debug(f'\n\nfinal command:\n\n{cmd}\n')
+        _cmd = obscure_token(cmd)  # obscure any token if present
+        logger.debug(f'\n\nfinal command:\n\n{_cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
-
-    return cmd
-
-
-def obscure_token(cmd: str) -> str:
-    """
-    Obscure any user token from the payload command.
-
-    :param cmd: payload command (str)
-    :return: updated command (str).
-    """
-
-    try:
-        match = re.search(r'-p (\S+);', cmd)
-        if match:
-            cmd = cmd.replace(match.group(1), '********')
-    except (re.error, AttributeError, IndexError):
-        logger.warning('an exception was thrown while trying to obscure the user token')
-        cmd = ''
 
     return cmd
 
