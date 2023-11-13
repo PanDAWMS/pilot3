@@ -344,7 +344,7 @@ def obscure_token(cmd: str) -> str:
     :return: updated command (str).
     """
     try:
-        match = re.search(r'-p (\S+);', cmd)
+        match = re.search(r'-p (\S+)\ ', cmd)
         if match:
             cmd = cmd.replace(match.group(1), '********')
     except (re.error, AttributeError, IndexError):

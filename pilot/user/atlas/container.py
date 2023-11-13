@@ -25,7 +25,7 @@ import os
 import pipes
 import re
 import logging
-from typing import Any
+from typing import Any, Callable
 
 # for user container test: import urllib
 
@@ -46,14 +46,13 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def do_use_container(**kwargs):
+def do_use_container(**kwargs: Any) -> bool:
     """
     Decide whether to use a container or not.
 
-    :param kwargs: dictionary of key-word arguments.
-    :return: True if function has decided that a container should be used, False otherwise (boolean).
+    :param kwargs: dictionary of key-word arguments (Any)
+    :return: True if function has decided that a container should be used, False otherwise (bool).
     """
-
     # to force no container use: return False
     use_container = False
 
@@ -85,16 +84,15 @@ def do_use_container(**kwargs):
     return use_container
 
 
-def wrapper(executable, **kwargs):
+def wrapper(executable: str, **kwargs: Any) -> Callable[..., Any]:
     """
     Wrapper function for any container specific usage.
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
-    :param executable: command to be executed (string).
-    :param kwargs: dictionary of key-word arguments.
-    :return: executable wrapped with container command (string).
+    :param executable: command to be executed (str)
+    :param kwargs: dictionary of key-word arguments (Any)
+    :return: executable wrapped with container command (Callable).
     """
-
     workdir = kwargs.get('workdir', '.')
     pilot_home = os.environ.get('PILOT_HOME', '')
     job = kwargs.get('job', None)
@@ -110,14 +108,13 @@ def wrapper(executable, **kwargs):
     return fctn(executable, workdir, job=job)
 
 
-def extract_platform_and_os(platform):
+def extract_platform_and_os(platform: str) -> str:
     """
-    Extract the platform and OS substring from platform
+    Extract the platform and OS substring from platform.
 
-    :param platform (string): E.g. "x86_64-slc6-gcc48-opt"
-    :return: extracted platform specifics (string). E.g. "x86_64-slc6". In case of failure, return the full platform
+    :param platform: platform info, e.g. "x86_64-slc6-gcc48-opt" (str)
+    :return: extracted platform specifics, e.g. "x86_64-slc6". In case of failure, return the full platform (str).
     """
-
     pattern = r"([A-Za-z0-9_-]+)-.+-.+"
     found = re.findall(re.compile(pattern), platform)
 
@@ -131,14 +128,13 @@ def extract_platform_and_os(platform):
     return ret
 
 
-def get_grid_image(platform):
+def get_grid_image(platform: str) -> str:
     """
-    Return the full path to the singularity/apptainer grid image
+    Return the full path to the singularity/apptainer grid image.
 
-    :param platform: E.g. "x86_64-slc6" (string).
-    :return: full path to grid image (string).
+    :param platform: E.g. "x86_64-slc6" (str)
+    :return: full path to grid image (str).
     """
-
     if not platform or platform == "":
         platform = "x86_64-slc6"
         logger.warning(f"using default platform={platform} (cmtconfig not set)")
@@ -526,7 +522,8 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
                     try:
                         match = re.search(pattern, registry_path)
                         if match:
-                            cmd = f'docker login {match.group(0)} -u {username} -p {token}; ' + cmd
+                            # cmd = f'docker login {match.group(0)} -u {username} -p {token}; ' + cmd
+                            cmd = f'apptainer remote login -u {username} -p {token} {match.group(0)}; ' + cmd
                         else:
                             logger.warning(f'failed to extract registry from {registry_path}')
                     except re.error as regex_error:
@@ -993,13 +990,16 @@ def get_docker_pattern() -> str:
     """
     Return the docker login URL pattern for secret verification.
 
-    Example: docker login <registry URL> -u <username> -p <token>
+    Examples:
+     docker login <registry URL> -u <username> -p <token>
+     apptainer remote login -u <username> -p <lxplus password> <registry URL>
 
     :return: pattern (raw string).
     """
 
     return (
-        fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
+        # fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
+        fr"apptainer\ remote\ login\ \-u\ \S+\ \-p\ \S+\ {get_url_pattern()};"
     )
 
 
