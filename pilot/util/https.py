@@ -21,8 +21,12 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+"""Functions for https interactions."""
+
 import json
+import logging
 import os
+import pipes
 import platform
 import random
 import socket
@@ -31,19 +35,18 @@ import sys
 import urllib.request
 import urllib.error
 import urllib.parse
-import pipes
 from collections import namedtuple
-from time import sleep, time
 from re import findall
+from time import sleep, time
+from typing import Callable, Any
 
-from .filehandling import write_file, read_file
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
+from .filehandling import write_file, read_file
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
 
-import logging
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
@@ -59,18 +62,18 @@ _ctx.cacert = None
 ctx = type('ctx', (object,), dict(ssl_context=None, user_agent='Pilot3 client', capath=None, cacert=None))
 
 
-def _tester(func, *args):
+def _tester(func: Callable[..., Any], *args: Any) -> Any:
     """
-    Tests function ``func`` on arguments and returns first positive.
+    Test function ``func`` on the given arguments and return the first positive.
 
     >>> _tester(lambda x: x%3 == 0, 1, 2, 3, 4, 5, 6)
     3
     >>> _tester(lambda x: x%3 == 0, 1, 2)
     None
 
-    :param func: function(arg)->boolean
-    :param args: other arguments
-    :return: something or none
+    :param func: the function to be tested (Callable)
+    :param args: other arguments (Any)
+    :return: something or none (Any).
     """
     for arg in args:
         if arg is not None and func(arg):
@@ -79,78 +82,72 @@ def _tester(func, *args):
     return None
 
 
-def capath(args=None):
+def capath(args: Any = None) -> Any:
     """
-    Tries to get :abbr:`CA (Certification Authority)` path with certificates.
-    Testifies it to be a directory.
-    Tries next locations:
+    Try to get :abbr:`CA (Certification Authority)` path with certificates.
 
+    Tries
     1. :option:`--capath` from arguments
     2. :envvar:`X509_CERT_DIR` from env
     3. Path ``/etc/grid-security/certificates``
 
-    :param args: arguments, parsed by `argparse`
-    :returns: `str` -- directory path, or `None`
+    :param args: arguments, parsed by argparse (Any)
+    :returns: directory path (str), or None.
     """
-
     return _tester(os.path.isdir,
                    args and args.capath,
                    os.environ.get('X509_CERT_DIR'),
                    '/etc/grid-security/certificates')
 
 
-def cacert_default_location():
+def cacert_default_location() -> Any:
     """
-    Tries to get current user ID through `os.getuid`, and get the posix path for x509 certificate.
+    Try to get current user ID through `os.getuid`, and get the posix path for x509 certificate.
+
     :returns: `str` -- posix default x509 path, or `None`
     """
     try:
-        return '/tmp/x509up_u%s' % str(os.getuid())
+        return f'/tmp/x509up_u{os.getuid()}'
     except AttributeError:
-        logger.warning('No UID available? System not POSIX-compatible... trying to continue')
+        logger.warning('no UID available? System not POSIX-compatible... trying to continue')
         pass
 
     return None
 
 
-def cacert(args=None):
+def cacert(args: Any = None) -> Any:
     """
-    Tries to get :abbr:`CA (Certification Authority)` certificate or X509 one.
-    Testifies it to be a regular file.
-    Tries next locations:
+    Try to get :abbr:`CA (Certification Authority)` certificate or X509.
 
+    Checks that it is a regular file.
+    Tries
     1. :option:`--cacert` from arguments
     2. :envvar:`X509_USER_PROXY` from env
     3. Path ``/tmp/x509up_uXXX``, where ``XXX`` refers to ``UID``
 
-    :param args: arguments, parsed by `argparse`
-    :returns: `str` -- certificate file path, or `None`
+    :param args: arguments, parsed by argparse (Any)
+    :returns: `str` -- certificate file path, or `None` (Any).
     """
-
     return _tester(os.path.isfile,
                    args and args.cacert,
                    os.environ.get('X509_USER_PROXY'),
                    cacert_default_location())
 
 
-def https_setup(args=None, version=None):
+def https_setup(args: Any = None, version: str = ""):
     """
-    Sets up the context for future HTTPS requests:
+    Set up the context for HTTPS requests.
 
     1. Selects the certificate paths
     2. Sets up :mailheader:`User-Agent`
     3. Tries to create `ssl.SSLContext` for future use (falls back to :command:`curl` if fails)
 
-    :param args: arguments, parsed by `argparse`
-    :param str version: pilot version string (for :mailheader:`User-Agent`)
+    :param args: arguments, parsed by argparse (Any)
+    :param version: pilot version string (for :mailheader:`User-Agent`) (str).
     """
-
     version = version or get_pilot_version()
 
-    _ctx.user_agent = 'pilot/%s (Python %s; %s %s)' % (version,
-                                                       sys.version.split()[0],
-                                                       platform.system(),
-                                                       platform.machine())
+    _ctx.user_agent = f'pilot/{version} (Python {sys.version.split()[0]}; {platform.system()} {platform.machine()})'
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
 
@@ -173,9 +170,10 @@ def https_setup(args=None, version=None):
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
+def request(url: str, data: dict = {}, plain: bool = False, secure: bool = True, ipv: str = 'IPv6') -> Any:
     """
-    This function sends a request using HTTPS.
+    Send a request using HTTPS.
+
     Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
     If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise uses :command:`curl`.
 
@@ -184,11 +182,6 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
     Treats the request as JSON unless a parameter ``plain`` is `True`.
     If JSON is expected, sends ``Accept: application/json`` header.
 
-    :param string url: the URL of the resource.
-    :param dict data: data to send.
-    :param boolean plain: if true, treats the response as a plain text.
-    :param secure: Boolean (default: True, ie use certificates).
-    :param ipv: internet protocol version (string).
     Usage:
 
     .. code-block:: python
@@ -197,12 +190,16 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
         https_setup(args, PILOT_VERSION)  # sets up ssl and other stuff
         response = request('https://some.url', {'some':'data'})
 
-    Returns:
+    :param url: the URL of the resource (str)
+    :param data: data to send (dict)
+    :param plain: if true, treats the response as a plain text (bool)
+    :param secure: default: True, i.e. use certificates (bool)
+    :param ipv: internet protocol version (str).
+    :returns:
         - :keyword:`dict` -- if everything went OK
         - `str` -- if ``plain`` parameter is `True`
         - `None` -- if something went wrong
     """
-
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
     # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
@@ -270,10 +267,7 @@ def request(url, data=None, plain=False, secure=True, ipv='IPv6'):
 
 
 def update_ctx():
-    """
-    Update the ctx object in case X509_USER_PROXY has been updated.
-    """
-
+    """Update the ctx object in case X509_USER_PROXY has been updated."""
     x509 = os.environ.get('X509_USER_PROXY', _ctx.cacert)
     if x509 != _ctx.cacert and os.path.exists(x509):
         _ctx.cacert = x509
@@ -282,16 +276,15 @@ def update_ctx():
         _ctx.capath = certdir
 
 
-def get_curl_command(plain, dat, ipv):
+def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
     """
     Get the curl command.
 
-    :param plain:
-    :param dat: curl config option (string).
-    :param ipv: internet protocol version (string).
-    :return: curl command (string), sensitive string to be obscured before dumping to log (string).
+    :param plain: if true, treats the response as a plain text (bool)
+    :param dat: curl config option (str)
+    :param ipv: internet protocol version (str)
+    :return: curl command (str or None), sensitive string to be obscured before dumping to log (str).
     """
-
     auth_token_content = ''
     auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN', None))  # file name of the token
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN', None))  # origin of the token (panda_dev.pilot)
@@ -329,21 +322,20 @@ def get_curl_command(plain, dat, ipv):
               f'--cert {pipes.quote(_ctx.cacert or "")} ' \
               f'--cacert {pipes.quote(_ctx.cacert or "")} ' \
               f'--key {pipes.quote(_ctx.cacert or "")} '\
-              f'-H {pipes.quote("User-Agent: %s" % _ctx.user_agent)} ' \
+              f'-H {pipes.quote(f"User-Agent: {_ctx.user_agent}")} ' \
               f'-H {pipes.quote("Accept: application/json") if not plain else ""} {dat}'
 
     #logger.info('request: %s', req)
     return req, auth_token_content
 
 
-def locate_token(auth_token):
+def locate_token(auth_token: str) -> str:
     """
     Locate the token file.
 
-    :param auth_token: file name of token (string).
-    :return: path to token (string).
+    :param auth_token: file name of token (str)
+    :return: path to token (str).
     """
-
     _primary = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(_primary, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
@@ -361,39 +353,35 @@ def locate_token(auth_token):
     return path
 
 
-def get_vars(url, data):
+def get_vars(url: str, data: dict) -> (str, str):
     """
     Get the filename and strdata for the curl config file.
 
-    :param url: URL (string).
-    :param data: data to be written to file (dictionary).
-    :return: filename (string), strdata (string).
+    :param url: URL (str)
+    :param data: data to be written to file (dict)
+    :return: filename (str), strdata (str).
     """
-
     strdata = ""
     for key in data:
-        strdata += 'data="%s"\n' % urllib.parse.urlencode({key: data[key]})
-    jobid = ''
-    if 'jobId' in list(data.keys()):
-        jobid = '_%s' % data['jobId']
+        strdata += f'data="{urllib.parse.urlencode({key: data[key]})}"\n'
+    jobid = f"_{data['jobId']}" if 'jobId' in list(data.keys()) else ""
 
     # write data to temporary config file
-    filename = '%s/curl_%s%s.config' % (os.getenv('PILOT_HOME'), os.path.basename(url), jobid)
+    filename = f"{os.getenv('PILOT_HOME')}/curl_{os.path.basename(url)}{jobid}.config"
 
     return filename, strdata
 
 
-def get_curl_config_option(writestatus, url, data, filename):
+def get_curl_config_option(writestatus: bool, url: str, data: dict, filename: str) -> str:
     """
     Get the curl config option.
 
-    :param writestatus: status of write_file call (Boolean).
-    :param url: URL (string).
-    :param data: data structure (dictionary).
-    :param filename: file name of config file (string).
-    :return: config option (string).
+    :param writestatus: status of write_file call (bool)
+    :param url: URL (str)
+    :param data: data structure (dict)
+    :param filename: file name of config file (str)
+    :return: config option (str).
     """
-
     if not writestatus:
         logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
         dat = pipes.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
@@ -403,15 +391,16 @@ def get_curl_config_option(writestatus, url, data, filename):
     return dat
 
 
-def execute_urllib(url, data, plain, secure):
+def execute_urllib(url: str, data: dict, plain: bool, secure: bool) -> Any:
     """
     Execute the request using urllib.
 
-    :param url: URL (string).
-    :param data: data structure
-    :return: urllib request structure.
+    :param url: URL (str)
+    :param data: data structure (dict)
+    :param plain: if true, treats the response as a plain text (bool)
+    :param secure: default: True, i.e. use certificates (bool)
+    :return: urllib request structure (Any).
     """
-
     req = urllib.request.Request(url, urllib.parse.urlencode(data))
     if not plain:
         req.add_header('Accept', 'application/json')
@@ -421,15 +410,14 @@ def execute_urllib(url, data, plain, secure):
     return req
 
 
-def get_urlopen_output(req, context):
+def get_urlopen_output(req: Any, context: Any) -> (int, str):
     """
     Get the output from the urlopen request.
 
-    :param req:
-    :param context:
-    :return: ec (int), output (string).
+    :param req: urllib request structure (Any)
+    :param context: ssl context (Any)
+    :return: exit code (int), output (str).
     """
-
     exitcode = -1
     output = ""
     try:
@@ -444,19 +432,18 @@ def get_urlopen_output(req, context):
     return exitcode, output
 
 
-def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
+def send_update(update_function: str, data: dict, url: str, port: str, job: Any = None, ipv: str = 'IPv6') -> dict:
     """
     Send the update to the server using the given function and data.
 
-    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (string).
-    :param data: data (dictionary).
-    :param url: server url (string).
-    :param port: server port (string).
-    :param job: job object.
-    :param ipv: internet protocol version, IPv4 or IPv6 (string).
-    :return: server response (dictionary).
+    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (str)
+    :param data: data (dict)
+    :param url: server url (str)
+    :param port: server port (str)
+    :param job: job object (Any)
+    :param ipv: internet protocol version, IPv4 or IPv6 (str)
+    :return: server response (dict).
     """
-
     time_before = int(time())
     max_attempts = 10
     attempt = 0
@@ -519,17 +506,17 @@ def send_update(update_function, data, url, port, job=None, ipv='IPv6'):
     return res
 
 
-def get_panda_server(url, port, update_server=True):
+def get_panda_server(url: str, port: str, update_server: bool = True) -> str:
     """
     Get the URL for the PanDA server.
+
     The URL will be randomized if the server can be contacted (otherwise fixed).
 
-    :param url: URL string, if set in pilot option (port not included).
-    :param port: port number, if set in pilot option (int).
-    :param update_server: True if the server can be contacted (Boolean).
-    :return: full URL (either from pilot options or from config file).
+    :param url: URL string, if set in pilot option (port not included) (str)
+    :param port: port number, if set in pilot option (str)
+    :param update_server: True if the server can be contacted, False otherwise (bool)
+    :return: full URL (either from pilot options or from config file) (str).
     """
-
     if url != '':
         parsedurl = url.split('://')
         scheme = None
@@ -568,15 +555,13 @@ def get_panda_server(url, port, update_server=True):
     return pandaserver
 
 
-def add_error_codes(data, job):
+def add_error_codes(data: dict, job: Any):
     """
     Add error codes to data structure.
 
-    :param data: data dictionary.
-    :param job: job object.
-    :return:
+    :param data: data dictionary (dict)
+    :param job: job object (Any).
     """
-
     # error codes
     pilot_error_code = job.piloterrorcode
     pilot_error_codes = job.piloterrorcodes
@@ -599,19 +584,18 @@ def add_error_codes(data, job):
     data['exeErrorDiag'] = job.exeerrordiag
 
 
-def get_server_command(url, port, cmd='getJob'):
+def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     """
     Prepare the getJob server command.
 
-    :param url: PanDA server URL (string)
-    :param port: PanDA server port
-    :return: full server command (URL string)
+    :param url: PanDA server URL (str)
+    :param port: PanDA server port (str)
+    :return: full server command (str).
     """
-
     if url != "":
         port_pattern = '.:([0-9]+)'
         if not findall(port_pattern, url):
-            url = url + ':%s' % port
+            url = url + f':{port}'
         else:
             logger.debug(f'URL already contains port: {url}')
     else:
