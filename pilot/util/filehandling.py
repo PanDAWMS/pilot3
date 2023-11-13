@@ -405,7 +405,7 @@ def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, i
     try:
         with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
-    except IOError as exc:
+    except (IOError, TypeError) as exc:
         logger.warning(f'exception caught in write_json: {exc}')
     else:
         status = True
