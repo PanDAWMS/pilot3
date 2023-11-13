@@ -19,6 +19,13 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions for identifying looping payloads."""
+
+import os
+import time
+import logging
+from typing import Any
+
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
 from pilot.util.config import config
@@ -29,26 +36,23 @@ from pilot.util.processes import kill_process, find_zombies, handle_zombies, rea
 from pilot.util.psutils import get_child_processes, get_subprocesses
 from pilot.util.timing import time_stamp
 
-import os
-import time
-import logging
 logger = logging.getLogger(__name__)
 
 errors = ErrorCodes()
 
 
-def looping_job(job, montime):
+def looping_job(job: Any, montime: Any) -> (int, str):
     """
-    Looping job detection algorithm.
-    Identify hanging tasks/processes. Did the stage-in/out finish within allowed time limit, or did the payload update
+    Identify looping payload, processes and tasks.
+
+    Did the stage-in/out finish within allowed time limit, or did the payload update
     any files recently? The files must have been touched within the given looping_limit, or the process will be
     terminated.
 
-    :param job: job object.
-    :param montime: `MonitoringTime` object.
-    :return: exit code (int), diagnostics (string).
+    :param job: job object (Any)
+    :param montime: `MonitoringTime` object (Any)
+    :return: exit code (int), diagnostics (str).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -92,13 +96,12 @@ def looping_job(job, montime):
     return exit_code, diagnostics
 
 
-def create_core_dump(job):
+def create_core_dump(job: Any):
     """
-    Create core dump and copy it to work directory
+    Create core dump and copy it to work directory.
 
-    :param job: job object.
+    :param job: job object (Any).
     """
-
     if not job.pid or not job.workdir:
         logger.warning('cannot create core file since pid or workdir is unknown')
         return
@@ -137,24 +140,24 @@ def create_core_dump(job):
         logger.warning(f'exception caught: {exp}')
 
 
-def get_time_for_last_touch(job, montime, looping_limit):
+def get_time_for_last_touch(job: Any, montime: Any, looping_limit: int) -> (int, list):
     """
     Return the time when the files in the workdir were last touched.
-    in case no file was touched since the last check, the returned value will be the same as the previous time.
 
-    :param job: job object.
-    :param montime: `MonitoringTime` object.
-    :param looping_limit: looping limit in seconds.
+    In case no file was touched since the last check, the returned value will be the same as the previous time.
+
+    :param job: job object (Any)
+    :param montime: `MonitoringTime` object (Any)
+    :param looping_limit: looping limit in seconds (int)
     :return: time in seconds since epoch (int) (or None in case of failure), recent files (list).
     """
-
     updated_files = []
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions',
                                         globals(), locals(), [pilot_user], 0)
 
     # locate all files that were modified the last N minutes
-    cmd = "find %s -mmin -%d" % (job.workdir, int(looping_limit / 60))
+    cmd = f"find {job.workdir} -mmin -{int(looping_limit / 60)}"
     exit_code, stdout, stderr = execute(cmd)
     if exit_code == 0:
         if stdout != "":
@@ -190,14 +193,12 @@ def get_time_for_last_touch(job, montime, looping_limit):
     return montime.ct_looping_last_touched, updated_files
 
 
-def kill_looping_job(job):
+def kill_looping_job(job: Any):
     """
     Kill the looping process.
 
-    :param job: job object.
-    :return: (updated job object.)
+    :param job: job object (Any).
     """
-
     # the child process is looping, kill it
     diagnostics = f"pilot has decided to kill looping job {job.jobid} at {time_stamp()}"
     logger.fatal(diagnostics)
@@ -252,13 +253,12 @@ def kill_looping_job(job):
             kill_process(pid)
 
 
-def get_looping_job_limit():
+def get_looping_job_limit() -> int:
     """
     Get the time limit for looping job detection.
 
     :return: looping job time limit in seconds (int).
     """
-
     looping_limit = convert_to_int(config.Pilot.looping_limit_default, default=2 * 3600)
     looping_limit_min_default = convert_to_int(config.Pilot.looping_limit_min_default, default=2 * 3600)
     looping_limit = max(looping_limit, looping_limit_min_default)
