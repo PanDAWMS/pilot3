@@ -53,6 +53,7 @@ def mean(data: list) -> float:
 def sum_square_dev(data: list) -> float:
     """
     Return sum of square deviations of sequence data.
+
     Sum (x - x_mean)**2
 
     :param data: list of floats or ints.
@@ -127,7 +128,6 @@ def tryint(x: Any) -> Any:
     :param x: possible int (Any)
     :return: converted int or original value in case of ValueError (Any).
     """
-
     try:
         return int(x)
     except ValueError:
@@ -156,7 +156,8 @@ def split_version(version: str) -> tuple:
 
 def is_greater_or_equal(num_a, num_b):
     """
-    Is the numbered string num_a >= num_b?
+    Check if the numbered string num_a >= num_b.
+
     "1.2.3" > "1.2"  -- more digits
     "1.2.3" > "1.2.2"  -- rank based comparison
     "1.3.2" > "1.2.3"  -- rank based comparison
@@ -188,6 +189,7 @@ def add_lists(list1: list, list2: list) -> list:
 def convert_mb_to_b(size: Any) -> int:
     """
     Convert value from MB to B for the given size variable.
+
     If the size is a float, the function will convert it to int.
 
     :param size: size in MB (float or int) (Any)
