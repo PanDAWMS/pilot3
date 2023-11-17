@@ -26,6 +26,7 @@ import time
 import threading
 import traceback
 from sys import exc_info
+from typing import Callable, Any, Dict
 
 from .errorcodes import ErrorCodes
 errors = ErrorCodes()
@@ -417,20 +418,23 @@ class JobAlreadyRunning(PilotException):
 class ExcThread(threading.Thread):
     """Support class that allows for catching exceptions in threads."""
 
-    def __init__(self, bucket, target, kwargs, name):
+    def __init__(self, bucket: Any, target: Callable, kwargs: Dict[str, Any], name: str):
         """
         Set data members.
 
         Init function with a bucket that can be used to communicate exceptions to the caller.
         The bucket is a Queue.queue() or queue.Queue() object that can hold an exception thrown by a thread.
 
-        :param bucket: queue based bucket.
-        :param target: target function to execute.
-        :param kwargs: target function options.
+        :param bucket: queue based bucket (Any)
+        :param target: target function to execute (Callable)
+        :param kwargs: target function options (dict)
+        :param name: name (str).
         """
         threading.Thread.__init__(self, target=target, kwargs=kwargs, name=name)
         self.name = name
         self.bucket = bucket
+        self._target = target
+        self._kwargs = kwargs
 
     def run(self):
         """
@@ -443,7 +447,7 @@ class ExcThread(threading.Thread):
         job.control().
         """
         try:
-            self._target(**self._kwargs)
+            self.target(**self.kwargs)
         except Exception:
             # logger object can't be used here for some reason:
             # IOError: [Errno 2] No such file or directory: '/state/partition1/scratch/PanDA_Pilot2_*/pilotlog.txt'
@@ -458,6 +462,16 @@ class ExcThread(threading.Thread):
                 print('setting graceful stop in 10 s since there is no point in continuing')
                 time.sleep(10)
                 args.graceful_stop.set()
+
+    @property
+    def target(self) -> Callable:
+        """Help Pyright understand the type for self._target."""
+        return self._target
+
+    @property
+    def kwargs(self) -> Dict[str, Any]:
+        """Help Pyright understand the type for self._kwargs."""
+        return self._kwargs
 
     def get_bucket(self):
         """

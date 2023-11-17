@@ -23,7 +23,7 @@
 """Error codes set by the pilot."""
 
 import re
-from typing import Any
+from typing import Any, Tuple, List
 
 
 class ErrorCodes:
@@ -36,8 +36,8 @@ class ErrorCodes:
     """
 
     # global variables shared by all modules/jobs
-    pilot_error_codes = []
-    pilot_error_diags = []
+    pilot_error_codes: List[int] = []
+    pilot_error_diags: List[str] = []
 
     # Error code constants (from Pilot 1)
     GENERALERROR = 1008
@@ -349,7 +349,7 @@ class ErrorCodes:
         """
         return self._error_messages.get(errorcode, f"unknown error code: {errorcode}")
 
-    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> (list, list):
+    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> Tuple[list, list]:
         """
         Add pilot error code to list of error codes.
 
@@ -379,7 +379,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode: int) -> (list, list):
+    def remove_error_code(self, errorcode: int) -> Tuple[list, list]:
         """
         Silently remove an error code and its diagnostics from the internal error lists.
 
@@ -554,11 +554,11 @@ class ErrorCodes:
         return error_message
 
     @classmethod
-    def is_recoverable(self, code: int = 0) -> bool:
+    def is_recoverable(cls, code: int = 0) -> bool:
         """
         Determine whether code is a recoverable error code or not.
 
         :param code: Pilot error code (int)
         :return: is recoverable error (bool).
         """
-        return code in self.recoverable_error_codes
+        return code in cls.recoverable_error_codes
