@@ -21,24 +21,27 @@
 
 # Note: leave this module for now - the code might be useful for reuse
 
+"""Interceptor module, currently unused."""
+
 import time
 import queue
+import logging
+from typing import Any
 
 from pilot.common.exception import ExcThread
 from pilot.util.processes import threads_aborted
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-def run(args):
+def run(args: Any):
     """
+    Set up all interceptor threads.
+
     Main execution function for the interceptor communication layer.
 
-    :param args: pilot arguments.
-    :returns:
+    :param args: pilot arguments (Any)
     """
-
     targets = {'receive': receive, 'send': send}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'args': args},
                          name=name) for name, target in list(targets.items())]  # Python 2/3
@@ -75,14 +78,12 @@ def run(args):
     logger.debug('[interceptor] run thread has finished')
 
 
-def receive(args):
+def receive(args: Any):
     """
     Look for interceptor messages.
 
-    :param args: Pilot args object.
-    :return:
+    :param args: Pilot args object (Any).
     """
-
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
 
@@ -96,14 +97,12 @@ def receive(args):
     logger.debug('[interceptor] receive thread has finished')
 
 
-def send(args):
+def send(args: Any):
     """
     Send message to interceptor.
 
-    :param args: Pilot args object.
-    :return:
+    :param args: Pilot args object (Any).
     """
-
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
 
@@ -115,3 +114,45 @@ def send(args):
         logger.debug('will not set job_aborted yet')
 
     logger.debug('[interceptor] receive send has finished')
+
+
+# implement if necessary
+# def interceptor(queues: Any, traces: Any, args: Any):
+#    """
+#
+#    :param queues: internal queues for job handling.
+#    :param traces: tuple containing internal pilot states.
+#    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+#    :return:
+#    """
+#
+#    # overall loop counter (ignoring the fact that more than one job may be running)
+#    counter = 0
+#    while not args.graceful_stop.is_set():
+#        time.sleep(0.1)
+#
+#        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
+#        # (abort at the end of the loop)
+#        abort = should_abort(args, label='job:interceptor')
+#
+#        # check for any abort_job requests
+#        abort_job = check_for_abort_job(args, caller='interceptor')
+#        if not abort_job:
+#            # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
+#            jobs = queues.monitored_payloads.queue
+#            if jobs:
+#                for _ in range(len(jobs)):
+#                    logger.info(f'interceptor loop {counter}: looking for communication file')
+#            time.sleep(30)
+#
+#        counter += 1
+#
+#        if abort or abort_job:
+#            break
+#
+#    # proceed to set the job_aborted flag?
+#    if threads_aborted(caller='interceptor'):
+#        logger.debug('will proceed to set job_aborted')
+#        args.job_aborted.set()
+#
+#    logger.info('[job] interceptor thread has finished')

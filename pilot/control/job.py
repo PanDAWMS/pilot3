@@ -22,6 +22,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2018
 
+"""Job module with functions for job handling."""
+
 from __future__ import print_function  # Python 2
 
 import os
@@ -30,6 +32,7 @@ import hashlib
 import logging
 import queue
 from collections import namedtuple
+from typing import Any
 
 from json import dumps
 from glob import glob
@@ -79,16 +82,14 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def control(queues, traces, args):
+def control(queues: Any, traces: Any, args: Any):
     """
-    Main function of job control.
+    Set up job control threads.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
     """
-
     targets = {'validate': validate, 'retrieve': retrieve, 'create_data_payload': create_data_payload,
                'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor,
                'message_listener': message_listener}
@@ -139,14 +140,13 @@ def control(queues, traces, args):
     #os.kill(os.getpid(), signal.SIGBUS)
 
 
-def _validate_job(job):
+def _validate_job(job: Any) -> bool:
     """
     Verify job parameters for specific problems.
 
-    :param job: job object.
-    :return: Boolean.
+    :param job: job object (Any)
+    :return: True if job has been verified, False otherwise (bool).
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     container = __import__(f'pilot.user.{pilot_user}.container', globals(), locals(), [user], 0)
@@ -161,18 +161,17 @@ def _validate_job(job):
     return user.verify_job(job)
 
 
-def verify_error_code(job):
+def verify_error_code(job: Any):
     """
     Make sure an error code is properly set.
+
     This makes sure that job.piloterrorcode is always set for a failed/holding job, that not only
     job.piloterrorcodes are set but not job.piloterrorcode. This function also negates the sign of the error code
     and sets job state 'holding' (instead of 'failed') if the error is found to be recoverable by a later job (user
     jobs only).
 
-    :param job: job object.
-    :return:
+    :param job: job object (Any).
     """
-
     if job.piloterrorcode == 0 and len(job.piloterrorcodes) > 0:
         logger.warning(f'piloterrorcode set to first piloterrorcodes list entry: {job.piloterrorcodes}')
         job.piloterrorcode = job.piloterrorcodes[0]
@@ -188,18 +187,18 @@ def verify_error_code(job):
         logger.info('verified error code')
 
 
-def get_proper_state(job, state):
+def get_proper_state(job: Any, state: str) -> str:
     """
     Return a proper job state to send to server.
+
     This function should only return 'starting', 'running', 'finished', 'holding' or 'failed'.
     If the internal job.serverstate is not yet set, it means it is the first server update, ie 'starting' should be
     sent.
 
-    :param job: job object.
-    :param state: internal pilot state (string).
-    :return: valid server state (string).
+    :param job: job object (Any)
+    :param state: internal pilot state (str)
+    :return: valid server state (str).
     """
-
     if job.serverstate in ('finished', 'failed'):
         pass
     elif job.serverstate == "" and state != "finished" and state != "failed":
@@ -212,18 +211,17 @@ def get_proper_state(job, state):
     return job.serverstate
 
 
-def publish_harvester_reports(state, args, data, job, final):
+def publish_harvester_reports(state: str, args: Any, data: dict, job: Any, final: bool) -> bool:
     """
     Publish all reports needed by Harvester.
 
-    :param state: job state (string).
-    :param args: pilot args object.
-    :param data: data structure for server update (dictionary).
-    :param job: job object.
-    :param final: is this the final update? (Boolean).
-    :return: True if successful, False otherwise (Boolean).
+    :param state: job state (str)
+    :param args: pilot args object (Any)
+    :param data: data structure for server update (dict)
+    :param job: job object (Any)
+    :param final: is this the final update? (bool)
+    :return: True if successful, False otherwise (bool).
     """
-
     # write part of the heartbeat message to worker attributes files needed by Harvester
     path = get_worker_attributes_file(args)
 
@@ -260,15 +258,15 @@ def publish_harvester_reports(state, args, data, job, final):
     return True
 
 
-def write_heartbeat_to_file(data):
+def write_heartbeat_to_file(data: dict) -> bool:
     """
     Write heartbeat dictionary to file.
+
     This is only done when server updates are not wanted.
 
-    :param data: server data (dictionary).
-    :return: True if successful, False otherwise (Boolean).
+    :param data: server data (dict)
+    :return: True if successful, False otherwise (bool).
     """
-
     path = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.heartbeat_message)
     if write_json(path, data):
         logger.debug(f'heartbeat dictionary: {data}')
@@ -278,16 +276,15 @@ def write_heartbeat_to_file(data):
         return False
 
 
-def is_final_update(job, state, tag='sending'):
+def is_final_update(job: Any, state: str, tag: str = 'sending') -> bool:
     """
-    Will it be the final server update?
+    Determine if it will be the final server update.
 
-    :param job: job object.
-    :param state: job state (Boolean).
-    :param tag: optional tag ('sending'/'writing') (string).
-    :return: final state (Boolean).
+    :param job: job object (Any)
+    :param state: job state (str)
+    :param tag: optional tag ('sending'/'writing') (str)
+    :return: final state (bool).
     """
-
     if state in ('finished', 'failed', 'holding'):
         final = True
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_UPDATING
@@ -308,20 +305,21 @@ def is_final_update(job, state, tag='sending'):
     return final
 
 
-def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False):
+def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "",
+               test_tobekilled: bool = False) -> bool:
     """
     Update the server (send heartbeat message).
+
     Interpret and handle any server instructions arriving with the updateJob back channel.
 
-    :param job: job object.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :param state: job state (string).
-    :param xml: optional metadata xml (string).
-    :param metadata: job report metadata read as a string.
-    :param test_tobekilled: emulate a tobekilled command (boolean).
-    :return: boolean (True if successful, False otherwise).
+    :param job: job object (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param state: job state (str)
+    :param xml: optional metadata xml (str)
+    :param metadata: job report metadata read as a string (str)
+    :param test_tobekilled: emulate a tobekilled command (bool)
+    :return: True if successful, False otherwise (bool).
     """
-
     # insert out of batch time error code if MAXTIME has been reached
     if os.environ.get('REACHED_MAXTIME', None):
         msg = 'the max batch system time limit has been reached'
@@ -346,7 +344,7 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for updateJob
-    data = get_data_structure(job, state, args, xml=xml, metadata=metadata, final=final)
+    data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
     logger.debug(f'data={data}')
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -389,9 +387,10 @@ def send_state(job, args, state, xml=None, metadata=None, test_tobekilled=False)
     return False
 
 
-def get_job_status_from_server(job_id, url, port):
+def get_job_status_from_server(job_id: int, url: str, port: str) -> (str, int, int):
     """
     Return the current status of job <jobId> from the dispatcher.
+
     typical dispatcher response: 'status=finished&StatusCode=0'
     StatusCode  0: succeeded
                10: time-out
@@ -399,12 +398,11 @@ def get_job_status_from_server(job_id, url, port):
                30: failed
     In the case of time-out, the dispatcher will be asked one more time after 10 s.
 
-    :param job_id: PanDA job id (int).
-    :param url: PanDA server URL (string).
-    :param port: PanDA server port (int).
-    :return: status (string; e.g. holding), attempt_nr (int), status_code (int)
+    :param job_id: PanDA job id (int)
+    :param url: PanDA server URL (str
+    :param port: PanDA server port (str)
+    :return: status (string; e.g. holding), attempt_nr (int), status_code (int).
     """
-
     status = 'unknown'
     attempt_nr = 0
     status_code = 0
@@ -472,16 +470,15 @@ def get_job_status_from_server(job_id, url, port):
     return status, attempt_nr, status_code
 
 
-def get_debug_command(cmd):
+def get_debug_command(cmd: str) -> (bool, str):
     """
     Identify and filter the given debug command.
 
     Note: only a single command will be allowed from a predefined list: tail, ls, gdb, ps, du.
 
-    :param cmd: raw debug command from job definition (string).
-    :return: debug_mode (Boolean, True if command is deemed ok), debug_command (string).
+    :param cmd: raw debug command from job definition (str)
+    :return: True if command is deemed ok, False otherwise (bool), debug_command (str).
     """
-
     debug_mode = False
     debug_command = ""
 
@@ -506,20 +503,19 @@ def get_debug_command(cmd):
         else:
             debug_mode = True
             debug_command = cmd
+
     return debug_mode, debug_command
 
 
-def handle_backchannel_command(res, job, args, test_tobekilled=False):
+def handle_backchannel_command(res: dict, job: Any, args: Any, test_tobekilled: bool = False) -> None:
     """
-    Does the server update contain any backchannel information? if so, update the job object.
+    Checkk if the server update contain any backchannel information. If so, update the job object.
 
-    :param res: server response (dictionary).
-    :param job: job object.
-    :param args: pilot args object.
-    :param test_tobekilled: emulate a tobekilled command (boolean).
-    :return:
+    :param res: server response (dict)
+    :param job: job object (Any)
+    :param args: pilot args object (Any)
+    :param test_tobekilled: emulate a tobekilled command (bool)
     """
-
     if test_tobekilled:
         logger.info('faking a \'tobekilled\' command')
         res['command'] = 'tobekilled'
@@ -583,16 +579,15 @@ def handle_backchannel_command(res, job, args, test_tobekilled=False):
     # job.debug_command = 'gdb --pid % -ex \'generate-core-file\''
 
 
-def add_data_structure_ids(data, version_tag, job):
+def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     """
     Add pilot, batch and scheduler ids to the data structure for getJob, updateJob.
 
-    :param data: data structure (dict).
-    :param version_tag: Pilot version tag (string).
-    :param job: job object.
-    :return: updated data structure (dict), batchsystem_id (string|None).
+    :param data: data structure (dict)
+    :param version_tag: Pilot version tag (str)
+    :param job: job object (Any)
+    :return: updated data structure (dict).
     """
-
     schedulerid = get_job_scheduler_id()
     if schedulerid:
         data['schedulerID'] = schedulerid
@@ -617,19 +612,17 @@ def add_data_structure_ids(data, version_tag, job):
     return data
 
 
-def get_data_structure(job, state, args, xml=None, metadata=None, final=False):  # noqa: C901
+def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
     """
     Build the data structure needed for updateJob.
 
-    :param job: job object.
-    :param state: state of the job (string).
-    :param args: Pilot args object.
-    :param xml: optional XML string.
-    :param metadata: job report metadata read as a string.
-    :param final: is this for the final server update? (Boolean).
-    :return: data structure (dictionary).
+    :param job: job object (Any)
+    :param state: state of the job (str)
+    :param args: Pilot args object (Any)
+    :param xml: optional XML string (str)
+    :param metadata: job report metadata read as a string (str)
+    :return: data structure (dict).
     """
-
     data = {'jobId': job.jobid,
             'state': state,
             'timestamp': time_stamp(),
@@ -729,14 +722,13 @@ def get_data_structure(job, state, args, xml=None, metadata=None, final=False): 
     return data
 
 
-def process_debug_mode(job):
+def process_debug_mode(job: Any) -> str:
     """
     Handle debug mode - preprocess debug command, get the output and kill the payload in case of gdb.
 
-    :param job: job object.
-    :return: stdout from debug command (string).
+    :param job: job object (Any)
+    :return: stdout from debug command (str).
     """
-
     # for gdb commands, use the proper gdb version (the system one may be too old)
     if job.debug_command.startswith('gdb '):
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -758,14 +750,13 @@ def process_debug_mode(job):
     return stdout
 
 
-def get_debug_stdout(job):
+def get_debug_stdout(job: Any) -> str:
     """
     Return the requested output from a given debug command.
 
-    :param job: job object.
-    :return: output (string).
+    :param job: job object (Any)
+    :return: output (str).
     """
-
     if job.debug_command == 'debug':
         return get_payload_log_tail(job.workdir, job.jobid)
     elif 'tail ' in job.debug_command:
@@ -781,14 +772,13 @@ def get_debug_stdout(job):
         return stdout
 
 
-def get_general_command_stdout(job):
+def get_general_command_stdout(job: Any):
     """
     Return the output from the requested debug command.
 
-    :param job: job object.
-    :return: output (string).
+    :param job: job object (Any)
+    :return: output (str).
     """
-
     stdout = ''
 
     # for gdb, we might have to process the debug command (e.g. to identify the proper pid to debug)
@@ -825,15 +815,14 @@ def get_general_command_stdout(job):
     return stdout
 
 
-def get_ls(debug_command, workdir):
+def get_ls(debug_command: str, workdir: str) -> str:
     """
     Return the requested ls debug command.
 
-    :param debug_command: full debug command (string).
-    :param workdir: job work directory (string).
-    :return: output (string).
+    :param debug_command: full debug command (str)
+    :param workdir: job work directory (str)
+    :return: output (str).
     """
-
     items = debug_command.split(' ')
     # cmd = items[0]
     options = ' '.join(items[1:])
@@ -849,7 +838,7 @@ def get_ls(debug_command, workdir):
     return stdout
 
 
-def get_requested_log_tail(debug_command, workdir):
+def get_requested_log_tail(debug_command: str, workdir: str) -> str:
     """
     Return the tail of the requested debug log.
 
@@ -857,11 +846,10 @@ def get_requested_log_tail(debug_command, workdir):
       tail workdir/tmp.stdout* <- pilot finds the requested log file in the specified relative path
       tail log.RAWtoALL <- pilot finds the requested log file
 
-    :param debug_command: full debug command (string).
-    :param workdir: job work directory (string).
-    :return: output (string).
+    :param debug_command: full debug command (str)
+    :param workdir: job work directory (str)
+    :return: output (str).
     """
-
     _tail = ""
     items = debug_command.split(' ')
     cmd = items[0]
@@ -887,21 +875,19 @@ def get_requested_log_tail(debug_command, workdir):
     return _tail
 
 
-def get_cpu_consumption_time(cpuconsumptiontime):
+def get_cpu_consumption_time(cpuconsumptiontime: int) -> int:
     """
     Get the CPU consumption time.
+
     The function makes sure that the value exists and is within allowed limits (< 10^9).
 
-    :param cpuconsumptiontime: CPU consumption time (int/None).
-    :return: properly set CPU consumption time (int/None).
+    :param cpuconsumptiontime: CPU consumption time (int)
+    :return: properly set CPU consumption time (int).
     """
-
-    constime = None
-
     try:
         constime = int(cpuconsumptiontime)
     except Exception:
-        constime = None
+        constime = 0
     if constime and constime > 10 ** 9:
         logger.warning(f"unrealistic cpuconsumptiontime: {constime} (reset to -1)")
         constime = -1
@@ -909,18 +895,17 @@ def get_cpu_consumption_time(cpuconsumptiontime):
     return constime
 
 
-def add_timing_and_extracts(data, job, state, args):
+def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
     """
     Add timing info and log extracts to data structure for a completed job (finished or failed) to be sent to server.
+
     Note: this function updates the data dictionary.
 
-    :param data: data structure (dictionary).
-    :param job: job object.
-    :param state: state of the job (string).
-    :param args: pilot args.
-    :return:
+    :param data: data structure (dict)
+    :param job: job object (Any)
+    :param state: state of the job (str)
+    :param args: pilot args object (Any)
     """
-
     time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
     data['pilotTiming'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
     logger.debug(f'could have reported time_log_creation={time_log_creation} s')
@@ -937,17 +922,16 @@ def add_timing_and_extracts(data, job, state, args):
     data['endTime'] = time.time()
 
 
-def add_memory_info(data, workdir, name=""):
+def add_memory_info(data: dict, workdir: str, name: str = ""):
     """
     Add memory information (if available) to the data structure that will be sent to the server with job updates
+
     Note: this function updates the data dictionary.
 
-    :param data: data structure (dictionary).
-    :param workdir: working directory of the job (string).
-    :param name: name of memory monitor (string).
-    :return:
+    :param data: data structure (dict)
+    :param workdir: working directory of the job (str)
+    :param name: name of memory monitor (str).
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
     try:
@@ -957,17 +941,15 @@ def add_memory_info(data, workdir, name=""):
         logger.info(f'memory information not available: {error}')
 
 
-def remove_pilot_logs_from_list(list_of_files, jobid):
+def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
     """
     Remove any pilot logs from the list of last updated files.
 
-    :param list_of_files: list of last updated files (list).
-    :param jobid: PanDA job id (string).
+    :param list_of_files: list of last updated files (list)
+    :param jobid: PanDA job id (str)
     :return: list of files (list).
     """
-
     # note: better to move experiment specific files to user area
-
     # ignore the pilot log files
     try:
         to_be_removed = [config.Pilot.pilotlog, config.Pilot.stageinlog, config.Pilot.stageoutlog,
@@ -989,15 +971,14 @@ def remove_pilot_logs_from_list(list_of_files, jobid):
     return new_list_of_files
 
 
-def get_payload_log_tail(workdir, jobid):
+def get_payload_log_tail(workdir: str, jobid: str) -> str:
     """
     Return the tail of the payload stdout or its latest updated log file.
 
-    :param workdir: job work directory (string).
-    :param jobid: PanDA job id (string).
-    :return: tail of stdout (string).
+    :param workdir: job work directory (str)
+    :param jobid: PanDA job id (str)
+    :return: tail of stdout (str).
     """
-
     # find the latest updated log file
     # list_of_files = get_list_of_log_files()
     # find the latest updated text file
@@ -1011,13 +992,13 @@ def get_payload_log_tail(workdir, jobid):
     return get_latest_log_tail(list_of_files)
 
 
-def get_latest_log_tail(files):
+def get_latest_log_tail(files: list) -> str:
     """
     Get the tail of the latest updated file from the given file list.
 
-    :param files: files (list).
+    :param files: files (list)
+    :return: tail (str).
     """
-
     stdout_tail = ""
 
     try:
@@ -1033,16 +1014,16 @@ def get_latest_log_tail(files):
     return stdout_tail
 
 
-def validate(queues, traces, args):
+def validate(queues: Any, traces: Any, args: Any):
     """
     Perform validation of job.
 
-    :param queues: queues object.
-    :param traces: traces object.
-    :param args: args object.
-    :return:
-    """
+    Thread.
 
+    :param queues: queues object (Any)
+    :param traces: traces object (Any)
+    :param args: args object (Any).
+    """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
         try:
@@ -1117,7 +1098,7 @@ def validate(queues, traces, args):
                 store_jobid(job.jobid, args.sourcedir)
 
                 # make sure that ctypes is available (needed at the end by orphan killer)
-                verify_ctypes(queues, job)
+                verify_ctypes()
 
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
@@ -1134,7 +1115,7 @@ def validate(queues, traces, args):
     logger.info('[job] validate thread has finished')
 
 
-def hide_secrets(job):
+def hide_secrets(job: Any):
     """
     Hide any user secrets.
 
@@ -1142,10 +1123,8 @@ def hide_secrets(job):
     and updates the job.pandasecrets string to 'hidden'. The JSON file is removed before the job log is created. The
     contents of job.pandasecrets is not dumped to the log.
 
-    :param job: job object.
-    :return:
+    :param job: job object (Any).
     """
-
     if job.pandasecrets:
         try:
             path = os.path.join(job.workdir, config.Pilot.pandasecrets)
@@ -1158,15 +1137,8 @@ def hide_secrets(job):
         logger.debug('no user secrets for this job')
 
 
-def verify_ctypes(queues, job):
-    """
-    Verify ctypes and make sure all subprocess are parented.
-
-    :param queues: queues object.
-    :param job: job object.
-    :return:
-    """
-
+def verify_ctypes():
+    """Verify ctypes and make sure all subprocess are parented."""
     try:
         import ctypes
     except (ModuleNotFoundError, ImportError) as error:
@@ -1187,17 +1159,15 @@ def verify_ctypes(queues, job):
         logger.debug('all child subprocesses will be parented')
 
 
-def delayed_space_check(queues, traces, args, job):
+def delayed_space_check(queues: Any, traces: Any, args: Any, job: Any):
     """
     Run the delayed space check if necessary.
 
-    :param queues: queues object.
-    :param traces: traces object.
-    :param args: args object.
-    :param job: job object.
-    :return:
+    :param queues: queues object (Any)
+    :param traces: traces object (Any)
+    :param args: args object (Any)
+    :param job: job object (Any).
     """
-
     proceed_with_local_space_check = True if (args.harvester_submitmode.lower() == 'push' and args.update_server) else False
     if proceed_with_local_space_check:
         logger.debug('pilot will now perform delayed space check')
@@ -1214,13 +1184,12 @@ def delayed_space_check(queues, traces, args, job):
         put_in_queue(job, queues.validated_jobs)
 
 
-def create_k8_link(job_dir):
+def create_k8_link(job_dir: str):
     """
     Create a soft link to the payload workdir on Kubernetes if SHARED_DIR exists.
 
-    :param job_dir: payload workdir (string).
+    :param job_dir: payload workdir (str).
     """
-
     shared_dir = os.environ.get('SHARED_DIR', None)
     if shared_dir:
         #create_symlink(from_path=os.path.join(shared_dir, 'payload_workdir'), to_path=job_dir)
@@ -1229,15 +1198,13 @@ def create_k8_link(job_dir):
         logger.debug('will not create symlink in SHARED_DIR')
 
 
-def store_jobid(jobid, init_dir):
+def store_jobid(jobid: int, init_dir: str):
     """
     Store the PanDA job id in a file that can be picked up by the wrapper for other reporting.
 
-    :param jobid: job id (int).
-    :param init_dir: pilot init dir (string).
-    :return:
+    :param jobid: job id (int)
+    :param init_dir: pilot init dir (str).
     """
-
     pilot_source_dir = os.environ.get('PANDA_PILOT_SOURCE', '')
     if pilot_source_dir:
         path = os.path.join(pilot_source_dir, config.Pilot.jobid_file)
@@ -1252,7 +1219,7 @@ def store_jobid(jobid, init_dir):
         logger.warning(f'exception caught while trying to store job id: {error}')
 
 
-def create_data_payload(queues, traces, args):
+def create_data_payload(queues: Any, traces: Any, args: Any):
     """
     Get a Job object from the "validated_jobs" queue.
 
@@ -1261,12 +1228,10 @@ def create_data_payload(queues, traces, args):
     the thread also places the Job object in the "payloads" queue (another thread will retrieve it and wait for any
     stage-in to finish).
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
     """
-
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
         try:
@@ -1305,14 +1270,14 @@ def create_data_payload(queues, traces, args):
     logger.info('[job] create_data_payload thread has finished')
 
 
-def get_task_id():
+def get_task_id() -> str:
     """
     Return the task id for the current job.
+
     Note: currently the implementation uses an environmental variable to store this number (PanDA_TaskID).
 
-    :return: task id (string). Returns empty string in case of error.
+    :return: task id. Returns empty string in case of error (str)
     """
-
     if "PanDA_TaskID" in os.environ:
         taskid = os.environ["PanDA_TaskID"]
     else:
@@ -1322,18 +1287,18 @@ def get_task_id():
     return taskid
 
 
-def get_job_label(args):
+def get_job_label(args: Any) -> str:
     """
     Return a proper job label.
+
     The function returns a job label that corresponds to the actual pilot version, ie if the pilot is a development
     version (ptest or rc_test2) or production version (managed or user).
     Example: -i RC -> job_label = rc_test2.
     NOTE: it should be enough to only use the job label, -j rc_test2 (and not specify -i RC at all).
 
-    :param args: pilot args object.
-    :return: job_label (string).
+    :param args: pilot args object (Any)
+    :return: job_label (str).
     """
-
     # PQ status
     status = infosys.queuedata.status
 
@@ -1354,7 +1319,7 @@ def get_job_label(args):
     return job_label
 
 
-def get_dispatcher_dictionary(args, taskid=None):
+def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     """
     Return a dictionary with required fields for the dispatcher getJob operation.
 
@@ -1369,11 +1334,10 @@ def get_dispatcher_dictionary(args, taskid=None):
     this maintains the behavior relied on by current users of the countryGroup mechanism -- to NOT allow
     the resource to be used outside the privileged group under any circumstances.
 
-    :param args: arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :param taskid: task id from message broker, if any (None or string).
-    :returns: dictionary prepared for the dispatcher getJob operation.
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param taskid: task id from message broker, if any (str)
+    :returns: dictionary prepared for the dispatcher getJob operation (str).
     """
-
     _diskspace = get_disk_space(infosys.queuedata)
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
@@ -1430,24 +1394,26 @@ def get_dispatcher_dictionary(args, taskid=None):
     return data
 
 
-def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_getjob_requests, update_server, submitmode, harvester, verify_proxy, traces):
+def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_requests: int, max_getjob_requests: int,
+                        update_server: bool, submitmode: str, harvester: bool, verify_proxy: bool, traces: Any) -> bool:
     """
-    Can we proceed with getJob?
+    Check if we can proceed with getJob.
+
     We may not proceed if we have run out of time (timefloor limit), if the proxy is too short, if disk space is too
     small or if we have already proceed enough jobs.
 
-    :param timefloor: timefloor limit (s) (int).
-    :param starttime: start time of retrieve() (s) (int).
-    :param jobnumber: number of downloaded jobs (int).
-    :param getjob_requests: number of getjob requests (int).
-    :param update_server: should pilot update server? (Boolean).
-    :param submitmode: Harvester submit mode, PULL or PUSH (string).
-    :param harvester: True if Harvester is used, False otherwise. Affects the max number of getjob reads (from file) (Boolean).
-    :param verify_proxy: True if the proxy should be verified. False otherwise (Boolean).
-    :param traces: traces object (to be able to propagate a proxy error all the way back to the wrapper).
-    :return: True if pilot should proceed with getJob (Boolean).
+    :param timefloor: timefloor limit (s) (int)
+    :param starttime: start time of retrieve() (s) (int)
+    :param jobnumber: number of downloaded jobs (int)
+    :param getjob_requests: number of getjob requests (int)
+    :param max_getjob_requests: max getjob requests (int)
+    :param update_server: should pilot update server? (bool)
+    :param submitmode: Harvester submit mode, PULL or PUSH (str)
+    :param harvester: True if Harvester is used, False otherwise. Affects the max number of getjob reads from file (bool)
+    :param verify_proxy: True if the proxy should be verified. False otherwise (bool)
+    :param traces: traces object (to be able to propagate a proxy error all the way back to the wrapper) (Any)
+    :return: True if pilot should proceed with getJob (bool).
     """
-
     # use for testing thread exceptions. the exception will be picked up by ExcThread run() and caught in job.control()
     # raise NoLocalSpace('testing exception from proceed_with_getjob')
 
@@ -1524,17 +1490,17 @@ def proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, max_ge
     return True
 
 
-def get_job_definition_from_file(path, harvester, pod):
+def get_job_definition_from_file(path: str, harvester: bool, pod: bool) -> dict:
     """
     Get a job definition from a pre-placed file.
+
     In Harvester mode, also remove any existing job request files since it is no longer needed/wanted.
 
-    :param path: path to job definition file
-    :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False
-    :param pod: True if pilot is running in a pod, otherwise False
-    :return: job definition dictionary.
+    :param path: path to job definition file (str)
+    :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False (bool)
+    :param pod: True if pilot is running in a pod, otherwise False (bool)
+    :return: job definition (dict).
     """
-
     # remove any existing Harvester job request files (silent in non-Harvester mode) and read the JSON
     if harvester or pod:
         if harvester:
@@ -1575,15 +1541,14 @@ def get_job_definition_from_file(path, harvester, pod):
     return res
 
 
-def get_job_definition_from_server(args, taskid=None):
+def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     """
     Get a job definition from a server.
 
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :param taskid: task id from message broker, if any (None or string)
-    :return: job definition dictionary.
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param taskid: task id from message broker, if any (str)
+    :return: job definition (dict).
     """
-
     res = {}
 
     # get the job dispatcher dictionary
@@ -1598,14 +1563,13 @@ def get_job_definition_from_server(args, taskid=None):
     return res
 
 
-def locate_job_definition(args):
+def locate_job_definition(args: Any) -> str:
     """
     Locate the job definition file among standard locations.
 
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return: path (string).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :return: path (str).
     """
-
     if args.harvester_datadir:
         paths = [os.path.join(args.harvester_datadir, config.Pilot.pandajobdata)]
     else:
@@ -1630,14 +1594,13 @@ def locate_job_definition(args):
     return path
 
 
-def get_job_definition(queues, args):
+def get_job_definition(queues: Any, args: Any) -> dict:
     """
     Get a job definition from a source (server or pre-placed local file).
 
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return: job definition dictionary.
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :return: job definition (dict).
     """
-
     res = {}
     path = locate_job_definition(args)
 
@@ -1691,19 +1654,19 @@ def get_job_definition(queues, args):
     return res
 
 
-def get_message_from_mb(args):
+def get_message_from_mb(args: Any) -> dict:
     """
-    Try and get the task id from a message broker.
+    Get a message from a message broker.
+
     Wait maximum args.lifetime s, then abort.
     Note that this might also be interrupted by args.graceful_stop (checked for each ten seconds).
 
-    :param args: pilot args object.
-    :return: task id (string).
+    :param args: Pilot arguments object (Any)
+    :return: message (dict).
     """
-
     if args.graceful_stop.is_set():
         logger.debug('will not start ActiveMQ since graceful_stop is set')
-        return None
+        return {}
 
     # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
     import multiprocessing
@@ -1731,18 +1694,20 @@ def get_message_from_mb(args):
     try:
         message = message_queue.get(timeout=1)
     except Exception:
-        message = None
+        message = {}
     if not message:
         logger.debug('not returning any messages')
 
     return message
 
 
-def get_message(args, message_queue):
+def get_message(args: Any, message_queue: Any):
     """
+    Get a message from ActiveMQ and put it in the given message queue.
 
+    :param args: Pilot arguments object (Any)
+    :param message_queue: message queue (Any).
     """
-
     queues = namedtuple('queues', ['mbmessages'])
     queues.mbmessages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
@@ -1771,11 +1736,17 @@ def get_message(args, message_queue):
         message_queue.put(message)
 
 
-def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
+def get_kwargs_for_mb(queues: Any, url: str, port: str, allow_same_user: bool, debug: bool):
     """
+    Get the kwargs dictinoary for the message broker.
 
+    :param queues: queues object (Any)
+    :param url: PanDA server URL (str)
+    :param port: PanDA server port (str)
+    :param allow_same_user: allow the same user or not (bool)
+    :param debug: True for pilot debug mode, False otherwise (bool)
+    :return: kwargs dictionary (dict).
     """
-
     topic = f'/{"topic" if allow_same_user else "queue"}/panda.pilot'
     kwargs = {
         'broker': config.Message_broker.url,  # 'atlas-test-mb.cern.ch',
@@ -1794,24 +1765,25 @@ def get_kwargs_for_mb(queues, url, port, allow_same_user, debug):
     return kwargs
 
 
-def now():
+def now() -> str:
     """
     Return the current epoch as a UTF-8 encoded string.
-    :return: current time as encoded string
+
+    :return: current time as encoded string (str).
     """
     return str(time.time()).encode('utf-8')
 
 
-def get_fake_job(input=True):
+def get_fake_job(input: bool = True) -> dict:
     """
     Return a job definition for internal pilot testing.
+
     Note: this function is only used for testing purposes. The job definitions below are ATLAS specific.
 
-    :param input: Boolean, set to False if no input files are wanted
-    :return: job definition (dictionary).
+    :param input: True when there are input files, set to False if no input files are wanted (bool)
+    :return: job definition (dict).
     """
-
-    res = None
+    res = {}
 
     # create hashes
     hash = hashlib.md5()
@@ -1955,21 +1927,23 @@ def get_fake_job(input=True):
     return res
 
 
-def get_job_retrieval_delay(harvester):
+def get_job_retrieval_delay(harvester: bool) -> int:
     """
     Return the proper delay between job retrieval attempts.
+
     In Harvester mode, the pilot will look once per second for a job definition file.
 
-    :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False
-    :return: sleep (s)
+    :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False (bool)
+    :return: sleep (s) (int)
     """
-
     return 1 if harvester else 60
 
 
-def retrieve(queues, traces, args):  # noqa: C901
+def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
-    Retrieve all jobs from a source.
+    Retrieve all jobs from the proper source.
+
+    Thread.
 
     The job definition is a json dictionary that is either present in the launch
     directory (preplaced) or downloaded from a server specified by `args.url`.
@@ -1979,13 +1953,11 @@ def retrieve(queues, traces, args):  # noqa: C901
 
     WARNING: this function is nearly too complex. Be careful with adding more lines as flake8 will fail it.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
     :raises PilotException: if create_job fails (e.g. because queuedata could not be downloaded).
-    :return:
     """
-
     timefloor = infosys.queuedata.timefloor
     starttime = time.time()
 
@@ -2123,14 +2095,12 @@ def retrieve(queues, traces, args):  # noqa: C901
     logger.info('[job] retrieve thread has finished')
 
 
-def htcondor_envvar(jobid):
+def htcondor_envvar(jobid: str):
     """
     On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
-    :param jobid: PanDA job id (string)
-    :return:
+    :param jobid: PanDA job id (str).
     """
-
     try:
         globaljobid = encode_globaljobid(jobid)
         if globaljobid:
@@ -2140,17 +2110,15 @@ def htcondor_envvar(jobid):
         logger.warning(f'caught exception: {exc}')
 
 
-def handle_proxy(job):
+def handle_proxy(job: Any):
     """
     Handle the proxy in unified dispatch.
 
     In unified dispatch, the pilot is started with the production proxy, but in case the job is a user job, the
     production proxy is too powerful. A user proxy is then downloaded instead.
 
-    :param job: job object.
-    :return:
+    :param job: job object (Any).
     """
-
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
@@ -2161,14 +2129,12 @@ def handle_proxy(job):
                      f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
 
 
-def dump_job_definition(res):
+def dump_job_definition(res: dict):
     """
     Dump the job definition to the log, but hide any sensitive information.
 
-    :param res: raw job definition (dictionary).
-    :return:
+    :param res: raw job definition (dict).
     """
-
     if 'secrets' in res:
         _pandasecrets = res['secrets']
         res['secrets'] = '********'
@@ -2187,27 +2153,21 @@ def dump_job_definition(res):
 
 
 def print_node_info():
-    """
-    Print information about the local node to the log.
-
-    :return:
-    """
-
+    """Print information about the local node to the log."""
     if is_virtual_machine():
         logger.info("pilot is running in a virtual machine")
     else:
         logger.info("pilot is not running in a virtual machine")
 
 
-def create_job(dispatcher_response, queue):
+def create_job(dispatcher_response: dict, queue: str) -> Any:
     """
     Create a job object out of the dispatcher response.
 
-    :param dispatcher_response: raw job dictionary from the dispatcher.
-    :param queue: queue name (string).
-    :return: job object
+    :param dispatcher_response: raw job dictionary from the dispatcher (dict)
+    :param queue: queue name (str)
+    :return: job object (Any)
     """
-
     # initialize (job specific) InfoService instance
     job = JobData(dispatcher_response)
     jobinfosys = InfoService()
@@ -2225,15 +2185,15 @@ def create_job(dispatcher_response, queue):
     return job
 
 
-def has_job_completed(queues, args):
+def has_job_completed(queues: Any, args: Any) -> bool:
     """
-    Has the current job completed (finished or failed)?
+    Check if the current job has completed (finished or failed).
+
     Note: the job object was extracted from monitored_payloads queue before this function was called.
 
-    :param queues: Pilot queues object.
-    :return: True is the payload has finished or failed
+    :param queues: Pilot queues object (Any)
+    :return: True is the payload has finished or failed, False otherwise (bool).
     """
-
     # check if the job has finished
     try:
         job = queues.completed_jobs.get(block=True, timeout=1)
@@ -2284,13 +2244,13 @@ def has_job_completed(queues, args):
     return False
 
 
-def get_job_from_queue(queues, state):
+def get_job_from_queue(queues: Any, state: str) -> Any:
     """
     Check if the job has finished or failed and if so return it.
 
-    :param queues: pilot queues.
-    :param state: job state (e.g. finished/failed) (string).
-    :return: job object.
+    :param queues: Pilot queues object (Any)
+    :param state: job state (e.g. finished/failed) (str)
+    :return: job object (Any).
     """
     try:
         if state == "finished":
@@ -2309,15 +2269,14 @@ def get_job_from_queue(queues, state):
     return job
 
 
-def is_queue_empty(queues, queue):
+def is_queue_empty(queues: Any, queue: str) -> bool:
     """
     Check if the given queue is empty (without pulling).
 
-    :param queues: pilot queues object.
-    :param queue: queue name (string).
-    :return: True if queue is empty, False otherwise
+    :param queues: Pilot queues object (Any)
+    :param queue: queue name (str)
+    :return: True if queue is empty, False otherwise (bool)
     """
-
     status = False
     if queue in queues._fields:
         _queue = getattr(queues, queue)
@@ -2333,15 +2292,13 @@ def is_queue_empty(queues, queue):
     return status
 
 
-def order_log_transfer(queues, job):
+def order_log_transfer(queues: Any, job: Any):
     """
     Order a log transfer for a failed job.
 
-    :param queues: pilot queues object.
-    :param job: job object.
-    :return:
+    :param queues: Pilot queues object (Any)
+    :param job: job object (Any).
     """
-
     # add the job object to the data_out queue to have it staged out
     job.stageout = 'log'  # only stage-out log file
     #set_pilot_state(job=job, state='stageout')
@@ -2369,16 +2326,14 @@ def order_log_transfer(queues, job):
     logger.info('proceeding with server update')
 
 
-def wait_for_aborted_job_stageout(args, queues, job):
+def wait_for_aborted_job_stageout(args: Any, queues: Any, job: Any):
     """
     Wait for stage-out to finish for aborted job.
 
-    :param args: pilot args object.
-    :param queues: pilot queues object.
-    :param job: job object.
-    :return:
+    :param args: Pilot arguments object (Any)
+    :param queues: Pilot queues object (Any)
+    :param job: job object (Any).
     """
-
     # if the pilot received a kill signal, how much time has passed since the signal was intercepted?
     try:
         time_since_kill = get_time_since('1', PILOT_KILL_SIGNAL, args)
@@ -2408,16 +2363,17 @@ def wait_for_aborted_job_stageout(args, queues, job):
     logger.info('proceeding with final server update')
 
 
-def get_job_status(job, key):
+def get_job_status(job: Any, key: str) -> str:
     """
+    Return the job status corresponding to the given key.
+
     Wrapper function around job.get_status().
     If key = 'LOG_TRANSFER' but job object is not defined, the function will return value = LOG_TRANSFER_NOT_DONE.
 
-    :param job: job object.
-    :param key: key name (string).
-    :return: value (string).
+    :param job: job object (Any)
+    :param key: key name (str)
+    :return: value (str).
     """
-
     value = ""
     if job:
         value = job.get_status(key)
@@ -2428,17 +2384,18 @@ def get_job_status(job, key):
     return value
 
 
-def queue_monitor(queues, traces, args):  # noqa: C901
+def queue_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
-    Monitoring of queues.
+    Monitor queue activity.
+
+    Thread.
+
     This function monitors queue activity, specifically if a job has finished or failed and then reports to the server.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     # scan queues until at least one queue has a job object. abort if it takes too long time
     if not scan_for_jobs(queues):
         logger.warning('queues are still empty of jobs - will begin queue monitoring anyway')
@@ -2514,13 +2471,12 @@ def queue_monitor(queues, traces, args):  # noqa: C901
     logger.info('[job] queue monitor thread has finished')
 
 
-def update_server(job, args):
+def update_server(job: Any, args: Any) -> None:
     """
     Update the server (wrapper for send_state() that also prepares the metadata).
 
-    :param job: job object.
-    :param args: pilot args object.
-    :return:
+    :param job: job object (Any)
+    :param args: Pilot arguments object (Any).
     """
 
     if job.completed:
@@ -2541,28 +2497,28 @@ def update_server(job, args):
         send_state(job, args, job.state, metadata=metadata)
 
 
-def pause_queue_monitor(delay):
+def pause_queue_monitor(delay: int):
     """
     Pause the queue monitor to let log transfer complete.
-    Note: this function should use globally available object. Use sleep for now.
-    :param delay: sleep time in seconds (int).
-    :return:
-    """
 
+    Note: this function should use globally available object. Use sleep for now.
+
+    :param delay: sleep time in seconds (int).
+    """
     logger.warning(f'since job:queue_monitor is responsible for sending job updates, we sleep for {delay} s')
     time.sleep(delay)
 
 
-def get_finished_or_failed_job(args, queues):
+def get_finished_or_failed_job(args: Any, queues: Any) -> Any:
     """
     Check if the job has either finished or failed and if so return it.
+
     If failed, order a log transfer. If the job is in state 'failed' and abort_job is set, set job_aborted.
 
-    :param args: pilot args object.
-    :param queues: pilot queues object.
-    :return: job object.
+    :param args: Pilot arguments object (Any)
+    :param queues: Pilot queues object (Any)
+    :return: job object (Any).
     """
-
     job = get_job_from_queue(queues, "finished")
     if job:
         # logger.debug('get_finished_or_failed_job: job has finished')
@@ -2594,16 +2550,16 @@ def get_finished_or_failed_job(args, queues):
     return job
 
 
-def get_heartbeat_period(debug=False):
+def get_heartbeat_period(debug: bool = False) -> int:
     """
     Return the proper heartbeat period, as determined by normal or debug mode.
+
     In normal mode, the heartbeat period is 30*60 s, while in debug mode it is 5*60 s. Both values are defined in the
     config file.
 
-    :param debug: Boolean, True for debug mode. False otherwise.
+    :param debug: Boolean, True for debug mode. False otherwise (bool)
     :return: heartbeat period (int).
     """
-
     try:
         return int(config.Pilot.heartbeat if not debug else config.Pilot.debug_heartbeat)
     except Exception as error:
@@ -2611,13 +2567,13 @@ def get_heartbeat_period(debug=False):
         return 1800
 
 
-def check_for_abort_job(args, caller=''):
+def check_for_abort_job(args: Any, caller: str = '') -> bool:
     """
     Check if args.abort_job.is_set().
 
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :param caller: function name of caller (string).
-    :return: Boolean, True if args_job.is_set()
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param caller: function name of caller (str)
+    :return: True if args_job.is_set(), False otherwise (bool).
     """
     abort_job = False
     if args.abort_job.is_set():
@@ -2627,56 +2583,13 @@ def check_for_abort_job(args, caller=''):
     return abort_job
 
 
-def interceptor(queues, traces, args):
-    """
-    MOVE THIS TO INTERCEPTOR.PY; TEMPLATE FOR THREADS
-
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
-    """
-
-    # overall loop counter (ignoring the fact that more than one job may be running)
-    counter = 0
-    while not args.graceful_stop.is_set():
-        time.sleep(0.1)
-
-        # abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set)
-        # (abort at the end of the loop)
-        abort = should_abort(args, label='job:interceptor')
-
-        # check for any abort_job requests
-        abort_job = check_for_abort_job(args, caller='interceptor')
-        if not abort_job:
-            # peek at the jobs in the validated_jobs queue and send the running ones to the heartbeat function
-            jobs = queues.monitored_payloads.queue
-            if jobs:
-                for _ in range(len(jobs)):
-                    logger.info(f'interceptor loop {counter}: looking for communication file')
-            time.sleep(30)
-
-        counter += 1
-
-        if abort or abort_job:
-            break
-
-    # proceed to set the job_aborted flag?
-    if threads_aborted(caller='interceptor'):
-        logger.debug('will proceed to set job_aborted')
-        args.job_aborted.set()
-
-    logger.info('[job] interceptor thread has finished')
-
-
-def fast_monitor_tasks(job):
+def fast_monitor_tasks(job: Any) -> int:
     """
     Perform user specific fast monitoring tasks.
 
-    :param job: job object.
+    :param job: job object (Any)
     :return: exit code (int).
     """
-
     exit_code = 0
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
