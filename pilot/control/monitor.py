@@ -23,12 +23,15 @@
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
 
+"""Functions for monitoring of threads."""
+
 import logging
 import threading
 import time
 import re
 from os import environ, getpid, getuid
 from subprocess import Popen, PIPE
+from typing import Any
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
 from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
@@ -43,18 +46,16 @@ from pilot.util.timing import get_time_since_start
 logger = logging.getLogger(__name__)
 
 
-# Monitoring of threads functions
-
-def control(queues, traces, args):  # noqa: C901
+def control(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
+    Monitor threads.
+
     Main control function, run from the relevant workflow module.
 
-    :param queues:
-    :param traces:
-    :param args:
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
     """
-
     t_0 = time.time()
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
     traces.pilot['lifetime_max'] = t_0
@@ -157,14 +158,13 @@ def control(queues, traces, args):  # noqa: C901
     logger.info('[monitor] control thread has ended')
 
 
-def run_shutdowntime_minute_check(time_since_start):
+def run_shutdowntime_minute_check(time_since_start: int) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
-    :param time_since_start: how many seconds have lapsed since the pilot started (int).
-    :return: True if reached max time, False it not (or if shutdowntime not known) (Boolean).
+    :param time_since_start: how many seconds have lapsed since the pilot started (int)
+    :return: True if reached max time, False otherwise (also if shutdowntime not known) (bool).
     """
-
     # check machine features if present for shutdowntime
     machinefeatures = MachineFeatures().get()
     if machinefeatures:
@@ -205,15 +205,15 @@ def run_shutdowntime_minute_check(time_since_start):
     return False
 
 
-def reached_maxtime_abort(args):
+def reached_maxtime_abort(args: Any):
     """
-    Max time has been reached, set REACHED_MAXTIME and graceful_stop, close any ActiveMQ connections.
+    Set REACHED_MAXTIME and graceful_stop, since max time has been reached.
+
+    Also close any ActiveMQ connections
     Wait for final server update before setting graceful_stop.
 
-    :param args: pilot args.
-    :return:
+    :param args: Pilot arguments object (Any).
     """
-
     logger.info('setting REACHED_MAXTIME and graceful stop')
     environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
     if args.amq:
