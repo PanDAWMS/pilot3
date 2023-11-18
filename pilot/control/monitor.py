@@ -237,7 +237,7 @@ def reached_maxtime_abort(args: Any):
 #    logger.info('lifetime: %i used, %i maximum', int(time.time() - traces.pilot['lifetime_start']), traces.pilot['lifetime_max'])
 
 
-def get_process_info(cmd, user=None, args='aufx', pid=None):
+def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
     """
     Return process info for given command.
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
@@ -253,13 +253,12 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
 
       -> ['0.0', '0.0', 'sshd: nilspal@pts/28', 1]
 
-    :param cmd: command (string).
-    :param user: user (string).
-    :param args: ps arguments (string).
-    :param pid: process id (int).
-    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)).
+    :param cmd: command (str)
+    :param user: user (str)
+    :param args: ps arguments (str)
+    :param pid: process id (int)
+    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)) (list).
     """
-
     processes = []
     num = 0
     if not user:
