@@ -23,41 +23,54 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
+"""Functions for handling the payload."""
+
+import logging
 import os
 import time
 import traceback
 import queue
 from re import findall, split
+from typing import Any
 
-from pilot.control.payloads import generic, eventservice, eventservicemerge
+from pilot.control.payloads import (
+    generic,
+    eventservice,
+    eventservicemerge
+)
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.container import execute
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
-from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file, find_file
+from pilot.util.filehandling import (
+    read_file,
+    remove_core_dumps,
+    get_guid,
+    extract_lines_from_file,
+    find_file
+)
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread, PilotException
+from pilot.common.exception import (
+    ExcThread,
+    PilotException
+)
 from pilot.util.realtimelogger import get_realtime_logger
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def control(queues, traces, args):
+def control(queues: Any, traces: Any, args: Any):
     """
-    (add description)
+    Set up payload threads.
 
-    :param queues:
-    :param traces:
-    :param args:
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
     """
-
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
                'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
