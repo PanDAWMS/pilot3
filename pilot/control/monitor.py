@@ -240,6 +240,7 @@ def reached_maxtime_abort(args: Any):
 def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
     """
     Return process info for given command.
+
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
     a given command (e.g. python3 pilot3/pilot.py).
 
@@ -285,15 +286,14 @@ def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0)
     return processes
 
 
-def run_checks(queues, args):
+def run_checks(queues: Any, args: Any) -> None:
     """
     Perform non-job related monitoring checks.
 
-    :param queues:
-    :param args:
-    :return:
+    :param queues: queues object (Any)
+    :param args: Pilot arguments object (Any)
+    :raises: ExceedMaxWaitTime.
     """
-
     # check how long time has passed since last successful heartbeat
     if is_pilot_check(check='last_heartbeat'):
         last_heartbeat = time.time() - args.last_heartbeat
@@ -351,20 +351,20 @@ def run_checks(queues, args):
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime, queuedata, queues, push, pod):
+def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool, pod: bool) -> int:
     """
     Return the maximum allowed running time for the pilot.
+
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
     If running in a Kubernetes pod, always use the args.lifetime as maxtime (it will be determined by the harvester submitter).
 
-    :param lifetime: optional pilot option time in seconds (int).
-    :param queuedata: queuedata object
-    :param queues:
-    :param push: push mode (boolean)
-    :param pod: pod mode (boolean)
-    :return: max running time in seconds (int)
+    :param lifetime: optional pilot option time in seconds (int)
+    :param queuedata: queuedata object (Any)
+    :param queues: queues object (Any)
+    :param push: push mode (bool)
+    :param pod: pod mode (bool)
+    :return: max running time in seconds (int).
     """
-
     if pod:
         return lifetime
 
