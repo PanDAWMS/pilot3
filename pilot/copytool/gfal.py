@@ -22,6 +22,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
+"""GFAL2 copy tool."""
+
 import os
 import logging
 import errno
@@ -39,7 +41,7 @@ require_replicas = True  ## indicate if given copytool requires input replicas t
 allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root']  # prioritized list of supported schemas for transfers by given copytool
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
     return True  ## FIX ME LATER
     #for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -47,7 +49,7 @@ def is_valid_for_copy_in(files):
     #return True
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
     return True  ## FIX ME LATER
     #for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -55,14 +57,14 @@ def is_valid_for_copy_out(files):
     #return True
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
-        Download given files using gfal-copy command.
+    Download given files using gfal-copy command.
 
-        :param files: list of `FileSpec` objects
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     #allow_direct_access = kwargs.get('allow_direct_access') or False
     trace_report = kwargs.get('trace_report')
 
@@ -126,14 +128,14 @@ def copy_in(files, **kwargs):
     return files
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using gfal command.
 
-    :param files: Files to upload
+    :param files: Files to upload (files)
     :raises: PilotException in case of errors
+    :return: updated files (list).
     """
-
     if not check_for_gfal():
         raise StageOutFailure("No GFAL2 tools found")
 
