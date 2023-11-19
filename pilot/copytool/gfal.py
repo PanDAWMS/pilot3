@@ -184,15 +184,14 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
+def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):   ### NOT USED -- TO BE DEPRECATED
     """
-    Move all files.
+    Move all input files.
 
-    :param files:
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSpec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit_code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
@@ -217,14 +216,13 @@ def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
+def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### NOT USED -- TO BE DEPRECATED
     """
-    Move all files.
+    Move all output files.
 
-    :param files:
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSpec objects (list)
+    :return: exit_code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
@@ -250,7 +248,15 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
 
 
 #@timeout(seconds=10800)
-def move(source, destination, recursive=False):
+def move(source: str, destination: str, recursive: bool = False) -> (int, str, str):
+    """
+    Perform gfal-copy from the given source location to the given destination.
+
+    :param source:
+    :param destination:
+    :param recursive:
+    :return: exit code (int), stdout (str), stderr (str).
+    """
     cmd = None
     if recursive:
         cmd = f"gfal-copy -r {source} {destination}"
