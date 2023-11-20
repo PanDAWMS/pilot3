@@ -32,31 +32,30 @@ in a unified structured way to all Pilot modules by providing high-level API
 """
 
 
+import logging
+from collections import namedtuple
+from typing import Any
+
 from .infoservice import InfoService
 from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
-
 from pilot.common.exception import PilotException
-from collections import namedtuple
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
+def set_info(args: Any):   ## should be DEPRECATED: use `infosys.init(queuename)`
     """
     Set up all necessary site information for given PandaQueue name.
 
     Resolve everything from the specified queue name (passed via `args.queue`)
     and fill extra lookup structure (Populate `args.info`).
 
-    raise PilotException in case of errors.
-
-    :param args: input (shared) arguments
-    :return: None
+    :param args: input (shared) arguments (Any)
+    :raises PilotException: in case of errors.
     """
-    # ## initialize info service
+    # initialize info service
     infosys.init(args.queue)
 
     args.info = namedtuple('info', ['queue', 'infoservice',
@@ -65,7 +64,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
                                     # 'site_info',
                                     'storages_info'])
     args.info.queue = args.queue
-    args.info.infoservice = infosys  # ## THIS is actually for tests and redundant - the pilot.info.infosys should be used
+    args.info.infoservice = infosys  # THIS is actually for tests and redundant - the pilot.info.infosys should be used
     # args.infoservice = infosys  # ??
 
     # check if queue is ACTIVE
