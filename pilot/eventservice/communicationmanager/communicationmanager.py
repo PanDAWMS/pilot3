@@ -36,7 +36,7 @@ from pilot.common.pluginfactory import PluginFactory
 logger = logging.getLogger(__name__)
 
 
-class CommunicationResponse():
+class CommunicationResponse:
     """Communication response class."""
 
     def __init__(self, attrs: dict = None):

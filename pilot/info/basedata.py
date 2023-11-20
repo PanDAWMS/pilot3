@@ -43,7 +43,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class BaseData():
+class BaseData:
     """
     Base data class.
 
