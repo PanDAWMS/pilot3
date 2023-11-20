@@ -25,13 +25,16 @@
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
 
+"""Rucio copy tool."""
+
 from __future__ import absolute_import  # Python 2 (2to3 complains about this)
 
-import os
 import json
 import logging
-from time import time
+import os
 from copy import deepcopy
+from time import time
+from typing import Any
 
 from pilot.common.exception import (
     PilotException,
@@ -58,24 +61,46 @@ require_protocols = False  ## indicates if given copytool requires protocols to 
 tracing_rucio = False      ## should Rucio send the trace?
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
 #@timeout(seconds=10800)
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
-        Download given files using rucio copytool.
+    Download given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     ignore_errors = kwargs.get('ignore_errors')
     trace_report = kwargs.get('trace_report')
     use_pcache = kwargs.get('use_pcache')
@@ -164,14 +189,13 @@ def copy_in(files, **kwargs):
     return files
 
 
-def get_protocol(trace_report_out):
+def get_protocol(trace_report_out: dict) -> str:
     """
     Extract the protocol used for the transfer from the dictionary returned by rucio.
 
-    :param trace_report_out: returned rucio transfer dictionary (dictionary).
-    :return: protocol (string).
+    :param trace_report_out: returned rucio transfer dictionary (dict)
+    :return: protocol (str).
     """
-
     try:
         protocol = trace_report_out[0].get('protocol')
     except Exception as error:
@@ -181,16 +205,18 @@ def get_protocol(trace_report_out):
     return protocol
 
 
-def handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=True):
+def handle_rucio_error(error_msg: str, trace_report: dict, trace_report_out: list, fspec: Any,
+                       stagein: bool = True) -> dict:
     """
+    Handle any error from Rucio.
 
-    :param error_msg:
-    :param trace_report:
-    :param trace_report_out:
-    :param fspec:
-    :return:
+    :param error_msg: error message (str)
+    :param trace_report: trace report dictionary (dict)
+    :param trace_report_out: trace report from Rucio (list)
+    :param fspec: FileSpec object (Any)
+    :param stagein: True for stage-in, False for stage-out (bool)
+    :return: error deetails dictionary, {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
     """
-
     # try to get a better error message from the traces
     error_msg_org = error_msg
     if trace_report_out:
@@ -214,15 +240,15 @@ def handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein
     return error_details
 
 
-def copy_in_bulk(files, **kwargs):
+def copy_in_bulk(files: list, **kwargs: dict) -> list:
     """
-        Download given files using rucio copytool.
+    Download given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects
+    :param ignore_errors: boolean, if specified then transfer failures will be ignored
+    :raise: PilotException in case of controlled error
+    :return: list of done files (list).
     """
-
     #allow_direct_access = kwargs.get('allow_direct_access')
     ignore_errors = kwargs.get('ignore_errors')
     trace_common_fields = kwargs.get('trace_report')
@@ -313,15 +339,16 @@ def copy_in_bulk(files, **kwargs):
     return files_done
 
 
-def _get_trace(fspec, traces):
+def _get_trace(fspec: Any, traces: list) -> list:
     """
+    Get the trace candidates corresponding to the given file.
+
     Traces returned by Rucio are not orderred the same as input files from pilot.
     This method finds the proper trace.
 
-    :param: fspec: the file that is seeked
-    :param: traces: all traces that are received by Rucio
-
-    :return: trace_candiates that correspond to the given file
+    :param: fspec: the file that is wanted (Any)
+    :param: traces: list of all traces that are received by Rucio (list)
+    :return: trace_candidates that correspond to the given file (list).
     """
     try:
         try:
@@ -338,15 +365,15 @@ def _get_trace(fspec, traces):
 
 
 #@timeout(seconds=10800)
-def copy_out(files, **kwargs):  # noqa: C901
+def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
     """
-        Upload given files using rucio copytool.
+    Upload given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param ignore_errors: boolean, if specified then transfer failures will be ignored (bool)
+    :raise: PilotException in case of controlled error
+    :return: updated files list (list).
     """
-
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
     logger.info(f'rucio stage-out: X509_USER_PROXY={os.environ.get("X509_USER_PROXY", "")}')
@@ -457,9 +484,19 @@ def copy_out(files, **kwargs):  # noqa: C901
     return files
 
 
-def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, use_pcache, rucio_host):
+def _stage_in_api(dst: str, fspec: Any, trace_report: dict, trace_report_out: list, transfer_timeout: int,
+                  use_pcache: bool, rucio_host: str) -> (int, list):
     """
     Stage-in files using the Rucio API.
+
+    :param dst: destination directory (str)
+    :param fspec: FileSpec object (Any)
+    :param trace_report: trace report (dict)
+    :param trace_report_out: list of trace reports from Rucio (list)
+    :param transfer_timeout: transfer timeout in seconds (int)
+    :param use_pcache: True if pcache should be used, False otherwise (bool)
+    :param rucio_host: Rucio host URL (str)
+    :return: exit code (int), trace report from Rucio (list).
     """
     ec = 0
 
@@ -527,16 +564,17 @@ def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, 
     return ec, trace_report_out
 
 
-def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, rucio_host=''):
+def _stage_in_bulk(dst: str, files: list, trace_report_out: list = [], trace_common_fields: dict = {},
+                   rucio_host: str = ''):
     """
     Stage-in files in bulk using the Rucio API.
 
     :param dst: destination (string).
     :param files: list of fspec objects.
     :param trace_report_out:
-    :param trace_common_fields:
+    :param trace_common_fields: trace report (dict)
     :param rucio_host: optional rucio host (string).
-    :return:
+    :raises Exception: download_client.download_pfns exception.
     """
     # init. download client
     from rucio.client import Client
@@ -601,11 +639,19 @@ def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, 
         logger.debug(f'client returned {result}')
 
 
-def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, transfer_timeout, rucio_host):
+def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,
+                   transfer_timeout: int, rucio_host: str) -> (int, list):
     """
     Stage-out files using the Rucio API.
-    """
 
+    :param fspec: FileSpec object (Any)
+    :param summary_file_path: path to summary file (str)
+    :param trace_report: trace report (dict)
+    :param trace_report_out: trace report from Rucio (list)
+    :param transfer_timeout: transfer time-out in seconds (int)
+    :param rucio_host: Rucio host URL (str)
+    :return: exit code (int), trace report from Rucio (list).
+    """
     ec = 0
 
     # init. download client

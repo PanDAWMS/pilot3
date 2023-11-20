@@ -24,9 +24,9 @@
 
 """GFAL2 copy tool."""
 
-import os
-import logging
 import errno
+import logging
+import os
 from time import time
 
 from .common import resolve_common_transfer_errors, get_timeout
@@ -42,19 +42,33 @@ allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root']  # prioritized list
 
 
 def is_valid_for_copy_in(files: list) -> bool:
-    return True  ## FIX ME LATER
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
     #for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
+    return True  ## FIX ME LATER
 
 
 def is_valid_for_copy_out(files: list) -> bool:
-    return True  ## FIX ME LATER
-    #for f in files:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
+    return True  ## FIX ME LATER
 
 
 def copy_in(files: list, **kwargs: dict) -> list:
@@ -62,7 +76,8 @@ def copy_in(files: list, **kwargs: dict) -> list:
     Download given files using gfal-copy command.
 
     :param files: list of `FileSpec` objects (list)
-    :raise: PilotException in case of controlled error
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
     :return: updated files (list).
     """
     #allow_direct_access = kwargs.get('allow_direct_access') or False
@@ -99,7 +114,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
         cmd = ['gfal-copy --verbose -f', f' -t {timeout}']
 
         if fspec.checksum:
-            cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]  # Python 2/3
+            cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]
 
         cmd += [source, destination]
 
@@ -252,12 +267,11 @@ def move(source: str, destination: str, recursive: bool = False) -> (int, str, s
     """
     Perform gfal-copy from the given source location to the given destination.
 
-    :param source:
-    :param destination:
-    :param recursive:
+    :param source: file source path (str)
+    :param destination: destination path (str)
+    :param recursive: True if -r option is desired, False otherwise (bool)
     :return: exit code (int), stdout (str), stderr (str).
     """
-    cmd = None
     if recursive:
         cmd = f"gfal-copy -r {source} {destination}"
     else:
@@ -269,5 +283,10 @@ def move(source: str, destination: str, recursive: bool = False) -> (int, str, s
 
 
 def check_for_gfal():
-    exit_code, gfal_path, _ = execute('which gfal-copy')
+    """
+    Check if gfal-copy is locally available.
+
+    :return: True if gfal-copy is available, False otherwise (bool).
+    """
+    exit_code, _, _ = execute('which gfal-copy')
     return exit_code == 0

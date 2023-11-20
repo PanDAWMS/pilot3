@@ -19,17 +19,19 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
 
-import os
+"""S3 copy tool."""
+
 import logging
+import os
+from glob import glob
+from typing import Any
+from urllib.parse import urlparse
 
 try:
     import boto3
     from botocore.exceptions import ClientError
 except Exception:
     pass
-
-from glob import glob
-from urllib.parse import urlparse
 
 from .common import resolve_common_transfer_errors
 from pilot.common.errorcodes import ErrorCodes
@@ -48,23 +50,61 @@ require_protocols = True          # indicates if given copytool requires protoco
 allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root', 's3', 's3+rucio']
 
 
-def is_valid_for_copy_in(files):
-    return True  # FIX ME LATER
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
+    return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
-    return True  # FIX ME LATER
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
+    return True  ## FIX ME LATER
 
 
-def get_pilot_s3_profile():
+def get_pilot_s3_profile() -> str:
+    """
+    Get the PANDA_PILOT_AWS_PROFILE environment variable.
+
+    :return: PANDA_PILOT_AWS_PROFILE (str).
+    """
     return os.environ.get("PANDA_PILOT_AWS_PROFILE", None)
 
 
-def get_copy_out_extend():
+def get_copy_out_extend() -> str:
+    """
+    Get the PANDA_PILOT_COPY_OUT_EXTEND environment variable.
+
+    :return: PANDA_PILOT_COPY_OUT_EXTEND (str).
+    """
     return os.environ.get("PANDA_PILOT_COPY_OUT_EXTEND", None)
 
 
-def get_endpoint_bucket_key(surl):
+def get_endpoint_bucket_key(surl: str) -> (str, str, str):
+    """
+    Get the endpoint, bucket and key from the given SURL.
+
+    :param surl: SURL (str)
+    :return: endpoint (str), bucket (str), key (str).
+    """
     parsed = urlparse(surl)
     endpoint = parsed.scheme + '://' + parsed.netloc
     full_path = parsed.path
@@ -74,18 +114,21 @@ def get_endpoint_bucket_key(surl):
     parts = full_path.split('/')
     bucket = parts[1]
     key = '/'.join(parts[2:])
+
     return endpoint, bucket, key
 
 
-def resolve_surl(fspec, protocol, ddmconf, **kwargs):
+def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
     """
-        Get final destination SURL for file to be transferred to Objectstore
-        Can be customized at the level of specific copytool
+    Get final destination SURL for file to be transferred to Objectstore.
 
-        :param protocol: suggested protocol
-        :param ddmconf: full ddm storage data
-        :param fspec: file spec data
-        :return: dictionary {'surl': surl}
+    Can be customized at the level of specific copytool.
+
+    :param fspec: FileSpec object (Any)
+    :param protocol: suggested protocol (dict)
+    :param ddmconf: full ddm storage data (dict)
+    :param kwargs: kwargs dictionary (dict)
+    :return: SURL dictionary {'surl': surl} (dict).
     """
     try:
         pandaqueue = infosys.pandaqueue
@@ -128,14 +171,15 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
     return {'surl': surl}
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files from an S3 bucket.
 
-    :param files: list of `FileSpec` objects
-    :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated list of files (list).
     """
-
     for fspec in files:
 
         dst = fspec.workdir or kwargs.get('workdir') or '.'
@@ -157,16 +201,15 @@ def copy_in(files, **kwargs):
     return files
 
 
-def download_file(path, surl, object_name=None):
+def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
     """
     Download a file from an S3 bucket.
 
-    :param path: Path to local file after download (string).
-    :param surl: Source url to download from.
-    :param object_name: S3 object name. If not specified then file_name from path is used.
-    :return: True if file was uploaded (else False), diagnostics (string).
+    :param path: path to local file after download (str)
+    :param surl: source url to download from (str)
+    :param object_name: S3 object name. If not specified then file_name from path is used (str)
+    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
     """
-
     try:
         endpoint, bucket, object_name = get_endpoint_bucket_key(surl)
         session = boto3.Session(profile_name=get_pilot_s3_profile())
@@ -185,14 +228,15 @@ def download_file(path, surl, object_name=None):
     return True, ""
 
 
-def copy_out_extend(files, **kwargs):
+def copy_out_extend(files: list, **kwargs: dict) -> list:
     """
     Upload given files to S3 storage.
 
-    :param files: list of `FileSpec` objects
-    :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated list of files (list).
     """
-
     workdir = kwargs.pop('workdir')
 
     for fspec in files:
@@ -241,14 +285,15 @@ def copy_out_extend(files, **kwargs):
     return files
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files to S3 storage.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
     :raise: PilotException in case of controlled error
+    :return: updated list of files (list).
     """
-
     if get_copy_out_extend():
         return copy_out_extend(files, **kwargs)
 
@@ -282,16 +327,15 @@ def copy_out(files, **kwargs):
     return files
 
 
-def upload_file(file_name, full_url, object_name=None):
+def upload_file(file_name: str, full_url: str, object_name: str = None) -> (bool, str):
     """
     Upload a file to an S3 bucket.
 
-    :param file_name: File to upload.
-    :param turl: Target url to upload to.
-    :param object_name: S3 object name. If not specified then file_name is used.
-    :return: True if file was uploaded (else False), diagnostics (string).
+    :param file_name: file to upload (str)
+    :param turl: target url to upload to (str)
+    :param object_name: S3 object name. If not specified then file_name is used (str)
+    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
     """
-
     # upload the file
     try:
         # s3_client = boto3.client('s3')

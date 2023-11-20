@@ -21,9 +21,12 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
 
-import os
+"""Objectstore copy tool."""
+
 import json
 import logging
+import os
+from typing import Any
 
 from pilot.util.container import execute
 from pilot.common.exception import (
@@ -46,22 +49,45 @@ allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root', 's3', 's3+rucio']
 
 
 def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
 def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def resolve_surl(fspec, protocol, ddmconf, **kwargs):
+def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
     """
-        Get final destination SURL for file to be transferred to Objectstore
-        Can be customized at the level of specific copytool
+    Get final destination SURL for file to be transferred to Objectstore.
 
-        :param protocol: suggested protocol
-        :param ddmconf: full ddm storage data
-        :param fspec: file spec data
-        :return: dictionary {'surl': surl}
+    Can be customized at the level of specific copytool.
+
+    :param fspec: file spec data (Any)
+    :param protocol: suggested protocol (dict)
+    :param ddmconf: full ddm storage data (dict)
+    :return: SURL dictionary {'surl': surl} (dict).
     """
     ddm = ddmconf.get(fspec.ddmendpoint)
     if not ddm:
@@ -78,14 +104,14 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
     return {'surl': surl}
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
-        Download given files using rucio copytool.
+    Download given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :raise: PilotException in case of controlled error
+    :return: updated list of files (list).
     """
-
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
 
@@ -94,7 +120,7 @@ def copy_in(files, **kwargs):
     for fspec in files:
 
         cmd = []
-        logger.info("To transfer file: %s", fspec)
+        logger.info(f"transfer file: {fspec}")
         if fspec.protocol_id:
             ddm = ddmconf.get(fspec.ddmendpoint)
             if ddm:
@@ -139,19 +165,19 @@ def is_new_rucio_version() -> bool:
 
     :return: True if new rucio version (bool).
     """
-
     _, stdout, _ = execute('rucio download -h')
     return True if '--rses RSES' in stdout else False
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
-        Upload given files using rucio copytool.
+    Upload the given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated list of files (list).
     """
-
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
 

@@ -21,13 +21,22 @@
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 
-import os
+"""Local site mover copy tool."""
+
 import logging
 import errno
+import os
 from time import time
 
-from .common import get_copysetup, verify_catalog_checksum, resolve_common_transfer_errors  #, get_timeout
-from pilot.common.exception import StageInFailure, StageOutFailure, PilotException, ErrorCodes
+from .common import (
+    get_copysetup,
+    verify_catalog_checksum,
+    resolve_common_transfer_errors  #, get_timeout
+)
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes
+)
 from pilot.util.container import execute
 #from pilot.util.timer import timeout
 
@@ -39,50 +48,45 @@ require_replicas = True  ## indicate if given copytool requires input replicas t
 allowed_schemas = ['srm', 'gsiftp', 'root']  # prioritized list of supported schemas for transfers by given copytool
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
-    #for f in files:
+
+
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
+    return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
-    #for f in files:
-    #    if not all(key in f for key in ('name', 'source', 'destination')):
-    #        return False
-    return True
-
-
-def copy_in_old(files):
-    """
-    Tries to download the given files using lsm-get directly.
-
-    :param files: Files to download
-    :raises PilotException: StageInFailure
-    """
-
-    if not check_for_lsm(dst_in=True):
-        raise StageInFailure("No LSM tools found")
-    exit_code, stdout, stderr = move_all_files_in(files)
-    if exit_code != 0:
-        # raise failure
-        raise StageInFailure(stdout)
-
-
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using the lsm-get command.
 
-    :param files: list of `FileSpec` objects.
-    :raise: PilotException in case of controlled error.
-    :return: files `FileSpec` object.
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
-    exit_code = 0
-    stdout = ""
-    stderr = ""
-
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
     trace_report = kwargs.get('trace_report')
@@ -148,14 +152,14 @@ def copy_in(files, **kwargs):
     return files
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using lsm copytool.
 
-    :param files: list of `FileSpec` objects.
-    :raise: PilotException in case of controlled error.
+    :param files: list of `FileSpec` objects (list)
+    :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
     trace_report = kwargs.get('trace_report')
@@ -225,32 +229,14 @@ def copy_out(files, **kwargs):
     return files
 
 
-def copy_out_old(files):
+def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):
     """
-    Tries to upload the given files using lsm-put directly.
+    Move all inout files.
 
-    :param files: Files to upload
-    :raises PilotException: StageOutFailure
+    :param files: list of FileSpec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
-    if not check_for_lsm(dst_in=False):
-        raise StageOutFailure("No LSM tools found")
-
-    exit_code, stdout, stderr = move_all_files_out(files)
-    if exit_code != 0:
-        # raise failure
-        raise StageOutFailure(stdout)
-
-
-def move_all_files_in(files, nretries=1):
-    """
-    Move all files.
-
-    :param files:
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed
-    :return: exit_code, stdout, stderr
-    """
-
     exit_code = 0
     stdout = ""
     stderr = ""
@@ -273,14 +259,14 @@ def move_all_files_in(files, nretries=1):
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files, nretries=1):
+def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):
     """
-    Move all files.
+    Move all output files.
 
-    :param files:
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSPec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
@@ -304,16 +290,15 @@ def move_all_files_out(files, nretries=1):
 
 
 #@timeout(seconds=10800)
-def move(source, destination, dst_in=True, copysetup="", options=None):
+def move(source: str, destination: str, dst_in: bool = True, copysetup: str = "", options: str = "") -> (int, str, str):
     """
     Use lsm-get or lsm-put to transfer the file.
 
-    :param source: path to source (string).
-    :param destination: path to destination (string).
-    :param dst_in: True for stage-in, False for stage-out (boolean).
-    :return: exit code, stdout, stderr
+    :param source: path to source (str)
+    :param destination: path to destination (str)
+    :param dst_in: True for stage-in, False for stage-out (bool)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     # copysetup = '/osg/mwt2/app/atlas_app/atlaswn/setup.sh'
     if copysetup != "":
         cmd = f'source {copysetup};'
@@ -344,11 +329,16 @@ def move(source, destination, dst_in=True, copysetup="", options=None):
     return exit_code, stdout, stderr
 
 
-def check_for_lsm(dst_in=True):
-    cmd = None
+def check_for_lsm(dst_in: bool = True) -> bool:
+    """
+    Check if lsm-get / lsm-put are locally available.
+
+    :param dst_in: True for stage-in, False for stage-out (bool)
+    :return: True if command is available (bool).
+    """
     if dst_in:
         cmd = 'which lsm-get'
     else:
         cmd = 'which lsm-put'
-    exit_code, gfal_path, _ = execute(cmd)
+    exit_code, _, _ = execute(cmd)
     return exit_code == 0

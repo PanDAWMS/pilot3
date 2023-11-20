@@ -21,24 +21,58 @@
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
 # - David Cameron, david.cameron@cern.ch, 2018-2022
 
+"""mv/cp/ln copy tool."""
+
+import logging
 import os
 import re
 
 from pilot.common.exception import StageInFailure, StageOutFailure, MKDirFailure, ErrorCodes
 from pilot.util.container import execute
 
-import logging
 logger = logging.getLogger(__name__)
 
 require_replicas = False  # indicate if given copytool requires input replicas to be resolved
 check_availablespace = False  # indicate whether space check should be applied before stage-in transfers using given copytool
 
 
-def create_output_list(files, init_dir):
+def is_valid_for_copy_in(files: list) -> bool:
     """
-    Add files to the output list which tells ARC CE which files to upload
-    """
+    Determine if this copytool is valid for input for the given file list.
 
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
+    return True  ## FIX ME LATER
+
+
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
+    return True  ## FIX ME LATER
+
+
+def create_output_list(files: list, init_dir: str):
+    """
+    Add files to the output list which tells ARC CE which files to upload.
+
+    :param files: list of FileSpec objects (list)
+    :param init_dir: start directory (str).
+    """
     for fspec in files:
         arcturl = fspec.turl
         if arcturl.startswith('s3://'):
@@ -60,40 +94,29 @@ def create_output_list(files, init_dir):
             f.write(f'{fspec.lfn} {arcturl}\n')
 
 
-def is_valid_for_copy_in(files):
-    return True  # FIX ME LATER
-    #for f in files:
-    #    if not all(key in f for key in ('name', 'source', 'destination')):
-    #        return False
-    #return True
-
-
-def is_valid_for_copy_out(files):
-    return True  # FIX ME LATER
-    #for f in files:
-    #    if not all(key in f for key in ('name', 'source', 'destination')):
-    #        return False
-    #return True
-
-
-def get_dir_path(turl, prefix='file://localhost'):
+def get_dir_path(turl: str, prefix: str = 'file://localhost') -> str:
     """
-    Extract the directory path from the turl that has a given prefix
+    Extract the directory path from the turl that has a given prefix.
+
     E.g. turl = 'file://localhost/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f/user.jwebb2.66999._000001.top1outDS.tar'
         -> '/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f'
     (some of these directories will typically have to be created in the next step).
 
-    :param turl: TURL (string).
-    :param prefix: file prefix (string).
-    :return: directory path (string).
+    :param turl: TURL (str)
+    :param prefix: file prefix (str)
+    :return: directory path (str).
     """
-
-    path = turl.replace(prefix, '')
-    return os.path.dirname(path)
+    return os.path.dirname(turl.replace(prefix, ''))
 
 
-def build_final_path(turl, prefix='file://localhost'):
+def build_final_path(turl: str, prefix: str = 'file://localhost') -> (int, str, str):
+    """
+    Build the final path for the storage.
 
+    :param turl: TURL (str)
+    :param prefix: file prefix (str)
+    :return: error code (int), diagnostics (str), path (str).
+    """
     path = ''
 
     # first get the directory path to be created
@@ -115,14 +138,16 @@ def build_final_path(turl, prefix='file://localhost'):
     return 0, '', os.path.join(dirname, os.path.basename(turl))
 
 
-def copy_in(files, copy_type="symlink", **kwargs):
+def copy_in(files: list, copy_type: str = "symlink", **kwargs: dict) -> list:
     """
-    Tries to download the given files using mv directly.
+    Download the given files using mv directly.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
+    :param copy_type: copy type (str)
+    :param kwargs: kwargs dictionary (dict)
     :raises PilotException: StageInFailure
+    :return: updated files (list).
     """
-
     # make sure direct access is not attempted (wrong queue configuration - pilot should fail job)
     allow_direct_access = kwargs.get('allow_direct_access')
     for fspec in files:
@@ -155,25 +180,27 @@ def copy_in(files, copy_type="symlink", **kwargs):
     return files
 
 
-def copy_out(files, copy_type="mv", **kwargs):
+def copy_out(files: list, copy_type: str = "mv", **kwargs: dict) -> list:
     """
-    Tries to upload the given files using mv directly.
+    Upload the given files using mv directly.
 
-    :param files: list of `FileSpec` objects
-    :raises PilotException: StageOutFailure
+    :param files: list of `FileSpec` objects (list)
+    :param copy_type: copy type (str)
+    :param kwargs: kwargs dictionary (dict)
+    :raises PilotException: StageOutFailure, MKDirFailure
+    :return: updated files (list).
     """
-
     if copy_type not in ["cp", "mv"]:
         raise StageOutFailure("incorrect method for copy out")
 
     if not kwargs.get('workdir'):
         raise StageOutFailure("Workdir is not specified")
 
-    exit_code, stdout, stderr = move_all_files(files,
-                                               copy_type,
-                                               kwargs.get('workdir'),
-                                               '',
-                                               mvfinaldest=kwargs.get('mvfinaldest', False))
+    exit_code, stdout, _ = move_all_files(files,
+                                          copy_type,
+                                          kwargs.get('workdir'),
+                                          '',
+                                          mvfinaldest=kwargs.get('mvfinaldest', False))
     if exit_code != 0:
         # raise failure
         if exit_code == ErrorCodes.MKDIR:
@@ -190,14 +217,18 @@ def copy_out(files, copy_type="mv", **kwargs):
     return files
 
 
-def move_all_files(files, copy_type, workdir, jobworkdir, mvfinaldest=False):
+def move_all_files(files: list, copy_type: str, workdir: str, jobworkdir: str,
+                   mvfinaldest: bool = False) -> (int, str, str):
     """
     Move all files.
 
-    :param files: list of `FileSpec` objects
-    :return: exit_code, stdout, stderr
+    :param files: list of `FileSpec` objects (list)
+    :param copy_type: copy type (str)
+    :param workdir: work directory (str)
+    :param jobworkdir: work directory for job (str)
+    :param mvfinaldest: True if we can transfer to final SE destination, False otherwise (bool)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
@@ -258,52 +289,37 @@ def move_all_files(files, copy_type, workdir, jobworkdir, mvfinaldest=False):
     return exit_code, stdout, stderr
 
 
-def move(source, destination):
+def move(source: str, destination: str) -> (int, str, str):
     """
-    Tries to upload the given files using mv directly.
+    Upload the given files using mv directly.
 
-    :param source:
-    :param destination:
-
-    :return: exit_code, stdout, stderr
+    :param source: file source path (str)
+    :param destination: file destination path (str)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     executable = ['/usr/bin/env', 'mv', source, destination]
-    cmd = ' '.join(executable)
-    exit_code, stdout, stderr = execute(cmd)
-
-    return exit_code, stdout, stderr
+    return execute(' '.join(executable))
 
 
-def copy(source, destination):
+def copy(source: str, destination: str) -> (int, str, str):
     """
-    Tries to upload the given files using xrdcp directly.
+    Upload the given files using cp directly.
 
-    :param source:
-    :param destination:
-
-    :return: exit_code, stdout, stderr
+    :param source: file source path (str)
+    :param destination: file destination path (str)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     executable = ['/usr/bin/env', 'cp', source, destination]
-    cmd = ' '.join(executable)
-    exit_code, stdout, stderr = execute(cmd)
-
-    return exit_code, stdout, stderr
+    return execute(' '.join(executable))
 
 
-def symlink(source, destination):
+def symlink(source: str, destination: str) -> (int, str, str):
     """
-    Tries to ln the given files.
+    Create symbolic link ln the given file.
 
-    :param source:
-    :param destination:
-
-    :return: exit_code, stdout, stderr
+    :param source: file source path (str)
+    :param destination: file destination path (str)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     executable = ['/usr/bin/env', 'ln', '-s', source, destination]
-    cmd = ' '.join(executable)
-    exit_code, stdout, stderr = execute(cmd)
-
-    return exit_code, stdout, stderr
+    return execute(' '.join(executable))

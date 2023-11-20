@@ -18,14 +18,19 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
-# - Shuwei
+# - Shuwei Ye, yesw@bnl.gov, 2021
 
-import os
+"""GS copy tool."""
+
 import logging
-from pilot.info import infosys
-import subprocess
+import os
+import pathlib
 import re
+import subprocess
 from glob import glob
+from typing import Any
+
+from pilot.info import infosys
 
 try:
     from google.cloud import storage
@@ -33,11 +38,6 @@ except Exception:
     storage_client = None
 else:
     storage_client = storage.Client()
-
-try:
-    import pathlib  # Python 3
-except Exception:
-    pathlib = None
 
 from .common import resolve_common_transfer_errors
 from pilot.common.errorcodes import ErrorCodes
@@ -54,25 +54,48 @@ require_protocols = True  ## indicates if given copytool requires protocols to b
 allowed_schemas = ['gs', 'srm', 'gsiftp', 'https', 'davs', 'root']
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def resolve_surl(fspec, protocol, ddmconf, **kwargs):
+def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
     """
-        Get final destination SURL for file to be transferred to Objectstore
-        Can be customized at the level of specific copytool
+    Get final destination SURL for file to be transferred to Objectstore.
 
-        :param protocol: suggested protocol
-        :param ddmconf: full ddm storage data
-        :param fspec: file spec data
-        :return: dictionary {'surl': surl}
+    Can be customized at the level of specific copytool.
+
+    :param fspec: file spec data (Any)
+    :param protocol: suggested protocol (dict)
+    :param ddmconf: full ddm storage data (dict)
+    :param kwargs: kwargs dictionary (dict)
+    :return: SURL dictionary {'surl': surl} (dict).
     """
-
     try:
         pandaqueue = infosys.pandaqueue
     except Exception:
@@ -100,14 +123,14 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
     return {'surl': surl}
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files from a GCS bucket.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
     :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     for fspec in files:
 
         dst = fspec.workdir or kwargs.get('workdir') or '.'
@@ -127,16 +150,15 @@ def copy_in(files, **kwargs):
     return files
 
 
-def download_file(path, surl, object_name=None):
+def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
     """
     Download a file from a GS bucket.
 
-    :param path: Path to local file after download (string).
-    :param surl: remote path (string).
-    :param object_name: GCS object name. If not specified then file_name from path is used.
-    :return: True if file was uploaded (else False), diagnostics (string).
+    :param path: Path to local file after download (str)
+    :param surl: remote path (str)
+    :param object_name: GCS object name. If not specified then file_name from path is used (str)
+    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
     """
-
     # if object_name was not specified, use file name from path
     if object_name is None:
         object_name = os.path.basename(path)
@@ -153,14 +175,14 @@ def download_file(path, surl, object_name=None):
     return True, ""
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict):
     """
     Upload given files to GS storage.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
     :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     workdir = kwargs.pop('workdir')
 
     # if len(files) > 0:
@@ -232,16 +254,16 @@ def copy_out(files, **kwargs):
     return files
 
 
-def upload_file(file_name, bucket, object_name=None, content_type=None):
+def upload_file(file_name: str, bucket: str, object_name: str = None, content_type: str = None) -> (bool, str):
     """
     Upload a file to a GCS bucket.
 
-    :param file_name: File to upload.
-    :param bucket: Bucket to upload to (string).
-    :param object_name: GCS object name. If not specified then file_name is used.
+    :param file_name: file to upload (str)
+    :param bucket: bucket to upload to (str)
+    :param object_name: GCS object name. If not specified then file_name is used (str)
+    :param content_type: content type (str)
     :return: True if file was uploaded (else False), diagnostics (string).
     """
-
     # if GCS object_name was not specified, use file_name
     if object_name is None:
         object_name = file_name
