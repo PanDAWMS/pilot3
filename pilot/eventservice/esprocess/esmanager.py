@@ -20,24 +20,26 @@
 # - Wen Guan, wen.guan@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Event Service manager to set up and run ESProcess."""
+
 import logging
+from typing import Any
 
 from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.eventservice.esprocess.eshook import ESHook
 
 logger = logging.getLogger(__name__)
 
-"""
-ES manager to setup and run ESProcess.
-"""
-
 
 class ESManager:
-    def __init__(self, hook):
-        """
-        Initialization: setup ES hooks.
+    """Event Service manager class."""
 
-        :param hook: an instance of ESHook.
+    def __init__(self, hook: Any):
+        """
+        Set up ES hooks.
+
+        :param hook: an instance of ESHook (Any)
+        :raises Exception: if hook is not an instance of ESHook.
         """
         logger.info('initializing hooks')
         if not isinstance(hook, ESHook):
@@ -47,10 +49,7 @@ class ESManager:
         logger.info('initialized hooks')
 
     def run(self):
-        """
-        Initialize and run ESProcess.
-        """
-
+        """Initialize and run ESProcess."""
         logger.debug('gettting payload')
         payload = self.__hook.get_payload()
         logger.debug(f'got payload: {payload}')

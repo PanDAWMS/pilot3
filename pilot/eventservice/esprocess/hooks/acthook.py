@@ -20,28 +20,28 @@
 # - Wen Guan, wen.guan@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
-"""
-Hooks for ARC-ControlTower EventService.
-"""
+"""Hooks for ARC-ControlTower EventService."""
 
 from pilot.eventservice.eshook import ESHook
 
 
 class ACTESHook(ESHook):
-    def get_payload(self):
+    """ACT EventService hook class."""
+
+    def get_payload(self) -> dict:
         """
         Get payload to execute.
 
-        :returns: dict {'payload': <cmd string>, 'output_file': <filename or without it>, 'error_file': <filename or without it>}
+        :return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename or without it>} (dict)
         """
         raise Exception("Not Implemented")
 
-    def get_event_ranges(self, num_ranges=1):
+    def get_event_ranges(self, num_ranges: int = 1) -> dict:
         """
         Get event ranges.
 
-        :returns: dict of event ranges.
-                 None if no available events.
+        :param num_ranges: number of event ranges to get (int)
+        :return: dictionary of event ranges (dict).
         """
         raise Exception("Not Implemented")
 
@@ -49,9 +49,12 @@ class ACTESHook(ESHook):
         """
         Handle ES output or error messages.
 
-        :param message: a dict of parsed message.
-                        For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
-                                                           'wall': <wall>, 'message': <full message>}.
-                        Fro 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
+        Example
+            For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
+                    'wall': <wall>, 'message': <full message>}.
+            For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
+
+        :param message: dictionary of a parsed message (dict).
+        :raises Exception: if anything goes wrong.
         """
         raise Exception("Not Implemented")
