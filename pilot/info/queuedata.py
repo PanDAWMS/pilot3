@@ -114,9 +114,10 @@ class QueueData(BaseData):
 
     def __init__(self, data):
         """
-            :param data: input dictionary of queue data settings
-        """
+        Init class instance.
 
+        :param data: input dictionary of queue data settings (dict).
+        """
         self.load(data)
 
         # DEBUG
@@ -157,13 +158,8 @@ class QueueData(BaseData):
 
         if not activity:
             activity = 'default'
-        try:
-            if isinstance(activity, basestring):  # Python 2  # noqa: F821
-                activity = [activity]
-        except Exception:
-            if isinstance(activity, str):  # Python 3
-                activity = [activity]
-
+        if isinstance(activity, str):
+            activity = [activity]
         if 'default' not in activity:
             activity = activity + ['default']
 

@@ -20,8 +20,9 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 """
-Information provider from external source(s)
-which is mainly used to retrive Queue, Site, etc data required for Information Service
+Information provider from external source(s).
+
+Mainly used to retrieve Queue, Site, etc data required for the Information Service.
 
 :author: Alexey Anisenkov
 :contact: anisyonk@cern.ch
@@ -31,40 +32,45 @@ which is mainly used to retrive Queue, Site, etc data required for Information S
 import os
 import json
 import random
+import logging
+from typing import Any
 
+from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import PilotException
 from pilot.util.config import config
 from .dataloader import DataLoader, merge_dict_data
 
-import logging
 logger = logging.getLogger(__name__)
 
 
 class ExtInfoProvider(DataLoader):
     """
-        Information provider to retrive data from external source(s)
-        (e.g. AGIS, PanDA, CVMFS)
+    Information provider to retrive data from external source(s).
+
+    E.g. CRIC, PanDA, CVMFS.
     """
 
-    def __init__(self, cache_time=60):
+    def __init__(self, cache_time: int = 60):
         """
-            :param cache_time: Default cache time in seconds
-        """
+        Initialize  class instance.
 
+        :param cache_time: default cache time in seconds (int).
+        """
         self.cache_time = cache_time
 
     @classmethod
-    def load_schedconfig_data(self, pandaqueues=[], priority=[], cache_time=60):
+    def load_schedconfig_data(cls, pandaqueues: list = [], priority: list = [], cache_time: int = 60) -> dict:
         """
-        Download the (AGIS-extended) data associated to PandaQueue from various sources (prioritized).
-        Try to get data from CVMFS first, then AGIS or from Panda JSON sources (not implemented).
+        Download the (CRIC-extended) data associated to PandaQueue from various sources (prioritized).
 
-        For the moment PanDA source does not provide the full schedconfig description
+        Try to get data from CVMFS first, then CRIC or from Panda JSON sources (not implemented).
+        At the moment PanDA source does not provide the full schedconfig description.
 
-        :param pandaqueues: list of PandaQueues to be loaded
-        :param cache_time: Default cache time in seconds.
-        :return:
+        :param pandaqueues: list of PandaQueues to be loaded (list)
+        :param priority: list of sources to be used for data load (list)
+        :param cache_time: default cache time in seconds (int).
+        :return: dict of schedconfig settings by PandaQueue name as a key (dict).
         """
-
         pandaqueues = sorted(set(pandaqueues))
 
         cache_dir = config.Information.cache_dir
@@ -73,7 +79,7 @@ class ExtInfoProvider(DataLoader):
 
         cric_url = getattr(config.Information, 'queues_url', None) or 'https://atlas-cric.cern.ch/cache/schedconfig/{pandaqueue}.json'
         cric_url = cric_url.format(pandaqueue=pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues')
-        cvmfs_path = self.get_cvmfs_path(config.Information.queues_cvmfs, 'cric_pandaqueues.json')
+        cvmfs_path = cls.get_cvmfs_path(config.Information.queues_cvmfs, 'cric_pandaqueues.json')
 
         sources = {'CVMFS': {'url': cvmfs_path,
                              'nretry': 1,
@@ -96,10 +102,10 @@ class ExtInfoProvider(DataLoader):
         priority = priority or queuedata_source_priority
         logger.debug(f'schedconfig priority={priority}')
 
-        return self.load_data(sources, priority, cache_time)
+        return cls.load_data(sources, priority, cache_time)
 
     @staticmethod
-    def get_cvmfs_path(url, fname):
+    def get_cvmfs_path(url: str, fname: str) -> str:
         """
         Return a proper path for cvmfs.
 
@@ -107,7 +113,6 @@ class ExtInfoProvider(DataLoader):
         :param fname: file name for CRIC JSON (string).
         :return: cvmfs path (string).
         """
-
         if url:
             cvmfs_path = url.replace('CVMFS_PATH', os.environ.get('ATLAS_SW_BASE', '/cvmfs'))
         else:
@@ -116,20 +121,22 @@ class ExtInfoProvider(DataLoader):
         return cvmfs_path
 
     @classmethod
-    def load_queuedata(self, pandaqueue, priority=[], cache_time=60):
+    def load_queuedata(cls, pandaqueue: str, priority: list = [], cache_time: int = 60) -> dict:
         """
         Download the queuedata from various sources (prioritized).
-        Try to get data from PanDA, CVMFS first, then AGIS
+
+        Try to get data from PanDA, CVMFS first, then CRIC.
 
         This function retrieves only min information of queuedata provided by PanDA cache for the moment.
 
-        :param pandaqueue: PandaQueue name
-        :param cache_time: Default cache time in seconds.
-        :return:
+        :param pandaqueue: PandaQueue name (str)
+        :param priority: list of sources to be used for data load (list)
+        :param cache_time: default cache time in seconds (str)
+        :return: dict of queuedata settings by PandaQueue name as a key (dict)
+        :raises PilotException: in case of error.
         """
-
         if not pandaqueue:
-            raise Exception('load_queuedata(): pandaqueue name is not specififed')
+            raise PilotException('load_queuedata(): pandaqueue name is not specififed', code=ErrorCodes.QUEUEDATA)
 
         pandaqueues = [pandaqueue]
 
@@ -137,16 +144,24 @@ class ExtInfoProvider(DataLoader):
         if not cache_dir:
             cache_dir = os.environ.get('PILOT_HOME', '.')
 
-        def jsonparser_panda(c):
-            dat = json.loads(c)
-            if dat and isinstance(dat, dict) and 'error' in dat:
-                raise Exception(f'response contains error, data={dat}')
-            return {pandaqueue: dat}
+        def jsonparser_panda(dat: Any) -> dict:
+            """
+            Parse json data from PanDA source.
+
+            :param dat: data (Any)
+            :return: parsed data (dict)
+            :raises Exception: in case of error.
+            """
+            _dat = json.loads(dat)
+            if _dat and isinstance(_dat, dict) and 'error' in _dat:
+                raise PilotException(f'response contains error, data={_dat}', code=ErrorCodes.QUEUEDATA)
+
+            return {pandaqueue: _dat}
 
         queuedata_url = (os.environ.get('QUEUEDATA_SERVER_URL') or getattr(config.Information, 'queuedata_url', '')).format(**{'pandaqueue': pandaqueues[0]})
         cric_url = getattr(config.Information, 'queues_url', None)
         cric_url = cric_url.format(pandaqueue=pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues')
-        cvmfs_path = self.get_cvmfs_path(getattr(config.Information, 'queuedata_cvmfs', None), 'cric_pandaqueues.json')
+        cvmfs_path = cls.get_cvmfs_path(getattr(config.Information, 'queuedata_cvmfs', None), 'cric_pandaqueues.json')
 
         sources = {'CVMFS': {'url': cvmfs_path,
                              'nretry': 1,
@@ -177,19 +192,20 @@ class ExtInfoProvider(DataLoader):
         priority = priority or queuedata_source_priority
         logger.debug(f'queuedata priority={priority}')
 
-        return self.load_data(sources, priority, cache_time)
+        return cls.load_data(sources, priority, cache_time)
 
     @classmethod
-    def load_storage_data(self, ddmendpoints=[], priority=[], cache_time=60):
+    def load_storage_data(cls, ddmendpoints: list = [], priority: list = [], cache_time: int = 60) -> dict:
         """
         Download DDM Storages details by given name (DDMEndpoint) from various sources (prioritized).
+
         Unless specified as an argument in the function call, the prioritized list will be read from the user plug-in.
 
-        :param pandaqueues: list of PandaQueues to be loaded
-        :param cache_time: Default cache time in seconds.
-        :return: dict of DDMEndpoint settings by DDMendpoint name as a key
+        :param ddmendpoints: list of ddmendpoint names (list)
+        :param priority: list of sources to be used for data load (list)
+        :param cache_time: default cache time in seconds (int)
+        :return: dictionary of DDMEndpoint settings by DDMendpoint name as a key (dict).
         """
-
         ddmendpoints = sorted(set(ddmendpoints))
 
         cache_dir = config.Information.cache_dir
@@ -199,7 +215,7 @@ class ExtInfoProvider(DataLoader):
         # list of sources to fetch ddmconf data from
         _storagedata_url = os.environ.get('STORAGEDATA_SERVER_URL', '')
         storagedata_url = _storagedata_url if _storagedata_url else getattr(config.Information, 'storages_url', None)
-        cvmfs_path = self.get_cvmfs_path(config.Information.storages_cvmfs, 'cric_ddmendpoints.json')
+        cvmfs_path = cls.get_cvmfs_path(config.Information.storages_cvmfs, 'cric_ddmendpoints.json')
         sources = {'USER': {'url': storagedata_url,
                             'nretry': 3,
                             'sleep_time': lambda: 15 + random.randint(0, 30),  ## max sleep time 45 seconds between retries
@@ -231,17 +247,18 @@ class ExtInfoProvider(DataLoader):
             priority = priority or ddm_source_priority
         logger.debug(f'storage data priority={priority}')
 
-        return self.load_data(sources, priority, cache_time)
+        return cls.load_data(sources, priority, cache_time)
 
-    def resolve_queuedata(self, pandaqueue, schedconf_priority=None):
+    def resolve_queuedata(self, pandaqueue: str, schedconf_priority: list = None) -> dict:
         """
-            Resolve final full queue data details
-            (primary data provided by PanDA merged with overall queue details from AGIS)
+        Resolve final full queue data details.
 
-            :param pandaqueue: name of PandaQueue
-            :return: dict of settings for given PandaQueue as a key
+        (primary data provided by PanDA merged with overall queue details from AGIS)
+
+        :param pandaqueue: name of PandaQueue
+        :param schedconf_priority: list of sources to be used for schedconfig data load
+        :return: dictionary of settings for given PandaQueue as a key (dict).
         """
-
         # load queuedata (min schedconfig settings)
         master_data = self.load_queuedata(pandaqueue, cache_time=self.cache_time)  ## use default priority
 
@@ -251,13 +268,12 @@ class ExtInfoProvider(DataLoader):
         # merge
         return merge_dict_data(r, master_data)
 
-    def resolve_storage_data(self, ddmendpoints=[]):
+    def resolve_storage_data(self, ddmendpoints: list = []) -> dict:
         """
-            Resolve final DDM Storages details by given names (DDMEndpoint)
+        Resolve final DDM Storages details by given names (DDMEndpoint).
 
-            :param ddmendpoints: list of ddmendpoint names
-            :return: dict of settings for given DDMEndpoint as a key
+        :param ddmendpoints: list of ddmendpoint names (list)
+        :return: dictionary of settings for given DDMEndpoint as a key (dict).
         """
-
         # load ddmconf settings
         return self.load_storage_data(ddmendpoints, cache_time=self.cache_time)  ## use default priority
