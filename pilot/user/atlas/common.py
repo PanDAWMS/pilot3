@@ -760,7 +760,7 @@ def add_athena_proc_number(cmd):
 
     if 'ATHENA_CORE_NUMBER' in os.environ and value2:
         if value2 > 1:
-            cmd = f'export ATHENA_CORE_NUMBER={value2 + cmd};'
+            cmd = f'export ATHENA_CORE_NUMBER={value2};' + cmd
         else:
             logger.info(f"will not add ATHENA_CORE_NUMBER to cmd since the value is {value2}")
     else:
