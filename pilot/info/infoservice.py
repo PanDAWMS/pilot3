@@ -54,7 +54,10 @@ class InfoService:
 
     cache_time = 60  # default cache time in seconds
 
-    def require_init(self, func: Any) -> Any:  # noqa
+    # add instruction to pyling to prevent it from giving the wrong error message. require_init() is a method decorator
+    # and not a class method. pylint will otherwise suggest to add self as first argument to the method.
+    # pylint: disable=no-self-argument
+    def require_init(func: Any) -> Any:  # noqa
         """
         Check if object is initialized.
 
@@ -65,6 +68,7 @@ class InfoService:
         """
         key = 'pandaqueue'
 
+        # pylint: disable=not-callable
         def inner(self, *args: Any, **kwargs: dict) -> Any:
             """
             Inner function.
