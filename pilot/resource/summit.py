@@ -19,16 +19,22 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""Functions for Summit."""
+
 import logging
+from typing import Any
+
 logger = logging.getLogger(__name__)
 
 
-def get_setup(job=None):
+def get_setup(job: Any = None) -> list:
     """
     Return the resource specific setup.
 
-    :param job: optional job object.
+    :param job: optional job object (Any)
     :return: setup commands (list).
     """
+    if not job:
+        logger.warning('job object not sent to get_setup')
 
     return []
