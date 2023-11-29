@@ -19,7 +19,10 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
 
+"""This script is executed by the pilot in a container to perform stage-in of input files."""
+
 import argparse
+import logging
 import os
 import re
 
@@ -39,8 +42,6 @@ from pilot.util.filehandling import (
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
-import logging
-
 # error codes
 GENERAL_ERROR = 1
 NO_QUEUENAME = 2
@@ -56,13 +57,12 @@ NO_JOBDEFINITIONID = 11
 TRANSFER_ERROR = 12
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     """
     Return the args from the arg parser.
 
     :return: args (arg parser object).
     """
-
     arg_parser = argparse.ArgumentParser()
 
     arg_parser.add_argument('-d',
@@ -198,9 +198,14 @@ def get_args():
     return arg_parser.parse_args()
 
 
-def str2bool(_str):
-    """ Helper function to convert string to bool """
+def str2bool(_str: str) -> bool:
+    """
+    Convert string to bool.
 
+    :param _str: string to be converted (str)
+    :return: boolean (bool)
+    :raise: argparse.ArgumentTypeError.
+    """
     if isinstance(_str, bool):
         return _str
     if _str.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -211,14 +216,14 @@ def str2bool(_str):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def verify_args():
+def verify_args() -> int:
     """
     Make sure required arguments are set, and if they are not then set them.
+
     (deprecated)
 
     :return: internal error code (int).
     """
-
     ret = 0
     if not args.workdir:
         args.workdir = os.getcwd()
@@ -266,11 +271,22 @@ def verify_args():
     return ret
 
 
-def message(msg):
+def message(msg: str):
+    """
+    Print message to stdout or to log.
+
+    :param msg: message (str).
+    """
     print(msg) if not logger else logger.info(msg)
 
 
-def str_to_int_list(_list):
+def str_to_int_list(_list: list) -> list:
+    """
+    Convert list of strings to list of integers.
+
+    :param _list: list of strings (list)
+    :return: list of integers (list).
+    """
     _new_list = []
     for val in _list:
         try:
@@ -281,13 +297,42 @@ def str_to_int_list(_list):
     return _new_list
 
 
-def str_to_bool_list(_list):
+def str_to_bool_list(_list: list) -> list:
+    """
+    Convert list of strings to list of booleans.
+
+    :param _list: list of strings (list)
+    :return: list of booleans (list).
+    """
     changes = {"True": True, "False": False, "None": None, "NULL": None}
     return [changes.get(x, x) for x in _list]
 
 
-def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, directaccesslans, directaccesswans, istars,
-                   accessmodes, storagetokens, guids):
+def get_file_lists(lfns: str, scopes: str, filesizes: str, checksums: str, allowlans: str, allowwans: str,
+                   directaccesslans: str, directaccesswans: str, istars: str, accessmodes: str,
+                   storagetokens: str, guids: str) -> dict:
+    """
+    Return a dictionary with the file lists.
+
+    Format: {'lfns': <lfn list>, 'scopes': <scope list>, 'filesizes': <filesize list>, 'checksums': <checksum list>,
+                'allowlans': <allowlan list>, 'allowwans': <allowwan list>, 'directaccesslans': <directaccesslan list>,
+                'directaccesswans': <directaccesswan list>, 'istars': <istar list>, 'accessmodes': <accessmode list>,
+                'storagetokens': <storagetoken list>, 'guids': <guid list>}
+
+    :param lfns: comma separated lfns (str)
+    :param scopes: comma separated scopes (str)
+    :param filesizes: comma separated filesizes (str)
+    :param checksums: comma separated checksums (str)
+    :param allowlans: comma separated allowlans (str)
+    :param allowwans: comma separated allowwans (str)
+    :param directaccesslans: comma separated directaccesslans (str)
+    :param directaccesswans: comma separated directaccesswans (str)
+    :param istars: comma separated istars (str)
+    :param accessmodes: comma separated accessmodes (str)
+    :param storagetokens: comma separated storagetokens (str)
+    :param guids: comma separated guids (str)
+    :return: file lists dictionary (dict).
+    """
     _lfns = []
     _scopes = []
     _filesizes = []
@@ -324,36 +369,42 @@ def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, dir
 
 
 class Job:
-    """
-    A minimal implementation of the Pilot Job class with data members necessary for the trace report only.
-    """
+    """A minimal implementation of the Pilot Job class with data members necessary for the trace report only."""
 
     produserid = ""
     jobid = ""
     taskid = ""
     jobdefinitionid = ""
 
-    def __init__(self, produserid="", jobid="", taskid="", jobdefinitionid=""):
+    def __init__(self, produserid: str = "", jobid: str = "", taskid: str = "", jobdefinitionid: str = ""):
+        """
+        Initialize the Job class.
+
+        :param produserid: produserid (str)
+        :param jobid: jobid (str)
+        :param taskid: taskid (str)
+        :param jobdefinitionid: jobdefinitionid (str).
+        """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid
         self.taskid = taskid
         self.jobdefinitionid = jobdefinitionid
 
 
-def add_to_dictionary(dictionary, key, value1, value2, value3, value4):
+def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, value3: str, value4: str) -> dict:
     """
     Add key: [value1, value2, ..] to dictionary.
+
     In practice; lfn: [status, status_code, turl, DDM endpoint].
 
-    :param dictionary: dictionary to be updated.
-    :param key: lfn key to be added (string).
-    :param value1: status to be added to list belonging to key (string).
-    :param value2: status_code to be added to list belonging to key (string).
-    :param value3: turl (string).
-    :param value4: DDM endpoint (string).
-    :return: updated dictionary.
+    :param dictionary: dictionary to be updated (dict)
+    :param key: lfn key to be added (str)
+    :param value1: status to be added to list belonging to key (str)
+    :param value2: status_code to be added to list belonging to key (str)
+    :param value3: turl (str)
+    :param value4: DDM endpoint (str)
+    :return: updated dictionary (dict).
     """
-
     dictionary[key] = [value1, value2, value3, value4]
     return dictionary
 

@@ -19,7 +19,10 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
 
+"""This script is executed by the pilot in a container to perform stage-out of output files."""
+
 import argparse
+import logging
 import os
 import re
 
@@ -35,8 +38,6 @@ from pilot.util.config import config
 from pilot.util.filehandling import write_json
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
-
-import logging
 
 errors = ErrorCodes()
 
