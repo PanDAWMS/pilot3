@@ -25,6 +25,7 @@ import argparse
 import logging
 import os
 import re
+import sys
 
 from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
@@ -198,6 +199,7 @@ def get_args() -> argparse.Namespace:
     return arg_parser.parse_args()
 
 
+# pylint: disable=useless-param-doc
 def str2bool(_str: str) -> bool:
     """
     Convert string to bool.
@@ -208,69 +210,16 @@ def str2bool(_str: str) -> bool:
     """
     if isinstance(_str, bool):
         return _str
-    if _str.lower() in ('yes', 'true', 't', 'y', '1'):
+    if _str.lower() in {'yes', 'true', 't', 'y', '1'}:
         return True
-    elif _str.lower() in ('no', 'false', 'f', 'n', '0'):
+    if _str.lower() in {'no', 'false', 'f', 'n', '0'}:
         return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def verify_args() -> int:
-    """
-    Make sure required arguments are set, and if they are not then set them.
-
-    (deprecated)
-
-    :return: internal error code (int).
-    """
-    ret = 0
-    if not args.workdir:
-        args.workdir = os.getcwd()
-
-    elif not args.queuename:
-        message('queue name not set, cannot initialize InfoService')
-        ret = NO_QUEUENAME
-
-    elif not args.scopes:
-        message('scopes not set')
-        ret = NO_SCOPES
-
-    elif not args.lfns:
-        message('LFNs not set')
-        ret = NO_LFNS
-
-    elif not args.eventtype:
-        message('No event type provided')
-        ret = NO_EVENTTYPE
-
-    elif not args.localsite:
-        message('No local site provided')
-        ret = NO_LOCALSITE
-
-    elif not args.remotesite:
-        message('No remote site provided')
-        ret = NO_REMOTESITE
-
-    elif not args.produserid:
-        message('No produserid provided')
-        ret = NO_PRODUSERID
-
-    elif not args.jobid:
-        message('No jobid provided')
-        ret = NO_JOBID
-
-    elif not args.taskid:
-        message('No taskid provided')
-        ret = NO_TASKID
-
-    elif not args.jobdefinitionid:
-        message('No jobdefinitionid provided')
-        ret = NO_JOBDEFINITIONID
-
-    return ret
-
-
+# logger is set in the main function
+# pylint: disable=used-before-assignment
 def message(msg: str):
     """
     Print message to stdout or to log.
@@ -294,6 +243,7 @@ def str_to_int_list(_list: list) -> list:
         except (ValueError, TypeError):
             _val = None
         _new_list.append(_val)
+
     return _new_list
 
 
@@ -305,6 +255,7 @@ def str_to_bool_list(_list: list) -> list:
     :return: list of booleans (list).
     """
     changes = {"True": True, "False": False, "None": None, "NULL": None}
+
     return [changes.get(x, x) for x in _list]
 
 
@@ -365,6 +316,7 @@ def get_file_lists(lfns: str, scopes: str, filesizes: str, checksums: str, allow
                             'allowlans': _allowlans, 'allowwans': _allowwans, 'directaccesslans': _directaccesslans,
                             'directaccesswans': _directaccesswans, 'istars': _istars, 'accessmodes': _accessmodes,
                             'storagetokens': _storagetokens, 'guids': _guids}
+
     return file_list_dictionary
 
 
@@ -406,11 +358,17 @@ def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, valu
     :return: updated dictionary (dict).
     """
     dictionary[key] = [value1, value2, value3, value4]
+
     return dictionary
 
 
-def extract_error_info(errc):
+def extract_error_info(errc: str) -> (int, str):
+    """
+    Extract error code and message from the error string.
 
+    :param errc: error string (str)
+    :return: error code (int), error message (str).
+    """
     error_code = 0
     error_message = ""
 
@@ -427,10 +385,6 @@ def extract_error_info(errc):
 
 
 if __name__ == '__main__':
-    """
-    Main function of the stage-in script.
-    """
-
     # get the args from the arg parser
     args = get_args()
     args.debug = True
@@ -439,16 +393,12 @@ if __name__ == '__main__':
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=config.Pilot.stageinlog)
     logger = logging.getLogger(__name__)
 
-    #ret = verify_args()
-    #if ret:
-    #    exit(ret)
-
     # get the file info
     try:
         replica_dictionary = read_json(os.path.join(args.workdir, args.replicadictionary))
     except ConversionFailure as exc:
         message(f'exception caught reading json: {exc}')
-        exit(1)
+        sys.exit(1)
 
 #    file_list_dictionary = get_file_lists(args.lfns, args.scopes, args.filesizes, args.checksums, args.allowlans,
 #                                          args.allowwans, args.directaccesslans, args.directaccesswans, args.istars,
@@ -488,8 +438,9 @@ if __name__ == '__main__':
     else:
         client = StageInClient(infoservice, logger=logger, trace_report=trace_report, workdir=args.workdir)
         activity = 'pr'
-    kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, use_pcache=args.usepcache, use_bulk=False,
-                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall, rucio_host=args.rucio_host)
+    kwargs = {"workdir": args.workdir, "cwd": args.workdir, "usecontainer": False, "use_pcache": args.usepcache,
+              "use_bulk": False, "use_vp": args.usevp, "input_dir": args.inputdir, "catchall": args.catchall,
+              "rucio_host": args.rucio_host}
     xfiles = []
     for lfn in replica_dictionary:
         files = [{'scope': replica_dictionary[lfn]['scope'],
@@ -535,7 +486,7 @@ if __name__ == '__main__':
     write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
     if err:
         message(f"containerised file transfers failed: {err}")
-        exit(TRANSFER_ERROR)
+        sys.exit(TRANSFER_ERROR)
 
     message("containerised file transfers finished")
-    exit(0)
+    sys.exit(0)
