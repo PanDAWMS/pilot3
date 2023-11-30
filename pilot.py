@@ -23,9 +23,6 @@
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
-from __future__ import print_function  # Python 2 (2to3 complains about this)
-from __future__ import absolute_import
-
 import argparse
 import logging
 import os
@@ -68,8 +65,9 @@ from pilot.util.https import (
     https_setup,
     send_update,
 )
-from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.loggingsupport import establish_logging
+from pilot.util.networking import dump_ipv6_info
+from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()
@@ -84,8 +82,9 @@ def main() -> int:
     # get the logger
     logger = logging.getLogger(__name__)
 
-    # print the pilot version
+    # print the pilot version and other information
     pilot_version_banner()
+    dump_ipv6_info()
 
     # define threading events
     args.graceful_stop = threading.Event()
