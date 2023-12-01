@@ -20,35 +20,40 @@
 # - Pavlo Svirin, pavlo.svirin@gmail.com, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
-import unittest
+"""Unit test functions for the copytool mv."""
+
+import os.path
+import random
+import shutil
 import string
 import tempfile
-import shutil
-import random
-import os.path
+import unittest
 
-from pilot.copytool.mv import copy_in, copy_out
-from pilot.common.exception import StageInFailure, StageOutFailure
-from pilot.util.container import execute
-
-from pilot.control.job import get_fake_job
 from pilot.info import JobData
+from pilot.common.exception import (
+    StageInFailure,
+    StageOutFailure
+)
+from pilot.control.job import get_fake_job
+from pilot.copytool.mv import (
+    copy_in,
+    copy_out
+)
+from pilot.util.container import execute
 
 
 class TestCopytoolMv(unittest.TestCase):
-    """
-    Unit tests for mv copytool.
-    """
+    """Unit tests for mv copytool."""
 
     #filelist = []
     numfiles = 10
     maxfilesize = 100 * 1024
 
     def setUp(self):
-
-        """ Create temp source directory """
+        """Set up test fixtures."""
+        # Create temp source directory
         self.tmp_src_dir = tempfile.mkdtemp()
-        """ Create temp destination directory """
+        # Create temp destination directory
         self.tmp_dst_dir = os.path.join(self.tmp_src_dir, 'dest')
         os.mkdir(self.tmp_dst_dir)
 
@@ -69,11 +74,10 @@ class TestCopytoolMv(unittest.TestCase):
         scope = ""
         ddmendpointin = ""
         ddmendpointout = ""
-        turl = ""
-        """ Create temp files in source dir """
-        for i in range(0, self.numfiles):
+        # Create temp files in source directory
+        for _ in range(0, self.numfiles):
             # generate random name
-            fname = ''.join(random.choice(string.ascii_lowercase) for x in range(20))
+            fname = ''.join(random.choice(string.ascii_lowercase) for _ in range(20))
             if infiles == "":
                 infiles = fname
             else:
@@ -112,15 +116,11 @@ class TestCopytoolMv(unittest.TestCase):
                 dispatchdblocktokenforout = "NULL"
             else:
                 dispatchdblocktokenforout += ",NULL"
-            _data = [random.randint(0, 255) for x in range(0, filesize)]
+            _data = [random.randint(0, 255) for _ in range(0, filesize)]
             fname = os.path.join(self.tmp_src_dir, fname)
-            if turl == "":
-                turl = fname
-            else:
-                turl = "," + fname
-            new_file = open(fname, "wb")
-            new_file.write(str(_data).encode('utf-8'))
-            new_file.close()
+            with open(fname, "wb", encoding='utf-8') as new_file:
+                new_file.write(str(_data))
+
             # add to list
             #self.filelist.append({'name': fname, 'source': self.tmp_src_dir, 'destination': self.tmp_dst_dir})
 
@@ -138,8 +138,7 @@ class TestCopytoolMv(unittest.TestCase):
         #        'fsize': fsize, 'checksum': checksum, 'scopeIn': scope,
         #        'ddmEndPointIn': ddmendpointin}
         data = {'inFiles': infiles, 'realDatasetsIn': realdatasetsin, 'GUID': guid,
-                'fsize': fsize, 'checksum': checksum, 'scopeIn': scope,
-                'ddmEndPointIn': ddmendpointin}
+                'fsize': fsize, 'checksum': checksum, 'scopeIn': scope, 'ddmEndPointIn': ddmendpointin}
         self.indata = jdata.prepare_infiles(data)
         for _file in self.indata:
             _file.workdir = self.tmp_dst_dir
@@ -159,24 +158,28 @@ class TestCopytoolMv(unittest.TestCase):
             _file.fsize = 'abcdef'
 
     def test_copy_in_mv(self):
-        _, stdout1, stderr1 = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
+        """Make sure that a mv copy works."""
+        _, stdout1, _ = execute(' '.join(['ls', self.tmp_src_dir, '|', 'grep', '-v', 'dest']))
         copy_in(self.indata, copy_type='mv', workdir=self.tmp_dst_dir)
         # here check files moved
         self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, self.tmp_dst_dir, dir2_expected_content=stdout1), 0)
 
     def test_copy_in_cp(self):
+        """Make sure that a cp copy works."""
         copy_in(self.indata, copy_type='cp', workdir=self.tmp_dst_dir)
         self.assertEqual(self.__dirs_content_equal(self.tmp_src_dir, self.tmp_dst_dir), 0)
 
     def test_copy_in_symlink(self):
+        """Make sure that a symlink copy works."""
         copy_in(self.indata, copy_type='symlink', workdir=self.tmp_dst_dir)
         # here check files linked
         self.assertEqual(self.__dirs_content_equal(self.tmp_src_dir, self.tmp_dst_dir), 0)
         # check dst files are links
-        _, stdout, _ = execute(r'find %s -type l -exec echo -n l \;' % self.tmp_dst_dir)
+        _, stdout, _ = execute(rf'find {self.tmp_dst_dir} -type l -exec echo -n l \;')
         self.assertEqual(stdout, ''.join('l' for i in range(self.numfiles)))
 
     def test_copy_in_invalid(self):
+        """Make sure that an invalid copy type fails."""
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': ''})
         self.assertRaises(StageInFailure, copy_in, self.indata, **{'copy_type': None})
 
@@ -188,39 +191,45 @@ class TestCopytoolMv(unittest.TestCase):
     #    self.assertEqual(self.__dirs_content_valid(self.tmp_src_dir, os.path.join(self.tmp_dst_dir, 'abc/def'), dir2_expected_content=stdout1), 0)
 
     def test_copy_out_cp(self):
+        """Make sure that a cp copy works."""
         pass
         # copy_out(self.outdata, copy_type='cp')
         # self.assertEqual(self.__dirs_content_equal(self.tmp_src_dir, self.tmp_dst_dir), 0)
 
     def test_copy_out_invalid(self):
+        """Make sure that an invalid copy type fails."""
         self.assertRaises(StageOutFailure, copy_out, self.outdata, **{'copy_type': ''})
         self.assertRaises(StageOutFailure, copy_out, self.outdata, **{'copy_type': 'symlink'})
         self.assertRaises(StageOutFailure, copy_out, self.outdata, **{'copy_type': None})
 
     def tearDown(self):
-        """ Drop temp directories """
+        """Remove temp directories."""
         shutil.rmtree(self.tmp_dst_dir)
         shutil.rmtree(self.tmp_src_dir)
 
     def __dirs_content_equal(self, dir1, dir2):
+        """Compare the content of two directories."""
         if dir1 == '' or dir2 == '' or dir1 is None or dir2 is None:
             return -1
-        _, stdout1, stderr1 = execute(' '.join(['ls', dir1, '|', 'grep', '-v', 'dest']))
-        _, stdout2, stderr2 = execute(' '.join(['ls', dir2, '|', 'grep', '-v', 'dest']))
+        _, stdout1, _ = execute(' '.join(['ls', dir1, '|', 'grep', '-v', 'dest']))
+        _, stdout2, _ = execute(' '.join(['ls', dir2, '|', 'grep', '-v', 'dest']))
         if stdout1 != stdout2:
             return -2
+
         return 0
 
     def __dirs_content_valid(self, dir1, dir2, dir1_expected_content=None, dir2_expected_content=None):
+        """Compare the content of two directories."""
         # currently this fails: need to fix
         if dir1 == '' or dir2 == '' or dir1 is None or dir2 is None:
             return -1
-        _, stdout1, stderr1 = execute(' '.join(['ls', dir1, '|', 'grep', '-v', 'dest']))
+        _, stdout1, _ = execute(' '.join(['ls', dir1, '|', 'grep', '-v', 'dest']))
         if dir1_expected_content is not None and stdout1 != dir1_expected_content:
             return -3
-        _, stdout2, stderr2 = execute(' '.join(['ls', dir2, '|', 'grep', '-v', 'dest']))
+        _, stdout2, _ = execute(' '.join(['ls', dir2, '|', 'grep', '-v', 'dest']))
         if dir2_expected_content is not None and stdout2 != dir2_expected_content:
             return -4
+
         return 0
 
 
