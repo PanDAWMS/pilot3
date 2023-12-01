@@ -159,7 +159,7 @@ class TestESCommunicationManagerPanda(unittest.TestCase):
             communicator_manager.stop()
             time.sleep(2)
             self.assertFalse(communicator_manager.is_alive())
-        except Exception as ex:
+        except Exception as exc:
             if communicator_manager:
                 communicator_manager.stop()
-            raise ex
+            raise exc
