@@ -19,23 +19,22 @@
 # - Wen Guan, wen.guan@cern.ch, 2017-18
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""Unit tests for the esprocess package."""
+
 import logging
+import json
 import os
 import sys
 import socket
 import time
 import traceback
+import unittest
 
 from pilot.api.es_data import StageInESClient
+from pilot.control.job import create_job
 from pilot.eventservice.communicationmanager.communicationmanager import CommunicationManager
 from pilot.eventservice.workexecutor.workexecutor import WorkExecutor
-from pilot.control.job import create_job
 from pilot.util.https import https_setup
-
-if sys.version_info < (2, 7):
-    import unittest2 as unittest
-else:
-    import unittest
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -43,24 +42,28 @@ logger = logging.getLogger(__name__)
 https_setup(None, None)
 
 
-def check_env():
+def check_env() -> bool:
     """
-    Function to check whether cvmfs is available.
+    Check whether cvmfs is available.
+
     To be used to decide whether to skip some test functions.
 
-    :returns True: if cvmfs is available. Otherwise False.
+    :returns: True if cvmfs is available, otherwise False (bool).
     """
     return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
 @unittest.skipIf(not check_env(), "No CVMFS")
 class TestESWorkExecutorGrid(unittest.TestCase):
-    """
-    Unit tests for event service Grid work executor
-    """
+    """Unit tests for event service Grid work executor."""
 
     @classmethod
     def setUpClass(cls):
+        """
+        Set up test fixtures.
+
+        :raises Exception: in case of failure.
+        """
         try:
             args = {'workflow': 'eventservice_hpc',
                     'queue': 'BNL_CLOUD_MCORE',
@@ -95,14 +98,14 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             job_data['node'] = 'pilot3_test'
             job_data['schedulerID'] = 'pilot3_test'
             job_data['coreCount'] = 1
-            status = communicator_manager.update_jobs(jobs=[job_data])
+            _ = communicator_manager.update_jobs(jobs=[job_data])
             job_data['state'] = 'running'
-            status = communicator_manager.update_jobs(jobs=[job_data])
+            _ = communicator_manager.update_jobs(jobs=[job_data])
             communicator_manager.stop()
 
             # download input files
             client = StageInESClient(job.infosys, logger=logger)
-            kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job)
+            kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job}
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity='pr', **kwargs)
 
@@ -125,12 +128,15 @@ class TestESWorkExecutorGrid(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        """Remove test fixtures."""
         cls._communicator_manager.stop()
 
     def setup(self):
+        """Set up test fixtures."""
         self.executor = None
 
     def tearDown(self):
+        """Remove test fixtures."""
         if self._communicator_manager:
             self._communicator_manager.stop()
         if self.executor:
@@ -138,9 +144,10 @@ class TestESWorkExecutorGrid(unittest.TestCase):
 
     def test_workexecutor_generic(self):
         """
-        Make sure that no exceptions to run work executor.
-        """
+        Make sure there are no exceptions when running work executor.
 
+        :raises Exception: in case of failure.
+        """
         try:
             executor = WorkExecutor()
             self.executor = executor
@@ -172,9 +179,10 @@ class TestESWorkExecutorGrid(unittest.TestCase):
     @unittest.skipIf(True, "skip it")
     def test_workexecutor_update_events(self):
         """
-        Make sure that no exceptions to run work executor.
-        """
+        Make sure there are no exceptions when running work executor.
 
+        :raises Exception: in case of failure.
+        """
         try:
             executor = WorkExecutor()
             self.executor = executor
@@ -194,7 +202,6 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                                                "fsize": 100,
                                                "pathConvention": 1000},
                                    "eventRanges": update_events}]
-            import json
             event_range_message = {'version': 1, 'eventRanges': json.dumps(event_range_status)}
             ret = executor.update_events(event_range_message)
             logger.debug(ret)

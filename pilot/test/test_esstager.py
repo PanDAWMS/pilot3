@@ -19,23 +19,27 @@
 # - Wen Guan, wen.guan@cern.ch, 2017-18
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Unit tests for the esstager package."""
+
 import logging
 import os
 import shutil
 import sys
 import traceback
+import unittest
 import uuid
 
-from pilot.api.es_data import StageOutESClient, StageInESClient
+from pilot.api.es_data import (
+    StageOutESClient,
+    StageInESClient
+)
 from pilot.common import exception
+from pilot.info import (
+    infosys,
+    InfoService
+)
 from pilot.info.filespec import FileSpec
 from pilot.util.https import https_setup
-
-
-if sys.version_info < (2, 7):
-    import unittest2 as unittest
-else:
-    import unittest
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -43,30 +47,30 @@ logger = logging.getLogger(__name__)
 https_setup(None, None)
 
 
-def check_env():
+def check_env() -> bool:
     """
-    Function to check whether cvmfs is available.
+    Check whether cvmfs is available.
+
     To be used to decide whether to skip some test functions.
 
-    :returns True: if cvmfs is available. Otherwise False.
+    :returns: True if cvmfs is available, otherwise False (bool).
     """
     return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
 @unittest.skipIf(not check_env(), "No CVMFS")
 class TestStager(unittest.TestCase):
-    """
-    Unit tests for event service Grid work executor
-    """
+    """Unit tests for event service Grid work executor."""
 
     @unittest.skipIf(not check_env(), "No CVMFS")
     def test_stageout_es_events(self):
         """
-        Make sure that no exceptions to stage out file.
+        Make sure there are no exceptions to stage out file.
+
+        :raises: StageOutFailure in case of failure.
         """
         error = None
         try:
-            from pilot.info import infosys, InfoService
             infoservice = InfoService()
             infoservice.init('BNL_CLOUD_MCORE', infosys.confinfo, infosys.extinfo)
 
@@ -85,7 +89,7 @@ class TestStager(unittest.TestCase):
             xdata = [file_spec]
             workdir = os.path.dirname(output_file)
             client = StageOutESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_destinations(xdata, activity='es_events')
             client.transfer(xdata, activity='es_events', **kwargs)
         except exception.PilotException as error:
@@ -105,11 +109,12 @@ class TestStager(unittest.TestCase):
     @unittest.skipIf(not check_env(), "No CVMFS")
     def test_stageout_es_events_pw(self):
         """
-        Make sure that no exceptions to stage out file.
+        Make sure there are no exceptions to stage out file.
+
+        :raises: StageOutFailure in case of failure.
         """
         error = None
         try:
-            from pilot.info import infosys, InfoService
             infoservice = InfoService()
             infoservice.init('BNL_CLOUD_MCORE', infosys.confinfo, infosys.extinfo)
 
@@ -128,7 +133,7 @@ class TestStager(unittest.TestCase):
             xdata = [file_spec]
             workdir = os.path.dirname(output_file)
             client = StageOutESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_destinations(xdata, activity=['es_events', 'pw'])  # allow to write to `es_events` and `pw` astorages
             client.transfer(xdata, activity=['es_events', 'pw'], **kwargs)
         except exception.PilotException as error:
@@ -148,11 +153,12 @@ class TestStager(unittest.TestCase):
     @unittest.skipIf(not check_env(), "No CVMFS")
     def test_stageout_es_events_non_exist_pw(self):
         """
-        Make sure that no exceptions to stage out file.
+        Make sure there are no exceptions to stage out file.
+
+        :raises: StageOutFailure in case of failure.
         """
         error = None
         try:
-            from pilot.info import infosys, InfoService
             infoservice = InfoService()
             infoservice.init('BNL_CLOUD_MCORE', infosys.confinfo, infosys.extinfo)
 
@@ -171,7 +177,7 @@ class TestStager(unittest.TestCase):
             xdata = [file_spec]
             workdir = os.path.dirname(output_file)
             client = StageOutESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_destinations(xdata, activity=['es_events_non_exist', 'pw'])  # allow to write to `es_events_non_exist` and `pw` astorages
             client.transfer(xdata, activity=['es_events_non_exist', 'pw'], **kwargs)
         except exception.PilotException as error:
@@ -191,11 +197,12 @@ class TestStager(unittest.TestCase):
     @unittest.skipIf(not check_env(), "No CVMFS")
     def test_stageout_stagein(self):
         """
-        Make sure that no exceptions to stage out file.
+        Make sure there are no exceptions to stage out file.
+
+        :raises: StageOutFailure in case of failure.
         """
         error = None
         try:
-            from pilot.info import infosys, InfoService
             infoservice = InfoService()
             infoservice.init('BNL_CLOUD_MCORE', infosys.confinfo, infosys.extinfo)
 
@@ -214,7 +221,7 @@ class TestStager(unittest.TestCase):
             xdata = [file_spec]
             workdir = os.path.dirname(output_file)
             client = StageOutESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_destinations(xdata, activity=['es_events', 'pw'])  # allow to write to `es_events` and `pw` astorages
             client.transfer(xdata, activity=['es_events', 'pw'], **kwargs)
         except exception.PilotException as error:
@@ -243,7 +250,7 @@ class TestStager(unittest.TestCase):
             xdata = [new_file_spec]
             workdir = os.path.dirname(output_file)
             client = StageInESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_sources(xdata)
             client.transfer(xdata, activity=['es_events_read'], **kwargs)
         except exception.PilotException as error:
@@ -263,11 +270,12 @@ class TestStager(unittest.TestCase):
     @unittest.skipIf(not check_env(), "No CVMFS")
     def test_stageout_noexist_activity_stagein(self):
         """
-        Make sure that no exceptions to stage out file.
+        Make sure there are no exceptions to stage out file.
+
+        :raises: StageOutFailure in case of failure.
         """
         error = None
         try:
-            from pilot.info import infosys, InfoService
             infoservice = InfoService()
             infoservice.init('BNL_CLOUD_MCORE', infosys.confinfo, infosys.extinfo)
 
@@ -286,7 +294,7 @@ class TestStager(unittest.TestCase):
             xdata = [file_spec]
             workdir = os.path.dirname(output_file)
             client = StageOutESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_destinations(xdata, activity=['es_events_no_exist', 'pw'])  # allow to write to `es_events_no_exist` and `pw` astorages
             client.transfer(xdata, activity=['es_events_no_exist', 'pw'], **kwargs)
         except exception.PilotException as error:
@@ -315,7 +323,7 @@ class TestStager(unittest.TestCase):
             xdata = [new_file_spec]
             workdir = os.path.dirname(output_file)
             client = StageInESClient(infoservice)
-            kwargs = dict(workdir=workdir, cwd=workdir, usecontainer=False)
+            kwargs = {'workdir': workdir, 'cwd': workdir, 'usecontainer': False}
             client.prepare_sources(xdata)
             client.transfer(xdata, activity=['es_events_read'], **kwargs)
         except exception.PilotException as error:
