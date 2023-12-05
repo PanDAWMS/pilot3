@@ -764,14 +764,14 @@ def container_wrapper(cmd, workdir, job=None):
     return cmd
 
 
-def create_root_container_command(workdir, cmd):
+def create_root_container_command(workdir: str, cmd: str) -> str:
     """
+    Create the container command for root.
 
-    :param workdir:
-    :param cmd:
-    :return:
+    :param workdir: workdir (str)
+    :param cmd: command to be containerised (str)
+    :return: container command to be executed (str).
     """
-
     command = f'cd {workdir};'
     content = get_root_container_script(cmd)
     script_name = 'open_file.sh'
@@ -893,7 +893,7 @@ def get_root_container_script(cmd):
     :return: script content (string).
     """
 
-    content = f'date\nlsetup \'root pilot\'\ndate\nstdbuf -oL bash -c \"python {cmd}\"\nexit $?'
+    content = f'date\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
     logger.debug(f'root setup script content:\n\n{content}\n\n')
 
     return content
