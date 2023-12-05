@@ -18,3 +18,5 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+
+"""Resource related functions for jumbo jobs (nothing so far)."""
