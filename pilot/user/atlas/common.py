@@ -20,17 +20,21 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 # - Wen Guan, wen.guan@cern.ch, 2018
 
-from collections import defaultdict
+"""Common functions for ATLAS."""
+
 import fnmatch
-from glob import glob
 import logging
 import os
 import re
+
+from collections import defaultdict
+from functools import reduce
+from glob import glob
 from random import randint
 from signal import SIGTERM, SIGUSR1
+from typing import Any
 
 # from tarfile import ExFileObject
-from functools import reduce
 
 from .container import create_root_container_command
 from .dbrelease import get_dbrelease_version, create_dbrelease
@@ -53,14 +57,16 @@ from .utilities import (
     get_memory_monitor_output_filename,
     get_metadata_dict_from_txt,
 )
-
 from pilot.util.auxiliary import (
     get_resource_name,
     get_key_value,
 )
-
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import TrfDownloadFailure, PilotException, FileHandlingFailure
+from pilot.common.exception import (
+    TrfDownloadFailure,
+    PilotException,
+    FileHandlingFailure
+)
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -93,26 +99,23 @@ from pilot.util.processes import (
     get_trimmed_dictionary,
     is_child
 )
-
 from pilot.util.tracereport import TraceReport
 
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def sanity_check():
+def sanity_check() -> int:
     """
-    Perform an initial sanity check before doing anything else in a
-    given workflow. This function can be used to verify importing of
-    modules that are otherwise used much later, but it is better to abort
-    the pilot if a problem is discovered early.
+    Perform an initial sanity check before doing anything else in a given workflow.
 
-    :return: exit code (0 if all is ok, otherwise non-zero exit code).
+    This function can be used to verify importing of modules that are otherwise used much later, but it is better to
+    abort the pilot if a problem is discovered early.
+
+    Note: currently this function does not do anything.
+
+    :return: exit code (0 if all is ok, otherwise non-zero exit code) (int).
     """
-
-    exit_code = 0
-
     #try:
     #    from rucio.client.downloadclient import DownloadClient
     #    from rucio.client.uploadclient import UploadClient
@@ -122,18 +125,18 @@ def sanity_check():
     #    logger.warning(f'sanity check failed: {exc}')
     #    exit_code = errors.MIDDLEWAREIMPORTFAILURE
 
-    return exit_code
+    return 0
 
 
-def validate(job):
+def validate(job) -> bool:
     """
     Perform user specific payload/job validation.
+
     This function will produce a local DBRelease file if necessary (old releases).
 
-    :param job: job object.
-    :return: Boolean (True if validation is successful).
+    :param job: job object (Any)
+    :return: True if validation is successful, False otherwise (bool).
     """
-
     status = True
 
     if 'DBRelease' in job.jobparams:
@@ -173,16 +176,15 @@ def validate(job):
     return status
 
 
-def open_remote_files(indata, workdir, nthreads):
+def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list):
     """
     Verify that direct i/o files can be opened.
 
-    :param indata: list of FileSpec.
-    :param workdir: working directory (string).
-    :param nthreads: number of concurrent file open threads (int).
-    :return: exit code (int), diagnostics (string).
+    :param indata: list of FileSpec (list)
+    :param workdir: working directory (str)
+    :param nthreads: number of concurrent file open threads (int)
+    :return: exit code (int), diagnostics (str), not opened files (list).
     """
-
     exitcode = 0
     diagnostics = ""
     not_opened = []
@@ -264,27 +266,25 @@ def open_remote_files(indata, workdir, nthreads):
     return exitcode, diagnostics, not_opened
 
 
-def get_timeout_for_remoteio(indata):
+def get_timeout_for_remoteio(indata: list) -> int:
     """
     Calculate a proper timeout to be used for remote i/o files.
 
-    :param indata: indata object.
+    :param indata: list of FileSpec objects (list)
     :return: timeout in seconds (int).
     """
-
     remote_io = [fspec.status == 'remote_io' for fspec in indata]
     return len(remote_io) * 30 + 600
 
 
-def parse_remotefileverification_dictionary(workdir):
+def parse_remotefileverification_dictionary(workdir: str) -> (int, str, list):
     """
     Verify that all files could be remotely opened.
     Note: currently ignoring if remote file dictionary doesn't exist.
 
-    :param workdir: work directory needed for opening remote file dictionary (string).
-    :return: exit code (int), diagnostics (string).
+    :param workdir: work directory needed for opening remote file dictionary (str)
+    :return: exit code (int), diagnostics (str), not opened files (list).
     """
-
     exitcode = 0
     diagnostics = ""
     not_opened = []
@@ -319,29 +319,29 @@ def parse_remotefileverification_dictionary(workdir):
     return exitcode, diagnostics, not_opened
 
 
-def get_file_open_command(script_path, turls, nthreads, stdout='remote_open.stdout', stderr='remote_open.stderr'):
+def get_file_open_command(script_path: str, turls: str, nthreads: int,
+                          stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr') -> str:
     """
+    Return the command for opening remote files.
 
-    :param script_path: path to script (string).
-    :param turls: comma-separated turls (string).
-    :param nthreads: number of concurrent file open threads (int).
-    :return: comma-separated list of turls (string).
+    :param script_path: path to script (str)
+    :param turls: comma-separated turls (str)
+    :param nthreads: number of concurrent file open threads (int)
+    :return: comma-separated list of turls (str).
     """
-
     cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
     if stdout and stderr:
         cmd += f' 1>{stdout} 2>{stderr}'
     return cmd
 
 
-def extract_turls(indata):
+def extract_turls(indata: list) -> str:
     """
     Extract TURLs from indata for direct i/o files.
 
-    :param indata: list of FileSpec.
-    :return: comma-separated list of turls (string).
+    :param indata: list of FileSpec (list)
+    :return: comma-separated list of turls (str).
     """
-
     # turls = ""
     # for filespc in indata:
     # if filespc.status == 'remote_io':
@@ -353,18 +353,17 @@ def extract_turls(indata):
     )
 
 
-def process_remote_file_traces(path, job, not_opened_turls):
+def process_remote_file_traces(path: str, job: Any, not_opened_turls: list):
     """
     Report traces for remote files.
+
     The function reads back the base trace report (common part of all traces)
     and updates it per file before reporting it to the Rucio server.
 
-    :param path: path to base trace report (string).
-    :param job: job object.
-    :param not_opened_turls: list of turls that could not be opened (list).
-    :return:
+    :param path: path to base trace report (str)
+    :param job: job object (Any)
+    :param not_opened_turls: list of turls that could not be opened (list)
     """
-
     try:
         base_trace_report = read_json(path)
     except PilotException as exc:
@@ -400,14 +399,14 @@ def process_remote_file_traces(path, job, not_opened_turls):
                         logger.warning(f'failed to create trace report for turl={fspec.turl}')
 
 
-def get_protocol(surl, event_type):
+def get_protocol(surl: str, event_type: str) -> str:
     """
     Extract the protocol from the surl for event type get_sm_a.
 
-    :param surl: SURL (string).
-    :return: protocol (string).
+    :param surl: SURL (str)
+    :param event_type: event type (str)
+    :return: protocol (str).
     """
-
     protocol = ''
     if event_type != 'get_sm_a':
         return ''
@@ -419,29 +418,27 @@ def get_protocol(surl, event_type):
     return protocol
 
 
-def get_nthreads(catchall):
+def get_nthreads(catchall: str) -> int:
     """
     Extract number of concurrent file open threads from catchall.
+
     Return nthreads=1 if nopenfiles=.. is not present in catchall.
 
-    :param catchall: queuedata catchall (string).
+    :param catchall: queuedata catchall (str)
     :return: number of threads (int).
     """
-
     _nthreads = get_key_value(catchall, key='nopenfiles')
     return _nthreads if _nthreads else 1
 
 
-def get_payload_command(job):
+def get_payload_command(job: Any) -> str:
     """
-    Return the full command for executing the payload, including the
-    sourcing of all setup files and setting of environment variables.
+    Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
 
-    :param job: job object.
-    :raises PilotException: TrfDownloadFailure.
+    :param job: job object (Any)
     :return: command (string).
+    :raises TrfDownloadFailure: in case of download failure.
     """
-
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -454,7 +451,6 @@ def get_payload_command(job):
     logger.info(f'pilot is running a {tmp} job')
 
     resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
-
     resource = __import__(f'pilot.user.atlas.resource.{resource_name}', globals(), locals(), [resource_name], 0)
 
     # make sure that remote file can be opened before executing payload
