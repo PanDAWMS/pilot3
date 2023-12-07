@@ -885,31 +885,30 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     return command
 
 
-def get_root_container_script(cmd):
+def get_root_container_script(cmd: str) -> str:
     """
     Return the content of the root container script.
 
-    :param cmd: root command (string).
-    :return: script content (string).
+    :param cmd: root command (str)
+    :return: script content (str).
     """
-
     content = f'date\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
     logger.debug(f'root setup script content:\n\n{content}\n\n')
 
     return content
 
 
-def get_middleware_container_script(middleware_container, cmd, asetup=False, label=''):
+def get_middleware_container_script(middleware_container: str, cmd: str, asetup: bool = False, label: str = '') -> str:
     """
     Return the content of the middleware container script.
+
     If asetup is True, atlasLocalSetup will be added to the command.
 
-    :param middleware_container: container image (string).
-    :param cmd: isolated stage-in/out command (string).
-    :param asetup: optional True/False (boolean).
-    :return: script content (string).
+    :param middleware_container: container image (str)
+    :param cmd: isolated stage-in/out command (str)
+    :param asetup: optional True/False (bool)
+    :return: script content (str).
     """
-
     sitename = f"export PILOT_RUCIO_SITENAME={os.environ.get('PILOT_RUCIO_SITENAME')}; "
     if label == 'setup':
         # source $AtlasSetup/scripts/asetup.sh AtlasOffline,21.0.16,notest --platform x86_64-slc6-gcc49-opt --makeflags='$MAKEFLAGS'
