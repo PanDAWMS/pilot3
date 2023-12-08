@@ -397,7 +397,6 @@ def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, i
     :param sort_keys: should entries be sorted? (boolean)
     :param indent: indentation level, default 4 (int)
     :param separators: field separators (default (',', ': ') for dictionaries, use e.g. (',\n') for lists) (tuple)
-    :raises PilotException: FileHandlingFailure
     :return: status (bool).
     """
     status = False
