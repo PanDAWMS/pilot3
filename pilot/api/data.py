@@ -778,7 +778,7 @@ class StageInClient(StagingClient):
         """
         if getattr(copytool, 'require_replicas', False) and files:
             if files[0].replicas is None:  # look up replicas only once
-                files = self.resolve_replicas(files, use_vp=kwargs['use_vp'])
+                files = self.resolve_replicas(files, use_vp=kwargs.get('use_vp', False))
 
             allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
@@ -787,7 +787,7 @@ class StageInClient(StagingClient):
                 allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity, copytool_name) or allowed_schemas
 
             # overwrite allowed_schemas for VP jobs
-            if kwargs['use_vp']:
+            if kwargs.get('use_vp', False):
                 allowed_schemas = ['root']
                 self.logger.debug('overwrote allowed_schemas for VP job: %s', str(allowed_schemas))
 
@@ -839,7 +839,7 @@ class StageInClient(StagingClient):
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:
-            self.require_protocols(files, copytool, activity, local_dir=kwargs['input_dir'])
+            self.require_protocols(files, copytool, activity, local_dir=kwargs.get('input_dir'))
 
         # mark direct access files with status=remote_io
         self.set_status_for_direct_access(files, kwargs.get('workdir', ''))
