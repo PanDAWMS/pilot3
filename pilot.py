@@ -60,6 +60,7 @@ from pilot.util.harvester import (
     is_harvester_mode,
     kill_worker,
 )
+from pilot.util.heartbeat import update_pilot_heartbeat
 from pilot.util.https import (
     get_panda_server,
     https_setup,
@@ -152,6 +153,9 @@ def main() -> int:
     workflow = __import__(
         f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
     )
+
+    # update the pilot heartbeat file
+    update_pilot_heartbeat(time.time())
 
     # execute workflow
     try:
@@ -836,7 +840,8 @@ def list_zombies():
 if __name__ == "__main__":
     # get the args from the arg parser
     args = get_args()
-    args.last_heartbeat = time.time()
+    args.last_heartbeat = time.time()  # keep track of server heartbeats
+    args.pilot_heartbeat = time.time()  # keep track of pilot heartbeats
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)

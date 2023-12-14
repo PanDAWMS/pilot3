@@ -305,6 +305,13 @@ def run_checks(queues: Any, args: Any) -> None:
             args.graceful_stop.set()
             args.abort_job.clear()
             raise ExceededMaxWaitTime(diagnostics)
+    if is_pilot_check(check='pilot_heartbeat'):
+        last_heartbeat = time.time() - args.pilot_heartbeat
+        if last_heartbeat > config.Pilot.pilot_heartbeat:
+            diagnostics = (f'too much time has passed since last successful pilot heartbeat ({last_heartbeat} s) - '
+                           f'must update ???')
+            logger.warning(diagnostics)
+            #
 
     if args.graceful_stop.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module

@@ -54,16 +54,16 @@ def update_pilot_heartbeat(update_time: int, name: str = 'pilot') -> bool:
     :param name: name of the heartbeat to update, 'pilot' or 'server' (str)
     :return: True if successfully updated heartbeat file, False otherwise (bool).
     """
-    filename = config.Pilot.pilot_heartbeat_file
+    path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
     dictionary = read_pilot_heartbeat()
     if not dictionary:  # redundancy
         dictionary = {}
 
     with lock:
         dictionary[f'last_{name}_update'] = update_time
-        status = write_json(filename, dictionary)
+        status = write_json(path, dictionary)
         if not status:
-            logger.warning(f'failed to update heartbeat file: {filename}')
+            logger.warning(f'failed to update heartbeat file: {path}')
             return False
 
     return True
