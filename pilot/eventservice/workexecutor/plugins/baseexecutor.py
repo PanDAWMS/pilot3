@@ -56,6 +56,8 @@ class BaseExecutor(threading.Thread, PluginFactory):
 
         self.proc = None
 
+        self.current_dir = os.getcwd()
+
     def get_pid(self):
         return self.proc.pid if self.proc else None
 
@@ -68,13 +70,17 @@ class BaseExecutor(threading.Thread, PluginFactory):
         return False
 
     def start(self):
-        super(BaseExecutor, self).start()
         self.communication_manager = CommunicationManager()
         self.communication_manager.start()
+        super(BaseExecutor, self).start()
 
     def stop(self):
         if not self.is_stop():
             self.__stop.set()
+        if self.communication_manager:
+            self.communication_manager.stop()
+        os.chdir(self.current_dir)
+        logger.info("change current dir from %s to %s" % (os.getcwd(), self.current_dir))
 
     def is_stop(self):
         return self.__stop.is_set()
@@ -92,7 +98,9 @@ class BaseExecutor(threading.Thread, PluginFactory):
         self.__is_set_payload = True
         job = self.get_job()
         if job and job.workdir:
+            current_dir = os.getcwd()
             os.chdir(job.workdir)
+            logger.info("change current dir from %s to %s" % (current_dir, job.workdir))
 
     def is_set_payload(self):
         return self.__is_set_payload

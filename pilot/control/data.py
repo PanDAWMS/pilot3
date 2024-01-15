@@ -828,12 +828,15 @@ def create_log(workdir, logfile_name, tarball_name, cleanup, input_files=[], out
     """
 
     logger.debug(f'preparing to create log file (debug mode={debugmode})')
+    logger.debug(f'workdir: {workdir}')
 
     # PILOT_HOME is the launch directory of the pilot (or the one specified in pilot options as pilot workdir)
     pilot_home = os.environ.get('PILOT_HOME', os.getcwd())
     current_dir = os.getcwd()
     if pilot_home != current_dir:
         os.chdir(pilot_home)
+
+    logger.debug(f'current_dir: {current_dir}')
 
     # copy special files if they exist (could be made experiment specific if there's a need for it)
     copy_special_files(workdir)
