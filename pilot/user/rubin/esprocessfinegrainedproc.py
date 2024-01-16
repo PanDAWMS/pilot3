@@ -669,7 +669,8 @@ class ESProcessFineGrainedProc(threading.Thread):
 
             # start a thread to redirect stdout/stderr and realtime logging
             graceful_stop = threading.Event()
-            log_redirect_thread = threading.Thread(target=self.redirect_logs, args=(graceful_stop, worker_id, stdout_filename, stderr_filename, realtime_log_files, event_dir))
+            log_redirect_thread = threading.Thread(target=self.redirect_logs,
+                                                   args=(graceful_stop, worker_id, stdout_filename, stderr_filename, realtime_log_files, event_dir))
             log_redirect_thread.start()
 
             exit_code = self.wait_graceful(proc)
