@@ -2001,13 +2001,12 @@ def list_work_dir(workdir: str):
     logger.debug(f'{stdout}:\n' + stderr)
 
 
-def remove_special_files(workdir: str, dir_list: list, outputfiles: list):
+def remove_special_files(workdir: str, dir_list: list):
     """
     Remove list of special files from the workdir.
 
     :param workdir: work directory (str)
     :param dir_list: list of special files (list)
-    :param outputfiles: output files (list).
     """
     # note: these should be partial file/dir names, not containing any wildcards
     exceptions_list = ["runargs", "runwrapper", "jobReport", "log.", "xrdlog"]
@@ -2027,16 +2026,11 @@ def remove_special_files(workdir: str, dir_list: list, outputfiles: list):
         _files = [os.path.abspath(item) for item in files if item not in exclude]
         to_delete += _files
 
-    exclude_files = []
-    for opf in outputfiles:
-        exclude_files.append(os.path.join(workdir, opf))
-
     for item in to_delete:
-        if item not in exclude_files:
-            if os.path.isfile(item):
-                remove(item)
-            else:
-                remove_dir_tree(item)
+        if os.path.isfile(item):
+            remove(item)
+        else:
+            remove_dir_tree(item)
 
 
 def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = [], debugmode: bool = False):
@@ -2074,7 +2068,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     remove_archives(workdir)
 
     # remove special files
-    remove_special_files(workdir, dir_list, outputfiles)
+    remove_special_files(workdir, dir_list)
 
     # verify_container_script(os.path.join(workdir, config.Container.container_script))
 
