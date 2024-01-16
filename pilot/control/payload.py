@@ -248,7 +248,7 @@ def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
             # run the payload and measure the execution time
             job.t0 = os.times()
             exit_code, diagnostics = payload_executor.run()
-            if exit_code > 1000:  # pilot error code, add to list
+            if exit_code and exit_code > 1000:  # pilot error code, add to list
                 logger.debug(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
 
