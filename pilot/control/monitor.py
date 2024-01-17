@@ -312,7 +312,8 @@ def run_checks(queues: Any, args: Any) -> None:
         last_heartbeat = int(time.time()) - args.pilot_heartbeat
         if last_heartbeat > config.Pilot.pilot_heartbeat:
             logger.debug(f'pilot heartbeat file was last updated {last_heartbeat} s ago (time to update)')
-            detected_job_suspension = True if last_heartbeat > 10 * 60 else False
+
+            detected_job_suspension = True  #if last_heartbeat > 10 * 60 else False
             _time = time.time()
             # if the pilot heartbeat file can be updated, update the args object
             if update_pilot_heartbeat(_time, detected_job_suspension, last_heartbeat):

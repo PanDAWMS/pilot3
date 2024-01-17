@@ -57,7 +57,7 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool, ti
     :return: True if successfully updated heartbeat file, False otherwise (bool).
     """
     path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
-    dictionary = read_pilot_heartbeat()
+    dictionary = read_pilot_heartbeat(path)
     if not dictionary:  # redundancy
         dictionary = {}
 
@@ -85,19 +85,19 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool, ti
     return True
 
 
-def read_pilot_heartbeat() -> dict:
+def read_pilot_heartbeat(path: str) -> dict:
     """
     Read the pilot heartbeat file.
 
+    :param path: path to heartbeat file (str)
     :return: dictionary with pilot heartbeat info (dict).
     """
-    filename = config.Pilot.pilot_heartbeat_file
     dictionary = {}
 
     with lock:
-        if os.path.exists(filename):
+        if os.path.exists(path):
             try:
-                dictionary = read_json(filename)
+                dictionary = read_json(path)
             except (PilotException, FileHandlingFailure, ConversionFailure) as exc:
                 logger.warning(f'failed to read heartbeat file: {exc}')
 
@@ -114,6 +114,27 @@ def get_last_update(name: str = 'pilot') -> int:
     dictionary = read_pilot_heartbeat()
     if dictionary:
         return dictionary.get(f'last_{name}_update', 0)
+
+    return 0
+
+
+def time_since_suspension() -> int:
+    """
+    Return the time since the pilot detected a job suspension.
+
+    If non-zero, reset the time since detection to zero.
+
+    :return: time since the pilot detected a job suspension (int).
+    """
+    path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
+    dictionary = read_pilot_heartbeat(path)
+    if dictionary:
+        time_since_detection = dictionary.get('time_since_detection', 0)
+        if time_since_detection:
+            # reset the time since detection to zero
+            update_pilot_heartbeat(time.time(), False, 0)
+
+        return time_since_detection
 
     return 0
 

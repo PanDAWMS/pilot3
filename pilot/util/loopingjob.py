@@ -27,17 +27,36 @@ import logging
 from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.auxiliary import whoami, set_pilot_state, cut_output, locate_core_file
+from pilot.util.auxiliary import (
+    whoami,
+    set_pilot_state,
+    cut_output,
+    locate_core_file
+)
 from pilot.util.config import config
 from pilot.util.container import execute  #, execute_command
-from pilot.util.filehandling import remove_files, find_latest_modified_file, verify_file_list, copy, list_mod_files
+from pilot.util.filehandling import (
+    remove_files,
+    find_latest_modified_file,
+    verify_file_list,
+    copy,
+    list_mod_files
+)
+from pilot.util.heartbeat import time_since_suspension
 from pilot.util.parameters import convert_to_int
-from pilot.util.processes import kill_process, find_zombies, handle_zombies, reap_zombies
-from pilot.util.psutils import get_child_processes, get_subprocesses
+from pilot.util.processes import (
+    kill_process,
+    find_zombies,
+    handle_zombies,
+    reap_zombies
+)
+from pilot.util.psutils import (
+    get_child_processes,
+    get_subprocesses
+)
 from pilot.util.timing import time_stamp
 
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
@@ -69,6 +88,12 @@ def looping_job(job: Any, montime: Any) -> (int, str):
         # get the time when the files in the workdir were last touched. in case no file was touched since the last
         # check, the returned value will be the same as the previous time
         time_last_touched, recent_files = get_time_for_last_touch(job, montime, looping_limit)
+
+        # correct for job suspension if detected
+        time_since_job_suspension = time_since_suspension()
+        if time_since_job_suspension:
+            logger.info(f'looping job killer adjusting for job suspension: {time_since_job_suspension} s (adding to time_last_touched))')
+            time_last_touched += time_since_job_suspension
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
