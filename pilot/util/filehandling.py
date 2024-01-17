@@ -1235,6 +1235,23 @@ def generate_test_file(filename: str, filesize: int = 1024):
 
 def get_directory_size(directory: str) -> float:
     """
+    Measure the size of the given directory.
+
+    :param directory: full directory path (str)
+    :return: size in MB (float).
+    """
+
+    size_mb = None
+    try:
+        size_mb = get_disk_usage(directory) / 1024 / 1024
+    except Exception as exc:
+        logger.warning(f'failed to get directory size: {exc}')
+
+    return size_mb
+
+
+def old_get_directory_size(directory: str) -> float:
+    """
     Measure the size of the given directory with du -sh.
 
     The function will return None in case of failure.
