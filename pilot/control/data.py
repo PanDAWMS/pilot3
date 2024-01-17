@@ -763,9 +763,10 @@ def copy_special_files(tardir: str):
     """
     # general pattern, typically xrdlog.txt. The pilot might produce multiple files, xrdlog.txt-LFN1..N
     xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    pilot_home = os.environ.get('PILOT_HOME', None)
+
     if xrd_logfile:
         # xrootd is then expected to have produced a corresponding log file
-        pilot_home = os.environ.get('PILOT_HOME', None)
         if pilot_home:
             #suffix = Path(xrd_logfile).suffix  # .txt
             stem = Path(xrd_logfile).stem  # xrdlog
@@ -783,6 +784,15 @@ def copy_special_files(tardir: str):
                     logger.warning(f'caught exception when copying {logfile}: {exc}')
         else:
             logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
+
+    path = os.path.join(pilot_home, config.Pilot.pilot_heartbeat_file)
+    if os.path.exists(path):
+        try:
+            copy(path, tardir)
+        except (NoSuchFile, FileHandlingFailure) as exc:
+            logger.warning(f'caught exception when copying {path}: {exc}')
+    else:
+        logger.warning(f'cannot find pilot heartbeat file: {path}')
 
 
 def get_tar_timeout(dirsize: float) -> int:
