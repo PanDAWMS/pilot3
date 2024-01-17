@@ -40,6 +40,7 @@ from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
+from pilot.util.heartbeat import update_pilot_heartbeat
 from pilot.util.queuehandling import get_queuedata_from_job, get_maxwalltime_from_job, abort_jobs_in_queues
 from pilot.util.timing import get_time_since_start
 
@@ -305,13 +306,17 @@ def run_checks(queues: Any, args: Any) -> None:
             args.graceful_stop.set()
             args.abort_job.clear()
             raise ExceededMaxWaitTime(diagnostics)
+
+    # note: active update rather than a check (every ten minutes)
     if is_pilot_check(check='pilot_heartbeat'):
-        last_heartbeat = time.time() - args.pilot_heartbeat
+        last_heartbeat = int(time.time()) - args.pilot_heartbeat
         if last_heartbeat > config.Pilot.pilot_heartbeat:
-            diagnostics = (f'too much time has passed since last successful pilot heartbeat ({last_heartbeat} s) - '
-                           f'must update ???')
-            logger.warning(diagnostics)
-            #
+            logger.debug(f'pilot heartbeat file was last updated {last_heartbeat} s ago (time to update)')
+            detected_job_suspension = True if last_heartbeat > 10 * 60 else False
+            _time = time.time()
+            # if the pilot heartbeat file can be updated, update the args object
+            if update_pilot_heartbeat(_time, detected_job_suspension, last_heartbeat):
+                args.pilot_heartbeat = _time
 
     if args.graceful_stop.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module

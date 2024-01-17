@@ -43,14 +43,16 @@ logger = logging.getLogger(__name__)
 # errors = ErrorCodes()
 
 
-def update_pilot_heartbeat(update_time: int, name: str = 'pilot') -> bool:
+def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool, time_since_detection: int, name: str = 'pilot') -> bool:
     """
     Update the pilot heartbeat file.
 
     Dictionary = {last_pilot_heartbeat: <int>, last_server_update: <int>, ( last_looping_check: {job_id: <int>: <int>}, .. ) }
     (optionally add looping job info later).
 
-    :param update_time: time of last update (int)
+    :param update_time: time of last update (float)
+    :param detected_job_suspension: True if a job suspension was detected, False otherwise (bool)
+    :param time_since_detection: time since the job suspension was detected, in seconds (int)
     :param name: name of the heartbeat to update, 'pilot' or 'server' (str)
     :return: True if successfully updated heartbeat file, False otherwise (bool).
     """
@@ -60,11 +62,25 @@ def update_pilot_heartbeat(update_time: int, name: str = 'pilot') -> bool:
         dictionary = {}
 
     with lock:
-        dictionary[f'last_{name}_update'] = update_time
+        # add the diff time (time between updates) to the dictionary if not present (ie the first time)
+        if not dictionary.get('max_diff_time', None):
+            # ie add the new field
+            dictionary['max_diff_time'] = 0
+        if not dictionary.get(f'last_{name}_update', None):
+            # ie add the new field
+            dictionary[f'last_{name}_update'] = int(update_time)
+        max_diff_time = int(update_time) - dictionary.get(f'last_{name}_update')
+        if max_diff_time >= dictionary.get('max_diff_time'):
+            dictionary['max_diff_time'] = max_diff_time
+        dictionary[f'last_{name}_update'] = int(update_time)
+        dictionary['time_since_detection'] = time_since_detection if detected_job_suspension else 0
+
         status = write_json(path, dictionary)
         if not status:
             logger.warning(f'failed to update heartbeat file: {path}')
             return False
+        else:
+            logger.debug(f'updated pilot heartbeat file: {path}')
 
     return True
 
@@ -109,12 +125,10 @@ def is_suspended(limit: int = 10 * 60) -> bool:
     :param limit: time limit in seconds (int)
     :return: True if the pilot is suspended, False otherwise (bool).
     """
-    dictionary = read_pilot_heartbeat()
-    if dictionary:
-        last_pilot_update = dictionary.get('last_pilot_update', 0)
-        if last_pilot_update:
-            # check if more than ten minutes has passed
-            if time.time() - last_pilot_update > limit:
-                return True
+    last_pilot_update = get_last_update()
+    if last_pilot_update:
+        # check if more than ten minutes has passed
+        if int(time.time()) - last_pilot_update > limit:
+            return True
 
     return False
