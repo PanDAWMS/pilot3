@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # errors = ErrorCodes()
 
 
-def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool, time_since_detection: int, name: str = 'pilot') -> bool:
+def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = False, time_since_detection: int = 0, name: str = 'pilot') -> bool:
     """
     Update the pilot heartbeat file.
 

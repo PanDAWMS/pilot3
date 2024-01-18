@@ -316,7 +316,7 @@ def run_checks(queues: Any, args: Any) -> None:
             detected_job_suspension = True  #if last_heartbeat > 10 * 60 else False
             _time = time.time()
             # if the pilot heartbeat file can be updated, update the args object
-            if update_pilot_heartbeat(_time, detected_job_suspension, last_heartbeat):
+            if update_pilot_heartbeat(_time, detected_job_suspension=detected_job_suspension, time_since_detection=last_heartbeat):
                 args.pilot_heartbeat = _time
 
     if args.graceful_stop.is_set():
