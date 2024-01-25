@@ -2124,6 +2124,8 @@ def handle_proxy(job: Any):
         ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
         if ec:
             logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
+        if ec == errors.CERTIFICATEHASEXPIRED:
+            logger.warning('the certificate has expired - cannot fail right now, should be picked up by the job later on')
     else:
         logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
                      f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
@@ -2994,7 +2996,7 @@ def download_new_proxy(role: str = 'production', proxy_type: str = '', workdir: 
     ec, diagnostics, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
-        exit_code == errors.NOVOMSPROXY
+        exit_code = errors.CERTIFICATEHASEXPIRED if ec == errors.CERTIFICATEHASEXPIRED else errors.NOVOMSPROXY
     else:
         if new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
             os.environ['X509_UNIFIED_DISPATCH'] = new_x509
