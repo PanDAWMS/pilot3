@@ -41,6 +41,7 @@ from pilot.info import infosys
 from pilot.util.auxiliary import (
     pilot_version_banner,
     shell_exit_code,
+    convert_signal_to_exit_code
 )
 from pilot.util.constants import (
     get_pilot_version,
@@ -703,6 +704,19 @@ def wrap_up() -> int:
     if args.harvester:
         kill_worker()
 
+    exitcode, shellexitcode = get_proper_exit_code(trace, args)
+    logging.info(f"pilot has finished (exit code={exitcode}, shell exit code={shellexitcode})")
+    logging.shutdown()
+
+    return shellexitcode
+
+
+def get_proper_exit_code() -> (int, int):
+    """
+    Return the proper exit code.
+
+    :return: exit code (int), shell exit code (int).
+    """
     try:
         exitcode = trace.pilot["error_code"]
     except KeyError:
@@ -737,11 +751,11 @@ def wrap_up() -> int:
         logging.warning(f"failed to convert exit code to int: {exitcode}, {exc}")
         exitcode = 1008
 
+    if exitcode == 0 and args.signal:
+        exitcode = convert_signal_to_exit_code(args.signal)
     sec = shell_exit_code(exitcode)
-    logging.info(f"pilot has finished (exit code={exitcode}, shell exit code={sec})")
-    logging.shutdown()
 
-    return sec
+    return exitcode, sec
 
 
 def get_pilot_source_dir() -> str:

@@ -83,6 +83,7 @@ class ErrorCodes:
     USERKILL = 1205  # reserved error code, currently not used by pilot
     SIGBUS = 1206
     SIGUSR1 = 1207
+    SIGINT = 1208
     MISSINGINSTALLATION = 1211
     PAYLOADOUTOFMEMORY = 1212
     REACHEDMAXTIME = 1213
@@ -220,6 +221,7 @@ class ErrorCodes:
         SIGXCPU: "Job killed by signal: SIGXCPU",
         SIGUSR1: "Job killed by signal: SIGUSR1",
         SIGBUS: "Job killed by signal: SIGBUS",
+        SIGINT: "Job killed by signal: SIGINT",
         USERKILL: "Job killed by user",
         MISSINGINSTALLATION: "Missing installation",
         PAYLOADOUTOFMEMORY: "Payload ran out of memory",

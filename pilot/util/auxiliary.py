@@ -195,12 +195,40 @@ def get_error_code_translation_dictionary() -> dict:
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
         errors.SIGSEGV: [139, "Job killed by signal: SIGSEGV"],  # 128+11
-        errors.SIGXCPU: [158, "Job killed by signal: SIGXCPU"],  # 128+30
-        errors.SIGUSR1: [144, "Job killed by signal: SIGUSR1"],  # 128+16
-        errors.SIGBUS: [138, "Job killed by signal: SIGBUS"]   # 128+10
+        errors.SIGXCPU: [152, "Job killed by signal: SIGXCPU"],  # 128+24
+        errors.SIGUSR1: [138, "Job killed by signal: SIGUSR1"],  # 128+10
+        errors.SIGINT: [130, "Job killed by signal: SIGUSR1"],  # 128+2
+        errors.SIGBUS: [135, "Job killed by signal: SIGBUS"]   # 128+7
     }
 
     return error_code_translation_dictionary
+
+
+def convert_signal_to_exit_code(signal: str) -> int:
+    """
+    Convert a signal to an exit code.
+
+    :param signal: signal (string).
+    :return: exit code (int).
+    """
+    if signal == "SIGINT":
+        exitcode = errors.SIGINT
+    elif signal == "SIGTERM":
+        exitcode = errors.SIGTERM
+    elif signal == "SIGQUIT":
+        exitcode = errors.SIGQUIT
+    elif signal == "SIGSEGV":
+        exitcode = errors.SIGSEGV
+    elif signal == "SIGXCPU":
+        exitcode = errors.SIGXCPU
+    elif signal == "SIGUSR1":
+        exitcode = errors.SIGUSR1
+    elif signal == "SIGBUS":
+        exitcode = errors.SIGBUS
+    else:
+        exitcode = errors.KILLSIGNAL
+
+    return exitcode
 
 
 def shell_exit_code(exit_code: int) -> int:
