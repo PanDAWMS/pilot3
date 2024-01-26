@@ -704,7 +704,7 @@ def wrap_up() -> int:
     if args.harvester:
         kill_worker()
 
-    exitcode, shellexitcode = get_proper_exit_code(trace, args)
+    exitcode, shellexitcode = get_proper_exit_code()
     logging.info(f"pilot has finished (exit code={exitcode}, shell exit code={shellexitcode})")
     logging.shutdown()
 
