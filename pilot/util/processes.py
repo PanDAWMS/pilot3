@@ -568,8 +568,12 @@ def get_current_cpu_consumption_time(pid):
 
     # get all the child processes
     children = []
-    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
-    find_processes_in_group(children, pid, ps_cache)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True, timeout=60)
+    if ps_cache:
+        find_processes_in_group(children, pid, ps_cache)
+    else:
+        logger.warning('failed to get ps_cache')
+        return -1
 
     cpuconsumptiontime = 0
     for _pid in children:
