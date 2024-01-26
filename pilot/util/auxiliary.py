@@ -197,7 +197,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.SIGSEGV: [139, "Job killed by signal: SIGSEGV"],  # 128+11
         errors.SIGXCPU: [152, "Job killed by signal: SIGXCPU"],  # 128+24
         errors.SIGUSR1: [138, "Job killed by signal: SIGUSR1"],  # 128+10
-        errors.SIGINT: [130, "Job killed by signal: SIGUSR1"],  # 128+2
+        errors.SIGINT: [130, "Job killed by signal: SIGINT"],  # 128+2
         errors.SIGBUS: [135, "Job killed by signal: SIGBUS"]   # 128+7
     }
 
