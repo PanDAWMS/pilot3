@@ -515,7 +515,8 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
             while not args.graceful_stop.is_set():
                 if job.state == 'running':
                     if first1:
-                        logger.debug('job is running, check if real-time logger is needed')
+                        logger.debug(f'job is running, check if real-time logger is needed '
+                                     f'(job.debug={job.debug}, job.debug_command={job.debug_command})')
                         first1 = False
                     break
                 if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
