@@ -29,6 +29,7 @@ from pilot.util.container import execute
 from pilot.util.filehandling import read_json, copy, write_json, remove
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import is_process_running
+from pilot.util.psutils import get_command_by_pid
 
 import logging
 logger = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         _pid = get_pid_for_jobid(ps, jobid)
         if _pid:
             logger.debug(f'discovered pid={_pid} for job id {jobid}')
+            cmd = get_command_by_pid(_pid)
+            logger.debug(f'command for pid {_pid}: {cmd}')
             break
 
         logger.warning(f'payload pid has not yet been identified (#{i + 1}/#{imax})')

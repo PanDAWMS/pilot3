@@ -509,6 +509,7 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
         abort_loops = False
         first1 = True
         first2 = True
+        gotonextjob = False
         while not args.graceful_stop.is_set():
 
             # note: in multi-job mode, the real-time logging will be switched off at the end of the job
@@ -522,10 +523,16 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
                 if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
                     if first2:
                         logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
-                        first2 = False
+                        first1 = True
+                        break
                     time.sleep(10)
                     continue
                 time.sleep(1)
+
+            if first1 and first2:
+                logger.debug('continue to next job (1)')
+                gotonextjob = True
+                break
 
             if args.use_realtime_logging:
                 # always do real-time logging
@@ -542,6 +549,11 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
                 logger.info('time to start real-time logger')
                 break
             time.sleep(10)
+
+        if gotonextjob:
+            logger.debug('continue to next job (2)')
+            gotonextjob = False
+            continue
 
         # only set info_dic once per job (the info will not change)
         info_dic = get_logging_info(job, args)

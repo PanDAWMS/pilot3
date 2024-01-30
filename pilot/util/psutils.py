@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
-from re import findall
+import logging
 import os
 import subprocess
 try:
@@ -29,18 +29,24 @@ except ImportError:
     _is_psutil_available = False
 else:
     _is_psutil_available = True
+from re import findall
 
 # from pilot.common.exception import MiddlewareImportFailure
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-def is_process_running_by_pid(pid):
+def is_process_running_by_pid(pid: int) -> bool:
+    """
+    Is the given process still running?
+
+    :param pid: process id (int)
+    :return: True (process still running), False (process not running).
+    """
     return os.path.exists(f"/proc/{pid}")
 
 
-def is_process_running(pid):
+def is_process_running(pid: int) -> bool:
     """
     Is the given process still running?
 
@@ -50,25 +56,24 @@ def is_process_running(pid):
     :return: True (process still running), False (process not running)
     :raises: MiddlewareImportFailure if psutil module is not available.
     """
-
     if not _is_psutil_available:
         is_running = is_process_running_by_pid(pid)
         logger.warning(f'using /proc/{pid} instead of psutil (is_running={is_running})')
         return is_running
         # raise MiddlewareImportFailure("required dependency could not be imported: psutil")
-    else:
-        return psutil.pid_exists(pid)
+
+    return psutil.pid_exists(pid)
 
 
-def get_pid(jobpid):
+def get_pid(jobpid: int) -> int:
     """
     Try to figure out the pid for the memory monitoring tool.
+
     Attempt to use psutil, but use a fallback to ps-command based code if psutil is not available.
 
     :param jobpid: job.pid (int)
     :return: pid (int|None).
     """
-
     pid = None
 
     if _is_psutil_available:
@@ -95,15 +100,14 @@ def get_pid(jobpid):
     return pid
 
 
-def find_pid_by_command_and_ppid(command, payload_pid):
+def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
     """
     Find the process id corresponding to the given command, and ensure that it belongs to the given payload.
 
-    :param command: command (string)
+    :param command: command (str)
     :param payload_pid: payload process id (int)
-    :return: process id (int) or None
+    :return: process id (int) or None.
     """
-
     if not _is_psutil_available:
         logger.warning('find_pid_by_command_and_ppid(): psutil not available - aborting')
         return None
@@ -117,19 +121,19 @@ def find_pid_by_command_and_ppid(command, payload_pid):
                 logger.debug(f"command={command} is in {process.info['cmdline'][0]}")
                 logger.debug(f"ok returning pid={process.info['pid']}")
                 return process.info['pid']
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.AccessDenied, psutil.ZombieProcess):
             pass
+
     return None
 
 
-def get_parent_pid(pid):
+def get_parent_pid(pid: int) -> int or None:
     """
     Return the parent process id for the given pid.
 
     :param pid: process id (int)
     :return: parent process id (int or None).
     """
-
     try:
         process = psutil.Process(pid)
         parent_pid = process.ppid()
@@ -138,23 +142,23 @@ def get_parent_pid(pid):
         return None
 
 
-def get_child_processes(parent_pid):
+def get_child_processes(parent_pid: int) -> list:
     """
     Return a list of all child processes belonging to the same parent process id.
-    Using a fallback to /proc/{pid} in case psutil is not available.
+
+    Uses a fallback to /proc/{pid} in case psutil is not available.
 
     :param parent_pid: parent process id (int)
     :return: child processes (list).
     """
-
     if not _is_psutil_available:
         logger.warning('get_child_processes(): psutil not available - using legacy code as a fallback')
         return get_child_processes_legacy(parent_pid)
-    else:
-        return get_all_descendant_processes(parent_pid)
+
+    return get_all_descendant_processes(parent_pid)
 
 
-def get_all_descendant_processes(parent_pid, top_pid=os.getpid()):
+def get_all_descendant_processes(parent_pid: int, top_pid: int = os.getpid()) -> list:
     """
     Recursively find child processes using the given parent pid as a starting point.
 
@@ -162,8 +166,7 @@ def get_all_descendant_processes(parent_pid, top_pid=os.getpid()):
     :param top_pid: do not include os.getpid() in the list (int)
     :return: descendant process ids and cmdline (list).
     """
-
-    def find_descendant_processes(pid, top_pid):
+    def find_descendant_processes(pid: int, top_pid: int) -> list:
         try:
             descendants = []
             for process in psutil.process_iter(attrs=['pid', 'ppid', 'cmdline']):
@@ -175,16 +178,17 @@ def get_all_descendant_processes(parent_pid, top_pid=os.getpid()):
                     descendants.append((child_pid, cmdline))
                     descendants.extend(find_descendant_processes(child_pid, top_pid))
             return descendants
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.AccessDenied, psutil.ZombieProcess):
             return []
-
     all_descendant_processes = find_descendant_processes(parent_pid, top_pid)
+
     return all_descendant_processes
 
 
-def get_child_processes_legacy(parent_pid):
+def get_child_processes_legacy(parent_pid: int) -> list:
     """
     Return a list of all child processes belonging to the same parent process id.
+
     Note: this approach is not efficient if one is to find all child processes using
     the parent pid as a starting point. Better to use a recursive function using psutil.
     This method should be removed once psutil is available everywhere.
@@ -192,7 +196,6 @@ def get_child_processes_legacy(parent_pid):
     :param parent_pid: parent process id (int)
     :return: child processes (list).
     """
-
     child_processes = []
 
     # Iterate through all directories in /proc
@@ -227,7 +230,7 @@ def get_child_processes_legacy(parent_pid):
     return child_processes
 
 
-def get_subprocesses(pid, debug=False):
+def get_subprocesses(pid: int, debug: bool = False) -> list:
     """
     Return the subprocesses belonging to the given PID as a list.
 
@@ -235,13 +238,29 @@ def get_subprocesses(pid, debug=False):
     :param debug: control debug mode (bool)
     :return: list of subprocess PIDs.
     """
-
     pids = get_child_processes(pid)
     if debug:  # always dump for looping jobs e.g.
         logger.info(f'child processes for pid={pid}: {pids}')
     else:  # otherwise, only in debug mode
         logger.debug(f'child processes for pid={pid}: {pids}')
+
     return [pid[0] for pid in pids]
     #cmd = f'ps -opid --no-headers --ppid {pid}'
     #_, out, _ = execute(cmd)
     #return [int(line) for line in out.splitlines()] if out else []
+
+
+def get_command_by_pid(pid: int) -> str or None:
+    """
+    Return the command corresponding to the given process id.
+
+    :param pid: process id (int)
+    :return: command (str or None).
+    """
+    try:
+        process = psutil.Process(pid)
+        command = " ".join(process.cmdline())
+        return command
+    except psutil.NoSuchProcess:
+        print(f"process with PID {pid} not found")
+        return None
