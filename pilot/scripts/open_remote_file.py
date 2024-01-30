@@ -275,8 +275,13 @@ if __name__ == '__main__':  # noqa: C901
                 threads.append(thread)
 
         # wait until all threads have finished
-        for thread in threads:
-            thread.join()
+        try:
+            for thread in threads:
+                thread.join()
+        except Exception as exc:
+            logger.warning(f"exception caught while handling threads: {exc}")
+        finally:
+            logger.info('all remote file open threads have been joined')
 
         opened_turls = list(queues.opened.queue)
         opened_turls.sort()

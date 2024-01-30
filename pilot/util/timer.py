@@ -80,7 +80,10 @@ class TimedThread(object):
 
         timeout = timeout if timeout is not None else self.timeout
 
-        thread.join(timeout)
+        try:
+            thread.join(timeout)
+        except Exception as exc:
+            print(f'exception caught while joining timer thread: {exc}')
 
         if thread.is_alive():
             self.is_timeout = True

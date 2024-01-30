@@ -79,24 +79,29 @@ def control(queues: Any, traces: Any, args: Any):
     [thread.start() for thread in threads]
 
     # if an exception is thrown, the graceful_stop will be set by the ExcThread class run() function
-    while not args.graceful_stop.is_set():
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
+    try:
+        while not args.graceful_stop.is_set():
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
 
-                # deal with the exception
-                # ..
+                    # deal with the exception
+                    # ..
 
-            thread.join(0.1)
-            time.sleep(0.1)
+                thread.join(0.1)
+                time.sleep(0.1)
 
-        time.sleep(0.5)
+            time.sleep(0.5)
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all payload control threads have been joined')
 
     logger.debug('payload control ending since graceful_stop has been set')
     if args.abort_job.is_set():
