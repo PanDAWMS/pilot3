@@ -216,8 +216,12 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             logger.debug(f'job {job.jobid} added to monitored payloads queue')
 
             try:
-                out = open(os.path.join(job.workdir, config.Payload.payloadstdout), 'wb')
-                err = open(os.path.join(job.workdir, config.Payload.payloadstderr), 'wb')
+                if job.is_eventservice or job.is_eventservicemerge:
+                    out = open(os.path.join(job.workdir, config.Payload.payloadstdout), 'ab')
+                    err = open(os.path.join(job.workdir, config.Payload.payloadstderr), 'ab')
+                else:
+                    out = open(os.path.join(job.workdir, config.Payload.payloadstdout), 'wb')
+                    err = open(os.path.join(job.workdir, config.Payload.payloadstderr), 'wb')
             except Exception as error:
                 logger.warning(f'failed to open payload stdout/err: {error}')
                 out = None

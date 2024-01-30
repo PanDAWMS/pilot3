@@ -75,6 +75,8 @@ class WorkExecutor(PluginFactory):
                 plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.hammercloudexecutor.HammerCloudExecutor'}
             elif self.args['executor_type'] == 'mpi':  # network-less
                 plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.mpiexecutor.MPIExecutor'}
+            elif self.args['executor_type'] == 'fineGrainedProc':
+                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.finegrainedprocexecutor.FineGrainedProcExecutor'}
         else:
             plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor'}
 
