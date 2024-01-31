@@ -43,6 +43,7 @@ from pilot.util.filehandling import (
     list_mod_files
 )
 from pilot.util.heartbeat import time_since_suspension
+from pilot.util.math import convert_seconds_to_hours_minutes_seconds
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import (
     kill_process,
@@ -98,10 +99,8 @@ def looping_job(job: Any, montime: Any) -> (int, str):
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
             currenttime = int(time.time())
-            logger.info(f'current time: {currenttime}')
-            logger.info(f'last time files were touched: {time_last_touched}')
-            logger.info(f'looping limit: {looping_limit} s')
-
+            hours, minutes, seconds = convert_seconds_to_hours_minutes_seconds(currenttime - time_last_touched)
+            logger.info(f'files were last touched {hours}h {minutes}m {seconds}s ago (current time: {currenttime})')
             if currenttime - time_last_touched > looping_limit:
                 try:
                     # which were the considered files?

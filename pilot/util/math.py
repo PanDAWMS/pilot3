@@ -109,12 +109,12 @@ def float_to_rounded_string(num: float, precision: int = 3) -> str:
     try:
         _precision = Decimal(10) ** -precision
     except Exception as exc:
-        raise NotDefined(f'failed to define precision={precision}: {exc}')
+        raise NotDefined(f'failed to define precision={precision}: {exc}') from exc
 
     try:
         s = Decimal(str(num)).quantize(_precision)
     except Exception as exc:
-        raise NotDefined(f'failed to convert {num} to Decimal: {exc}')
+        raise NotDefined(f'failed to convert {num} to Decimal: {exc}') from exc
 
     return str(s)
 
@@ -154,7 +154,7 @@ def split_version(version: str) -> tuple:
     return tuple(tryint(x) for x in split('([^.]+)', version))
 
 
-def is_greater_or_equal(num_a, num_b):
+def is_greater_or_equal(num_a: str, num_b: str) -> bool:
     """
     Check if the numbered string num_a >= num_b.
 
@@ -199,7 +199,7 @@ def convert_mb_to_b(size: Any) -> int:
     try:
         size = int(size)
     except Exception as exc:
-        raise ValueError(f'cannot convert {size} to int: {exc}')
+        raise ValueError(f'cannot convert {size} to int: {exc}') from exc
 
     return size * 1024 ** 2
 
@@ -215,7 +215,7 @@ def diff_lists(list_a: list, list_b: list) -> list:
     return list(set(list_a) - set(list_b))
 
 
-def bytes2human(num: Any, _format='%(value).1f %(symbol)s', symbols='customary'):
+def bytes2human(num: Any, symbols: str = 'customary') -> str:
     """
     Convert `num` bytes into a human-readable string based on format.
 
@@ -254,10 +254,11 @@ def bytes2human(num: Any, _format='%(value).1f %(symbol)s', symbols='customary')
       '9.76562 K'
 
     :param num: input number (Any)
-    :param _format: format string (str)
     :param symbols: symbold string (str)
     :return: human-readable string (str).
     """
+    _format = '%(value).1f %(symbol)s'
+
     try:
         number = int(num)
     except ValueError as exc:
@@ -270,9 +271,10 @@ def bytes2human(num: Any, _format='%(value).1f %(symbol)s', symbols='customary')
         prefix[s] = 1 << (i + 1) * 10
     for symbol in reversed(symbols[1:]):
         if number >= prefix[symbol]:
-            value = float(number) / prefix[symbol]
+            # value = float(number) / prefix[symbol]
             return _format % locals()
-    return _format % dict(symbol=symbols[0], value=number)
+
+    return _format % {"symbol": symbols[0], "value": number}
 
 
 def human2bytes(snumber: str, divider: Any = None) -> int:
@@ -322,7 +324,8 @@ def human2bytes(snumber: str, divider: Any = None) -> int:
 
     :param snumber: number string (str)
     :param divider: divider (Any)
-    :return: converted integer (int).
+    :return: converted integer (int)
+    :raises ValueError: for conversion error.
     """
     init = snumber
     num = ""
@@ -343,7 +346,7 @@ def human2bytes(snumber: str, divider: Any = None) -> int:
     if len(letter) == 0:
         letter = "B"
 
-    for name, sset in list(SYMBOLS.items()):
+    for _, sset in list(SYMBOLS.items()):
         if letter in sset:
             break
     else:
@@ -365,3 +368,18 @@ def human2bytes(snumber: str, divider: Any = None) -> int:
         raise exc
 
     return ret
+
+
+def convert_seconds_to_hours_minutes_seconds(seconds: int) -> tuple:
+    """
+    Convert seconds to hours, minutes, and remaining seconds.
+
+    :param seconds: seconds (int)
+    :return: hours, minutes, remaining seconds (tuple).
+    """
+    hours = seconds // 3600
+    remaining_seconds = seconds % 3600
+    minutes = remaining_seconds // 60
+    remaining_seconds %= 60
+
+    return hours, minutes, remaining_seconds
