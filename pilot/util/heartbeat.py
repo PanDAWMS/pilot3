@@ -69,8 +69,8 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = F
         if not dictionary.get(f'last_{name}_update', None):
             # ie add the new field
             dictionary[f'last_{name}_update'] = int(update_time)
-        max_diff_time = int(update_time) - dictionary.get(f'last_{name}_update')
-        if max_diff_time >= dictionary.get('max_diff_time'):
+        max_diff_time = int(update_time) - dictionary.get(f'last_{name}_update', 0)
+        if max_diff_time >= dictionary.get('max_diff_time', 0):
             dictionary['max_diff_time'] = max_diff_time
         dictionary[f'last_{name}_update'] = int(update_time)
         dictionary['time_since_detection'] = time_since_detection if detected_job_suspension else 0
