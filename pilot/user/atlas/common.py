@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Common functions for ATLAS."""
