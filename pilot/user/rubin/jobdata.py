@@ -16,11 +16,12 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 
-#import re
+"""Functions related to job data."""
 
 #import logging
+#import re
 
 #logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@
 def jobparams_prefiltering(value: str) -> (dict, str):
     """
     Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
+
     The function can extract some fields from the job parameters to be put back later after actual filtering.
 
     E.g. ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" ' will otherwise become
@@ -43,7 +45,7 @@ def jobparams_prefiltering(value: str) -> (dict, str):
     return exclusions, value
 
 
-def jobparams_postfiltering(value: str, exclusions: dict = {}) -> str:
+def jobparams_postfiltering(value: str, exclusions: dict = None) -> str:
     """
     Perform post-filtering of raw job parameters.
 
@@ -53,6 +55,9 @@ def jobparams_postfiltering(value: str, exclusions: dict = {}) -> str:
     :param exclusions: exclusions dictionary from pre-filtering function (dict)
     :return: updated job parameters (str).
     """
+    if exclusions is None:  # avoid pylint warning
+        exclusions = {}
+
     for item in exclusions:
         value = value.replace(item, exclusions[item])
 
