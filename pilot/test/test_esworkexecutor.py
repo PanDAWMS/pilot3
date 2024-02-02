@@ -84,7 +84,7 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             communicator_manager.start()
 
             jobs = communicator_manager.get_jobs(njobs=1, args=args)
-            job = create_job(jobs[0], 'BNL_CLOUD_MCORE')
+            job = create_job(jobs[0], queuename='BNL_CLOUD_MCORE')
             job.workdir = '/tmp/test_esworkexecutor'
             job.corecount = 1
             if not os.path.exists(job.workdir):

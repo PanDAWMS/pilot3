@@ -116,7 +116,7 @@ class BaseExecutor(threading.Thread, PluginFactory):
         jobs = self.communication_manager.get_jobs(njobs=1, args=self.args)
         logger.info("Received jobs: %s" % jobs)
         if jobs:
-            job = create_job(jobs[0], queue=self.queue)
+            job = create_job(jobs[0], queuename=self.queue)
 
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
