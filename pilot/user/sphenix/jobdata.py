@@ -25,7 +25,7 @@
 #logger = logging.getLogger(__name__)
 
 
-def jobparams_prefiltering(value: str) -> (list, str):
+def jobparams_prefiltering(value: str) -> (dict, str):
     """
     Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
 
@@ -35,12 +35,12 @@ def jobparams_prefiltering(value: str) -> (list, str):
     ' --athenaopts 'HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER' ' which will prevent the environmental variable to be unfolded.
 
     :param value: job parameters (str)
-    :return: list of fields excluded from job parameters (list), updated job parameters (str).
+    :return: dictionary of fields excluded from job parameters (dict), updated job parameters (str).
     """
     exclusions = {}
 
     # Add regex patterns here
-
+    # ..
     return exclusions, value
 
 
@@ -50,8 +50,20 @@ def jobparams_postfiltering(value: str, exclusions: dict = {}) -> str:
 
     Any items in the optional exclusion list will be added (space separated) at the end of the job parameters.
 
-    :param value: job parameters (string).
-    :param optional exclusions: exclusions dictionary from pre-filtering function (dictionary).
-    :return: updated job parameters (string).
+    :param value: job parameters (str)
+    :param exclusions: exclusions dictionary from pre-filtering function (dict)
+    :return: updated job parameters (str).
     """
+    for item in exclusions:
+        value = value.replace(item, exclusions[item])
+
     return value
+
+
+def fail_at_getjob_none() -> bool:
+    """
+    Return a boolean value indicating whether to fail when getJob returns None.
+
+    :return: True (bool).
+    """
+    return True

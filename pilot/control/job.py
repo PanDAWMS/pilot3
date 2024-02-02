@@ -1994,7 +1994,12 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
         #res['debug'] = True
         if res:
             dump_job_definition(res)
-        if res is None:
+
+        # only ATLAS wants to abort immediately in this case
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        jobdata = __import__(f'pilot.user.{pilot_user}.jobdata', globals(), locals(), [pilot_user], 0)
+        fail_at_none = jobdata.fail_at_getjob_none()
+        if res is None and fail_at_none:
             logger.fatal('fatal error in job download loop - cannot continue')
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL

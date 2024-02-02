@@ -24,18 +24,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def jobparams_prefiltering(value):
+def jobparams_prefiltering(value: str) -> (dict, str):
     """
     Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
+
     The function can extract some fields from the job parameters to be put back later after actual filtering.
 
     E.g. ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" ' will otherwise become
     ' --athenaopts 'HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER' ' which will prevent the environmental variable to be unfolded.
 
-    :param value: job parameters (string).
-    :return: dictionary of fields excluded from job parameters (dictionary), updated job parameters (string).
+    :param value: job parameters (str)
+    :return: dictionary of fields excluded from job parameters (dict), updated job parameters (str).
     """
-
     exclusions = {}
     pattern = re.compile(r' (\-\-athenaopts\ \"?\'?[^"]+\"?\'?)')
     result = re.findall(pattern, value)
@@ -45,22 +45,31 @@ def jobparams_prefiltering(value):
         value = re.sub(pattern, ' TOBEREPLACED1 ', value)  # do not remove the space
 
     # add more items to the exclusions as necessary
-
     logger.debug(f'exclusions = {exclusions}')
+
     return exclusions, value
 
 
-def jobparams_postfiltering(value, exclusions={}):
+def jobparams_postfiltering(value: str, exclusions: dict = {}) -> str:
     """
     Perform post-filtering of raw job parameters.
+
     Any items in the optional exclusion list will be added (space separated) at the end of the job parameters.
 
-    :param value: job parameters (string).
-    :param optional exclusion: exclusion dictionary from pre-filtering function (dictinoary).
-    :return: updated job parameters (string).
+    :param value: job parameters (str)
+    :param exclusions: exclusion dictionary from pre-filtering function (dict)
+    :return: updated job parameters (str).
     """
-
     for item in exclusions:
         value = value.replace(item, exclusions[item])
 
     return value
+
+
+def fail_at_getjob_none() -> bool:
+    """
+    Return a boolean value indicating whether to fail when getJob returns None.
+
+    :return: True (bool).
+    """
+    return True
