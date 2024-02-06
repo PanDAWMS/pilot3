@@ -1216,7 +1216,7 @@ def verify_ctypes():
     """Verify ctypes and make sure all subprocess are parented."""
     try:
         import ctypes
-    except ModuleNotFoundError as error:
+    except ImportError as error:
         diagnostics = f'ctypes python module could not be imported: {error}'
         logger.warning(diagnostics)
         #job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.NOCTYPES, msg=diagnostics)
