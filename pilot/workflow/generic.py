@@ -122,8 +122,14 @@ def run(args):
     """
 
     logger.info('setting up signal handling')
-    register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1,
-                      signal.SIGBUS, signal.SIGSTOP, signal.SIGCONT], args)
+    register_signals([signal.SIGINT,
+                      signal.SIGTERM,
+                      signal.SIGQUIT,
+                      signal.SIGSEGV,
+                      signal.SIGXCPU,
+                      signal.SIGUSR1,
+                      signal.SIGBUS],
+                     args)
 
     logger.info('setting up queues')
     queues = namedtuple('queues', ['jobs', 'payloads', 'data_in', 'data_out', 'current_data_in',
