@@ -287,6 +287,20 @@ def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0)
     return processes
 
 
+def get_proper_pilot_heartbeat() -> int:
+    """
+    Return the proper pilot heartbeat time limit from config.
+
+    :return: pilot heartbeat time limit (int).
+    """
+
+    try:
+        return int(config.Pilot.pilot_heartbeat)
+    except Exception as exc:
+        logger.warning(f'detected outdated config file: please update default.cfg: {exc}')
+        return 10 * 60
+
+
 def run_checks(queues: Any, args: Any) -> None:
     """
     Perform non-job related monitoring checks.
@@ -309,13 +323,17 @@ def run_checks(queues: Any, args: Any) -> None:
 
     # note: active update rather than a check (every ten minutes)
     if is_pilot_check(check='pilot_heartbeat'):
-        last_heartbeat = int(time.time()) - args.pilot_heartbeat
-        if last_heartbeat > config.Pilot.pilot_heartbeat:
-            logger.debug(f'pilot heartbeat file was last updated {last_heartbeat} s ago (time to update)')
-
+        last_heartbeat = time.time() - args.pilot_heartbeat
+        _pilot_heartbeat = get_proper_pilot_heartbeat()
+        if last_heartbeat > _pilot_heartbeat:
             detected_job_suspension = True if last_heartbeat > 10 * 60 else False
-            _time = time.time()
+            if detected_job_suspension:
+                logger.warning(f'detected job suspension (last heartbeat was updated more than 10 minutes ago: {last_heartbeat} s)')
+            else:
+                logger.debug(f'pilot heartbeat file was last updated {last_heartbeat} s ago (time to update)')
+
             # if the pilot heartbeat file can be updated, update the args object
+            _time = time.time()
             if update_pilot_heartbeat(_time, detected_job_suspension=detected_job_suspension, time_since_detection=last_heartbeat):
                 args.pilot_heartbeat = _time
 
