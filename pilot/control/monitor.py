@@ -298,7 +298,7 @@ def get_proper_pilot_heartbeat() -> int:
         return int(config.Pilot.pilot_heartbeat)
     except Exception as exc:
         logger.warning(f'detected outdated config file: please update default.cfg: {exc}')
-        return 10 * 60
+        return 60
 
 
 def run_checks(queues: Any, args: Any) -> None:
@@ -325,6 +325,7 @@ def run_checks(queues: Any, args: Any) -> None:
     if is_pilot_check(check='pilot_heartbeat'):
         last_heartbeat = time.time() - args.pilot_heartbeat
         _pilot_heartbeat = get_proper_pilot_heartbeat()
+
         if last_heartbeat > _pilot_heartbeat:
             detected_job_suspension = True if last_heartbeat > 10 * 60 else False
             if detected_job_suspension:

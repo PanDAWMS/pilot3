@@ -137,7 +137,7 @@ def time_since_suspension() -> int:
         if time_since_detection:
             # reset the time since detection to zero
             update_pilot_heartbeat(time.time(), False, 0)
-
+            logger.info('reset time since detection to zero')
         return time_since_detection
 
     return 0
