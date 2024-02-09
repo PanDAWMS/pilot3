@@ -74,6 +74,10 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = F
             dictionary['max_diff_time'] = max_diff_time
         dictionary[f'last_{name}_update'] = int(update_time)
         dictionary['time_since_detection'] = time_since_detection if detected_job_suspension else 0
+        if time_since_detection:
+            logger.warning(f'job suspension detected: time since detection: {time_since_detection} seconds')
+        else:
+            logger.debug(f'no job suspension detected (detected_job_suspension={detected_job_suspension})')
 
         status = write_json(path, dictionary)
         if not status:
