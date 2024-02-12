@@ -118,7 +118,7 @@ class TestCopytoolMv(unittest.TestCase):
                 dispatchdblocktokenforout += ",NULL"
             _data = [random.randint(0, 255) for _ in range(0, filesize)]
             fname = os.path.join(self.tmp_src_dir, fname)
-            with open(fname, "wb", encoding='utf-8') as new_file:
+            with open(fname, "wb") as new_file:
                 new_file.write(str(_data))
 
             # add to list
