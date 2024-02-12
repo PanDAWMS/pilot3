@@ -597,8 +597,8 @@ class Executor():
                     break
                 time.sleep(1)
             if breaker:
-                logger.info(f'breaking -- sleep 30s before sending SIGKILL pid={proc.pid}')
-                time.sleep(30)
+                logger.info(f'breaking -- sleep 10 s before sending SIGKILL pid={proc.pid}')
+                time.sleep(10)
                 proc.kill()
                 break
 
