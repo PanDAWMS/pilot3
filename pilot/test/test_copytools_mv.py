@@ -119,7 +119,7 @@ class TestCopytoolMv(unittest.TestCase):
             _data = [random.randint(0, 255) for _ in range(0, filesize)]
             fname = os.path.join(self.tmp_src_dir, fname)
             with open(fname, "wb") as new_file:
-                new_file.write(str(_data))
+                new_file.write(str(_data).encode('utf-8'))
 
             # add to list
             #self.filelist.append({'name': fname, 'source': self.tmp_src_dir, 'destination': self.tmp_dst_dir})
