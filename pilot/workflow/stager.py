@@ -146,27 +146,32 @@ def run(args):
     logger.info('waiting for interrupts')
 
     thread_count = threading.activeCount()
-    while threading.activeCount() > 1:
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                # deal with the exception
-                print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
+    try:
+        while threading.activeCount() > 1:
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    # deal with the exception
+                    print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
 
-            thread.join(0.1)
+                thread.join(0.1)
 
-        abort = False
-        if thread_count != threading.activeCount():
-            # has all threads finished?
-            #abort = threads_aborted(abort_at=1)
-            abort = threads_aborted(caller='run')
-            if abort:
-                break
+            abort = False
+            if thread_count != threading.activeCount():
+                # has all threads finished?
+                #abort = threads_aborted(abort_at=1)
+                abort = threads_aborted(caller='run')
+                if abort:
+                    break
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all stager threads have been joined')
 
     logger.info(f"end of stager workflow (traces error code: {traces.pilot['error_code']})")
 

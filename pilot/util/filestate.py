@@ -19,14 +19,17 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
+"""Handling of file states."""
+
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class FileState(object):
-
     """
+    File state class.
+
     FS = FileState(file_status={'lfns': ['LFN1.DAT', 'LFN2.DAT']})
     FS.update(lfn='LFN1.DAT', state='TRANSFERRED')
     print(FS.get_file_states())
@@ -38,32 +41,33 @@ class FileState(object):
 
     def __init__(self, file_states={}):
         """
-        Default init function.
-        """
+        Initialize variables.
 
+        :param file_states: file states (dict).
+        """
         self._lfns = file_states.get('lfns', [])
         self.set_initial_list()
 
     def set_initial_list(self):
-        """
-        Set the initial file states list.
-        """
-
+        """Set the initial file states list."""
         for lfn in self._lfns:
             self._file_states[lfn] = 'NOT_YET_TRANSFERRED'
 
-    def get_file_states(self):
+    def get_file_states(self) -> dict:
         """
-        Return the current file states list.
-        """
+        Return the current file states dictionary.
 
+        :return: file states (dict).
+        """
         return self._file_states
 
     def update(self, lfn='', state=''):
         """
         Update the state for a given LFN.
-        """
 
+        :param lfn: file name (str)
+        :param state: file state (str).
+        """
         if not lfn or not state:
             logger.warning('must set lfn/state')
             return

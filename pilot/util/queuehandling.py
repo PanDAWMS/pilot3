@@ -71,7 +71,7 @@ def scan_for_jobs(queues):
             _queue = getattr(queues, queue)
             jobs = list(_queue.queue)
             if len(jobs) > 0:
-                logger.info(f'found {len(jobs)} job(s) in queue {queue} after {time.time() - _t0} s - will begin queue monitoring')
+                logger.debug(f'found {len(jobs)} job(s) in queue {queue} after {time.time() - _t0} s - will begin queue monitoring')
                 found_job = True
                 break
         if found_job:

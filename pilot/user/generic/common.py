@@ -74,7 +74,7 @@ def get_payload_command(job):
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
     else:
-        logger.debug('user analysis trf: %s' % trf_name)
+        logger.debug(f'user analysis trf: {trf_name}')
 
     return get_analysis_run_command(job, trf_name)
 
@@ -94,16 +94,16 @@ def get_analysis_run_command(job, trf_name):
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        cmd += 'export X509_USER_PROXY=%s;' % os.environ.get('X509_USER_PROXY')
+        cmd += f"export X509_USER_PROXY={os.environ.get('X509_USER_PROXY')};"
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
-        cmd += './%s %s' % (trf_name, job.jobparams)
+        cmd += f'./{trf_name} {job.jobparams}'
     else:
         if trf_name:
-            cmd += './%s %s' % (trf_name, job.jobparams)
+            cmd += f'./{trf_name} {job.jobparams}'
         else:
-            cmd += 'python %s %s' % (trf_name, job.jobparams)
+            cmd += f'python {trf_name} {job.jobparams}'
 
     return cmd
 

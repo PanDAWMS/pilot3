@@ -597,8 +597,8 @@ class Executor():
                     break
                 time.sleep(1)
             if breaker:
-                logger.info(f'breaking -- sleep 3s before sending SIGKILL pid={proc.pid}')
-                time.sleep(3)
+                logger.info(f'breaking -- sleep 10 s before sending SIGKILL pid={proc.pid}')
+                time.sleep(10)
                 proc.kill()
                 break
 
@@ -687,14 +687,14 @@ class Executor():
         user = __import__(f'pilot.user.{pilot_user}.setup', globals(), locals(), [pilot_user], 0)
         return user.should_verify_setup(self.__job)
 
-    def run(self) -> int:  # noqa: C901
+    def run(self) -> (int, str):  # noqa: C901
         """
         Run all payload processes (including pre- and post-processes, and utilities).
 
         In the case of HPO jobs, this function will loop over all processes until the preprocess returns a special
         exit code.
 
-        :return: exit code (int).
+        :return: exit code (int), diagnostics (str).
         """
         diagnostics = ''
 
@@ -745,7 +745,7 @@ class Executor():
             except Exception as error:
                 diagnostics = f'could not execute: {error}'
                 logger.error(diagnostics)
-                return None, diagnostics
+                return errors.PAYLOADEXECUTIONEXCEPTION, diagnostics
 
         self.post_setup(self.__job)
 

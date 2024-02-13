@@ -20,23 +20,27 @@
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""Base executor - Main class to manage the event service work."""
 
+import logging
 import time
+from typing import Any
 
 from pilot.common import exception
 from pilot.common.pluginfactory import PluginFactory
 
-import logging
 logger = logging.getLogger(__name__)
-
-"""
-Main class to manage the event service work.
-"""
 
 
 class WorkExecutor(PluginFactory):
+    """Work executor class."""
 
-    def __init__(self, args=None):
+    def __init__(self, args: Any = None):
+        """
+        Initialize work executor.
+
+        :param args: args dictionary (Any).
+        """
         super(WorkExecutor, self).__init__()
         self.payload = None
         self.plugin = None
@@ -44,19 +48,40 @@ class WorkExecutor(PluginFactory):
         self.args = args
         self.pid = None
 
-    def get_pid(self):
+    def get_pid(self) -> int:
+        """
+        Return the pid of the payload process.
+
+        :return: pid (int).
+        """
         return self.plugin.get_pid() if self.plugin else None
 
-    def set_payload(self, payload):
+    def set_payload(self, payload: Any):
+        """
+        Set the payload.
+
+        :param payload: payload (Any).
+        """
         self.payload = payload
 
-    def set_retrieve_paylaod(self):
+    def set_retrieve_payload(self):
+        """Set the payload to be retrieved."""
         self.is_retrieve_payload = True
 
-    def get_payload(self):
+    def get_payload(self) -> Any:
+        """
+        Return the payload.
+
+        :return: payload (Any).
+        """
         return self.payload
 
-    def get_plugin_confs(self):
+    def get_plugin_confs(self) -> dict:
+        """
+        Return the plugin configurations.
+
+        :return: plugin configurations (dict).
+        """
         plugin_confs = {}
         if self.args and 'executor_type' in list(self.args.keys()):  # Python 2/3
             if self.args['executor_type'] == 'hpo':
@@ -75,17 +100,25 @@ class WorkExecutor(PluginFactory):
                 plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.hammercloudexecutor.HammerCloudExecutor'}
             elif self.args['executor_type'] == 'mpi':  # network-less
                 plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.mpiexecutor.MPIExecutor'}
+            elif self.args['executor_type'] == 'fineGrainedProc':
+                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.finegrainedprocexecutor.FineGrainedProcExecutor'}
         else:
             plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor'}
 
         plugin_confs['args'] = self.args
+
         return plugin_confs
 
     def start(self):
+        """
+        Start the work executor.
+
+        :raises SetupFailure: if no available executor plugin.
+        """
         plugin_confs = self.get_plugin_confs()
-        logger.info("Plugin confs: %s" % plugin_confs)
+        logger.info(f"Plugin confs: {plugin_confs}")
         self.plugin = self.get_plugin(plugin_confs)
-        logger.info("WorkExecutor started with plugin: %s" % self.plugin)
+        logger.info(f"WorkExecutor started with plugin: {self.plugin}")
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
 
@@ -97,36 +130,72 @@ class WorkExecutor(PluginFactory):
             else:
                 self.plugin.set_payload(self.get_payload())
 
-        logger.info("Starting plugin: %s" % self.plugin)
+        logger.info(f"Starting plugin: {self.plugin}")
         self.plugin.start()
         logger.info("Waiting for payload to start")
         while self.plugin.is_alive():
             if self.plugin.is_payload_started():
-                logger.info("Payload started with pid: %s" % self.get_pid())
+                logger.info(f"Payload started with pid: {self.get_pid()}")
                 break
             time.sleep(1)
 
-    def stop(self):
+    def stop(self) -> int:
+        """
+        Stop the work executor.
+
+        :return: exit code (int)
+        :raises SetupFailure: if no available executor plugin.
+        """
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
+
         return self.plugin.stop()
 
-    def is_alive(self):
+    def is_alive(self) -> bool:
+        """
+        Check if the work executor is alive.
+
+        :return: True if alive, otherwise False (bool)
+        :raises SetupFailure: if no available executor plugin.
+        """
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
+
         return self.plugin.is_alive()
 
-    def get_exit_code(self):
+    def get_exit_code(self) -> int:
+        """
+        Return the exit code.
+
+        :return: exit code (int)
+        :raises SetupFailure: if no available executor plugin.
+        """
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
+
         return self.plugin.get_exit_code()
 
-    def get_event_ranges(self):
+    def get_event_ranges(self) -> list:
+        """
+        Get event ranges.
+
+        :return: event ranges (list)
+        :raises SetupFailure: if no available executor plugin.
+        """
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
+
         return self.plugin.get_event_ranges()
 
-    def update_events(self, messages):
+    def update_events(self, messages: Any) -> bool:
+        """
+        Update events.
+
+        :param messages: messages (Any)
+        :return: True if events are updated, otherwise False (bool)
+        :raises SetupFailure: if no available executor plugin.
+        """
         if not self.plugin:
             raise exception.SetupFailure("No available executor plugin.")
+
         return self.plugin.update_events(messages)

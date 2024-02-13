@@ -26,26 +26,26 @@ import sys
 
 from setuptools import setup, find_packages
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 # get release version
-with open('PILOTVERSION') as reader:
+with open("PILOTVERSION") as reader:
     release_version = reader.read()
 
 setup(
     name="panda-pilot",
     version=release_version,
-    description='PanDA Pilot 3',
-    long_description='''This package contains the PanDA Pilot 3 source code''',
-    license='Apache License 2.0',
-    author='PanDA Team',
-    author_email='atlas-adc-panda@cern.ch',
-    url='https://github.com/PanDAWMS/pilot3/wiki',
-    python_requires='>=3.6',
+    description="PanDA Pilot 3",
+    long_description="""This package contains the PanDA Pilot 3 source code""",
+    license="Apache License 2.0",
+    author="PanDA Team",
+    author_email="atlas-adc-panda@cern.ch",
+    url="https://github.com/PanDAWMS/pilot3/wiki",
+    python_requires=">=3.6",
     packages=find_packages(),
     install_requires=[],
     data_files=[],
-    package_data={'': ['PILOTVERSION']},
+    package_data={"": ["PILOTVERSION"]},
     include_package_data=True,
-    scripts=[]
+    scripts=[],
 )

@@ -50,7 +50,7 @@ def get_memory_monitor_output_filename(suffix='txt'):
     :return: File name (string).
     """
 
-    return "memory_monitor_output.%s" % suffix
+    return f"memory_monitor_output.{suffix}"
 
 
 def get_memory_monitor_info_path(workdir, allowtxtfile=False):
@@ -74,13 +74,13 @@ def get_memory_monitor_info_path(workdir, allowtxtfile=False):
         if os.path.exists(init_path):
             path = init_path
         else:
-            logger.info("neither %s, nor %s exist" % (path, init_path))
+            logger.info(f"neither {path}, nor {init_path} exist")
             path = ""
 
         if path == "" and allowtxtfile:
             path = os.path.join(workdir, get_memory_monitor_output_filename())
             if not os.path.exists(path):
-                logger.warning("file does not exist either: %s" % (path))
+                logger.warning(f"file does not exist either: {path}")
 
     return path
 
@@ -101,11 +101,11 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
     # Note that only the final json file will contain the totRBYTES, etc
     try:
         summary_dictionary = get_memory_values(workdir, name=name)
-    except Exception as e:
-        logger.warning('failed to get memory values from memory monitor tool: %s' % e)
+    except Exception as exc:
+        logger.warning(f'failed to get memory values from memory monitor tool: {exc}')
         summary_dictionary = {}
     else:
-        logger.debug("summary_dictionary=%s" % str(summary_dictionary))
+        logger.debug(f"summary_dictionary={str(summary_dictionary)}")
 
     # Fill the node dictionary
     if summary_dictionary and summary_dictionary != {}:
@@ -126,8 +126,8 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
                 node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
                 node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
-            except Exception as e:
-                logger.warning("exception caught while parsing memory monitor file: %s" % e)
+            except Exception as exc:
+                logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
                 node['maxVMEM'] = -1
@@ -162,8 +162,8 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['vmem']
                 node['avgSWAP'] = summary_dictionary['Avg']['swap']
                 node['avgPSS'] = summary_dictionary['Avg']['pss']
-            except Exception as e:
-                logger.warning("exception caught while parsing prmon file: %s" % e)
+            except Exception as exc:
+                logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
                 node['maxVMEM'] = -1
@@ -210,8 +210,8 @@ def get_max_memory_monitor_value(value, maxvalue, totalvalue):  # noqa: C90
     ec = 0
     try:
         value_int = int(value)
-    except Exception as e:
-        logger.warning("exception caught: %s" % e)
+    except Exception as exc:
+        logger.warning(f"exception caught: {exc}")
         ec = 1
     else:
         totalvalue += value_int
@@ -270,7 +270,7 @@ def get_average_summary_dictionary_prmon(path):
         keys = ['vmem', 'pss', 'rss', 'swap']
         values = {}
         for key in keys:
-            value_list = list(filter(filter_value, dictionary.get(key, 0)))  # Python 2/3
+            value_list = list(filter(filter_value, dictionary.get(key, 0)))
             n = len(value_list)
             average = int(float(sum(value_list)) / float(n)) if n > 0 else 0
             maximum = max(value_list)
@@ -316,7 +316,7 @@ def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
         dictionary['pandaid'] = jobid
 
         path = os.path.join(os.path.dirname(path), get_memory_monitor_output_filename(suffix='json'))
-        logger.debug('writing prmon dictionary to: %s' % path)
+        logger.debug(f'writing prmon dictionary to: {path}')
         write_json(path, dictionary)
     else:
         logger.debug('nothing to write (no prmon dictionary)')
@@ -366,7 +366,7 @@ def convert_text_file_to_dictionary(path):
                             value = convert_to_int(key)
                             dictionary[key_entry].append(value)
                 except Exception:
-                    logger.warning("unexpected format of utility output: %s" % line)
+                    logger.warning(f"unexpected format of utility output: {line}")
 
     return dictionary
 
@@ -435,8 +435,8 @@ def get_average_summary_dictionary(path):
                         rbytes = None
                         wbytes = None
                 except Exception:
-                    logger.warning("unexpected format of utility output: %s (expected format: Time, VMEM,"
-                                   " PSS, RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])" % (line))
+                    logger.warning(f"unexpected format of utility output: {line} (expected format: Time, VMEM, PSS, "
+                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])")
                 else:
                     # Convert to int
                     ec1, maxvmem, totalvmem = get_max_memory_monitor_value(vmem, maxvmem, totalvmem)
@@ -444,7 +444,7 @@ def get_average_summary_dictionary(path):
                     ec3, maxrss, totalrss = get_max_memory_monitor_value(rss, maxrss, totalrss)
                     ec4, maxswap, totalswap = get_max_memory_monitor_value(swap, maxswap, totalswap)
                     if ec1 or ec2 or ec3 or ec4:
-                        logger.warning("will skip this row of numbers due to value exception: %s" % (line))
+                        logger.warning(f"will skip this row of numbers due to value exception: {line}")
                     else:
                         n += 1
 
@@ -491,7 +491,7 @@ def get_memory_values(workdir, name=""):
     # Get the path to the proper memory info file (priority ordered)
     path = get_memory_monitor_info_path(workdir, allowtxtfile=True)
     if os.path.exists(path):
-        logger.info("using path: %s (trf name=%s)" % (path, name))
+        logger.info(f"using path: {path} (trf name={name})")
 
         # Does a JSON summary file exist? If so, there's no need to calculate maximums and averages in the pilot
         if path.lower().endswith('json'):
@@ -503,7 +503,7 @@ def get_memory_values(workdir, name=""):
                 summary_dictionary = get_average_summary_dictionary_prmon(path)
             else:
                 summary_dictionary = get_average_summary_dictionary(path)
-            logger.debug('summary_dictionary=%s (trf name=%s)' % (str(summary_dictionary), name))
+            logger.debug(f'summary_dictionary={str(summary_dictionary)} (trf name={name})')
     else:
         if path == "":
             logger.warning("filename not set for memory monitor output")
@@ -525,20 +525,20 @@ def post_memory_monitor_action(job):
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
-    i = 0
+    counter = 0
     maxretry = 20
-    while i <= maxretry:
+    while counter <= maxretry:
         if os.path.exists(path1):
             break
-        logger.info("taking a short nap (%d s) to allow the memory monitor to finish writing to the summary file (#%d/#%d)"
-                    % (nap, i, maxretry))
+        logger.info(f"taking a short nap ({nap} s) to allow the memory monitor to finish writing to the "
+                    f"summary file (#{counter}/#{maxretry})")
         time.sleep(nap)
-        i += 1
+        counter += 1
 
     try:
         copy(path1, path2)
-    except Exception as e:
-        logger.warning('failed to copy memory monitor output: %s' % e)
+    except Exception as exc:
+        logger.warning(f'failed to copy memory monitor output: {exc}')
 
 
 def precleanup():

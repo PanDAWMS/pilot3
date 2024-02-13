@@ -20,120 +20,157 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 """
-Base loader class to retrive data from Ext sources (file, url)
+Base loader class to retrieve data from Ext sources (file, url).
 
 :author: Alexey Anisenkov
 :contact: anisyonk@cern.ch
 :date: January 2018
 """
 
+import json
+import logging
 import os
 import time
-import json
 import urllib.request
 import urllib.error
 import urllib.parse
+from datetime import (
+    datetime,
+    timedelta
+)
+from typing import Any
 
-from datetime import datetime, timedelta
 from pilot.util.timer import timeout
 from pilot.util.https import ctx
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-class DataLoader(object):
-    """
-        Base data loader
-    """
+class DataLoader:
+    """Base data loader."""
 
     @classmethod
-    def is_file_expired(self, fname, cache_time=0):
+    def is_file_expired(cls, fname: str, cache_time: int = 0) -> bool:
         """
         Check if file fname is older than cache_time seconds from its last_update_time.
 
-        :param fname: File name.
-        :param cache_time: Cache time in seconds.
-        :return: Boolean.
+        :param fname: file name (str)
+        :param cache_time: cache time in seconds (int)
+        :return: True if file is expired, False otherwise (bool).
         """
-
         if cache_time:
-            lastupdate = self.get_file_last_update_time(fname)
+            lastupdate = cls.get_file_last_update_time(fname)
             return not (lastupdate and datetime.now() - lastupdate < timedelta(seconds=cache_time))
 
         return True
 
     @classmethod
-    def get_file_last_update_time(self, fname):
+    def get_file_last_update_time(cls, fname: str) -> datetime or None:
         """
         Return the last update time of the given file.
 
-        :param fname: File name.
-        :return: Last update time in seconds or None if file does not exist.
+        :param fname: file name (str)
+        :return: last update time in seconds or None if file does not exist (datetime or None).
         """
-
         try:
             lastupdate = datetime.fromtimestamp(os.stat(fname).st_mtime)
-        except Exception:
+        except OSError:
             lastupdate = None
 
         return lastupdate
 
     @classmethod  # noqa: C901
-    def load_url_data(self, url, fname=None, cache_time=0, nretry=3, sleep_time=60):  # noqa: C901
+    def load_url_data(cls, url: str, fname: str = None, cache_time: int = 0, nretry: int = 3, sleep_time: int = 60) -> Any:  # noqa: C901
         """
         Download data from url or file resource and optionally save it into cache file fname.
+
         The file will not be (re-)loaded again if cache age from last file modification does not exceed cache_time
         seconds.
 
-        If url is None then data will be read from cache file fname (if any)
+        If url is None then data will be read from cache file fname (if any).
 
-        :param url: Source of data
-        :param fname: Cache file name. If given then loaded data will be saved into it.
-        :param cache_time: Cache time in seconds.
-        :param nretry: Number of retries (default is 3).
-        :param sleep_time: Sleep time (default is 60 s) between retry attempts.
-        :return: data loaded from the url or file content if url passed is a filename.
+        :param url: URL to source of data (str)
+        :param fname: cache file name. If given then loaded data will be saved into it (str)
+        :param cache_time: cache time in seconds (int)
+        :param nretry: number of retries (default is 3) (int)
+        :param sleep_time: sleep time (default is 60 s) between retry attempts (int)
+        :return: data loaded from the url or file content if url passed is a filename (Any).
         """
-
         @timeout(seconds=20)
-        def _readfile(url):
+        def _readfile(url: str) -> str:
+            """
+            Read file content.
+
+            :param url: file name (str)
+            :return: file content (str).
+            """
             if os.path.isfile(url):
-                with open(url, "r") as f:
-                    content = f.read()
+                try:
+                    with open(url, "r", encoding='utf-8') as f:
+                        content = f.read()
+                except (OSError, UnicodeDecodeError) as exc:
+                    logger.warning(f"failed to read file {url}: {exc}")
+                    content = ""
+
                 return content
 
+            return ""
+
+        def _readurl(url: str, _timeout: int = 20) -> str:
+            """
+            Read url content.
+
+            :param url: url (str)
+            :return: url content (str).
+            """
+            req = urllib.request.Request(url)
+            req.add_header('User-Agent', ctx.user_agent)
+            try:
+                with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=_timeout) as response:
+                    content = response.read()
+            except urllib.error.URLError as exc:
+                logger.warning(f"error occurred with urlopen: {exc.reason}")
+                # Handle the error, set content to None or handle as needed
+                content = ""
+
+            return content
+
         content = None
-        if url and self.is_file_expired(fname, cache_time):  # load data into temporary cache file
+        if url and cls.is_file_expired(fname, cache_time):  # load data into temporary cache file
             for trial in range(1, nretry + 1):
                 if content:
                     break
                 try:
                     native_access = '://' not in url  ## trival check for file access, non accurate.. FIXME later if need
                     if native_access:
-                        logger.info('[attempt=%s/%s] loading data from file=%s' % (trial, nretry, url))
+                        logger.info(f'[attempt={trial}/{nretry}] loading data from file {url}')
                         content = _readfile(url)
                     else:
-                        logger.info('[attempt=%s/%s] loading data from url=%s' % (trial, nretry, url))
+                        logger.info(f'[attempt={trial}/{nretry}] loading data from url {url}')
                         req = urllib.request.Request(url)
                         req.add_header('User-Agent', ctx.user_agent)
-                        content = urllib.request.urlopen(req, context=ctx.ssl_context, timeout=20).read()
+                        content = _readurl(url)
 
                     if fname:  # save to cache
-                        with open(fname, "w+") as f:
+                        with open(fname, "w+", encoding='utf-8') as _file:
                             if isinstance(content, bytes):  # if-statement will always be needed for python 3
                                 content = content.decode("utf-8")
-                            f.write(content)
-                            logger.info('saved data from "%s" resource into file=%s, length=%.1fKb' %
-                                        (url, fname, len(content) / 1024.))
+
+                            if content:
+                                _file.write(content)
+                                logger.info(f'saved data from \"{url}\" resource into file {fname}, '
+                                            f'length={len(content) / 1024.:.1f} kB')
+                            else:
+                                logger.warning('no data to save into cache file')
+                                continue
+
                     return content
-                except Exception as e:  # ignore errors, try to use old cache if any
-                    logger.warning('failed to load data from url=%s, error: %s .. trying to use data from cache=%s' %
-                                   (url, e, fname))
+                except Exception as exc:  # ignore errors, try to use old cache if any
+                    logger.warning(f"failed to load data from url {url}, error: {exc} .. trying to use data from cache={fname}")
                     # will try to use old cache below
                     if trial < nretry:
                         xsleep_time = sleep_time() if callable(sleep_time) else sleep_time
-                        logger.info("will try again after %ss.." % xsleep_time)
+                        logger.info(f"will try again after {xsleep_time} s..")
                         time.sleep(xsleep_time)
 
         if content is not None:  # just loaded data
@@ -141,30 +178,31 @@ class DataLoader(object):
 
         # read data from old cache fname
         try:
-            with open(fname, 'r') as f:
+            with open(fname, 'r', encoding='utf-8') as f:
                 content = f.read()
-        except Exception as e:
-            logger.warning("cache file=%s is not available: %s .. skipped" % (fname, e))
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.warning(f"cache file={fname} is not available: {exc} .. skipped")
             return None
 
         return content
 
     @classmethod
-    def load_data(self, sources, priority, cache_time=60, parser=None):
+    def load_data(cls, sources: dict, priority: list, cache_time: int = 60, parser: Any = None) -> Any:
         """
         Download data from various sources (prioritized).
+
         Try to get data from sources according to priority values passed
 
         Expected format of source entry:
-        sources = {'NAME':{'url':"source url", 'nretry':int, 'fname':'cache file (optional)', 'cache_time':int (optional), 'sleep_time':opt}}
+        sources = {'NAME':{'url':"source url", 'nretry':int, 'fname':'cache file (optional)',
+                   'cache_time':int (optional), 'sleep_time':opt}}
 
-        :param sources: Dict of source configuration
-        :param priority: Ordered list of source names
-        :param cache_time: Default cache time in seconds. Can be overwritten by cache_time value passed in sources dict
-        :param parser: Callback function to interpret/validate data which takes read data from source as input. Default is json.loads
-        :return: Data loaded and processed by parser callback
+        :param sources: dict of source configuration (dict)
+        :param priority: ordered list of source names (list)
+        :param cache_time: default cache time in seconds. Can be overwritten by cache_time value passed in sources (dict)
+        :param parser: callback function to interpret/validate data which takes read data from source as input. Default is json.loads (Any)
+        :return: data loaded and processed by parser callback (Any)
         """
-
         if not priority:  # no priority set ## randomly order if need (FIX ME LATER)
             priority = list(sources.keys())
 
@@ -177,7 +215,7 @@ class DataLoader(object):
             idat = dict([k, dat.get(k)] for k in accepted_keys if k in dat)
             idat.setdefault('cache_time', cache_time)
 
-            content = self.load_url_data(**idat)
+            content = cls.load_url_data(**idat)
             if isinstance(content, bytes):
                 content = content.decode("utf-8")
                 logger.debug('converted content to utf-8')
@@ -189,13 +227,14 @@ class DataLoader(object):
                 def jsonparser(c):
                     dat = json.loads(c)
                     if dat and isinstance(dat, dict) and 'error' in dat:
-                        raise Exception('response contains error, data=%s' % dat)
+                        raise Exception(f'response contains error, data={dat}')
                     return dat
                 parser = jsonparser
             try:
                 data = parser(content)
-            except Exception as e:
-                logger.fatal("failed to parse data from source=%s (resource=%s, cache=%s).. skipped, error=%s" % (dat.get('url'), key, dat.get('fname'), e))
+            except Exception as exc:
+                logger.fatal(f"failed to parse data from source={dat.get('url')} "
+                             f"(resource={key}, cache={dat.get('fname')}).. skipped, error={exc}")
                 data = None
             if data:
                 return data
@@ -203,37 +242,44 @@ class DataLoader(object):
         return None
 
 
-def merge_dict_data(d1, d2, keys=[], common=True, left=True, right=True, rec=False):
+def merge_dict_data(dic1: dict, dic2: dict, keys: list = [], common: bool = True, left: bool = True,
+                    right: bool = True, rec: bool = False) -> dict:
     """
-        Recursively merge two dict objects
-        Merge content of d2 dict into copy of d1
-        :param common: if True then do merge keys exist in both dicts
-        :param left: if True then preseve keys exist only in d1
-        :param right: if True then preserve keys exist only in d2
-    """
+    Recursively merge two dictionary objects.
 
+    Merge content of dic2 dict into copy of dic1.
+
+    :param dic1: dictionary to merge into (dict)
+    :param dic2: dictionary to merge from (dict)
+    :param keys: list of keys to merge (list)
+    :param common: if True then merge keys exist in both dictionaries (bool)
+    :param left: if True then preserve keys exist only in dic1 (bool)
+    :param right: if True then preserve keys exist only in dic2 (bool)
+    :param rec: if True then merge recursively (bool)
+    :return: merged dictionary (dict).
+    """
     ### TODO: verify and configure logic later
 
-    if not (isinstance(d1, dict) and isinstance(d2, dict)):
-        return d2
+    if not (isinstance(dic1, dict) and isinstance(dic2, dict)):
+        return dic2
 
-    ret = d1.copy()
+    ret = dic1.copy()
 
     if keys and rec:
-        for k in set(keys) & set(d2):
-            ret[k] = d2[k]
+        for k in set(keys) & set(dic2):
+            ret[k] = dic2[k]
         return ret
 
     if common:  # common
-        for k in set(d1) & set(d2):
-            ret[k] = merge_dict_data(d1[k], d2[k], keys, rec=True)
+        for k in set(dic1) & set(dic2):
+            ret[k] = merge_dict_data(dic1[k], dic2[k], keys, rec=True)
 
     if not left:  # left
-        for k in set(d1) - set(d2):
+        for k in set(dic1) - set(dic2):
             ret.pop(k)
 
     if right:  # right
-        for k in set(d2) - set(d1):
-            ret[k] = d2[k]
+        for k in set(dic2) - set(dic1):
+            ret[k] = dic2[k]
 
     return ret

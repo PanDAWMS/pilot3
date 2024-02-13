@@ -19,44 +19,52 @@
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""
+Event Service process.
+
+Main process to handle event service.
+It makes use of two hooks get_event_ranges_hook and handle_out_message_hook to communicate with other processes when
+it's running. The process will handle the logic of Event service independently.
+"""
+
 import io
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import time
 import threading
 import traceback
+from typing import (
+    Any,
+    TextIO
+)
 
-try:
-    import Queue as queue  # noqa: N813
-except Exception:
-    import queue  # Python 3
-
-from pilot.common.exception import PilotException, MessageFailure, SetupFailure, RunPayloadFailure, UnknownException
+from pilot.common.exception import (
+    PilotException,
+    MessageFailure,
+    SetupFailure,
+    RunPayloadFailure,
+    UnknownException
+)
 from pilot.eventservice.esprocess.esmessage import MessageThread
 from pilot.util.container import containerise_executable
 from pilot.util.processes import kill_child_processes
 
 logger = logging.getLogger(__name__)
 
-"""
-Main process to handle event service.
-It makes use of two hooks get_event_ranges_hook and handle_out_message_hook to communicate with other processes when
-it's running. The process will handle the logic of Event service independently.
-"""
-
 
 class ESProcess(threading.Thread):
-    """
-    Main EventService Process.
-    """
+    """Main EventService Process."""
+
     def __init__(self, payload, waiting_time=30 * 60):
         """
-        Init ESProcess.
+        Initialize ESProcess.
 
-        :param payload: a dict of {'executable': <cmd string>, 'output_file': <filename or without it>, 'error_file': <filename or without it>}
+        :param payload: {'executable': <cmd string>, 'output_file': <filename>, 'error_file': <filename>} (dict)
+        :param waiting_time: waiting time for no more events (int).
         """
         threading.Thread.__init__(self, name='esprocess')
 
@@ -85,13 +93,24 @@ class ESProcess(threading.Thread):
         self.event_ranges_cache = []
 
     def __del__(self):
+        """Handle destruction."""
         if self.__message_thread:
             self.__message_thread.stop()
 
     def is_payload_started(self):
+        """
+        Check whether the payload has started.
+
+        :return: True if the payload has started, otherwise False (bool).
+        """
         return self.__is_payload_started
 
     def stop(self, delay=1800):
+        """
+        Stop the process.
+
+        :param delay: waiting time to stop the process (int).
+        """
         if not self.__stop.is_set():
             self.__stop.set()
             self.__stop_set_time = time.time()
@@ -99,33 +118,29 @@ class ESProcess(threading.Thread):
             event_ranges = "No more events"
             self.send_event_ranges_to_payload(event_ranges)
 
-    def init_message_thread(self, socketname=None, context='local'):
+    def init_message_thread(self, socketname: str = None, context: str = 'local'):
         """
-        init message thread.
+        Initialize message thread.
 
-        :param socket_name: name of the socket between current process and payload.
-        :param context: name of the context between current process and payload, default is 'local'.
-
+        :param socket_name: name of the socket between current process and payload (str)
+        :param context: name of the context between current process and payload, default is 'local' (str)
         :raises MessageFailure: when failed to init message thread.
         """
-
-        logger.info("start to init message thread")
+        logger.info("start to initialize message thread")
         try:
             self.__message_thread = MessageThread(self.__message_queue, socketname, context)
             self.__message_thread.start()
-        except PilotException as e:
-            logger.error("Failed to start message thread: %s" % e.get_detail())
+        except PilotException as exc:
+            logger.error(f"failed to start message thread: {exc.get_detail()}")
             self.__ret_code = -1
-        except Exception as e:
-            logger.error("Failed to start message thread: %s" % str(e))
+        except Exception as exc:
+            logger.error(f"failed to start message thread: {exc}")
             self.__ret_code = -1
-            raise MessageFailure(e)
-        logger.info("finished to init message thread")
+            raise MessageFailure(exc)
+        logger.info("finished initializing message thread")
 
     def stop_message_thread(self):
-        """
-        Stop message thread
-        """
+        """Stop message thread."""
         logger.info("Stopping message thread")
         if self.__message_thread:
             while self.__message_thread.is_alive():
@@ -133,18 +148,24 @@ class ESProcess(threading.Thread):
                     self.__message_thread.stop()
         logger.info("Message thread stopped")
 
-    def init_yampl_socket(self, executable):
+    def init_yampl_socket(self, executable: str) -> str:
+        """
+        Initialize yampl socket.
+
+        :param executable: executable string.
+        :return: executable string with yampl socket name (str).
+        """
         socket_name = self.__message_thread.get_yampl_socket_name()
 
         is_ca = "--CA" in executable
         if is_ca:
-            preexec_socket_config = " --preExec \'ConfigFlags.MP.EventRangeChannel=\"%s\"\' " % (socket_name)
+            preexec_socket_config = f" --preExec 'ConfigFlags.MP.EventRangeChannel=\"{socket_name}\"' "
         else:
             preexec_socket_config = \
-                " --preExec \'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\"\' " % (socket_name)
+                f" --preExec 'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"{socket_name}\"' "
 
         if "PILOT_EVENTRANGECHANNEL" in executable:
-            executable = "export PILOT_EVENTRANGECHANNEL=\"%s\"; " % (socket_name) + executable
+            executable = f"export PILOT_EVENTRANGECHANNEL=\"{socket_name}\"; " + executable
         elif "--preExec" not in executable:
             executable = executable.strip()
             if executable.endswith(";"):
@@ -153,30 +174,29 @@ class ESProcess(threading.Thread):
         else:
             if "import jobproperties as jps" in executable:
                 executable = executable.replace("import jobproperties as jps;",
-                                                "import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"%s\";" % (socket_name))
+                                                f"import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"{socket_name}\";")
                 if is_ca:
                     logger.warning("Found jobproperties config in CA job")
             else:
                 if "--preExec " in executable:
                     executable = executable.replace("--preExec ", preexec_socket_config)
                 else:
-                    logger.warn("--preExec has an unknown format - expected \'--preExec \"\' or \"--preExec \'\", got: %s" % (executable))
+                    logger.warn(f"--preExec has an unknown format - expected '--preExec \"' or \"--preExec '\", got: {executable}")
 
         return executable
 
     def init_payload_process(self):
         """
-        init payload process.
+        Initialize payload process.
 
         :raise SetupFailure: when failed to init payload process.
         """
-
-        logger.info("start to init payload process")
+        logger.info("initializing payload process")
         try:
             try:
                 workdir = self.get_workdir()
-            except Exception as e:
-                raise e
+            except Exception as exc:
+                raise exc
 
             executable = self.get_executable(workdir)
             output_file_fd = self.get_file(workdir, file_label='output_file', file_name='ES_payload_output.txt')
@@ -187,11 +207,11 @@ class ESProcess(threading.Thread):
                 try:
                     executable, diagnostics = containerise_executable(executable, job=self.__payload['job'], workdir=workdir)
                     if diagnostics:
-                        msg = 'containerisation of executable failed: %s' % diagnostics
+                        msg = f'containerisation of executable failed: {diagnostics}'
                         logger.warning(msg)
                         raise SetupFailure(msg)
                 except Exception as e:
-                    msg = 'exception caught while preparing container command: %s' % e
+                    msg = f'exception caught while preparing container command: {e}'
                     logger.warning(msg)
                     raise SetupFailure(msg)
             else:
@@ -202,34 +222,30 @@ class ESProcess(threading.Thread):
             self.pid = self.__process.pid
             self.__payload['job'].pid = self.pid
             self.__is_payload_started = True
-            logger.debug("Started new processs (executable: %s, stdout: %s, stderr: %s, pid: %s)" % (executable,
-                                                                                                     output_file_fd,
-                                                                                                     error_file_fd,
-                                                                                                     self.__process.pid))
+            logger.debug(f"started new processs (executable: {executable}, stdout: {output_file_fd}, "
+                         f"stderr: {error_file_fd}, pid: {self.__process.pid})")
             if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].corecount:
                 self.corecount = int(self.__payload['job'].corecount)
-        except PilotException as e:
-            logger.error("Failed to start payload process: %s, %s" % (e.get_detail(), traceback.format_exc()))
+        except PilotException as exc:
+            logger.error(f"failed to start payload process: {exc.get_detail()}, {traceback.format_exc()}")
             self.__ret_code = -1
-        except Exception as e:
-            logger.error("Failed to start payload process: %s, %s" % (str(e), traceback.format_exc()))
+        except Exception as exc:
+            logger.error(f"failed to start payload process: {exc}, {traceback.format_exc()}")
             self.__ret_code = -1
-            raise SetupFailure(e)
+            raise SetupFailure(exc)
         logger.info("finished initializing payload process")
 
-    def get_file(self, workdir, file_label='output_file', file_name='ES_payload_output.txt'):
+    def get_file(self, workdir: str, file_label: str = 'output_file',
+                 file_name: str = 'ES_payload_output.txt') -> TextIO:
         """
         Return the requested file.
 
-        :param file_label:
-        :param workdir:
-        :return:
+        :param file_label: label of the file (str)
+        :param workdir: work directory (str)
+        :param file_name: name of the file (str)
+        :return: file descriptor (TextIO).
         """
-
-        try:
-            file_type = file  # Python 2
-        except NameError:
-            file_type = io.IOBase  # Python 3
+        file_type = io.IOBase
 
         if file_label in self.__payload:
             if isinstance(self.__payload[file_label], file_type):
@@ -243,84 +259,83 @@ class ESProcess(threading.Thread):
 
         return _file_fd
 
-    def get_workdir(self):
+    def get_workdir(self) -> str:
         """
         Return the workdir.
+
         If the workdir is set but is not a directory, return None.
 
-        :return: workdir (string or None).
+        :return: work directory (str)
         :raises SetupFailure: in case workdir is not a directory.
         """
-
         workdir = ''
         if 'workdir' in self.__payload:
             workdir = self.__payload['workdir']
             if not os.path.exists(workdir):
-                os.makedirs(workdir)
+                try:
+                    os.makedirs(workdir)
+                except OSError as exc:
+                    raise SetupFailure(f"failed to create workdir: {exc}")
             elif not os.path.isdir(workdir):
                 raise SetupFailure('workdir exists but is not a directory')
+
         return workdir
 
-    def get_executable(self, workdir):
+    def get_executable(self, workdir: str) -> str:
         """
         Return the executable string.
 
-        :param workdir: work directory (string).
-        :return: executable (string).
+        :param workdir: work directory (str)
+        :return: executable (str).
         """
-        executable = self.__payload['executable']
-        executable = self.init_yampl_socket(executable)
-        return 'cd %s; %s' % (workdir, executable)
+        executable = self.init_yampl_socket(self.__payload['executable'])
+        return f'cd {workdir}; {executable}'
 
-    def set_get_event_ranges_hook(self, hook):
+    def set_get_event_ranges_hook(self, hook: Any):
         """
-        set get_event_ranges hook.
+        Set get_event_ranges hook.
 
-        :param hook: a hook method to get event ranges.
+        :param hook: a hook method to get event ranges (Any).
         """
-
         self.get_event_ranges_hook = hook
 
-    def get_get_event_ranges_hook(self):
+    def get_get_event_ranges_hook(self) -> Any:
         """
-        get get_event_ranges hook.
+        Get get_event_ranges hook.
 
-        :returns: The hook method to get event ranges.
+        :return: the hook method to get event ranges (Any).
         """
-
         return self.get_event_ranges_hook
 
-    def set_handle_out_message_hook(self, hook):
+    def set_handle_out_message_hook(self, hook: Any):
         """
-        set handle_out_message hook.
+        Set handle_out_message hook.
 
-        :param hook: a hook method to handle payload output and error messages.
+        :param hook: a hook method to handle payload output and error messages (Any).
         """
-
         self.handle_out_message_hook = hook
 
-    def get_handle_out_message_hook(self):
+    def get_handle_out_message_hook(self) -> Any:
         """
-        get handle_out_message hook.
+        Get handle_out_message hook.
 
-        :returns: The hook method to handle payload output and error messages.
+        :return: The hook method to handle payload output and error messages (Any).
         """
-
         return self.handle_out_message_hook
 
     def init(self):
         """
-        initialize message thread and payload process.
-        """
+        Initialize message thread and payload process.
 
+        :raises: SetupFailure, MessageFailure.
+        """
         try:
             self.init_message_thread()
             self.init_payload_process()
-        except Exception as e:
-            # TODO: raise exceptions
+        except Exception as exc:
             self.__ret_code = -1
             self.stop()
-            raise e
+            raise exc
 
     def monitor(self):
         """
@@ -328,12 +343,12 @@ class ESProcess(threading.Thread):
 
         raises: MessageFailure: when the message thread is dead or exited.
                 RunPayloadFailure: when the payload process is dead or exited.
+                Exception: when too long time since "No more events" is injected.
         """
-
         if self.__no_more_event_time and time.time() - self.__no_more_event_time > self.__waiting_time:
             self.__ret_code = -1
-            raise Exception('Too long time (%s seconds) since "No more events" is injected' %
-                            (time.time() - self.__no_more_event_time))
+            raise Exception(f'Too long time ({time.time() - self.__no_more_event_time} seconds) '
+                            f'since \"No more events\" is injected')
 
         if self.__monitor_log_time is None or self.__monitor_log_time < time.time() - 10 * 60:
             self.__monitor_log_time = time.time()
@@ -351,39 +366,43 @@ class ESProcess(threading.Thread):
                 logger.info("Payload finished with no more events")
             else:
                 self.__ret_code = self.__process.poll()
-                raise RunPayloadFailure("Payload process is not alive: %s" % self.__process.poll())
+                raise RunPayloadFailure(f"Payload process is not alive: {self.__process.poll()}")
 
         if self.__stop.is_set() and time.time() > self.__stop_set_time + self.__stop_delay:
-            logger.info("Stop has been set for %s seconds, which is more than the stop wait time. Will terminate" % self.__stop_delay)
+            logger.info(f"Stop has been set for {self.__stop_delay} seconds, which is more than the stop wait time. Will terminate")
             self.terminate()
 
-    def has_running_children(self):
+    def has_running_children(self) -> bool:
         """
-        Check whether it has running children
+        Check whether there are running children.
 
-        :return: True if there are alive children, otherwise False
+        :return: True if there are alive children, otherwise False (bool).
         """
         if self.__message_thread and self.__message_thread.is_alive():
             return True
         if self.__process and self.__process.poll() is None:
             return True
+
         return False
 
-    def is_payload_running(self):
+    def is_payload_running(self) -> bool:
         """
-        Check whether the payload is still running
+        Check whether the payload is still running.
 
-        :return: True if the payload is running, otherwise False
+        :return: True if the payload is running, otherwise False (bool).
         """
         if self.__process and self.__process.poll() is None:
             return True
+
         return False
 
-    def get_event_range_to_payload(self):
+    def get_event_range_to_payload(self) -> list:
         """
-        Get one event range to be sent to payload
+        Get one event range to be sent to payload.
+
+        :return: list of event ranges (list).
         """
-        logger.debug("Number of cached event ranges: %s" % len(self.event_ranges_cache))
+        logger.debug(f"number of cached event ranges: {len(self.event_ranges_cache)}")
         if not self.event_ranges_cache:
             event_ranges = self.get_event_ranges()
             if event_ranges:
@@ -395,38 +414,36 @@ class ESProcess(threading.Thread):
         else:
             return []
 
-    def get_event_ranges(self, num_ranges=None):
+    def get_event_ranges(self, num_ranges: int = None) -> list:
         """
-        Calling get_event_ranges hook to get event ranges.
+        Call get_event_ranges hook to get event ranges.
 
-        :param num_ranges: number of event ranges to get.
-
+        :param num_ranges: number of event ranges to get (int)
+        :return: list of event ranges (list)
         :raises: SetupFailure: If get_event_ranges_hook is not set.
                  MessageFailure: when failed to get event ranges.
         """
         if not num_ranges:
             num_ranges = self.corecount
 
-        logger.debug('getting event ranges(num_ranges=%s)' % num_ranges)
+        logger.debug(f'getting event ranges(num_ranges={num_ranges})')
         if not self.get_event_ranges_hook:
             raise SetupFailure("get_event_ranges_hook is not set")
 
         try:
-            logger.debug('calling get_event_ranges hook(%s) to get event ranges.' % self.get_event_ranges_hook)
+            logger.debug(f'calling get_event_ranges hook({self.get_event_ranges_hook}) to get event ranges.')
             event_ranges = self.get_event_ranges_hook(num_ranges)
-            logger.debug('got event ranges: %s' % event_ranges)
+            logger.debug(f'got event ranges: {event_ranges}')
             return event_ranges
         except Exception as e:
-            raise MessageFailure("Failed to get event ranges: %s" % e)
+            raise MessageFailure(f"Failed to get event ranges: {e}")
 
-    def send_event_ranges_to_payload(self, event_ranges):
+    def send_event_ranges_to_payload(self, event_ranges: list):
         """
         Send event ranges to payload through message thread.
 
-        :param event_ranges: list of event ranges.
+        :param event_ranges: list of event ranges (list).
         """
-
-        msg = None
         if "No more events" in event_ranges:
             msg = event_ranges
             self.is_no_more_events = True
@@ -435,21 +452,19 @@ class ESProcess(threading.Thread):
             if type(event_ranges) is not list:
                 event_ranges = [event_ranges]
             msg = json.dumps(event_ranges)
-        logger.debug('send event ranges to payload: %s' % msg)
+        logger.debug(f'send event ranges to payload: {msg}')
         self.__message_thread.send(msg)
 
-    def parse_out_message(self, message):
+    def parse_out_message(self, message: str) -> dict:
         """
         Parse output or error messages from payload.
 
-        :param message: The message string received from payload.
-
-        :returns: a dict {'id': <id>, 'status': <status>, 'output': <output if produced>, 'cpu': <cpu>, 'wall': <wall>, 'message': <full message>}
+        :param message: The message string received from payload (str)
+        :return: {'id': <id>, 'status': <status>, 'output': <output>, 'cpu': <cpu>, 'wall': <wall>, 'message': <message>}
         :raises: PilotExecption: when a PilotException is caught.
                  UnknownException: when other unknown exception is caught.
         """
-
-        logger.debug('parsing message: %s' % message)
+        logger.debug(f'parsing message: {message}')
         try:
             if message.startswith("/"):
                 parts = message.split(",")
@@ -473,7 +488,7 @@ class ESProcess(threading.Thread):
                         ret = {'id': event_range_id, 'status': 'failed', 'message': message}
                         return ret
                     else:
-                        raise Exception("Failed to parse %s" % message)
+                        raise Exception(f"Failed to parse {message}")
                 else:
                     pattern = re.compile(r"(ERR\_[A-Z\_]+)\ ([0-9A-Za-z._\-]+)\:\ ?(.+)")
                     found = re.findall(pattern, message)
@@ -481,46 +496,42 @@ class ESProcess(threading.Thread):
                     ret = {'id': event_range_id, 'status': 'failed', 'message': message}
                     return ret
             else:
-                raise UnknownException("Unknown message %s" % message)
+                raise UnknownException(f"Unknown message {message}")
         except PilotException as e:
             raise e
         except Exception as e:
             raise UnknownException(e)
 
-    def handle_out_message(self, message):
+    def handle_out_message(self, message: str):
         """
         Handle output or error messages from payload.
+
         Messages from payload will be parsed and the handle_out_message hook is called.
 
-        :param message: The message string received from payload.
-
+        :param message: message string received from payload (str)
         :raises: SetupFailure: when handle_out_message_hook is not set.
                  RunPayloadFailure: when failed to handle an output or error message.
         """
-
-        logger.debug('handling out message: %s' % message)
+        logger.debug(f'handling out message: {message}')
         if not self.handle_out_message_hook:
             raise SetupFailure("handle_out_message_hook is not set")
 
         try:
             message_status = self.parse_out_message(message)
-            logger.debug('parsed out message: %s' % message_status)
-            logger.debug('calling handle_out_message hook(%s) to handle parsed message.' % self.handle_out_message_hook)
+            logger.debug(f'parsed out message: {message_status}')
+            logger.debug(f'calling handle_out_message hook({self.handle_out_message_hook}) to handle parsed message.')
             self.handle_out_message_hook(message_status)
         except Exception as e:
-            raise RunPayloadFailure("Failed to handle out message: %s" % e)
+            raise RunPayloadFailure(f"Failed to handle out message: {e}")
 
     def handle_messages(self):
-        """
-        Monitor the message queue to get output or error messages from payload and response to different messages.
-        """
-
+        """Monitor the message queue to get output or error messages from payload and response to different messages."""
         try:
             message = self.__message_queue.get(False)
         except queue.Empty:
             pass
         else:
-            logger.debug('received message from payload: %s' % message)
+            logger.debug(f'received message from payload: {message}')
             if "Ready for events" in message:
                 event_ranges = self.get_event_range_to_payload()
                 if not event_ranges:
@@ -529,9 +540,9 @@ class ESProcess(threading.Thread):
             else:
                 self.handle_out_message(message)
 
-    def poll(self):
+    def poll(self) -> int:
         """
-        poll whether the process is still running.
+        Poll whether the process is still running.
 
         :returns: None: still running.
                   0: finished successfully.
@@ -539,12 +550,11 @@ class ESProcess(threading.Thread):
         """
         return self.__ret_code
 
-    def terminate(self, time_to_wait=1):
+    def terminate(self, time_to_wait: int = 1):
         """
         Terminate running threads and processes.
 
-        :param time_to_wait: integer, seconds to wait to force kill the payload process.
-
+        :param time_to_wait: integer, seconds to wait to force kill the payload process (int)
         :raises: PilotExecption: when a PilotException is caught.
                  UnknownException: when other unknown exception is caught.
         """
@@ -556,7 +566,7 @@ class ESProcess(threading.Thread):
                     if self.__process.poll() == 0:
                         logger.info("payload finished successfully.")
                     else:
-                        logger.error("payload finished with error code: %s" % self.__process.poll())
+                        logger.error(f"payload finished with error code: {self.__process.poll()}")
                 else:
                     for i in range(time_to_wait * 10):
                         if not self.__process.poll() is None:
@@ -567,20 +577,18 @@ class ESProcess(threading.Thread):
                         if self.__process.poll() == 0:
                             logger.info("payload finished successfully.")
                         else:
-                            logger.error("payload finished with error code: %s" % self.__process.poll())
+                            logger.error(f"payload finished with error code: {self.__process.poll()}")
                     else:
                         logger.info('terminating payload process.')
                         pgid = os.getpgid(self.__process.pid)
-                        logger.info('got process group id for pid %s: %s' % (self.__process.pid, pgid))
-                        # logger.info('send SIGTERM to process group: %s' % pgid)
-                        # os.killpg(pgid, signal.SIGTERM)
-                        logger.info('send SIGTERM to process: %s' % self.__process.pid)
+                        logger.info(f'got process group id for pid {self.__process.pid}: {pgid}')
+                        logger.info(f'send SIGTERM to process: {self.__process.pid}')
                         kill_child_processes(self.__process.pid)
                 self.__ret_code = self.__process.poll()
             else:
                 self.__ret_code = -1
         except Exception as e:
-            logger.error('Exception caught when terminating ESProcess: %s' % e)
+            logger.error(f'Exception caught when terminating ESProcess: {e}')
             self.__ret_code = -1
             self.stop()
             raise UnknownException(e)
@@ -588,8 +596,6 @@ class ESProcess(threading.Thread):
     def kill(self):
         """
         Terminate running threads and processes.
-
-        :param time_to_wait: integer, seconds to wait to force kill the payload process.
 
         :raises: PilotException: when a PilotException is caught.
                  UnknownException: when other unknown exception is caught.
@@ -602,56 +608,53 @@ class ESProcess(threading.Thread):
                     if self.__process.poll() == 0:
                         logger.info("payload finished successfully.")
                     else:
-                        logger.error("payload finished with error code: %s" % self.__process.poll())
+                        logger.error(f"payload finished with error code: {self.__process.poll()}")
                 else:
                     logger.info('killing payload process.')
                     pgid = os.getpgid(self.__process.pid)
-                    logger.info('got process group id for pid %s: %s' % (self.__process.pid, pgid))
-                    # logger.info('send SIGKILL to process group: %s' % pgid)
-                    # os.killpg(pgid, signal.SIGKILL)
-                    logger.info('send SIGKILL to process: %s' % self.__process.pid)
+                    logger.info(f'got process group id for pid {self.__process.pid}: {pgid}')
+                    logger.info(f'send SIGKILL to process: {self.__process.pid}')
                     kill_child_processes(self.__process.pid)
-        except Exception as e:
-            logger.error('Exception caught when terminating ESProcess: %s' % e)
+        except Exception as exc:
+            logger.error(f'exception caught when terminating ESProcess: {exc}')
             self.stop()
-            raise UnknownException(e)
+            raise UnknownException(exc)
 
     def clean(self):
-        """
-        Clean left resources
-        """
+        """Clean left resources."""
         self.terminate()
 
     def run(self):
         """
-        Main run loops: monitor message thread and payload process.
-                        handle messages from payload and response messages with injecting new event ranges or process outputs.
+        Run main loops.
+
+        Monitor message thread and payload process.
+        Handle messages from payload and response messages with injecting new event ranges or process outputs.
 
         :raises: PilotExecption: when a PilotException is caught.
                  UnknownException: when other unknown exception is caught.
         """
-
-        logger.info('start esprocess with thread ident: %s' % (self.ident))
-        logger.debug('initializing')
+        logger.info(f'start esprocess with thread ident: {self.ident}')
         self.init()
         logger.debug('initialization finished.')
 
-        logger.info('starts to main loop')
+        logger.info('start main loop')
         while self.is_payload_running():
             try:
                 self.monitor()
                 self.handle_messages()
                 time.sleep(0.01)
             except PilotException as e:
-                logger.error('PilotException caught in the main loop: %s, %s' % (e.get_detail(), traceback.format_exc()))
+                logger.error(f'PilotException caught in the main loop: {e.get_detail()}, {traceback.format_exc()}')
                 # TODO: define output message exception. If caught 3 output message exception, terminate
                 self.stop()
-            except Exception as e:
-                logger.error('Exception caught in the main loop: %s, %s' % (e, traceback.format_exc()))
+            except Exception as exc:
+                logger.error(f'exception caught in the main loop: {exc}, {traceback.format_exc()}')
                 # TODO: catch and raise exceptions
                 # if catching dead process exception, terminate.
                 self.stop()
                 break
+
         self.clean()
         self.stop_message_thread()
         logger.debug('main loop finished')

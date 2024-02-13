@@ -56,6 +56,8 @@ class BaseExecutor(threading.Thread, PluginFactory):
 
         self.proc = None
 
+        self.current_dir = os.getcwd()
+
     def get_pid(self):
         return self.proc.pid if self.proc else None
 
@@ -75,6 +77,10 @@ class BaseExecutor(threading.Thread, PluginFactory):
     def stop(self):
         if not self.is_stop():
             self.__stop.set()
+        if self.communication_manager:
+            self.communication_manager.stop()
+        os.chdir(self.current_dir)
+        logger.info("change current dir from %s to %s" % (os.getcwd(), self.current_dir))
 
     def is_stop(self):
         return self.__stop.is_set()
@@ -92,7 +98,9 @@ class BaseExecutor(threading.Thread, PluginFactory):
         self.__is_set_payload = True
         job = self.get_job()
         if job and job.workdir:
+            current_dir = os.getcwd()
             os.chdir(job.workdir)
+            logger.info("change current dir from %s to %s" % (current_dir, job.workdir))
 
     def is_set_payload(self):
         return self.__is_set_payload
@@ -108,7 +116,7 @@ class BaseExecutor(threading.Thread, PluginFactory):
         jobs = self.communication_manager.get_jobs(njobs=1, args=self.args)
         logger.info("Received jobs: %s" % jobs)
         if jobs:
-            job = create_job(jobs[0], queue=self.queue)
+            job = create_job(jobs[0], queuename=self.queue)
 
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()

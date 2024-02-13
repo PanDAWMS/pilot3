@@ -19,12 +19,13 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
-# This script demonstrates how to download a file using the Rucio download client.
+"""This script demonstrates how to download a file using the Rucio download client."""
+
 # Note: Rucio needs to be setup with 'lsetup rucio'.
 
 try:
     from rucio.client.downloadclient import DownloadClient
-except Exception:
+except ImportError:
     print("Rucio client has not been setup, please run \'lsetup rucio\' first")
 else:
     f_ific = {'did_scope': 'mc16_13TeV', 'did': 'mc16_13TeV:EVNT.16337107._000147.pool.root.1',

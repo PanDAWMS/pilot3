@@ -18,14 +18,19 @@
 #
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
-# - Shuwei
+# - Shuwei Ye, yesw@bnl.gov, 2021
 
-import os
+"""GS copy tool."""
+
 import logging
-from pilot.info import infosys
-import subprocess
+import os
+import pathlib
 import re
+import subprocess
 from glob import glob
+from typing import Any
+
+from pilot.info import infosys
 
 try:
     from google.cloud import storage
@@ -33,11 +38,6 @@ except Exception:
     storage_client = None
 else:
     storage_client = storage.Client()
-
-try:
-    import pathlib  # Python 3
-except Exception:
-    pathlib = None
 
 from .common import resolve_common_transfer_errors
 from pilot.common.errorcodes import ErrorCodes
@@ -54,25 +54,48 @@ require_protocols = True  ## indicates if given copytool requires protocols to b
 allowed_schemas = ['gs', 'srm', 'gsiftp', 'https', 'davs', 'root']
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def resolve_surl(fspec, protocol, ddmconf, **kwargs):
+def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
     """
-        Get final destination SURL for file to be transferred to Objectstore
-        Can be customized at the level of specific copytool
+    Get final destination SURL for file to be transferred to Objectstore.
 
-        :param protocol: suggested protocol
-        :param ddmconf: full ddm storage data
-        :param fspec: file spec data
-        :return: dictionary {'surl': surl}
+    Can be customized at the level of specific copytool.
+
+    :param fspec: file spec data (Any)
+    :param protocol: suggested protocol (dict)
+    :param ddmconf: full ddm storage data (dict)
+    :param kwargs: kwargs dictionary (dict)
+    :return: SURL dictionary {'surl': surl} (dict).
     """
-
     try:
         pandaqueue = infosys.pandaqueue
     except Exception:
@@ -82,7 +105,7 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
 
     ddm = ddmconf.get(fspec.ddmendpoint)
     if not ddm:
-        raise PilotException('failed to resolve ddmendpoint by name=%s' % fspec.ddmendpoint)
+        raise PilotException(f'failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
     dataset = fspec.dataset
     if dataset:
@@ -92,7 +115,7 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
 
     remote_path = os.path.join(protocol.get('path', ''), pandaqueue, dataset)
     surl = protocol.get('endpoint', '') + remote_path
-    logger.info('For GCS bucket, set surl=%s', surl)
+    logger.info(f'for GCS bucket, set surl={surl}')
 
     # example:
     #   protocol = {u'path': u'/atlas-eventservice', u'endpoint': u's3://s3.cern.ch:443/', u'flavour': u'AWS-S3-SSL', u'id': 175}
@@ -100,19 +123,19 @@ def resolve_surl(fspec, protocol, ddmconf, **kwargs):
     return {'surl': surl}
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files from a GCS bucket.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
     :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     for fspec in files:
 
         dst = fspec.workdir or kwargs.get('workdir') or '.'
         path = os.path.join(dst, fspec.lfn)
-        logger.info('downloading surl=%s to local file %s', fspec.surl, path)
+        logger.info(f'downloading surl={fspec.surl} to local file {path}')
         status, diagnostics = download_file(path, fspec.surl, object_name=fspec.lfn)
 
         if not status:  ## an error occurred
@@ -127,16 +150,15 @@ def copy_in(files, **kwargs):
     return files
 
 
-def download_file(path, surl, object_name=None):
+def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
     """
     Download a file from a GS bucket.
 
-    :param path: Path to local file after download (string).
-    :param surl: remote path (string).
-    :param object_name: GCS object name. If not specified then file_name from path is used.
-    :return: True if file was uploaded (else False), diagnostics (string).
+    :param path: Path to local file after download (str)
+    :param surl: remote path (str)
+    :param object_name: GCS object name. If not specified then file_name from path is used (str)
+    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
     """
-
     # if object_name was not specified, use file name from path
     if object_name is None:
         object_name = os.path.basename(path)
@@ -146,21 +168,21 @@ def download_file(path, surl, object_name=None):
         with target.open(mode="wb") as downloaded_file:
             storage_client.download_blob_to_file(surl, downloaded_file)
     except Exception as error:
-        diagnostics = 'exception caught in gs client: %s' % error
+        diagnostics = f'exception caught in gs client: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
 
     return True, ""
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict):
     """
     Upload given files to GS storage.
 
-    :param files: list of `FileSpec` objects
+    :param files: list of `FileSpec` objects (list)
     :raise: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     workdir = kwargs.pop('workdir')
 
     # if len(files) > 0:
@@ -170,7 +192,7 @@ def copy_out(files, **kwargs):
     #     (bucket, remote_path) = reobj.groups()
 
     for fspec in files:
-        logger.info('Going to process fspec.turl=%s', fspec.turl)
+        logger.info(f'processing fspec.turl={fspec.turl}')
 
         fspec.status = None
         reobj = re.match(r'gs://([^/]*)/(.*)', fspec.turl)
@@ -195,7 +217,7 @@ def copy_out(files, **kwargs):
             if os.path.exists(path):
                 if logfile == config.Pilot.pilotlog or logfile == config.Payload.payloadstdout or logfile == config.Payload.payloadstderr:
                     content_type = "text/plain"
-                    logger.info('Change the file=%s content-type to text/plain', logfile)
+                    logger.debug(f'change the file {logfile} content-type to text/plain')
                 else:
                     content_type = None
                     try:
@@ -204,12 +226,12 @@ def copy_out(files, **kwargs):
                             result = result.decode('utf-8')
                         if result.find(';') > 0:
                             content_type = result.split(';')[0]
-                            logger.info('Change the file=%s content-type to %s', logfile, content_type)
+                            logger.debug(f'change the file {logfile} content-type to {content_type}')
                     except Exception:
                         pass
 
                 object_name = os.path.join(remote_path, logfile)
-                logger.info('uploading %s to bucket=%s using object name=%s', path, bucket, object_name)
+                logger.info(f'uploading {path} to bucket {bucket} using object name {object_name}')
                 status, diagnostics = upload_file(path, bucket, object_name=object_name, content_type=content_type)
 
                 if not status:  ## an error occurred
@@ -219,7 +241,7 @@ def copy_out(files, **kwargs):
                     fspec.status_code = error.get('rcode')
                     raise PilotException(error.get('error'), code=error.get('rcode'), state=error.get('state'))
             else:
-                diagnostics = 'local output file does not exist: %s' % path
+                diagnostics = f'local output file does not exist: {path}'
                 logger.warning(diagnostics)
                 fspec.status = 'failed'
                 fspec.status_code = errors.STAGEOUTFAILED
@@ -232,16 +254,16 @@ def copy_out(files, **kwargs):
     return files
 
 
-def upload_file(file_name, bucket, object_name=None, content_type=None):
+def upload_file(file_name: str, bucket: str, object_name: str = None, content_type: str = None) -> (bool, str):
     """
     Upload a file to a GCS bucket.
 
-    :param file_name: File to upload.
-    :param bucket: Bucket to upload to (string).
-    :param object_name: GCS object name. If not specified then file_name is used.
+    :param file_name: file to upload (str)
+    :param bucket: bucket to upload to (str)
+    :param object_name: GCS object name. If not specified then file_name is used (str)
+    :param content_type: content type (str)
     :return: True if file was uploaded (else False), diagnostics (string).
     """
-
     # if GCS object_name was not specified, use file_name
     if object_name is None:
         object_name = file_name
@@ -251,15 +273,15 @@ def upload_file(file_name, bucket, object_name=None, content_type=None):
         gs_bucket = storage_client.get_bucket(bucket)
         # remove any leading slash(es) in object_name
         object_name = object_name.lstrip('/')
-        logger.info('uploading a file to bucket=%s in full path=%s in content_type=%s', bucket, object_name, content_type)
+        logger.info(f'uploading a file to bucket {bucket} in full path {object_name} in content_type {content_type}')
         blob = gs_bucket.blob(object_name)
         blob.upload_from_filename(filename=file_name, content_type=content_type)
         if file_name.endswith(config.Pilot.pilotlog):
             url_pilotlog = blob.public_url
             os.environ['GTAG'] = url_pilotlog
-            logger.debug("Set envvar GTAG with the pilotLot URL=%s", url_pilotlog)
+            logger.debug(f"set env var GTAG with the pilotLot URL={url_pilotlog}")
     except Exception as error:
-        diagnostics = 'exception caught in gs client: %s' % error
+        diagnostics = f'exception caught in gs client: {error}'
         logger.critical(diagnostics)
         return False, diagnostics
 

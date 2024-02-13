@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Machine and job features (for sites that support this CERN project)."""
+
 import logging
 import os
 from json import dumps, loads
@@ -30,23 +32,22 @@ logger = logging.getLogger(__name__)
 
 
 class Features:
+    """Common machine and job features."""
 
-    def get_data_members(self):
+    def get_data_members(self) -> list:
         """
         Return all data members.
 
-        :return: list of data members.
+        :return: list of data members (list).
         """
-
         return [attr for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")]
 
-    def get(self):
+    def get(self) -> dict:
         """
         Convert class to dictionary.
 
-        :return: class dictionary.
+        :return: class dictionary (dict).
         """
-
         # convert class data members to a dictionary string (dumps), then to a dictionary (loads)
         # note that all data members will remain as strings
         return loads(dumps(self, default=lambda par: par.__dict__))
@@ -56,9 +57,8 @@ class Features:
         Set all values.
 
         :param path: path to job or machine features directory (str)
-        :param label: machine or job string (str)
+        :param label: machine or job string (str).
         """
-
         if path and os.path.exists(path):
             data_members = self.get_data_members()
             for member in data_members:
@@ -80,12 +80,10 @@ class Features:
 
 
 class MachineFeatures(Features):
+    """Machine features."""
 
     def __init__(self):
-        """
-        Default init.
-        """
-
+        """Initialize variables."""
         super().__init__()
 
         # machine features
@@ -98,12 +96,10 @@ class MachineFeatures(Features):
 
 
 class JobFeatures(Features):
+    """Job features."""
 
     def __init__(self):
-        """
-        Default init.
-        """
-
+        """Initialize variables."""
         super().__init__()
 
         # job features

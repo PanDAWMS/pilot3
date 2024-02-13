@@ -19,10 +19,14 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
 
+"""HPO executor."""
+
 import json
+import logging
 import os
 import time
 import traceback
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
@@ -30,45 +34,64 @@ from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.info.filespec import FileSpec
 from pilot.util.config import config
 from pilot.util.filehandling import calculate_checksum
-
 from .baseexecutor import BaseExecutor
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
-
-"""
-HPO Executor
-"""
 
 
 class HPOExecutor(BaseExecutor):
+    """HPO executor class."""
+
     def __init__(self, **kwargs):
+        """
+        Initialize HPO executor.
+
+        :param kwargs: kwargs dictionary (dict).
+        """
         super(HPOExecutor, self).__init__(**kwargs)
         self.setName("HPOExecutor")
-
         self.__queued_out_messages = []
         self.__last_stageout_time = None
         self.__all_out_messages = []
-
         self.proc = None
         self.exit_code = None
 
-    def is_payload_started(self):
+    def is_payload_started(self) -> bool:
+        """
+        Check if payload is started.
+
+        :return: True if payload is started, False otherwise (bool).
+        """
         return self.proc.is_payload_started() if self.proc else False
 
-    def get_pid(self):
+    def get_pid(self) -> int:
+        """
+        Get the process id of the payload process.
+
+        :return: the process id of the payload process (int).
+        """
         return self.proc.pid if self.proc else None
 
-    def get_exit_code(self):
+    def get_exit_code(self) -> int:
+        """
+        Get the exit code of the payload process.
+
+        :return: the exit code of the payload process (int).
+        """
         return self.exit_code
 
-    def create_file_spec(self, pfn):
+    def create_file_spec(self, pfn: str) -> FileSpec:
+        """
+        Create a file spec from a pfn.
+
+        :param pfn: physical file name (str)
+        :return: a file spec (FileSpec).
+        """
         try:
             checksum = calculate_checksum(pfn, algorithm=config.File.checksum_type)
         except (FileHandlingFailure, NotImplementedError, Exception) as exc:
-            logger.warning('caught exception: %s', exc)
+            logger.warning(f'caught exception: {exc}')
             checksum = ''  # fail later
         filesize = os.path.getsize(pfn)
         file_data = {'scope': 'transient',
@@ -79,20 +102,19 @@ class HPOExecutor(BaseExecutor):
         file_spec = FileSpec(filetype='output', **file_data)
         return file_spec
 
-    def update_finished_event_ranges(self, out_messagess):
+    def update_finished_event_ranges(self, out_messages: Any) -> None:
         """
-        Update finished event ranges
+        Update finished event ranges.
 
-        :param out_messages: messages from AthenaMP.
+        :param out_messages: messages from AthenaMP (Any).
         """
-
         logger.info("update_finished_event_ranges:")
 
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for out_msg in out_messagess:
+        for out_msg in out_messages:
             fspec = self.create_file_spec(out_msg['output'])
             event_range_status = {"eventRangeID": out_msg['id'], "eventStatus": 'finished', "pfn": out_msg['output'], "fsize": fspec.filesize}
             for checksum_key in fspec.checksum:
@@ -105,34 +127,34 @@ class HPOExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += len(event_ranges)
 
-    def update_failed_event_ranges(self, out_messagess):
+    def update_failed_event_ranges(self, out_messages: Any) -> None:
         """
-        Update failed event ranges
+        Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP.
+        :param out_messages: messages from AthenaMP (Any).
         """
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for message in out_messagess:
+        for message in out_messages:
             status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def handle_out_message(self, message):
+    def handle_out_message(self, message: dict):
         """
         Handle ES output or error messages hook function for tests.
 
-        :param message: a dict of parsed message.
-                        For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
+            For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
-                        Fro 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
-        """
+            For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
-        logger.info("Handling out message: %s" % message)
+        :param message: a dict of parsed message (dict).
+        """
+        logger.info(f"Handling out message: {message}")
 
         self.__all_out_messages.append(message)
 
@@ -141,14 +163,13 @@ class HPOExecutor(BaseExecutor):
         else:
             self.__queued_out_messages.append(message)
 
-    def stageout_es(self, force=False):
+    def stageout_es(self, force: bool = False):
         """
         Stage out event service outputs.
 
+        :param force: force stage out (bool).
         """
-
         job = self.get_job()
-        # logger.info("job.infosys.queuedata.es_stageout_gap: %s" % job.infosys.queuedata.es_stageout_gap)
         if len(self.__queued_out_messages):
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
                 out_messages = []
@@ -157,10 +178,7 @@ class HPOExecutor(BaseExecutor):
                 self.update_finished_event_ranges(out_messages)
 
     def clean(self):
-        """
-        Clean temp produced files
-        """
-
+        """Clean temp produced files."""
         logger.info("shutting down...")
 
         self.__queued_out_messages = []
@@ -175,21 +193,19 @@ class HPOExecutor(BaseExecutor):
         self.stop_communicator()
 
     def run(self):
-        """
-        Initialize and run ESProcess.
-        """
+        """Initialize and run ESProcess."""
         try:
-            logger.info("starting ES HPOExecutor with thread ident: %s" % self.ident)
+            logger.info(f"starting ES HPOExecutor with thread ident: {self.ident}")
             if self.is_set_payload():
                 payload = self.get_payload()
             elif self.is_retrieve_payload():
                 payload = self.retrieve_payload()
             else:
-                logger.error("Payload is not set but is_retrieve_payload is also not set. No payloads.")
+                logger.error("payload is not set but is_retrieve_payload is also not set. No payloads.")
 
-            logger.info("payload: %s" % payload)
+            logger.info(f"payload: {payload}")
 
-            logger.info("Starting ESProcess")
+            logger.info("starting ESProcess")
             proc = ESProcess(payload, waiting_time=999999)
             self.proc = proc
             logger.info("ESProcess initialized")
@@ -202,21 +218,18 @@ class HPOExecutor(BaseExecutor):
             logger.info('ESProcess started to run')
 
             exit_code = None
-            try:
-                iteration = long(0)  # Python 2  # noqa: F821
-            except Exception:
-                iteration = 0  # Python 3
+            iteration = 0
             while proc.is_alive():
                 iteration += 1
                 if self.is_stop():
-                    logger.info('Stop is set. breaking -- stop process pid=%s' % proc.pid)
+                    logger.info(f'stop is set. breaking -- stop process pid={proc.pid}')
                     proc.stop()
                     break
                 self.stageout_es()
 
                 exit_code = proc.poll()
                 if iteration % 60 == 0:
-                    logger.info('running: iteration=%d pid=%s exit_code=%s' % (iteration, proc.pid, exit_code))
+                    logger.info(f'running: iteration={iteration} pid={proc.pid} exit_code={exit_code}')
                 time.sleep(5)
 
             while proc.is_alive():
@@ -228,8 +241,8 @@ class HPOExecutor(BaseExecutor):
 
             self.exit_code = proc.poll()
 
-        except Exception as e:
-            logger.error('Execute payload failed: %s, %s' % (e, traceback.format_exc()))
+        except Exception as exc:
+            logger.error(f'execute payload failed: {exc}, {traceback.format_exc()}')
             self.clean()
             self.exit_code = -1
         logger.info('ES HPO executor finished')

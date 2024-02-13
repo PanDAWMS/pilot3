@@ -47,7 +47,8 @@ def get_core_count(job):
                 try:
                     job.corecount = int(os.environ.get('ATHENA_PROC_NUMBER'))
                 except (ValueError, TypeError) as exc:
-                    logger.warning("ATHENA_PROC_NUMBER is not properly set: %s (will use existing job.corecount value)", exc)
+                    logger.warning(f"ATHENA_PROC_NUMBER is not properly set: {exc} "
+                                   f"(will use existing job.corecount value)")
         else:
             try:
                 job.corecount = int(os.environ.get('ATHENA_PROC_NUMBER'))
@@ -84,21 +85,6 @@ def set_core_counts(**kwargs):
     # something like this could be used if prmon also gave info about ncores
     # (change nprocs -> ncores and add ncores to list in utilities module, get_average_summary_dictionary_prmon())
 
-    #summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
-    #if summary_dictionary:
-    #    if 'nprocs' in summary_dictionary["Other"]:
-    #        try:
-    #            job.actualcorecount = int(summary_dictionary["Other"]["nprocs"])
-    #        except Exception as exc:
-    #            logger.warning('exception caught: %s', exc)
-    #        else:
-    #            job.corecounts = add_core_count(job.actualcorecount)
-    #            logger.debug('current core counts list: %s', str(job.corecounts))
-    #    else:
-    #        logger.debug('summary_dictionary[Other]=%s', summary_dictionary["Other"])
-    #else:
-    #    logger.debug('no summary_dictionary')
-
     job = kwargs.get('job', None)
     walltime = kwargs.get('walltime', None)
 
@@ -129,26 +115,3 @@ def set_core_counts(**kwargs):
             logger.debug('no summary dictionary')
     else:
         logger.debug(f'failed to calculate number of cores (walltime={walltime})')
-
-#    if job and job.pgrp:
-#        # ps axo pgid,psr -> 154628   8 \n 154628   9 \n 1546280 1 ..
-#        # sort is redundant; uniq removes any duplicate lines; wc -l gives the final count
-#        # awk is added to get the pgrp list only and then grep -x makes sure that false positives are removed, e.g. 1546280
-#        cmd = "ps axo pgid,psr | sort | grep %d | uniq | awk '{print $1}' | grep -x %d | wc -l" % (job.pgrp, job.pgrp)
-#        _, stdout, _ = execute(cmd, mute=True)
-#        logger.debug('%s: %s', cmd, stdout)
-#        try:
-#            job.actualcorecount = int(stdout)
-#        except ValueError as exc:
-#            logger.warning('failed to convert number of actual cores to int: %s', exc)
-#        else:
-#            job.corecounts = add_core_count(job.actualcorecount)  #, core_counts=job.corecounts)
-#            #logger.debug('current core counts list: %s', str(job.corecounts))
-#            # check suspicious values
-#            #if job.actualcorecount > 5:
-#            #    logger.warning('detected large actualcorecount: %d', job.actualcorecount)
-#            #    cmd = "ps axo pgid,stat,euid,ruid,tty,tpgid,sess,pgrp,ppid,pid,pcpu,comm | sort | uniq | grep %d" % job.pgrp
-#            #    exit_code, stdout, stderr = execute(cmd, mute=True)
-#            #    logger.debug('%s (pgrp=%d): %s', cmd, job.pgrp, stdout)
-#    else:
-#        logger.debug('payload process group not set - cannot check number of cores used by payload')

@@ -45,7 +45,7 @@ def get_path(scope, lfn):
     :return: partial rucio path (string).
     """
 
-    s = '%s:%s' % (scope, lfn)
+    s = f'{scope}:{lfn}'
     hash_hex = md5(s.encode('utf-8')).hexdigest()
     paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
     paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars

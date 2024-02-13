@@ -23,12 +23,15 @@
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
 
+"""Functions for monitoring of threads."""
+
 import logging
 import threading
 import time
 import re
 from os import environ, getpid, getuid
 from subprocess import Popen, PIPE
+from typing import Any
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
 from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
@@ -37,24 +40,23 @@ from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
+from pilot.util.heartbeat import update_pilot_heartbeat
 from pilot.util.queuehandling import get_queuedata_from_job, get_maxwalltime_from_job, abort_jobs_in_queues
 from pilot.util.timing import get_time_since_start
 
 logger = logging.getLogger(__name__)
 
 
-# Monitoring of threads functions
-
-def control(queues, traces, args):  # noqa: C901
+def control(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
+    Monitor threads.
+
     Main control function, run from the relevant workflow module.
 
-    :param queues:
-    :param traces:
-    :param args:
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
     """
-
     t_0 = time.time()
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
     traces.pilot['lifetime_max'] = t_0
@@ -157,14 +159,13 @@ def control(queues, traces, args):  # noqa: C901
     logger.info('[monitor] control thread has ended')
 
 
-def run_shutdowntime_minute_check(time_since_start):
+def run_shutdowntime_minute_check(time_since_start: int) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
-    :param time_since_start: how many seconds have lapsed since the pilot started (int).
-    :return: True if reached max time, False it not (or if shutdowntime not known) (Boolean).
+    :param time_since_start: how many seconds have lapsed since the pilot started (int)
+    :return: True if reached max time, False otherwise (also if shutdowntime not known) (bool).
     """
-
     # check machine features if present for shutdowntime
     machinefeatures = MachineFeatures().get()
     if machinefeatures:
@@ -205,15 +206,15 @@ def run_shutdowntime_minute_check(time_since_start):
     return False
 
 
-def reached_maxtime_abort(args):
+def reached_maxtime_abort(args: Any):
     """
-    Max time has been reached, set REACHED_MAXTIME and graceful_stop, close any ActiveMQ connections.
+    Set REACHED_MAXTIME and graceful_stop, since max time has been reached.
+
+    Also close any ActiveMQ connections
     Wait for final server update before setting graceful_stop.
 
-    :param args: pilot args.
-    :return:
+    :param args: Pilot arguments object (Any).
     """
-
     logger.info('setting REACHED_MAXTIME and graceful stop')
     environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
     if args.amq:
@@ -237,9 +238,10 @@ def reached_maxtime_abort(args):
 #    logger.info('lifetime: %i used, %i maximum', int(time.time() - traces.pilot['lifetime_start']), traces.pilot['lifetime_max'])
 
 
-def get_process_info(cmd, user=None, args='aufx', pid=None):
+def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
     """
     Return process info for given command.
+
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
     a given command (e.g. python3 pilot3/pilot.py).
 
@@ -253,13 +255,12 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
 
       -> ['0.0', '0.0', 'sshd: nilspal@pts/28', 1]
 
-    :param cmd: command (string).
-    :param user: user (string).
-    :param args: ps arguments (string).
-    :param pid: process id (int).
-    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)).
+    :param cmd: command (str)
+    :param user: user (str)
+    :param args: ps arguments (str)
+    :param pid: process id (int)
+    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)) (list).
     """
-
     processes = []
     num = 0
     if not user:
@@ -286,15 +287,28 @@ def get_process_info(cmd, user=None, args='aufx', pid=None):
     return processes
 
 
-def run_checks(queues, args):
+def get_proper_pilot_heartbeat() -> int:
+    """
+    Return the proper pilot heartbeat time limit from config.
+
+    :return: pilot heartbeat time limit (int).
+    """
+
+    try:
+        return int(config.Pilot.pilot_heartbeat)
+    except Exception as exc:
+        logger.warning(f'detected outdated config file: please update default.cfg: {exc}')
+        return 60
+
+
+def run_checks(queues: Any, args: Any) -> None:
     """
     Perform non-job related monitoring checks.
 
-    :param queues:
-    :param args:
-    :return:
+    :param queues: queues object (Any)
+    :param args: Pilot arguments object (Any)
+    :raises: ExceedMaxWaitTime.
     """
-
     # check how long time has passed since last successful heartbeat
     if is_pilot_check(check='last_heartbeat'):
         last_heartbeat = time.time() - args.last_heartbeat
@@ -306,6 +320,23 @@ def run_checks(queues, args):
             args.graceful_stop.set()
             args.abort_job.clear()
             raise ExceededMaxWaitTime(diagnostics)
+
+    # note: active update rather than a check (every ten minutes)
+    if is_pilot_check(check='pilot_heartbeat'):
+        last_heartbeat = time.time() - args.pilot_heartbeat
+        _pilot_heartbeat = get_proper_pilot_heartbeat()
+
+        if last_heartbeat > _pilot_heartbeat:
+            detected_job_suspension = True if last_heartbeat > 10 * 60 else False
+            if detected_job_suspension:
+                logger.warning(f'detected job suspension (last heartbeat was updated more than 10 minutes ago: {last_heartbeat} s)')
+            else:
+                logger.debug(f'pilot heartbeat file was last updated {last_heartbeat} s ago (time to update)')
+
+            # if the pilot heartbeat file can be updated, update the args object
+            _time = time.time()
+            if update_pilot_heartbeat(_time, detected_job_suspension=detected_job_suspension, time_since_detection=last_heartbeat):
+                args.pilot_heartbeat = _time
 
     if args.graceful_stop.is_set():
         # find all running jobs and stop them, find all jobs in queues relevant to this module
@@ -352,20 +383,20 @@ def run_checks(queues, args):
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime, queuedata, queues, push, pod):
+def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool, pod: bool) -> int:
     """
     Return the maximum allowed running time for the pilot.
+
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
     If running in a Kubernetes pod, always use the args.lifetime as maxtime (it will be determined by the harvester submitter).
 
-    :param lifetime: optional pilot option time in seconds (int).
-    :param queuedata: queuedata object
-    :param queues:
-    :param push: push mode (boolean)
-    :param pod: pod mode (boolean)
-    :return: max running time in seconds (int)
+    :param lifetime: optional pilot option time in seconds (int)
+    :param queuedata: queuedata object (Any)
+    :param queues: queues object (Any)
+    :param push: push mode (bool)
+    :param pod: pod mode (bool)
+    :return: max running time in seconds (int).
     """
-
     if pod:
         return lifetime
 
