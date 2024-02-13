@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
-# This script shows how to use the Data API stage-in client to download a file from storage
+"""This script shows how to use the Data API stage-in client to download a file from storage."""
 
 from pilot.api import data
 from pilot.info import InfoService, FileSpec, infosys

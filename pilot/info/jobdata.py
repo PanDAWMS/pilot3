@@ -308,7 +308,7 @@ class JobData(BaseData):
         :return:
         """
         dat = dict([item, getattr(FileSpec, item, None)] for item in access_keys)
-        msg = ', '.join(["%s=%s" % (item, value) for item, value in sorted(dat.items())])
+        msg = ', '.join([f"{item}={value}" for item, value in sorted(dat.items())])
         logger.info(f'job.infosys.queuedata is not initialized: the following access settings will be used by default: {msg}')
 
     @staticmethod
@@ -623,7 +623,7 @@ class JobData(BaseData):
         # (return list of strings not to be filtered, which will be put back in the post-filtering below)
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         try:
-            user = __import__('pilot.user.%s.jobdata' % pilot_user, globals(), locals(), [pilot_user], 0)
+            user = __import__(f'pilot.user.{pilot_user}.jobdata', globals(), locals(), [pilot_user], 0)
             exclusions, value = user.jobparams_prefiltering(value)
         except Exception as exc:
             logger.warning(f'caught exception in user code: {exc}')
@@ -660,7 +660,7 @@ class JobData(BaseData):
         except Exception as exc:
             logger.warning(f'caught exception in user code: {exc}')
 
-        logger.info('cleaned jobparams: %s' % ret)
+        logger.info(f'cleaned jobparams: {ret}')
 
         return ret
 
@@ -692,7 +692,7 @@ class JobData(BaseData):
                 else:
                     logger.info(f"extracted image from jobparams: {imagename}")
             else:
-                logger.warning("image could not be extract from %s" % jobparams)
+                logger.warning(f"image could not be extract from {jobparams}")
 
             # remove the option from the job parameters
             jobparams = re.sub(_pattern, "", jobparams)
@@ -893,7 +893,7 @@ class JobData(BaseData):
         :returns: job_option such as --inputHitsFile
         """
         job_options = self.jobparams.split(' ')
-        input_name_option = '=@%s' % input_name
+        input_name_option = f'=@{input_name}'
         for job_option in job_options:
             if input_name_option in job_option:
                 return job_option.split("=")[0]
@@ -933,7 +933,7 @@ class JobData(BaseData):
 
                 self.jobparams = self.jobparams.replace(input_name, input_name_new)
                 if job_option:
-                    self.jobparams = self.jobparams.replace('%s=' % job_option, '')
+                    self.jobparams = self.jobparams.replace(f'{job_option}=', '')
                 self.jobparams = self.jobparams.replace('--autoConfiguration=everything', '')
                 logger.info(f"jobparams after processing writeToFile: {self.jobparams}")
 

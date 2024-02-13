@@ -118,6 +118,8 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
                 job.cpuconsumptiontime = int(round(cpuconsumptiontime))
                 job.cpuconversionfactor = 1.0
                 logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            elif _cpuconsumptiontime == -1:
+                logger.warning('could not get CPU consumption time')
             else:
                 logger.warning(f'process {job.pid} is no longer using CPU - aborting')
                 return 0, ""

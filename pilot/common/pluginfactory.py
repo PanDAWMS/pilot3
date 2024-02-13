@@ -22,7 +22,7 @@
 
 """A factory to manage plugins."""
 
-from typing import Any
+from typing import Any, Dict
 import logging
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class PluginFactory:
 
     def __init__(self, *args: Any, **kwargs: Any):
         """Set initial values."""
-        self.classMap = {}
+        self.classMap: Dict[str, Any] = {}
 
     def get_plugin(self, confs: dict) -> dict:
         """
@@ -44,7 +44,7 @@ class PluginFactory:
         class_name = confs['class']
         if class_name is None:
             logger.error(f"class is not defined in confs: {confs}")
-            return None
+            return {}
 
         if class_name not in self.classMap:
             logger.info(f"trying to import {class_name}")

@@ -122,7 +122,14 @@ def run(args):
     """
 
     logger.info('setting up signal handling')
-    register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS], args)
+    register_signals([signal.SIGINT,
+                      signal.SIGTERM,
+                      signal.SIGQUIT,
+                      signal.SIGSEGV,
+                      signal.SIGXCPU,
+                      signal.SIGUSR1,
+                      signal.SIGBUS],
+                     args)
 
     logger.info('setting up queues')
     queues = namedtuple('queues', ['jobs', 'payloads', 'data_in', 'data_out', 'current_data_in',
@@ -193,32 +200,37 @@ def run(args):
     # the thread_count is the total number of threads, not just the ExcThreads above
     thread_count = threading.activeCount()
     abort = False
-    while threading.activeCount() > 1 or not abort:
-        # Note: this loop only includes at ExcThreads, not MainThread or Thread
-        # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                # deal with the exception
-                print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
+    try:
+        while threading.activeCount() > 1 or not abort:
+            # Note: this loop only includes at ExcThreads, not MainThread or Thread
+            # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    # deal with the exception
+                    print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
 
-            thread.join(0.1)
+                thread.join(0.1)
 
-        # have all threads finished?
-        abort = threads_aborted(caller='run')
-        if abort:
-            logger.debug('will proceed to set job_aborted')
-            args.job_aborted.set()
-            sleep(5)  # allow monitor thread to finish (should pick up job_aborted within 1 second)
-            logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
-            break
+            # have all threads finished?
+            abort = threads_aborted(caller='run')
+            if abort:
+                logger.debug('will proceed to set job_aborted')
+                args.job_aborted.set()
+                sleep(5)  # allow monitor thread to finish (should pick up job_aborted within 1 second)
+                logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
+                break
 
-        sleep(1)
+            sleep(1)
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all workflow threads have been joined')
 
     logger.info(f'end of generic workflow (traces error code: {traces.pilot["error_code"]})')
 

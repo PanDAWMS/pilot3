@@ -19,15 +19,18 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions for executing commands."""
+
 import os
 import subprocess
 import logging
+import re
 import shlex
 import threading
 
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
-from time import sleep
 from signal import SIGTERM, SIGKILL
+from time import sleep
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
@@ -43,14 +46,14 @@ execute_lock = threading.Lock()
 
 def execute(executable: Any, **kwargs: dict) -> Any:
     """
-    Execute the command and its options in the provided executable list.
+    Execute the command with its options in the provided executable list using subprocess time-out handler.
+
     The function also determines whether the command should be executed within a container.
 
-    :param executable: command to be executed (string or list).
+    :param executable: command to be executed (str or list)
     :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
     """
-
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
     #shell = kwargs.get("shell", False)
@@ -99,7 +102,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             return process
 
         try:
-            logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
+            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
@@ -133,7 +136,15 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
 
 def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
+    """
+    Execute the command with its options in the provided executable list using an internal timeout handler.
 
+    The function also determines whether the command should be executed within a container.
+
+    :param executable: command to be executed (string or list)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    """
     exit_code = None
 
     def _timeout_handler():
@@ -203,19 +214,16 @@ def get_timeout(requested_timeout: int) -> int:
     :param requested_timeout: timeout in seconds set by execute() caller (int)
     :return: timeout in seconds (int).
     """
-
     return requested_timeout if requested_timeout else 10 * 24 * 60 * 60  # using a ridiculously large default timeout
 
 
 def execute_command(command: str) -> str:
     """
-    Executes a command using subprocess without using the shell.
+    Execute a command using subprocess without using the shell.
 
-    :param command: The command to execute.
-
-    :return: The output of the command (string).
+    :param command: The command to execute (str)
+    :return: The output of the command (str).
     """
-
     try:
         logger.info(f'executing command: {command}')
         command = shlex.split(command)
@@ -235,11 +243,10 @@ def kill_all(process: Any, stderr: str) -> str:
     """
     Kill all processes after a time-out exception in process.communication().
 
-    :param process: process object
-    :param stderr: stderr (string)
+    :param process: process object (Any)
+    :param stderr: stderr (str)
     :return: stderr (str).
     """
-
     try:
         logger.warning('killing lingering subprocess and process group')
         sleep(1)
@@ -267,12 +274,12 @@ def kill_all(process: Any, stderr: str) -> str:
 def print_executable(executable: str, obscure: str = '') -> None:
     """
     Print out the command to be executed, omitting any secrets.
+
     Any S3_SECRET_KEY=... parts will be removed.
 
-    :param executable: executable (string).
-    :param obscure: sensitive string to be obscured before dumping to log (string)
+    :param executable: executable (str)
+    :param obscure: sensitive string to be obscured before dumping to log (str).
     """
-
     executable_readable = executable
     for sub_cmd in executable_readable.split(";"):
         if 'S3_SECRET_KEY=' in sub_cmd:
@@ -282,6 +289,9 @@ def print_executable(executable: str, obscure: str = '') -> None:
     if obscure:
         executable_readable = executable_readable.replace(obscure, '********')
 
+    # also make sure there is no user token present. If so, obscure it as well
+    executable_readable = obscure_token(executable_readable)
+
     logger.info(f'executing command: {executable_readable}')
 
 
@@ -289,11 +299,10 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
     """
     Wrap the containerisation command around the executable.
 
-    :param executable: command to be wrapper (string)
-    :param kwargs: kwargs dictionary
+    :param executable: command to be wrapper (str)
+    :param kwargs: kwargs dictionary (dict)
     :return: containerised executable (list or None), diagnostics (str).
     """
-
     job = kwargs.get('job')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
@@ -325,3 +334,21 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
         logger.warning('container module could not be imported')
 
     return executable, ""
+
+
+def obscure_token(cmd: str) -> str:
+    """
+    Obscure any user token from the payload command.
+
+    :param cmd: payload command (str)
+    :return: updated command (str).
+    """
+    try:
+        match = re.search(r'-p (\S+)\ ', cmd)
+        if match:
+            cmd = cmd.replace(match.group(1), '********')
+    except (re.error, AttributeError, IndexError):
+        logger.warning('an exception was thrown while trying to obscure the user token')
+        cmd = ''
+
+    return cmd

@@ -35,77 +35,44 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def find_processes_in_group(cpids, pid, ps_cache):
+def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
     """
     Find all processes that belong to the same group using the given ps command output.
+
     Recursively search for the children processes belonging to pid and return their pid's.
     pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
     the pids of the children AND the parent.
 
     ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
 
+    The cpids input parameter list gets updated in the function.
+
     :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int).
     :param pid: parent process id (int).
     :param ps_cache: ps command output (string).
-    :return: (updated cpids input parameter list).
     """
+    if pid:
+        cpids.append(pid)
+        lines = grep_str([str(pid)], ps_cache)
 
-    if not pid:
-        return
-
-    cpids.append(pid)
-    lines = grep_str([str(pid)], ps_cache)
-
-    if lines and lines != ['']:
-        for i in range(0, len(lines)):
-            try:
-                thispid = int(lines[i].split()[0])
-                thisppid = int(lines[i].split()[1])
-            except Exception as error:
-                logger.warning(f'exception caught: {error}')
-            if thisppid == pid:
-                find_processes_in_group(cpids, thispid, ps_cache)
+        if lines and lines != ['']:
+            for i in range(0, len(lines)):
+                try:
+                    thispid = int(lines[i].split()[0])
+                    thisppid = int(lines[i].split()[1])
+                except Exception as error:
+                    logger.warning(f'exception caught: {error}')
+                if thisppid == pid:
+                    find_processes_in_group(cpids, thispid, ps_cache)
 
 
-def find_processes_in_group_old(cpids, pid):
+def is_zombie(pid: int):
     """
-    Find all processes that belong to the same group.
-    Recursively search for the children processes belonging to pid and return their pid's.
-    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
-    the pids of the children AND the parent.
+    Check if the given process is a zombie process.
 
-    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int).
-    :param pid: parent process id (int).
-    :return: (updated cpids input parameter list).
+    :param pid: process id (int)
+    :return: True if process is defunct, False otherwise (bool).
     """
-
-    if not pid:
-        return
-
-    cpids.append(pid)
-
-    cmd = "ps -eo pid,ppid -m | grep %d" % pid
-    _, psout, _ = execute(cmd, mute=True)
-
-    lines = psout.split("\n")
-    if lines != ['']:
-        for i in range(0, len(lines)):
-            try:
-                thispid = int(lines[i].split()[0])
-                thisppid = int(lines[i].split()[1])
-            except Exception as error:
-                logger.warning(f'exception caught: {error}')
-            if thisppid == pid:
-                find_processes_in_group(cpids, thispid)
-
-
-def is_zombie(pid):
-    """
-    Is the given process a zombie?
-    :param pid: process id (int).
-    :return: boolean.
-    """
-
     status = False
 
     cmd = "ps aux | grep %d" % (pid)
@@ -601,8 +568,12 @@ def get_current_cpu_consumption_time(pid):
 
     # get all the child processes
     children = []
-    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
-    find_processes_in_group(children, pid, ps_cache)
+    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True, timeout=60)
+    if ps_cache:
+        find_processes_in_group(children, pid, ps_cache)
+    else:
+        logger.warning('failed to get ps_cache')
+        return -1
 
     cpuconsumptiontime = 0
     for _pid in children:

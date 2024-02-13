@@ -22,12 +22,15 @@
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
 import logging
+from typing import Any
+
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job, extra={}):
+def get_job_metrics(job: Any, extra: dict = {}) -> str:
     """
     Return a properly formatted job metrics string.
+
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
     Example of job metrics:
@@ -35,9 +38,8 @@ def get_job_metrics(job, extra={}):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object
+    :param job: job object (Any)
     :param extra: any extra information to be added (dict)
-    :return: job metrics (string).
+    :return: job metrics (str).
     """
-
     return ""

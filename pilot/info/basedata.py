@@ -20,6 +20,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 """
+Base data class.
+
 The implementation of base data structure to host various settings collected
 from external source with built-in validation and schema translation support.
 
@@ -27,7 +29,6 @@ The main reasons for such incapsulation are to
  - apply in one place all data validation actions (for attributes and values)
  - introduce internal information schema (names of attribues) to remove dependency
  with data structrure, formats, names from external sources (e.g. AGIS/CRIC)
-
 
 :author: Alexey Anisenkov
 :contact: anisyonk@cern.ch
@@ -37,27 +38,30 @@ The main reasons for such incapsulation are to
 import ast
 import copy
 import logging
+from typing import Any
+
 logger = logging.getLogger(__name__)
 
 
-class BaseData(object):
+class BaseData:
     """
-        High-level object to host structured data collected from external source
-        It's considered to be like a bridge (connector) in order to remove direct dependency to
-        external schema (format) implementation
+    Base data class.
+
+    High-level object to host structured data collected from external source
+    It's considered to be like a bridge (connector) in order to remove direct dependency to
+    external schema (format) implementation
     """
 
     _keys = {}
 
-    def _load_data(self, data, kmap={}, validators=None):
+    def _load_data(self, data: dict, kmap: dict = {}, validators: dict = None):
         """
-            Construct and initialize data from ext source.
+        Construct and initialize data from ext source.
 
-            :param data: input dictionary of raw data settings
-            :param kmap: the translation map of data attributes from external format to internal schema
-            :param validators: map of validation handlers to be applied
+        :param data: input dictionary of raw data settings (dict)
+        :param kmap: the translation map of data attributes from external format to internal schema (dict)
+        :param validators: map of validation handlers to be applied (dict).
         """
-
         # the translation map of the queue data attributes from external data to internal schema
         # 'internal_name':('ext_name1', 'extname2_if_any')
         # 'internal_name2':'ext_name3'
@@ -100,7 +104,7 @@ class BaseData(object):
                 if callable(hvalidator):
                     value = hvalidator(raw, ktype, kname, defval=copy.deepcopy(getattr(self, kname, None)))
                 ## apply custom validation if defined
-                hvalidator = getattr(self, 'clean__%s' % kname, None)
+                hvalidator = getattr(self, f'clean__{kname}', None)
                 if callable(hvalidator):
                     value = hvalidator(raw, value)
 
@@ -108,26 +112,25 @@ class BaseData(object):
 
         self.clean()
 
-    def clean(self):
+    def clean(self) -> None:
         """
-            Validate and finally clean up required data values (required object properties) if need
-            Executed once all fields have already passed field-specific validation checks
-            Could be customized by child object
-            :return: None
-        """
-        pass
+        Validate and finally clean up required data values (required object properties if needed.
 
-    ##
-    ## default validators
-    ##
-    def clean_numeric(self, raw, ktype, kname=None, defval=0):
+        Executed once all fields have already passed field-specific validation checks.
+        Could be customized by child object.
         """
-            Clean and convert input value to requested numeric type
-            :param raw: raw input data
-            :param ktype: variable type to which result should be casted
-            :param defval: default value to be used in case of cast error
-        """
+        return
 
+    def clean_numeric(self, raw: Any, ktype: Any, kname: Any = None, defval: int = 0) -> Any:
+        """
+        Clean and convert input value to requested numeric type.
+
+        :param raw: raw input data (Any)
+        :param ktype: variable type to which result should be cast (Any)
+        :param kname: name of the variable (Any)
+        :param defval: default value to be used in case of cast error (int).
+        :return: cleaned value (Any).
+        """
         if isinstance(raw, ktype):
             return raw
 
@@ -141,36 +144,40 @@ class BaseData(object):
                 logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}, defval={defval}')
             return defval
 
-    def clean_string(self, raw, ktype, kname=None, defval=""):
+    def clean_string(self, raw: Any, ktype: Any, kname: Any = None, defval: str = "") -> Any:
         """
-            Clean and convert input value to requested string type
-            :param raw: raw input data
-            :param ktype: variable type to which result should be casted
-            :param defval: default value to be used in case of cast error
-        """
+        Clean and convert input value to requested string type.
 
+        :param raw: raw input data (Any)
+        :param ktype: variable type to which result should be cast (Any)
+        :param kname: name of the variable (Any)
+        :param defval: default value to be used in case of cast error (str).
+        :return: cleaned value (Any).
+        """
         if isinstance(raw, ktype):
             return raw
 
         if raw is None:
             return defval
-        else:
-            if isinstance(raw, str):
-                raw = raw.strip()
+
+        if isinstance(raw, str):
+            raw = raw.strip()
         try:
             return ktype(raw)
         except Exception:
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
-    def clean_boolean(self, raw, ktype, kname=None, defval=None):
+    def clean_boolean(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
         """
-            Clean and convert input value to requested boolean type
-            :param raw: raw input data
-            :param ktype: variable type to which result should be casted
-            :param defval: default value to be used in case of cast error
-        """
+        Clean and convert input value to requested boolean type.
 
+        :param raw: raw input data (Any)
+        :param ktype: variable type to which result should be cast (Any)
+        :param kname: name of the variable (Any)
+        :param defval: default value to be used in case of cast error (Any)
+        :return: cleaned value (Any).
+        """
         if isinstance(raw, ktype):
             return raw
 
@@ -184,23 +191,25 @@ class BaseData(object):
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
-        return val.lower() in ['1', 'true', 'yes']
+        return val.lower() in {'1', 'true', 'yes'}
 
-    def clean_dictdata(self, raw, ktype, kname=None, defval=None):
+    def clean_dictdata(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
         """
-            Clean and convert input value to requested dict type
-            :param raw: raw input data
-            :param ktype: variable type to which result should be casted
-            :param defval: default value to be used in case of cast error
-        """
+        Clean and convert input value to requested dict type.
 
+        :param raw: raw input data (Any)
+        :param ktype: variable type to which result should be cast (Any)
+        :param kname: name of the variable (Any)
+        :param defval: default value to be used in case of cast error (Any)
+        :return: cleaned value (Any).
+        """
         if isinstance(raw, str):
             raw = ast.literal_eval(raw)
 
         if isinstance(raw, ktype):
             return raw
 
-        elif raw is None:
+        if raw is None:
             return defval
         try:
             return ktype(raw)
@@ -208,22 +217,24 @@ class BaseData(object):
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
-    def clean_listdata(self, raw, ktype, kname=None, defval=None):
+    def clean_listdata(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
         """
-            Clean and convert input value to requested list type
-            :param raw: raw input data
-            :param ktype: variable type to which result should be casted
-            :param defval: default value to be used in case of cast error
-        """
+        Clean and convert input value to requested list type.
 
+        :param raw: raw input data (Any)
+        :param ktype: variable type to which result should be cast (Any)
+        :param kname: name of the variable (Any)
+        :param defval: default value to be used in case of cast error (Any)
+        :return: cleaned value (Any).
+        """
         if isinstance(raw, ktype):
             return raw
 
-        elif raw is None:
+        if raw is None:
             return defval
-        else:
-            if isinstance(raw, str):
-                raw = raw.split(',')
+
+        if isinstance(raw, str):
+            raw = raw.split(',')
         try:
             return ktype(raw)
         except Exception:
@@ -237,14 +248,16 @@ class BaseData(object):
     #
     #    return value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
-            Default representation of an object
-        """
+        Represent data as string.
 
+        :return: representation (str).
+        """
         ret = []
         attrs = [key for key in dir(self) if not callable(getattr(self, key)) and not key.startswith('_')]
         for key in sorted(attrs):
-            ret.append(" %s=%s" % (key, getattr(self, key)))
+            ret.append(f" {key}={getattr(self, key)}")
         ret.append('')
+
         return '\n'.join(ret)

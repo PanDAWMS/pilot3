@@ -327,7 +327,7 @@ def lscpu():
 
     cmd = 'lscpu'
     if not which(cmd):
-        logger.warning('command={cmd} does not exist - cannot check number of available cores')
+        logger.warning(f'command={cmd} does not exist - cannot check number of available cores')
         return 1, ""
 
     ec, stdout, _ = execute(cmd)

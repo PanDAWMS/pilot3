@@ -19,9 +19,12 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions for interactiving with Harvester."""
+
 import os
 import os.path
 import socket
+from typing import Any
 
 from pilot.common.exception import FileHandlingFailure
 from pilot.util.config import config
@@ -32,21 +35,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def dump(obj):
+def dump(obj: Any):
     """
-    function for debugging - dumps object to sysout
+    Dump given object to stdout.
+
+    :param obj: object (Any).
     """
     for attr in dir(obj):
         print(f"obj.{attr} = {getattr(obj, attr)}")
 
 
-def is_harvester_mode(args):
+def is_harvester_mode(args: Any) -> bool:
     """
     Determine if the pilot is running in Harvester mode.
-    :param args: Pilot arguments object.
-    :return: Boolean.
-    """
 
+    :param args: Pilot arguments object (Any)
+    :return: True if Harvester mode, False otherwise (bool).
+    """
     if (args.harvester_workdir != '' or args.harvester_datadir != '') and not args.update_server:
         harvester = True
     elif (args.harvester_eventstatusdump != '' or args.harvester_workerattributes != '') and not args.update_server:
@@ -59,23 +64,17 @@ def is_harvester_mode(args):
     return harvester
 
 
-def get_job_request_file_name():
+def get_job_request_file_name() -> str:
     """
     Return the name of the job request file as defined in the pilot config file.
 
-    :return: job request file name.
+    :return: job request file name (str).
     """
-
     return os.path.join(os.environ['PILOT_HOME'], config.Harvester.job_request_file)
 
 
 def remove_job_request_file():
-    """
-    Remove an old job request file when it is no longer needed.
-
-    :return:
-    """
-
+    """Remove an old job request file when it is no longer needed."""
     path = get_job_request_file_name()
     if os.path.exists(path):
         if remove(path) == 0:
@@ -86,14 +85,14 @@ def remove_job_request_file():
 
 def request_new_jobs(njobs: int = 1):
     """
-    Inform Harvester that the pilot is ready to process new jobs by creating a job request file with the desired
-    number of jobs.
+    Inform Harvester that the pilot is ready to process new jobs by creating a job request file.
+
+    The request file will contain the desired number of jobs.
 
     :param njobs: Number of jobs. Default is 1 since on grids and clouds the pilot does not know how many jobs it can
-    process before it runs out of time
+    process before it runs out of time (int)
     :raises: FileHandlingFailure if write_json() fails.
     """
-
     path = get_job_request_file_name()
     dictionary = {'nJobs': njobs}
 
@@ -106,48 +105,41 @@ def request_new_jobs(njobs: int = 1):
 def kill_worker():
     """
     Create (touch) a kill_worker file in the pilot launch directory.
+
     This file will let Harverster know that the pilot has finished.
-
-    :return:
     """
-
     touch(os.path.join(os.environ['PILOT_HOME'], config.Harvester.kill_worker_file))
 
 
-def get_initial_work_report():
+def get_initial_work_report() -> dict:
     """
     Prepare the work report dictionary.
+
     Note: the work_report should also contain all fields defined in parse_jobreport_data().
 
-    :return: work report dictionary.
+    :return: work report dictionary (dict).
     """
-
-    hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
-    work_report = {'jobStatus': 'starting',
-                   'messageLevel': logging.getLevelName(logger.getEffectiveLevel()),
-                   'cpuConversionFactor': 1.0,
-                   'cpuConsumptionTime': '',
-                   'node': hostname,
-                   'workdir': '',
-                   'timestamp': time_stamp(),
-                   'endTime': '',
-                   'transExitCode': 0,
-                   'pilotErrorCode': 0,  # only add this in case of failure?
-                   }
-
-    return work_report
+    return {'jobStatus': 'starting',
+            'messageLevel': logging.getLevelName(logger.getEffectiveLevel()),
+            'cpuConversionFactor': 1.0,
+            'cpuConsumptionTime': '',
+            'node': os.environ.get('PANDA_HOSTNAME', socket.gethostname()),
+            'workdir': '',
+            'timestamp': time_stamp(),
+            'endTime': '',
+            'transExitCode': 0,
+            'pilotErrorCode': 0,  # only add this in case of failure?
+            }
 
 
-def get_event_status_file(args):
+def get_event_status_file(args: Any) -> str:
     """
-    Return the name of the event_status.dump file as defined in the pilot config file
-    and from the pilot arguments.
+    Return the name of the event_status.dump file.
 
-    :param args: Pilot arguments object.
-    :return: event staus file name.
+    :param args: Pilot arguments object (Any)
+    :return: event staus file name (str).
     """
-
-    logger.debug('config.Harvester.__dict__ : {0}'.format(config.Harvester.__dict__))
+    logger.debug(f'config.Harvester.__dict__ : {config.Harvester.__dict__}')
 
     if args.harvester_workdir != '':
         work_dir = args.harvester_workdir
@@ -155,21 +147,19 @@ def get_event_status_file(args):
         work_dir = os.environ['PILOT_HOME']
     event_status_file = config.Harvester.stageoutnfile
     event_status_file = os.path.join(work_dir, event_status_file)
-    logger.debug('event_status_file = {}'.format(event_status_file))
+    logger.debug(f'event_status_file = {event_status_file}')
 
     return event_status_file
 
 
-def get_worker_attributes_file(args):
+def get_worker_attributes_file(args: Any):
     """
-    Return the name of the worker attributes file as defined in the pilot config file
-    and from the pilot arguments.
+    Return the name of the worker attributes file.
 
-    :param args: Pilot arguments object.
-    :return: worker attributes file name.
+    :param args: Pilot arguments object (Any)
+    :return: worker attributes file name (str).
     """
-
-    logger.debug('config.Harvester.__dict__ : {0}'.format(config.Harvester.__dict__))
+    logger.debug(f'config.Harvester.__dict__ : {config.Harvester.__dict__}')
 
     if args.harvester_workdir != '':
         work_dir = args.harvester_workdir
@@ -177,39 +167,38 @@ def get_worker_attributes_file(args):
         work_dir = os.environ['PILOT_HOME']
     worker_attributes_file = config.Harvester.workerattributesfile
     worker_attributes_file = os.path.join(work_dir, worker_attributes_file)
-    logger.debug('worker_attributes_file = {}'.format(worker_attributes_file))
+    logger.debug(f'worker_attributes_file = {worker_attributes_file}')
 
     return worker_attributes_file
 
 
-def findfile(path, name):
+def findfile(path: str, name: str) -> str:
     """
-    find the first instance of file in the directory tree
+    Find the first instance of file in the directory tree.
 
-    :param path: directory tree to search
-    :param name: name of the file to search
-
-    :return: the path to the first instance of the file
+    :param path: directory tree to search (str)
+    :param name: name of the file to search (str)
+    :return: the path to the first instance of the file (str).
     """
-
+    filename = ""
     for root, dirs, files in os.walk(path):
         if name in files:
-            return os.path.join(root, name)
-    return ''
+            filename = os.path.join(root, name)
+            break
+
+    return filename
 
 
-def publish_stageout_files(job, event_status_file):
+def publish_stageout_files(job: Any, event_status_file: str) -> bool:
     """
-    Publishing of work report to file.
+    Publish the work report for stageout.
+
     The work report dictionary should contain the fields defined in get_initial_work_report().
 
-    :param args: Pilot arguments object.
-    :param job: job object.
-    :param event status file name:
-
-    :return: Boolean. status of writing the file information to a json
+    :param job: job object (Any)
+    :param event_status_file: file ane (str)
+    :return: status of writing the file information to a json (bool).
     """
-
     # get the harvester workdir from the event_status_file
     work_dir = os.path.dirname(event_status_file)
 
@@ -218,11 +207,11 @@ def publish_stageout_files(job, event_status_file):
 
     # first look at the logfile information (logdata) from the FileSpec objects
     for fspec in job.logdata:
-        logger.debug("File {} will be checked and declared for stage out".format(fspec.lfn))
+        logger.debug(f"file {fspec.lfn} will be checked and declared for stage out")
         # find the first instance of the file
         filename = os.path.basename(fspec.surl)
         path = findfile(work_dir, filename)
-        logger.debug("Found File {} at path - {}".format(fspec.lfn, path))
+        logger.debug(f"found File {fspec.lfn} at path - {path}")
         #
         file_desc = {}
         file_desc['type'] = fspec.filetype
@@ -230,12 +219,12 @@ def publish_stageout_files(job, event_status_file):
         file_desc['guid'] = fspec.guid
         file_desc['fsize'] = fspec.filesize
         file_desc['chksum'] = get_checksum_value(fspec.checksum)
-        logger.debug("File description - {} ".format(file_desc))
+        logger.debug(f"file description - {file_desc} ")
         out_file_report[job.jobid].append(file_desc)
 
     # Now look at the output file(s) information (outdata) from the FileSpec objects
     for fspec in job.outdata:
-        logger.debug("File {} will be checked and declared for stage out".format(fspec.lfn))
+        logger.debug(f"file {fspec.lfn} will be checked and declared for stage out")
         if fspec.status != 'transferred':
             logger.debug('will not add the output file to the json since it was not produced or transferred')
         else:
@@ -243,9 +232,9 @@ def publish_stageout_files(job, event_status_file):
             filename = os.path.basename(fspec.surl)
             path = findfile(work_dir, filename)
             if not path:
-                logger.warning('file %s was not found - will not be added to json')
+                logger.warning(f'file {path} was not found - will not be added to json')
             else:
-                logger.debug("Found File {} at path - {}".format(fspec.lfn, path))
+                logger.debug(f"found File {fspec.lfn} at {path}")
                 #
                 file_desc = {}
                 file_desc['type'] = fspec.filetype
@@ -253,33 +242,33 @@ def publish_stageout_files(job, event_status_file):
                 file_desc['guid'] = fspec.guid
                 file_desc['fsize'] = fspec.filesize
                 file_desc['chksum'] = get_checksum_value(fspec.checksum)
-                logger.debug("File description - {} ".format(file_desc))
+                logger.debug(f"File description - {file_desc} ")
                 out_file_report[job.jobid].append(file_desc)
 
     if out_file_report[job.jobid]:
         if write_json(event_status_file, out_file_report):
-            logger.debug('Stagout declared in: {0}'.format(event_status_file))
-            logger.debug('Report for stageout: {}'.format(out_file_report))
+            logger.debug(f'stagout declared in: {event_status_file}')
+            logger.debug(f'report for stageout: {out_file_report}')
             return True
         else:
-            logger.debug('Failed to declare stagout in: {0}'.format(event_status_file))
+            logger.debug(f'failed to declare stagout in: {event_status_file}')
             return False
     else:
-        logger.debug('No Report for stageout')
+        logger.debug('no report for stageout')
         return False
 
 
-def publish_work_report(work_report=None, worker_attributes_file="worker_attributes.json"):
+def publish_work_report(work_report: dict = {}, worker_attributes_file: str = "worker_attributes.json") -> bool:
     """
-    Publishing of work report to file.
+    Publish the work report.
+
     The work report dictionary should contain the fields defined in get_initial_work_report().
 
-    :param work_report: work report dictionary.
-    :param worker_attributes_file:
-    :raises FileHandlingFailure: in case of IOError.
-    :return: True or False
+    :param work_report: work report dictionary (dict)
+    :param worker_attributes_file: file name (str)
+    :raises FileHandlingFailure: in case of IOError
+    :return: True if successfully published, False otherwise (bool).
     """
-
     if work_report:
         work_report['timestamp'] = time_stamp()
         if "outputfiles" in work_report:
@@ -291,33 +280,33 @@ def publish_work_report(work_report=None, worker_attributes_file="worker_attribu
 
         ec = write_json(worker_attributes_file, work_report)
         if ec:
-            logger.error("work report publish failed: {0}".format(work_report))
+            logger.error(f"work report publish failed: {work_report}")
             return False
         else:
-            logger.info("work report published: {0}".format(work_report))
+            logger.info(f"work report published: {work_report}")
             return True
     else:
         # No work_report return False
         return False
 
 
-def publish_job_report(job, args, job_report_file="jobReport.json"):
+def publish_job_report(job: Any, args: Any, job_report_file: str = "jobReport.json") -> str:
     """
+    Publish the job report.
+
     Copy job report file to make it accessible by Harvester. Shrink job report file.
 
-    :param job: job object.
-    :param args: Pilot arguments object.
-    :param job_report_file: name of job report (string).
-    :raises FileHandlingFailure: in case of IOError.
-    :return True or False
+    :param job: job object (Any)
+    :param args: Pilot arguments object (Any)
+    :param job_report_file: name of job report (str)
+    :raises FileHandlingFailure: in case of IOError
+    :return True if successfully published, False otherwise (bool).
     """
-
     src_file = os.path.join(job.workdir, job_report_file)
     dst_file = os.path.join(args.harvester_workdir, job_report_file)
 
     try:
-        logger.info(
-            "copy of payload report [{0}] to access point: {1}".format(job_report_file, args.harvester_workdir))
+        logger.info(f"copy of payload report [{job_report_file}] to access point: {args.harvester_workdir}")
         # shrink jobReport
         job_report = read_json(src_file)
         if 'executor' in job_report:
@@ -335,18 +324,18 @@ def publish_job_report(job, args, job_report_file="jobReport.json"):
         return False
 
 
-def parse_job_definition_file(filename):
+def parse_job_definition_file(filename: str) -> list:
     """
-    This function parses the Harvester job definition file and re-packages the job definition dictionaries.
+    Parse the Harvester job definition file and re-package the job definition dictionaries.
+
     The format of the Harvester job definition dictionary is:
     dict = { job_id: { key: value, .. }, .. }
     The function returns a list of these dictionaries each re-packaged as
     dict = { key: value } (where the job_id is now one of the key-value pairs: 'jobid': job_id)
 
-    :param filename: file name (string).
-    :return: list of job definition dictionaries.
+    :param filename: file name (str)
+    :return: list of job definition dictionaries (list).
     """
-
     job_definitions_list = []
 
     # re-package dictionaries

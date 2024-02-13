@@ -28,9 +28,8 @@ def do_use_container(**kwargs):
     Decide whether to use a container or not.
 
     :param kwargs: dictionary of key-word arguments.
-    :return: True is function has decided that a container should be used, False otherwise (boolean).
+    :return: True is function has decided that a container should be used, False otherwise (bool).
     """
-
     return True
 
 
@@ -39,11 +38,10 @@ def wrapper(executable, **kwargs):
     Wrapper function for any container specific usage.
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
-    :param executable: command to be executed (string).
-    :param kwargs: dictionary of key-word arguments.
-    :return: executable wrapped with container command (string).
+    :param executable: command to be executed (str)
+    :param kwargs: dictionary of key-word arguments (dict)
+    :return: executable wrapped with container command (str).
     """
-
     return executable
 
 
@@ -55,9 +53,8 @@ def create_stagein_container_command(workdir, cmd):
     it in a stagein.sh script file. It then generates the actual command that will execute the stage-in script in a
     container.
 
-    :param workdir: working directory where script will be stored (string).
-    :param cmd: isolated stage-in command (string).
-    :return: container command to be executed (string).
+    :param workdir: working directory where script will be stored (str).
+    :param cmd: isolated stage-in command (str)
+    :return: container command to be executed (str).
     """
-
     return cmd

@@ -78,7 +78,6 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
         else:
             logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
             # is commented: no user proxy should be in the command the container will execute
-            # cmd = cmd.replace("export X509_USER_PROXY=%s;" % x509, "export X509_USER_PROXY=%s;" % x509_payload)
             x509 = x509_payload
     else:
         logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
@@ -86,34 +85,28 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     return exit_code, diagnostics, x509
 
 
-def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
+def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False) -> (int, str):
     """
     Check for a valid voms/grid proxy longer than N hours.
+
     Use `limit` to set required time limit.
 
-    :param limit: time limit in hours (int).
-    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment
-    :param test: free Boolean test parameter.
-    :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
+    :param limit: time limit in hours (int)
+    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (bool)
+    :param proxy_id: proxy id (str)
+    :param test: free Boolean test parameter (bool)
+    :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str).
     """
-
     if limit is None:
         limit = 1
 
     # add setup for arcproxy if it exists
-    #arcproxy_setup = "%s/atlas.cern.ch/repo/sw/arc/client/latest/slc6/x86_64/setup.sh" % get_file_system_root_path()
     if x509 is None:
         x509 = os.environ.get('X509_USER_PROXY', '')
     if x509 != '':
         envsetup = f'export X509_USER_PROXY={x509};'
     else:
         envsetup = ''
-
-    # envsetup += ". %s/atlas.cern.ch/repo/ATLASLocalRootBase/user/atlasLocalSetup.sh --quiet;" % get_file_system_root_path()
-    #if os.environ.get('ALRB_noGridMW', '').lower() != "yes":
-    #    envsetup += "lsetup emi;"
-    #else:
-    #    logger.warning('Skipping "lsetup emi" as ALRB_noGridMW=YES')
 
     # first try to use arcproxy since voms-proxy-info is not working properly on SL6
     #  (memory issues on queues with limited memory)
@@ -125,12 +118,6 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False):
         pass  # go to next test
     else:
         return 0, diagnostics
-
-    #exit_code, diagnostics = verify_vomsproxy(envsetup, limit)
-    #if exit_code != 0:
-    #    return exit_code, diagnostics
-    #else:
-    #    return 0, diagnostics
 
     return 0, diagnostics
 
@@ -255,10 +242,11 @@ def check_time_left(proxyname, validity, limit):
     # test bad proxy
     #if proxyname == 'proxy':
     #    seconds_left = 1000
-    logger.info("cache: check %s validity: wanted=%dh (%ds with grace) left=%.2fh (now=%d validity=%d left=%d)",
-                proxyname, limit, limit * 3600 - 20 * 60, float(seconds_left) / 3600, tnow, validity, seconds_left)
+    logger.info(f"cache: check {proxyname} validity: wanted={limit}h ({limit * 3600 - 20 * 60}s with grace) "
+                f"left={float(seconds_left) / 3600:.2f}h (now={tnow} validity={validity} left={seconds_left}s)")
+
     if seconds_left < limit * 3600 - 20 * 60:
-        diagnostics = 'cert/proxy is about to expire: %.2fh' % (float(seconds_left) / 3600)
+        diagnostics = f'cert/proxy is about to expire: {float(seconds_left) / 3600:.2f}h'
         logger.warning(diagnostics)
         exit_code = errors.CERTIFICATEHASEXPIRED if proxyname == 'cert' else errors.VOMSPROXYABOUTTOEXPIRE
     else:
@@ -299,25 +287,23 @@ def verify_vomsproxy(envsetup, limit):
     return exit_code, diagnostics
 
 
-def verify_gridproxy(envsetup, limit):
+def verify_gridproxy(envsetup: str, limit: int) -> (int, str):
     """
     Verify proxy using grid-proxy-info command.
 
-    :param envsetup: general setup string for proxy commands (string).
-    :param limit: time limit in hours (int).
-    :return: exit code (int), error diagnostics (string).
+    :param envsetup: general setup string for proxy commands (str)
+    :param limit: time limit in hours (int)
+    :return: exit code (int), error diagnostics (str).
     """
-
     ec = 0
     diagnostics = ""
 
     if limit:
         # next clause had problems: grid-proxy-info -exists -valid 0.166666666667:00
-        #cmd = "%sgrid-proxy-info -exists -valid %s:00" % (envsetup, str(limit))
         # more accurate calculation of HH:MM
         limit_hours = int(limit * 60) / 60
         limit_minutes = int(limit * 60 + .999) - limit_hours * 60
-        cmd = "%sgrid-proxy-info -exists -valid %d:%02d" % (envsetup, limit_hours, limit_minutes)
+        cmd = f"{envsetup}grid-proxy-info -exists -valid {limit_hours}:{limit_minutes:02}"
     else:
         cmd = f"{envsetup}grid-proxy-info -exists -valid 24:00"
 
@@ -340,7 +326,7 @@ def verify_gridproxy(envsetup, limit):
     return ec, diagnostics
 
 
-def interpret_proxy_info(_ec, stdout, stderr, limit):
+def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int, str, int, int):
     """
     Interpret the output from arcproxy or voms-proxy-info.
 
@@ -348,16 +334,15 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     :param stdout: stdout from proxy command (string).
     :param stderr: stderr from proxy command (string).
     :param limit: time limit in hours (int).
-    :return: exit code (int), diagnostics (string). validity end cert, validity end in seconds if detected, None if not detected (int).
+    :return: exit code (int), diagnostics (str). validity end cert (int), validity end in seconds if detected, None if not detected (int).
     """
-
     exitcode = 0
     diagnostics = ""
     validity_end = None  # not detected
     validity_end_cert = None  # not detected
 
-    logger.debug('stdout = %s', stdout)
-    logger.debug('stderr = %s', stderr)
+    logger.debug(f'stdout = {stdout}')
+    logger.debug(f'stderr = {stderr}')
 
     if _ec != 0:
         if "Unable to verify signature! Server certificate possibly not installed" in stdout:
@@ -413,15 +398,14 @@ def interpret_proxy_info(_ec, stdout, stderr, limit):
     return exitcode, diagnostics, validity_end_cert, validity_end
 
 
-def extract_time_left(stdout):
+def extract_time_left(stdout: str) -> (int, int, str):
     """
     Extract the time left for the cert and proxy from the proxy command.
     Some processing on the stdout is done.
 
-    :param stdout: stdout (string).
-    :return: validity_end_cert, validity_end, stdout (int, string))
+    :param stdout: stdout (str)
+    :return: validity_end_cert, validity_end, stdout (int, int, str)
     """
-
     validity_end_cert = None
     validity_end = None
 
@@ -456,15 +440,15 @@ def extract_time_left(stdout):
     return validity_end_cert, validity_end, stdout
 
 
-def extract_time_left_old(stdout):
+def extract_time_left_old(stdout: str) -> (int, str):
     """
     Extract the time left from the proxy command.
+
     Some processing on the stdout is done.
 
-    :param stdout: stdout (string).
-    :return: validity_end, stdout (int, string))
+    :param stdout: stdout (str)
+    :return: validity_end, stdout (int, str).
     """
-
     validity_end = None
 
     # remove the last \n in case there is one
@@ -489,11 +473,11 @@ def extract_time_left_old(stdout):
     return validity_end, stdout
 
 
-def getproxy_dictionary(voms_role):
+def getproxy_dictionary(voms_role: str) -> dict:
     """
-    Prepare the dictionary for the getProxy call.
+    Prepare the dictionary with the VOMS role and DN for the getProxy call.
 
-    :param voms_role: VOMS role (string).
+    :param voms_role: VOMS role (str)
+    :return: getProxy dictionary (dict).
     """
-
     return {'role': voms_role, 'dn': 'atlpilo2'} if voms_role == 'atlas' else {'role': voms_role}

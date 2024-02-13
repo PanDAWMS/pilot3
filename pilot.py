@@ -19,12 +19,9 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
-
-from __future__ import print_function  # Python 2 (2to3 complains about this)
-from __future__ import absolute_import
 
 import argparse
 import logging
@@ -44,6 +41,7 @@ from pilot.info import infosys
 from pilot.util.auxiliary import (
     pilot_version_banner,
     shell_exit_code,
+    convert_signal_to_exit_code
 )
 from pilot.util.constants import (
     get_pilot_version,
@@ -63,13 +61,15 @@ from pilot.util.harvester import (
     is_harvester_mode,
     kill_worker,
 )
+from pilot.util.heartbeat import update_pilot_heartbeat
 from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
 )
-from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.loggingsupport import establish_logging
+from pilot.util.networking import dump_ipv6_info
+from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
 
 errors = ErrorCodes()
@@ -84,8 +84,9 @@ def main() -> int:
     # get the logger
     logger = logging.getLogger(__name__)
 
-    # print the pilot version
+    # print the pilot version and other information
     pilot_version_banner()
+    dump_ipv6_info()
 
     # define threading events
     args.graceful_stop = threading.Event()
@@ -153,6 +154,9 @@ def main() -> int:
     workflow = __import__(
         f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
     )
+
+    # update the pilot heartbeat file
+    update_pilot_heartbeat(time.time())
 
     # execute workflow
     try:
@@ -700,6 +704,19 @@ def wrap_up() -> int:
     if args.harvester:
         kill_worker()
 
+    exitcode, shellexitcode = get_proper_exit_code()
+    logging.info(f"pilot has finished (exit code={exitcode}, shell exit code={shellexitcode})")
+    logging.shutdown()
+
+    return shellexitcode
+
+
+def get_proper_exit_code() -> (int, int):
+    """
+    Return the proper exit code.
+
+    :return: exit code (int), shell exit code (int).
+    """
     try:
         exitcode = trace.pilot["error_code"]
     except KeyError:
@@ -734,11 +751,11 @@ def wrap_up() -> int:
         logging.warning(f"failed to convert exit code to int: {exitcode}, {exc}")
         exitcode = 1008
 
+    if exitcode == 0 and args.signal:
+        exitcode = convert_signal_to_exit_code(args.signal)
     sec = shell_exit_code(exitcode)
-    logging.info(f"pilot has finished (exit code={exitcode}, shell exit code={sec})")
-    logging.shutdown()
 
-    return sec
+    return exitcode, sec
 
 
 def get_pilot_source_dir() -> str:
@@ -837,7 +854,8 @@ def list_zombies():
 if __name__ == "__main__":
     # get the args from the arg parser
     args = get_args()
-    args.last_heartbeat = time.time()
+    args.last_heartbeat = time.time()  # keep track of server heartbeats
+    args.pilot_heartbeat = time.time()  # keep track of pilot heartbeats
 
     # Define and set the main harvester control boolean
     args.harvester = is_harvester_mode(args)

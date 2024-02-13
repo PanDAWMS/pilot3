@@ -20,6 +20,8 @@
 # - Alaettin Serhan Mete, alaettin.serhan.mete@cern.ch, 2023
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Script for reporting CPU architecture."""
+
 import argparse
 import logging
 import re
@@ -32,12 +34,14 @@ must_v2 = []
 must_not_v2 = []
 
 
-def get_flags_cpuinfo():
+def get_flags_cpuinfo() -> dict:
     """
-    Get the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the /proc/cpuinfo
+    Get the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the /proc/cpuinfo.
+
+    :return: dictionary containing the CPU (model) name, number of cores of the corresponding CPU and the CPU flags (dict).
     """
     cpu, cpu_core, flags = None, None, None
-    with open('/proc/cpuinfo', 'r') as fiile:
+    with open('/proc/cpuinfo', 'r', encoding='utf-8') as fiile:
         for line in fiile.readlines():
             if 'model name' in line:
                 cpu = line.split(':')[-1].strip()
@@ -48,13 +52,18 @@ def get_flags_cpuinfo():
             if all([cpu, cpu_core, flags]):
                 return {"cpu": cpu, "cpu_core": cpu_core, "flags": flags}
 
+            return {}
 
-def get_flags_pilotlog(pilotlogname):
+
+def get_flags_pilotlog(pilotlogname: str) -> dict:
     """
-    Get the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the downloaded pilotlog
+    Get the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the downloaded pilotlog.
+
+    :param pilotlogname: full path to the pilotlog (str)
+    :return: dictionary containing the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags (dict).
     """
     site, cpu, cpu_core, flags = None, None, None, None
-    with open(pilotlogname, 'r') as fiile:
+    with open(pilotlogname, 'r', encoding='utf-8') as fiile:
         for line in fiile.readlines():
             if 'PANDA_RESOURCE' in line:
                 site = line.split('=')[-1].strip()
@@ -67,10 +76,13 @@ def get_flags_pilotlog(pilotlogname):
             if all([site, cpu, cpu_core, flags]):
                 return {"site": site, "cpu": cpu, "cpu_core": cpu_core, "flags": flags}
 
+            return {}
+
 
 def set_naive():
     """
-    Make a decision on the CPU architecture based on the simplified lists (must_'s) of flags
+    Make a decision on the CPU architecture based on the simplified lists (must_'s) of flags.
+
     The must_not_'s have been left blank, these could be filled if need be
     """
     global must_v4
@@ -92,13 +104,16 @@ def set_naive():
 
 def set_gcc():
     """
-    Make a decision on the CPU architecture based on the modified lists (must_'s) of flags from gcc: LAHF_SAHF --> LAHF_LM; LZCNT --> ABM; removal of SSE3
+    Make a decision on the CPU architecture based on the modified lists (must_'s) of flags from gcc.
+
+    LAHF_SAHF --> LAHF_LM; LZCNT --> ABM; removal of SSE3.
+
     References:
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v4.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v3.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v2.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
 
-    The must_not_'s have been left blank, these could be filled if need be
+    The must_not_'s have been left blank, these could be filled if need be.
     """
     global must_v4
     global must_not_v4
@@ -119,48 +134,60 @@ def set_gcc():
     must_not_v2 = []
 
 
-def check_flags(must, must_not, flags):
+def check_flags(must: list, must_not: list, flags: list) -> bool:
     """
-    Matching of the actual CPU flags w.r.t. the lists of flags defined for deciding on architecture
+    Match the actual CPU flags w.r.t. the lists of flags defined for deciding on architecture.
+
+    :param must: list of flags that must be present (list)
+    :param must_not: list of flags that must not be present (list)
+    :param flags: list of actual flags (list)
+    :return: True if the actual flags match the must and must_not lists, False otherwise (bool).
     """
     failed = False
     for flag in must:
-        if not any([re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags]):
-            logging.debug("Missing must-have: {0}".format(flag))
+        if not any(re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags):
+            logging.debug(f"Missing must-have: {flag}")
             failed = True
+
     for flag in must_not:
-        if not any([re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags]):
-            logging.debug("Present must-not-have: {0}".format(flag))
+        if not any(re.match(flag, test_flag, re.IGNORECASE) for test_flag in flags):
+            logging.debug(f"Present must-not-have: {flag}")
             failed = True
+
     return failed
 
 
-def all_version_checks(flag_string, name):
+def all_version_checks(flag_string: str, name: str) -> str:
     """
-    Architecture is assigned to the CPU based on the check_flags() function
+    Check the CPU flags against the lists of flags for all versions of the CPU architecture.
+
+    Architecture is assigned to the CPU based on the check_flags() function.
+
+    :param flag_string: string containing the CPU flags (str)
+    :param name: name of the CPU (str)
+    :return: architecture of the CPU (str).
     """
     flag_list = flag_string.split()
-    logging.debug("-------Checking V4 for {0}--------".format(name))
+    logging.debug(f"-------Checking V4 for {name}--------")
     failed_v4 = check_flags(must_v4, must_not_v4, flag_list)
     if not failed_v4:
         return "x86-64-v4"
-    else:
-        pass
-    logging.debug("-------Checking V3 for {0}--------".format(name))
+
+    logging.debug(f"-------Checking V3 for {name}--------")
     failed_v3 = check_flags(must_v3, must_not_v3, flag_list)
     if not failed_v3:
         return "x86-64-v3"
-    else:
-        pass
-    logging.debug("-------Checking V2 for {0}--------".format(name))
+
+    logging.debug(f"-------Checking V2 for {name}--------")
     failed_v2 = check_flags(must_v2, must_not_v2, flag_list)
     if not failed_v2:
         return "x86-64-v2"
-    else:
-        pass
-    logging.debug("-------Defaulting {0} to V1--------".format(name))
+
+    logging.debug(f"-------Defaulting {name} to V1--------")
     if failed_v2 and failed_v3 and failed_v4:
         return "x86-64-v1"
+
+    return ""
 
 
 if __name__ == "__main__":

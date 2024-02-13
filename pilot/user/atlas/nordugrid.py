@@ -71,7 +71,7 @@ class XMLDictionary(object):
             else:
                 pass
         else:
-            logger.info("not a dictionary: %s", str(self._dictionary))
+            logger.info(f"not a dictionary: {self._dictionary}")
 
     def get_dictionary(self):
         """
@@ -110,8 +110,8 @@ def convert_to_xml(dictionary):
 
     single_file_tag = list(dictionary.keys())  # Python 2/3
     if len(single_file_tag) != 1:
-        logger.warning("unexpected format - expected single entry, got %d entries", len(single_file_tag))
-        logger.warning('dictionary = %s', str(dictionary))
+        logger.warning(f"unexpected format - expected single entry, got {len(single_file_tag)} entries")
+        logger.warning(f'dictionary = {dictionary}')
         return None
 
     file_tag = single_file_tag[0]
@@ -134,13 +134,13 @@ def convert_to_xml(dictionary):
                         entry = ElementTree.SubElement(file_element, dictionary_entry)
                         entry.text = file_dictionary[dictionary_entry]
                 else:
-                    logger.warning("unexpected format - expected a dictionary, got %s", str(file_dictionary))
+                    logger.warning(f"unexpected format - expected a dictionary, got {file_dictionary}")
                     failed = True
             else:
-                logger.warning("unexpected format - expected a length 1 dictionary, got %s", str(file_entry))
+                logger.warning(f"unexpected format - expected a length 1 dictionary, got {file_entry}")
                 failed = True
     else:
-        logger.warning("unexpected format - expected a list, got %s", str(file_list))
+        logger.warning(f"unexpected format - expected a list, got {file_list}")
         failed = True
 
     if failed:

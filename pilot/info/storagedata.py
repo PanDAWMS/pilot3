@@ -82,9 +82,9 @@ class StorageData(BaseData):
         self.load(data)
 
         # DEBUG
-        #import pprint
-        #logger.debug('initialize StorageData from raw:\n%s' % pprint.pformat(data))
-        #logger.debug('Final parsed StorageData content:\n%s' % self)
+        # import pprint
+        # logger.debug(f'initialize StorageData from raw:\n{pprint.pformat(data)}')
+        # logger.debug(f'final parsed StorageData content:\n{self}')
 
     def load(self, data):
         """
@@ -122,15 +122,15 @@ class StorageData(BaseData):
         """
         try:
             data = {'privateKeyName': secret_key, 'publicKeyName': access_key}
-            logger.info("Getting key pair: %s" % data)
+            logger.info(f"Getting key pair: {data}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request('{pandaserver}/server/panda/getKeyPair'.format(pandaserver=url), data=data)
+            res = https.request(f'{url}/server/panda/getKeyPair', data=data)
             if res and res['StatusCode'] == 0:
                 return {"publicKey": res["publicKey"], "privateKey": res["privateKey"]}
             else:
-                logger.info("Got key pair returns wrong value: %s" % res)
-        except Exception as ex:
-            logger.error("Failed to get key pair(%s,%s): %s, %s" % (access_key, secret_key, ex, traceback.format_exc()))
+                logger.info(f"Got key pair returns wrong value: {res}")
+        except Exception as exc:
+            logger.error(f"Failed to get key pair({access_key},{secret_key}): {exc}, {traceback.format_exc()}")
         return {}
 
     def get_special_setup(self, protocol_id=None):
@@ -140,7 +140,7 @@ class StorageData(BaseData):
         :return: setup as a string
         """
 
-        logger.info("Get special setup for protocol id(%s)" % (protocol_id))
+        logger.info(f"get special setup for protocol id({protocol_id})")
         if protocol_id in self.special_setup and self.special_setup[protocol_id]:
             return self.special_setup[protocol_id]
 
@@ -161,12 +161,11 @@ class StorageData(BaseData):
             if access_key and secret_key and is_secure:
                 key_pair = self.get_security_key(secret_key, access_key)
                 if "privateKey" not in key_pair or key_pair["privateKey"] is None:
-                    logger.error("Failed to get the key pair for S3 objectstore from panda")
+                    logger.error("failed to get the key pair for S3 objectstore from panda")
                 else:
-                    setup = "export S3_ACCESS_KEY=%s; export S3_SECRET_KEY=%s; export S3_IS_SECURE=%s;" % (key_pair["publicKey"],
-                                                                                                           key_pair["privateKey"],
-                                                                                                           is_secure)
-                    self.special_setup[protocol_id] = setup
-                    logger.info("Return key pair with public key: %s" % key_pair["publicKey"])
+                    self.special_setup[protocol_id] = f"export S3_ACCESS_KEY={key_pair['publicKey']}; " \
+                                                      f"export S3_SECRET_KEY={key_pair['privateKey']}; " \
+                                                      f"export S3_IS_SECURE={is_secure};"
+                    logger.info(f"return key pair with public key: {key_pair['publicKey']}")
                     return self.special_setup[protocol_id]
         return None

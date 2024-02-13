@@ -91,8 +91,8 @@ def get_alrb_export(add_if=False):
     :return: export command
     """
 
-    path = "%s/atlas.cern.ch/repo" % get_file_system_root_path()
-    cmd = "export ATLAS_LOCAL_ROOT_BASE=%s/ATLASLocalRootBase;" % path if os.path.exists(path) else ""
+    path = f"{get_file_system_root_path()}/atlas.cern.ch/repo"
+    cmd = f"export ATLAS_LOCAL_ROOT_BASE={path}/ATLASLocalRootBase;" if os.path.exists(path) else ""
 
     # if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
     if cmd and add_if:
@@ -132,11 +132,11 @@ def get_asetup(asetup=True, alrb=False, add_if=False):
         if appdir != "":
             # make sure that the appdir exists
             if not os.path.exists(appdir):
-                msg = 'appdir does not exist: %s' % appdir
+                msg = f'appdir does not exist: {appdir}'
                 logger.warning(msg)
                 raise NoSoftwareDir(msg)
             if asetup:
-                cmd = "source %s/scripts/asetup.sh" % appdir
+                cmd = f"source {appdir}/scripts/asetup.sh"
 
     # do not return an empty string
     #if not cmd:
@@ -160,7 +160,7 @@ def get_asetup_options(release, homepackage):
     if 'AnalysisTransforms' in homepackage:
 
         _homepackage = re.sub('^AnalysisTransforms-*', '', homepackage)
-        if _homepackage == '' or re.search(r'^\d+\.\d+\.\d+$', release) is None:  # Python 3 (added r)
+        if _homepackage == '' or re.search(r'^\d+\.\d+\.\d+$', release) is None:
             if release != "":
                 asetupopt.append(release)
         if _homepackage != '':
@@ -210,7 +210,7 @@ def set_inds(dataset):
             inds = ds
             break
     if inds != "":
-        logger.info("setting INDS environmental variable to: %s", inds)
+        logger.info(f"setting INDS environmental variable to: {inds}")
         os.environ['INDS'] = inds
     else:
         logger.warning("INDS unknown")
@@ -233,25 +233,23 @@ def get_analysis_trf(transform, workdir):
     # test if $HARVESTER_WORKDIR is set
     harvester_workdir = os.environ.get('HARVESTER_WORKDIR')
     if harvester_workdir is not None:
-        search_pattern = "%s/jobO.*.tar.gz" % harvester_workdir
-        logger.debug("search_pattern - %s", search_pattern)
+        search_pattern = f"{harvester_workdir}/jobO.*.tar.gz"
         jobopt_files = glob.glob(search_pattern)
         for jobopt_file in jobopt_files:
-            logger.debug("jobopt_file = %s workdir = %s", jobopt_file, workdir)
             try:
                 copy(jobopt_file, workdir)
             except Exception as error:
-                logger.error("could not copy file %s to %s : %s", jobopt_file, workdir, error)
+                logger.error(f"could not copy file {jobopt_file} to {workdir} : {error}")
 
     if '/' in transform:
         transform_name = transform.split('/')[-1]
     else:
-        logger.warning('did not detect any / in %s (using full transform name)', transform)
+        logger.warning(f'did not detect any / in {transform} (using full transform name)')
         transform_name = transform
 
     # is the command already available? (e.g. if already downloaded by a preprocess/main process step)
     if os.path.exists(os.path.join(workdir, transform_name)):
-        logger.info('script %s is already available - no need to download again', transform_name)
+        logger.info(f'script {transform_name} is already available - no need to download again')
         return ec, diagnostics, transform_name
 
     original_base_url = ""
@@ -263,14 +261,14 @@ def get_analysis_trf(transform, workdir):
             break
 
     if original_base_url == "":
-        diagnostics = "invalid base URL: %s" % transform
+        diagnostics = f"invalid base URL: {transform}"
         return errors.TRFDOWNLOADFAILURE, diagnostics, ""
 
     # try to download from the required location, if not - switch to backup
     status = False
     for base_url in get_valid_base_urls(order=original_base_url):
         trf = re.sub(original_base_url, base_url, transform)
-        logger.debug("attempting to download script: %s", trf)
+        logger.debug(f"attempting to download script: {trf}")
         status, diagnostics = download_transform(trf, transform_name, workdir)
         if status:
             break
@@ -280,11 +278,11 @@ def get_analysis_trf(transform, workdir):
 
     logger.info("successfully downloaded script")
     path = os.path.join(workdir, transform_name)
-    logger.debug("changing permission of %s to 0o755", path)
+    logger.debug(f"changing permission of {path} to 0o755")
     try:
-        os.chmod(path, 0o755)  # Python 2/3
+        os.chmod(path, 0o755)
     except Exception as error:
-        diagnostics = "failed to chmod %s: %s" % (transform_name, error)
+        diagnostics = f"failed to chmod {transform_name}: {error}"
         return errors.CHMODTRF, diagnostics, ""
 
     return ec, diagnostics, transform_name
@@ -302,7 +300,7 @@ def download_transform(url, transform_name, workdir):
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
-    cmd = 'curl -sS \"%s\" > %s' % (url, path)
+    cmd = f'curl -sS "{url}" > {path}'
     trial = 1
     max_trials = 3
 
@@ -317,29 +315,29 @@ def download_transform(url, transform_name, workdir):
             status = True
         except Exception as error:
             status = False
-            diagnostics = "Failed to copy file %s to %s : %s" % (source_path, path, error)
+            diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
 
     # try to download the trf a maximum of 3 times
     while trial <= max_trials:
-        logger.info("executing command [trial %d/%d]: %s", trial, max_trials, cmd)
+        logger.info(f"executing command [trial {trial}/{max_trials}]: {cmd}")
 
         exit_code, stdout, stderr = execute(cmd, mute=True)
         if not stdout:
             stdout = "(None)"
         if exit_code != 0:
             # Analyze exit code / output
-            diagnostics = "curl command failed: %d, %s, %s" % (exit_code, stdout, stderr)
+            diagnostics = f"curl command failed: {exit_code}, {stdout}, {stderr}"
             logger.warning(diagnostics)
             if trial == max_trials:
-                logger.fatal('could not download transform: %s', stdout)
+                logger.fatal(f'could not download transform: {stdout}')
                 status = False
                 break
             else:
                 logger.info("will try again after 60 s")
                 sleep(60)
         else:
-            logger.info("curl command returned: %s", stdout)
+            logger.info(f"curl command returned: {stdout}")
             status = True
             break
         trial += 1
@@ -393,13 +391,13 @@ def get_payload_environment_variables(cmd, job_id, task_id, attempt_nr, processi
     """
 
     variables = []
-    variables.append('export PANDA_RESOURCE=\'%s\';' % site_name)
-    variables.append('export FRONTIER_ID=\"[%s_%s]\";' % (task_id, job_id))
+    variables.append(f'export PANDA_RESOURCE=\'{site_name}\';')
+    variables.append(f'export FRONTIER_ID="[{task_id}_{job_id}]";')
     variables.append('export CMSSW_VERSION=$FRONTIER_ID;')
-    variables.append('export PandaID=%s;' % os.environ.get('PANDAID', 'unknown'))
-    variables.append('export PanDA_TaskID=\'%s\';' % os.environ.get('PanDA_TaskID', 'unknown'))
-    variables.append('export PanDA_AttemptNr=\'%d\';' % attempt_nr)
-    variables.append('export INDS=\'%s\';' % os.environ.get('INDS', 'unknown'))
+    variables.append(f"export PandaID={os.environ.get('PANDAID', 'unknown')};")
+    variables.append(f"export PanDA_TaskID='{os.environ.get('PanDA_TaskID', 'unknown')}';")
+    variables.append(f'export PanDA_AttemptNr=\'{attempt_nr}\';')
+    variables.append(f"export INDS='{os.environ.get('INDS', 'unknown')}';")
 
     # Unset ATHENA_PROC_NUMBER if set for event service Merge jobs
     if "Merge_tf" in cmd and 'ATHENA_PROC_NUMBER' in os.environ:
@@ -413,14 +411,14 @@ def get_payload_environment_variables(cmd, job_id, task_id, attempt_nr, processi
         except Exception:
             _core_count = 'export ROOTCORE_NCPUS=1;'
         else:
-            _core_count = 'export ROOTCORE_NCPUS=%d;' % core_count
+            _core_count = f'export ROOTCORE_NCPUS={core_count};'
         variables.append(_core_count)
 
     if processing_type == "":
         logger.warning("RUCIO_APPID needs job.processingType but it is not set!")
     else:
-        variables.append('export RUCIO_APPID=\'%s\';' % processing_type)
-    variables.append('export RUCIO_ACCOUNT=\'%s\';' % os.environ.get('RUCIO_ACCOUNT', 'pilot'))
+        variables.append(f'export RUCIO_APPID=\'{processing_type}\';')
+    variables.append(f"export RUCIO_ACCOUNT='{os.environ.get('RUCIO_ACCOUNT', 'pilot')}';")
 
     return variables
 
@@ -471,7 +469,7 @@ def replace_lfns_with_turls(cmd, workdir, filename, infiles, writetofile=""):
                 # if turl.startswith('root://') and turl not in cmd:
                 if turl not in cmd:
                     cmd = cmd.replace(inputfile, turl)
-                    logger.info("replaced '%s' with '%s' in the run command", inputfile, turl)
+                    logger.info(f"replaced '{inputfile}' with '{turl}' in the run command")
 
         # replace the LFNs with TURLs in the writetofile input file list (if it exists)
         if writetofile and turl_dictionary:
@@ -494,9 +492,9 @@ def replace_lfns_with_turls(cmd, workdir, filename, infiles, writetofile=""):
                     if lines:
                         write_file(path, lines)
                 else:
-                    logger.warning("file does not exist: %s", path)
+                    logger.warning(f"file does not exist: {path}")
     else:
-        logger.warning("could not find file: %s (cannot locate TURLs for direct access)", filename)
+        logger.warning(f"could not find file: {filename} (cannot locate TURLs for direct access)")
 
     return cmd
 

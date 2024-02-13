@@ -23,41 +23,54 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
+"""Functions for handling the payload."""
+
+import logging
 import os
 import time
 import traceback
 import queue
 from re import findall, split
+from typing import Any, TextIO
 
-from pilot.control.payloads import generic, eventservice, eventservicemerge
+from pilot.control.payloads import (
+    generic,
+    eventservice,
+    eventservicemerge
+)
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.container import execute
 from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
-from pilot.util.filehandling import read_file, remove_core_dumps, get_guid, extract_lines_from_file, find_file
+from pilot.util.filehandling import (
+    read_file,
+    remove_core_dumps,
+    get_guid,
+    extract_lines_from_file,
+    find_file
+)
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import put_in_queue
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import ExcThread, PilotException
+from pilot.common.exception import (
+    ExcThread,
+    PilotException
+)
 from pilot.util.realtimelogger import get_realtime_logger
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def control(queues, traces, args):
+def control(queues: Any, traces: Any, args: Any):
     """
-    (add description)
+    Set up payload threads.
 
-    :param queues:
-    :param traces:
-    :param args:
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
                'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
@@ -66,24 +79,29 @@ def control(queues, traces, args):
     [thread.start() for thread in threads]
 
     # if an exception is thrown, the graceful_stop will be set by the ExcThread class run() function
-    while not args.graceful_stop.is_set():
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
+    try:
+        while not args.graceful_stop.is_set():
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
 
-                # deal with the exception
-                # ..
+                    # deal with the exception
+                    # ..
 
-            thread.join(0.1)
-            time.sleep(0.1)
+                thread.join(0.1)
+                time.sleep(0.1)
 
-        time.sleep(0.5)
+            time.sleep(0.5)
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all payload control threads have been joined')
 
     logger.debug('payload control ending since graceful_stop has been set')
     if args.abort_job.is_set():
@@ -104,17 +122,18 @@ def control(queues, traces, args):
     logger.info('[payload] control thread has finished')
 
 
-def validate_pre(queues, traces, args):
+def validate_pre(queues: Any, traces: Any, args: Any):
     """
     Get a Job object from the "payloads" queue and validate it.
+
+    Thread.
 
     If the payload is successfully validated (user defined), the Job object is placed in the "validated_payloads" queue,
     otherwise it is placed in the "failed_payloads" queue.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -137,19 +156,18 @@ def validate_pre(queues, traces, args):
     logger.info('[payload] validate_pre thread has finished')
 
 
-def _validate_payload(job):
+def _validate_payload(job: Any) -> bool:
     """
-    Perform validation tests for the payload.
+    Perform user validation tests for the payload.
 
-    :param job: job object.
-    :return: boolean.
+    :param job: job object (Any)
+    :return: boolean (bool).
     """
-
     status = True
 
     # perform user specific validation
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
     try:
         status = user.validate(job)
     except Exception as error:
@@ -159,16 +177,16 @@ def _validate_payload(job):
     return status
 
 
-def get_payload_executor(args, job, out, err, traces):
+def get_payload_executor(args: Any, job: Any, out: TextIO, err: TextIO, traces: Any) -> Any:
     """
     Get payload executor function for different payload.
 
-    :param args: args object
-    :param job: job object
-    :param out: stdout file object
-    :param err: stderr file object
-    :param traces: traces object
-    :return: instance of a payload executor.
+    :param args: Pilot arguments object (Any)
+    :param job: job object (Any)
+    :param out: stdout file object (TextIO)
+    :param err: stderr file object (TextIO)
+    :param traces: traces object (Any)
+    :return: instance of a payload executor (Any).
     """
     if job.is_eventservice:  # True for native HPO workflow as well
         payload_executor = eventservice.Executor(args, job, out, err, traces)
@@ -176,10 +194,11 @@ def get_payload_executor(args, job, out, err, traces):
         payload_executor = eventservicemerge.Executor(args, job, out, err, traces)
     else:
         payload_executor = generic.Executor(args, job, out, err, traces)
+
     return payload_executor
 
 
-def execute_payloads(queues, traces, args):  # noqa: C901
+def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
     Execute queued payloads.
 
@@ -189,12 +208,10 @@ def execute_payloads(queues, traces, args):  # noqa: C901
     is started, the thread will wait for it to finish and then check for any failures. A successfully completed job is
     placed in the "finished_payloads" queue, and a failed job will be placed in the "failed_payloads" queue.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     job = None
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -240,7 +257,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # run the payload and measure the execution time
             job.t0 = os.times()
             exit_code, diagnostics = payload_executor.run()
-            if exit_code > 1000:  # pilot error code, add to list
+            if exit_code and exit_code > 1000:  # pilot error code, add to list
                 logger.debug(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
 
@@ -253,7 +270,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             # some HPO jobs will produce new output files (following lfn name pattern), discover those and replace the job.outdata list
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             if job.is_hpo:
-                user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+                user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
                 try:
                     user.update_output_for_hpo(job)
                 except Exception as error:
@@ -273,7 +290,7 @@ def execute_payloads(queues, traces, args):  # noqa: C901
             perform_initial_payload_error_analysis(job, exit_code)
 
             # was an error already found?
-            user = __import__('pilot.user.%s.diagnose' % pilot_user, globals(), locals(), [pilot_user], 0)
+            user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
             except Exception as error:
@@ -324,14 +341,13 @@ def execute_payloads(queues, traces, args):  # noqa: C901
     logger.info('[payload] execute_payloads thread has finished')
 
 
-def extract_error_info(error):
+def extract_error_info(error: str) -> (int, str):
     """
     Extract the error code and diagnostics from an error exception.
 
-    :param error: exception string.
-    :return: error code (int), diagnostics (string).
+    :param error: exception string (str)
+    :return: error code (int), diagnostics (str).
     """
-
     error_code = errors.INTERNALPILOTPROBLEM
     diagnostics = f'full exception: {error}'
 
@@ -347,30 +363,16 @@ def extract_error_info(error):
     return error_code, diagnostics
 
 
-def get_transport(catchall):
-    """
-    Extract the transport/protocol from catchall if present.
-
-    :param catchall: PQ.catchall field (string).
-    :return: transport (string).
-    """
-
-    transport = ''
-
-    return transport
-
-
-def get_rtlogging():
+def get_rtlogging() -> str:
     """
     Return the proper rtlogging value from the experiment specific plug-in or the config file.
 
     :return: rtlogging (str).
     """
-
     rtlogging = None
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     try:
-        user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
         rtlogging = user.get_rtlogging()
     except Exception as exc:
         rtlogging = config.Pilot.rtlogging
@@ -379,9 +381,10 @@ def get_rtlogging():
     return rtlogging
 
 
-def get_logging_info(job, args):
+def get_logging_info(job: Any, args: Any) -> dict:
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
+
     Returns a dictionary with the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
 
     If the provided debug_command contains a tail instruction ('tail log_file_name'), the pilot will locate
@@ -389,11 +392,10 @@ def get_logging_info(job, args):
 
     Note: the returned dictionary can be built with either args (has priority) or catchall info.
 
-    :param job: job object.
-    :param args: args object.
-    :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)).
+    :param job: job object (Any)
+    :param args: Pilot arguments object (Any)
+    :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)) (dict).
     """
-
     info_dic = {}
 
     if not job.realtimelogging:
@@ -452,17 +454,16 @@ def get_logging_info(job, args):
     return info_dic
 
 
-def find_log_to_tail(debug_command, workdir, args, is_analysis):
+def find_log_to_tail(debug_command: str, workdir: str, args: Any, is_analysis: bool) -> str:
     """
     Find the log file to tail in the RT logging.
 
-    :param debug_command: requested debug command (string).
-    :param workdir: job working directory (string).
-    :param args: pilot args object.
-    :param is_analysis: True for user jobs (Bool).
-    :return: path to log file (string).
+    :param debug_command: requested debug command (str)
+    :param workdir: job working directory (str)
+    :param args: Pilot arguments object (Any)
+    :param is_analysis: True for user jobs, False otherwise (bool)
+    :return: path to log file (str).
     """
-
     path = ""
     filename = ""
     counter = 0
@@ -494,18 +495,17 @@ def find_log_to_tail(debug_command, workdir, args, is_analysis):
     return logf
 
 
-def run_realtimelog(queues, traces, args):  # noqa: C901
+def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
     """
     Validate finished payloads.
+
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
     well but only for log stage-out (in failed_post() below).
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     info_dic = None
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -518,22 +518,30 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
         abort_loops = False
         first1 = True
         first2 = True
+        gotonextjob = False
         while not args.graceful_stop.is_set():
 
             # note: in multi-job mode, the real-time logging will be switched off at the end of the job
             while not args.graceful_stop.is_set():
                 if job.state == 'running':
                     if first1:
-                        logger.debug('job is running, check if real-time logger is needed')
+                        logger.debug(f'job is running, check if real-time logger is needed '
+                                     f'(job.debug={job.debug}, job.debug_command={job.debug_command})')
                         first1 = False
                     break
                 if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
                     if first2:
                         logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
-                        first2 = False
+                        first1 = True
+                        break
                     time.sleep(10)
                     continue
                 time.sleep(1)
+
+            if first1 and first2:
+                logger.debug('continue to next job (1)')
+                gotonextjob = True
+                break
 
             if args.use_realtime_logging:
                 # always do real-time logging
@@ -550,6 +558,11 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
                 logger.info('time to start real-time logger')
                 break
             time.sleep(10)
+
+        if gotonextjob:
+            logger.debug('continue to next job (2)')
+            gotonextjob = False
+            continue
 
         # only set info_dic once per job (the info will not change)
         info_dic = get_logging_info(job, args)
@@ -578,13 +591,12 @@ def run_realtimelog(queues, traces, args):  # noqa: C901
     logger.info('[payload] run_realtimelog thread has finished')
 
 
-def set_cpu_consumption_time(job):
+def set_cpu_consumption_time(job: Any):
     """
     Set the CPU consumption time.
-    :param job: job object.
-    :return:
-    """
 
+    :param job: job object (Any).
+    """
     cpuconsumptiontime = get_cpu_consumption_time(job.t0)
     job.cpuconsumptiontime = int(round(cpuconsumptiontime))
     job.cpuconsumptionunit = "s"
@@ -592,16 +604,15 @@ def set_cpu_consumption_time(job):
     logger.info(f'CPU consumption time: {cpuconsumptiontime} {job.cpuconsumptionunit} (rounded to {job.cpuconsumptiontime} {job.cpuconsumptionunit})')
 
 
-def perform_initial_payload_error_analysis(job, exit_code):
+def perform_initial_payload_error_analysis(job: Any, exit_code: int):
     """
     Perform an initial analysis of the payload.
+
     Singularity/apptainer errors are caught here.
 
-    :param job: job object.
-    :param exit_code: exit code from payload execution.
-    :return:
+    :param job: job object (Any)
+    :param exit_code: exit code from payload execution (int).
     """
-
     if exit_code != 0:
         logger.warning(f'main payload execution returned non-zero exit code: {exit_code}')
 
@@ -678,14 +689,13 @@ def perform_initial_payload_error_analysis(job, exit_code):
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
 
 
-def scan_for_memory_errors(subprocesses):
+def scan_for_memory_errors(subprocesses: list) -> str:
     """
     Scan for memory errors in dmesg messages.
 
-    :param subprocesses: list of payload subprocesses.
-    :return: error diagnostics (string).
+    :param subprocesses: list of payload subprocesses (list)
+    :return: error diagnostics (str).
     """
-
     diagnostics = ""
     search_str = 'Memory cgroup out of memory'
     for pid in subprocesses:
@@ -705,16 +715,16 @@ def scan_for_memory_errors(subprocesses):
     return diagnostics
 
 
-def set_error_code_from_stderr(msg, fatal):
+def set_error_code_from_stderr(msg: str, fatal: bool) -> int:
     """
     Identify specific errors in stderr and set the corresponding error code.
+
     The function returns 0 if no error is recognized.
 
-    :param msg: stderr (string).
-    :param fatal: boolean flag if fatal error among warning messages in stderr.
+    :param msg: stderr (str)
+    :param fatal: boolean flag if fatal error among warning messages in stderr (bool)
     :return: error code (int).
     """
-
     exit_code = 0
     error_map = {errors.SINGULARITYNEWUSERNAMESPACE: "Failed invoking the NEWUSER namespace runtime",
                  errors.SINGULARITYFAILEDUSERNAMESPACE: "Failed to create user namespace",
@@ -735,18 +745,19 @@ def set_error_code_from_stderr(msg, fatal):
     return exit_code
 
 
-def validate_post(queues, traces, args):
+def validate_post(queues: Any, traces: Any, args: Any):
     """
     Validate finished payloads.
+
+    Thread.
+
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
     well but only for log stage-out (in failed_post() below).
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
         # finished payloads
@@ -771,17 +782,19 @@ def validate_post(queues, traces, args):
     logger.info('[payload] validate_post thread has finished')
 
 
-def failed_post(queues, traces, args):
+def failed_post(queues: Any, traces: Any, args: Any):
     """
-    Get a Job object from the "failed_payloads" queue. Set the pilot state to "stakeout" and the stageout field to
+    Handle failed jobs.
+
+    Thread.
+
+    Get a Job object from the "failed_payloads" queue. Set the pilot state to "stageout" and the stageout field to
     "log", and add the Job object to the "data_out" queue.
 
-    :param queues: internal queues for job handling.
-    :param traces: tuple containing internal pilot states.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-    :return:
+    :param queues: internal queues for job handling (Any)
+    :param traces: tuple containing internal pilot states (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
     """
-
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
         # finished payloads

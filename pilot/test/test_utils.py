@@ -19,36 +19,41 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
-import unittest
+"""Unit tests for pilot utils."""
+
 import os
+import unittest
 
-from pilot.util.workernode import collect_workernode_info, get_disk_space
+from pilot.info import infosys
+from pilot.util.workernode import (
+    collect_workernode_info,
+    get_disk_space
+)
 
 
+def check_env() -> bool:
+    """
+    Check whether cvmfs is available.
+
+    To be used to decide whether to skip some test functions.
+
+    :returns: True if not a Mac, otherwise False (bool).
+    """
+    is_mac = os.environ.get('MACOSX') == 'true' or not os.path.exists('/proc/meminfo')
+    return not is_mac
+    # return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
+
+
+@unittest.skipIf(not check_env(), "This unit test is broken")
 class TestUtils(unittest.TestCase):
-    """
-    Unit tests for utils functions.
-    """
+    """Unit tests for utils functions."""
 
     def setUp(self):
-        # skip tests if running on a Mac -- Macs don't have /proc
-        self.mac = False
-        if os.environ.get('MACOSX') == 'true' or not os.path.exists('/proc/meminfo'):
-            self.mac = True
-
-        from pilot.info import infosys
+        """Set up test fixtures."""
         infosys.init("CERN")
 
     def test_collect_workernode_info(self):
-        """
-        Make sure that collect_workernode_info() returns the proper types (float, float, float).
-
-        :return: (assertion)
-        """
-
-        if self.mac:
-            return True
-
+        """Make sure that collect_workernode_info() returns the proper types (float, float, float)."""
         mem, cpu, disk = collect_workernode_info(path=os.getcwd())
 
         self.assertEqual(type(mem), float)
@@ -60,17 +65,8 @@ class TestUtils(unittest.TestCase):
         self.assertNotEqual(disk, 0.0)
 
     def test_get_disk_space(self):
-        """
-        Verify that get_disk_space() returns the proper type (int).
-
-        :return: (assertion)
-        """
-
-        if self.mac:
-            return True
-
+        """Verify that get_disk_space() returns the proper type (int)."""
         #queuedata = {'maxwdir': 123456789}
-        from pilot.info import infosys
 
         diskspace = get_disk_space(infosys.queuedata)  ## FIX ME LATER
 

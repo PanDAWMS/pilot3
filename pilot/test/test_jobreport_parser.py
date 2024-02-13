@@ -19,34 +19,19 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
-import unittest
+"""NOT IMPLEMENTED: Unit tests for the job report parser."""
+
 import json
+import unittest
 
 from pilot.user.atlas.common import parse_jobreport_data
 
 
 class TestUtils(unittest.TestCase):
-    """
-    Unit tests for utils functions.
-    """
-
-    def setUp(self):
-        # skip tests if running on a Mac -- Macs don't have /proc
-        #self.mac = False
-        # if os.environ.get('MACOSX') == 'true':
-        #    self.mac = True
-
-        #from pilot.info import infosys
-        # infosys.init("AGLT2_TEST-condor")
-        pass
+    """Unit tests for utils functions."""
 
     def test_failed_jobreport(self):
-        """
-        ..
-
-        :return: (assertion)
-        """
-
+        """Test failed job report."""
         report = """
         {
   "cmdLine": "'/ccs/proj/csc108/AtlasReleases/21.0.15/AtlasOffline/21.0.15/InstallArea/x86_64-slc6-gcc49-opt/share/Sim_tf.py'""" \
@@ -156,12 +141,7 @@ class TestUtils(unittest.TestCase):
         print((json.dumps(parse_jobreport_data(report_data), sort_keys=True, indent=2)))
 
     def test_successful_jobreport(self):
-        """
-        ..
-
-        :return: (assertion)
-        """
-
+        """Test successful job report."""
         report = """
 {
   "cmdLine": "'/cvmfs/atlas.cern.ch/repo/sw/software/21.0/AtlasOffline/21.0.15/InstallArea/x86_64-slc6-gcc49-opt/share/Sim_tf.py'""" \

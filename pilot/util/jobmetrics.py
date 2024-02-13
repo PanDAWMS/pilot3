@@ -19,22 +19,25 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions for building job metrics."""
+
 from os import environ
+from typing import Any
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_entry(name, value):
+def get_job_metrics_entry(name: str, value: str) -> str:
     """
     Get a formatted job metrics entry.
+
     Return a job metrics substring with the format 'name=value ' (return empty entry if value is not set).
 
-    :param name: job metrics parameter name (string).
-    :param value: job metrics parameter value (string).
-    :return: job metrics entry (string).
+    :param name: job metrics parameter name (str)
+    :param value: job metrics parameter value (str)
+    :return: job metrics entry (str).
     """
-
     job_metrics_entry = ""
     if value != "":
         job_metrics_entry += f"{name}={value} "
@@ -42,9 +45,10 @@ def get_job_metrics_entry(name, value):
     return job_metrics_entry
 
 
-def get_job_metrics(job, extra={}):
+def get_job_metrics(job: Any, extra: dict = {}) -> str:
     """
     Return a properly formatted job metrics string.
+
     Job metrics are highly user specific, so this function merely calls a corresponding get_job_metrics() in the
     user code. The format of the job metrics string is defined by the server. It will be reported to the server during
     updateJob.
@@ -54,11 +58,10 @@ def get_job_metrics(job, extra={}):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object
+    :param job: job object (Any)
     :param extra: any extra information to be added (dict)
-    :return: job metrics (string).
+    :return: job metrics (str).
     """
-
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     try:
         job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)

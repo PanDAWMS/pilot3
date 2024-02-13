@@ -19,10 +19,13 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
-from pilot.common.exception import NotDefined
+"""Common math functions."""
 
 from decimal import Decimal
 from re import split, sub
+from typing import Any
+
+from pilot.common.exception import NotDefined
 
 SYMBOLS = {
     'customary': ('B', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'),
@@ -33,14 +36,13 @@ SYMBOLS = {
 }
 
 
-def mean(data):
+def mean(data: list) -> float:
     """
     Return the sample arithmetic mean of data.
 
-    :param data: list of floats or ints.
+    :param data: list of floats or ints (list)
     :return: mean value (float).
     """
-
     n = len(data)
     if n < 1:
         raise ValueError('mean requires at least one data point')
@@ -48,95 +50,94 @@ def mean(data):
     return sum(data) / float(n)
 
 
-def sum_square_dev(data):
+def sum_square_dev(data: list) -> float:
     """
     Return sum of square deviations of sequence data.
+
     Sum (x - x_mean)**2
 
     :param data: list of floats or ints.
     :return: sum of squares (float).
     """
-
     c = mean(data)
 
     return sum((x - c) ** 2 for x in data)
 
 
-def sum_dev(x, y):
+def sum_dev(x: list, y: list) -> float:
     """
     Return sum of deviations of sequence data.
+
     Sum (x - x_mean)**(y - y_mean)
 
-    :param x: list of ints or floats.
-    :param y: list of ints or floats.
+    :param x: list of ints or floats (list)
+    :param y: list of ints or floats (list)
     :return: sum of deviations (float).
     """
-
-    c1 = mean(x)
-    c2 = mean(y)
-
-    return sum((_x - c1) * (_y - c2) for _x, _y in zip(x, y))
+    return sum((_x - mean(x)) * (_y - mean(y)) for _x, _y in zip(x, y))
 
 
-def chi2(observed, expected):
+def chi2(observed: list, expected: list) -> float:
     """
     Return the chi2 sum of the provided observed and expected values.
 
-    :param observed: list of floats.
-    :param expected: list of floats.
+    :param observed: list of floats (list)
+    :param expected: list of floats (list)
     :return: chi2 (float).
     """
-
     if 0 in expected:
         return 0.0
 
     return sum((_o - _e) ** 2 / _e ** 2 for _o, _e in zip(observed, expected))
 
 
-def float_to_rounded_string(num, precision=3):
+def float_to_rounded_string(num: float, precision: int = 3) -> str:
     """
     Convert float to a string with a desired number of digits (the precision).
+
     E.g. num=3.1415, precision=2 -> '3.14'.
 
     round_to_n = lambda x, n: x if x == 0 else round(x, -int(math.floor(math.log10(abs(x)))) + (n - 1))
       round_to_n(x=0.123,n=2)
       0.12
-    :param num: number to be converted (float).
-    :param precision: number of desired digits (int)
-    :raises NotDefined: for undefined precisions and float conversions to Decimal.
-    :return: rounded string.
-    """
 
+    :param num: number to be converted (float)
+    :param precision: number of desired digits (int)
+    :raises NotDefined: for undefined precisions and float conversions to Decimal
+    :return: rounded string (str).
+    """
     try:
         _precision = Decimal(10) ** -precision
     except Exception as exc:
-        raise NotDefined(f'failed to define precision={precision}: {exc}')
+        raise NotDefined(f'failed to define precision={precision}: {exc}') from exc
 
     try:
         s = Decimal(str(num)).quantize(_precision)
     except Exception as exc:
-        raise NotDefined(f'failed to convert {num} to Decimal: {exc}')
+        raise NotDefined(f'failed to convert {num} to Decimal: {exc}') from exc
 
     return str(s)
 
 
-def tryint(x):
+def tryint(x: Any) -> Any:
     """
+    Try to convert given number to integer.
+
     Used by numbered string comparison (to protect against unexpected letters in version number).
 
-    :param x: possible int.
-    :return: converted int or original value in case of ValueError.
+    :param x: possible int (Any)
+    :return: converted int or original value in case of ValueError (Any).
     """
-
     try:
         return int(x)
     except ValueError:
         return x
 
 
-def split_version(s):
+def split_version(version: str) -> tuple:
     """
     Split version string into parts and convert the parts into integers when possible.
+
     Any encountered strings are left as they are.
     The function is used with release strings.
     split_version("1.2.3") = (1,2,3)
@@ -147,78 +148,78 @@ def split_version(s):
     > sorted(names, key=splittedname)
     ['4.3', '4.10', 'PT2.9', 'PT2.19', 'YT4.2', 'YT4.11']
 
-    :param s: release string.
-    :return: converted release tuple.
+    :param version: release string (str)
+    :return: converted release tuple (tuple).
     """
+    return tuple(tryint(x) for x in split('([^.]+)', version))
 
-    return tuple(tryint(x) for x in split('([^.]+)', s))
 
-
-def is_greater_or_equal(a, b):
+def is_greater_or_equal(num_a: str, num_b: str) -> bool:
     """
-    Is the numbered string a >= b?
+    Check if the numbered string num_a >= num_b.
+
     "1.2.3" > "1.2"  -- more digits
     "1.2.3" > "1.2.2"  -- rank based comparison
     "1.3.2" > "1.2.3"  -- rank based comparison
     "1.2.N" > "1.2.2"  -- nightlies checker, always greater
 
-    :param a: numbered string.
-    :param b: numbered string.
-    :return: boolean.
+    :param num_a: numbered string (str)
+    :param num_b: numbered string (str)
+    :return: True if num_a >= num_b, False otherwise (bool).
     """
+    return split_version(num_a) >= split_version(num_b)
 
-    return split_version(a) >= split_version(b)
 
-
-def add_lists(list1, list2):
+def add_lists(list1: list, list2: list) -> list:
     """
     Add list1 and list2 and remove any duplicates.
+
     Example:
     list1=[1,2,3,4]
     list2=[3,4,5,6]
     add_lists(list1, list2) = [1, 2, 3, 4, 5, 6]
 
-    :param list1: input list 1
-    :param list2: input list 2
-    :return: added lists with removed duplicates
+    :param list1: input list 1 (list)
+    :param list2: input list 2 (list)
+    :return: added lists with removed duplicates (list).
     """
     return list1 + list(set(list2) - set(list1))
 
 
-def convert_mb_to_b(size):
+def convert_mb_to_b(size: Any) -> int:
     """
     Convert value from MB to B for the given size variable.
+
     If the size is a float, the function will convert it to int.
 
-    :param size: size in MB (float or int).
-    :return: size in B (int).
+    :param size: size in MB (float or int) (Any)
     :raises: ValueError for conversion error.
+    :return: size in B (int).
     """
-
     try:
         size = int(size)
     except Exception as exc:
-        raise ValueError(f'cannot convert {size} to int: {exc}')
+        raise ValueError(f'cannot convert {size} to int: {exc}') from exc
 
     return size * 1024 ** 2
 
 
-def diff_lists(list_a, list_b):
+def diff_lists(list_a: list, list_b: list) -> list:
     """
     Return the difference between list_a and list_b.
 
-    :param list_a: input list a.
-    :param list_b: input list b.
+    :param list_a: input list a (list)
+    :param list_b: input list b (list)
     :return: difference (list).
     """
-
     return list(set(list_a) - set(list_b))
 
 
-def bytes2human(n, _format='%(value).1f %(symbol)s', symbols='customary'):
+def bytes2human(num: Any, symbols: str = 'customary') -> str:
     """
-    Convert n bytes into a human readable string based on format.
-    symbols can be either "customary", "customary_ext", "iec" or "iec_ext",
+    Convert `num` bytes into a human-readable string based on format.
+
+    Symbols can be either "customary", "customary_ext", "iec" or "iec_ext",
     see: http://goo.gl/kTQMs
 
       >>> bytes2human(0)
@@ -251,26 +252,36 @@ def bytes2human(n, _format='%(value).1f %(symbol)s', symbols='customary'):
       >>> # precision can be adjusted by playing with %f operator
       >>> bytes2human(10000, _format="%(value).5f %(symbol)s")
       '9.76562 K'
+
+    :param num: input number (Any)
+    :param symbols: symbold string (str)
+    :return: human-readable string (str).
     """
-    n = int(n)
-    if n < 0:
+    _format = '%(value).1f %(symbol)s'
+
+    try:
+        number = int(num)
+    except ValueError as exc:
+        raise exc
+    if number < 0:
         raise ValueError("n < 0")
     symbols = SYMBOLS[symbols]
     prefix = {}
     for i, s in enumerate(symbols[1:]):
         prefix[s] = 1 << (i + 1) * 10
     for symbol in reversed(symbols[1:]):
-        if n >= prefix[symbol]:
-            value = float(n) / prefix[symbol]
+        if number >= prefix[symbol]:
+            # value = float(number) / prefix[symbol]
             return _format % locals()
-    return _format % dict(symbol=symbols[0], value=n)
+
+    return _format % {"symbol": symbols[0], "value": number}
 
 
-def human2bytes(s, divider=None):
+def human2bytes(snumber: str, divider: Any = None) -> int:
     """
-    Attempts to guess the string format based on default symbols
-    set and return the corresponding bytes as an integer.
-    When unable to recognize the format ValueError is raised.
+    Guess the string format based on default symbols set and return the corresponding bytes as an integer.
+
+    When unable to recognize the format, a ValueError is raised.
 
     If no digit passed, only a letter, it is interpreted as a one of a kind. Eg "KB" = "1 KB".
     If no letter passed, it is assumed to be in bytes. Eg "512" = "512 B"
@@ -310,22 +321,32 @@ def human2bytes(s, divider=None):
       2048
       >>> human2bytes('G', '2M')
       512
+
+    :param snumber: number string (str)
+    :param divider: divider (Any)
+    :return: converted integer (int)
+    :raises ValueError: for conversion error.
     """
-    init = s
+    init = snumber
     num = ""
-    while s and s[0:1].isdigit() or s[0:1] == '.':
-        num += s[0]
-        s = s[1:]
+    while snumber and snumber[0:1].isdigit() or snumber[0:1] == '.':
+        num += snumber[0]
+        snumber = snumber[1:]
 
     if len(num) == 0:
         num = "1"
-    num = float(num)
-    letter = s.strip()
+
+    try:
+        number = float(num)
+    except ValueError as exc:
+        raise exc
+
+    letter = snumber.strip()
     letter = sub(r'(?i)(?<=.)(bi?|bytes?)$', "", letter)
     if len(letter) == 0:
         letter = "B"
 
-    for name, sset in list(SYMBOLS.items()):
+    for _, sset in list(SYMBOLS.items()):
         if letter in sset:
             break
     else:
@@ -334,10 +355,31 @@ def human2bytes(s, divider=None):
             sset = SYMBOLS['customary']
             letter = letter.upper()
         else:
-            raise ValueError("can't interpret %r" % init)
+            raise ValueError(f"can't interpret {init!r}")  # = repr(init)
     prefix = {sset[0]: 1}
-    for i, s in enumerate(sset[1:]):
-        prefix[s] = 1 << (i + 1) * 10
+    for inum, snum in enumerate(sset[1:]):
+        prefix[snum] = 1 << (inum + 1) * 10
 
     div = 1 if divider is None else human2bytes(divider)
-    return int(num * prefix[letter] / div)
+
+    try:
+        ret = int(number * prefix[letter] / div)
+    except ValueError as exc:
+        raise exc
+
+    return ret
+
+
+def convert_seconds_to_hours_minutes_seconds(seconds: int) -> tuple:
+    """
+    Convert seconds to hours, minutes, and remaining seconds.
+
+    :param seconds: seconds (int)
+    :return: hours, minutes, remaining seconds (tuple).
+    """
+    hours = seconds // 3600
+    remaining_seconds = seconds % 3600
+    minutes = remaining_seconds // 60
+    remaining_seconds %= 60
+
+    return hours, minutes, remaining_seconds

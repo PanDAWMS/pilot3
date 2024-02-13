@@ -51,7 +51,7 @@ def get_job_metrics_string(job, extra={}):
 
     # report core count (will also set corecount in job object)
     corecount = get_core_count(job)
-    logger.debug('job definition core count: %d', corecount)
+    logger.debug(f'job definition core count: {corecount}')
 
     #if corecount is not None and corecount != "NULL" and corecount != 'null':
     #    job_metrics += get_job_metrics_entry("coreCount", corecount)
@@ -85,7 +85,7 @@ def get_job_metrics_string(job, extra={}):
         if max_space > zero:
             job_metrics += get_job_metrics_entry("workDirSize", max_space)
         else:
-            logger.info("will not add max space = %d B to job metrics", max_space)
+            logger.info(f"will not add max space = {max_space} B to job metrics")
 
     # is there a detected rucio trace service error?
     trace_exit_code = get_trace_exit_code(job.workdir)
@@ -226,7 +226,7 @@ def add_event_number(job_metrics, workdir):
             if event_number:
                 job_metrics += get_job_metrics_entry("eventnumber", event_number)
     else:
-        logger.debug('file %s does not exist (skip for now)', path)
+        logger.debug(f'file {path} does not exist (skip for now)')
 
     return job_metrics
 
@@ -253,18 +253,18 @@ def get_job_metrics(job, extra={}):
     job_metrics = job_metrics.lstrip().rstrip()
 
     if job_metrics != "":
-        logger.debug('job metrics=\"%s\"', job_metrics)
+        logger.debug(f'job metrics=\"{job_metrics}\"')
     else:
         logger.debug("no job metrics (all values are zero)")
 
     # is job_metrics within allowed size?
     if len(job_metrics) > 500:
-        logger.warning("job_metrics out of size (%d)", len(job_metrics))
+        logger.warning(f"job_metrics out of size ({len(job_metrics)})")
 
         # try to reduce the field size and remove the last entry which might be cut
         job_metrics = job_metrics[:500]
         job_metrics = " ".join(job_metrics.split(" ")[:-1])
-        logger.warning("job_metrics has been reduced to: %s", job_metrics)
+        logger.warning(f"job_metrics has been reduced to: {job_metrics}")
 
     return job_metrics
 

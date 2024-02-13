@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Unit test functions for the Analytics package."""
+
 import unittest
 import os
 
@@ -26,21 +28,14 @@ from pilot.api import analytics
 
 
 class TestAnalytics(unittest.TestCase):
-    """
-    Unit tests for the Analytics package.
-    """
+    """Unit tests for the Analytics package."""
 
     def setUp(self):
-
+        """Set up test fixtures."""
         self.client = analytics.Analytics()
 
     def test_linear_fit(self):
-        """
-        Make sure that a linear fit works.
-
-        :return: (assertion).
-        """
-
+        """Make sure that a linear fit works."""
         self.assertIsInstance(self.client, analytics.Analytics)  # python 2.7
 
         x = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -63,12 +58,7 @@ class TestAnalytics(unittest.TestCase):
         self.assertEqual(slope, -1.0)
 
     def test_parsing_memory_monitor_data(self):
-        """
-        Read and fit PSS vs Time from memory monitor output file.
-
-        :return: (assertion).
-        """
-
+        """Read and fit PSS vs Time from memory monitor output file."""
         # old MemoryMonitor format
         filename = 'pilot/test/resource/memory_monitor_output.txt'
         self.assertEqual(os.path.exists(filename), True)

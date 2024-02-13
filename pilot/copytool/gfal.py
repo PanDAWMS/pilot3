@@ -22,9 +22,11 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
-import os
-import logging
+"""GFAL2 copy tool."""
+
 import errno
+import logging
+import os
 from time import time
 
 from .common import resolve_common_transfer_errors, get_timeout
@@ -39,30 +41,45 @@ require_replicas = True  ## indicate if given copytool requires input replicas t
 allowed_schemas = ['srm', 'gsiftp', 'https', 'davs', 'root']  # prioritized list of supported schemas for transfers by given copytool
 
 
-def is_valid_for_copy_in(files):
-    return True  ## FIX ME LATER
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
     #for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
-
-
-def is_valid_for_copy_out(files):
     return True  ## FIX ME LATER
-    #for f in files:
+
+
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
+    return True  ## FIX ME LATER
 
 
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
-        Download given files using gfal-copy command.
+    Download given files using gfal-copy command.
 
-        :param files: list of `FileSpec` objects
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :raises: PilotException in case of controlled error
+    :return: updated files (list).
     """
-
     #allow_direct_access = kwargs.get('allow_direct_access') or False
     trace_report = kwargs.get('trace_report')
 
@@ -92,12 +109,12 @@ def copy_in(files, **kwargs):
 
         timeout = get_timeout(fspec.filesize)
         source = fspec.turl
-        destination = "file://%s" % os.path.abspath(os.path.join(dst, fspec.lfn))
+        destination = f"file://{os.path.abspath(os.path.join(dst, fspec.lfn))}"
 
-        cmd = ['gfal-copy --verbose -f', ' -t %s' % timeout]
+        cmd = ['gfal-copy --verbose -f', f' -t {timeout}']
 
         if fspec.checksum:
-            cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]  # Python 2/3
+            cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]
 
         cmd += [source, destination]
 
@@ -107,7 +124,7 @@ def copy_in(files, **kwargs):
             if rcode in [errno.ETIMEDOUT, errno.ETIME]:
                 error = {'rcode': ErrorCodes.STAGEINTIMEOUT,
                          'state': 'CP_TIMEOUT',
-                         'error': 'Copy command timed out: %s' % stderr}
+                         'error': f'Copy command timed out: {stderr}'}
             else:
                 error = resolve_common_transfer_errors(stdout + stderr, is_stagein=True)
             fspec.status = 'failed'
@@ -126,14 +143,14 @@ def copy_in(files, **kwargs):
     return files
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using gfal command.
 
-    :param files: Files to upload
+    :param files: Files to upload (files)
     :raises: PilotException in case of errors
+    :return: updated files (list).
     """
-
     if not check_for_gfal():
         raise StageOutFailure("No GFAL2 tools found")
 
@@ -147,10 +164,10 @@ def copy_out(files, **kwargs):
 
         timeout = get_timeout(fspec.filesize)
 
-        source = "file://%s" % os.path.abspath(fspec.surl or os.path.join(src, fspec.lfn))
+        source = f"file://{os.path.abspath(fspec.surl or os.path.join(src, fspec.lfn))}"
         destination = fspec.turl
 
-        cmd = ['gfal-copy --verbose -f', ' -t %s' % timeout]
+        cmd = ['gfal-copy --verbose -f', f' -t {timeout}']
 
         if fspec.checksum:
             cmd += ['-K', '%s:%s' % list(fspec.checksum.items())[0]]  # Python 2/3
@@ -163,7 +180,7 @@ def copy_out(files, **kwargs):
             if rcode in [errno.ETIMEDOUT, errno.ETIME]:
                 error = {'rcode': ErrorCodes.STAGEOUTTIMEOUT,
                          'state': 'CP_TIMEOUT',
-                         'error': 'Copy command timed out: %s' % stderr}
+                         'error': f'Copy command timed out: {stderr}'}
             else:
                 error = resolve_common_transfer_errors(stdout + stderr, is_stagein=False)
             fspec.status = 'failed'
@@ -182,21 +199,20 @@ def copy_out(files, **kwargs):
     return files
 
 
-def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
+def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):   ### NOT USED -- TO BE DEPRECATED
     """
-    Move all files.
+    Move all input files.
 
-    :param files:
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSpec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit_code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s" % (entry['name'], entry['source'], entry['destination']))
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         source = entry['source'] + '/' + entry['name']
         # why /*4 ? Because sometimes gfal-copy complains about file:// protocol (anyone knows why?)
@@ -207,7 +223,7 @@ def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s" % (exit_code, stdout, stderr))
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -215,20 +231,19 @@ def move_all_files_in(files, nretries=1):   ### NOT USED -- TO BE DEPRECATED
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
+def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### NOT USED -- TO BE DEPRECATED
     """
-    Move all files.
+    Move all output files.
 
-    :param files:
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSpec objects (list)
+    :return: exit_code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s" % (entry['name'], entry['source'], entry['destination']))
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         destination = entry['destination'] + '/' + entry['name']
         # why /*4 ? Because sometimes gfal-copy complains about file:// protocol (anyone knows why?)
@@ -239,7 +254,7 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
 
             if exit_code != 0:
                 if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s" % (exit_code, stdout, stderr))
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -248,12 +263,19 @@ def move_all_files_out(files, nretries=1):  ### NOT USED -- TO BE DEPRECATED
 
 
 #@timeout(seconds=10800)
-def move(source, destination, recursive=False):
-    cmd = None
+def move(source: str, destination: str, recursive: bool = False) -> (int, str, str):
+    """
+    Perform gfal-copy from the given source location to the given destination.
+
+    :param source: file source path (str)
+    :param destination: destination path (str)
+    :param recursive: True if -r option is desired, False otherwise (bool)
+    :return: exit code (int), stdout (str), stderr (str).
+    """
     if recursive:
-        cmd = "gfal-copy -r %s %s" % (source, destination)
+        cmd = f"gfal-copy -r {source} {destination}"
     else:
-        cmd = "gfal-copy %s %s" % (source, destination)
+        cmd = f"gfal-copy {source} {destination}"
     print(cmd)
     exit_code, stdout, stderr = execute(cmd)
 
@@ -261,5 +283,10 @@ def move(source, destination, recursive=False):
 
 
 def check_for_gfal():
-    exit_code, gfal_path, _ = execute('which gfal-copy')
+    """
+    Check if gfal-copy is locally available.
+
+    :return: True if gfal-copy is available, False otherwise (bool).
+    """
+    exit_code, _, _ = execute('which gfal-copy')
     return exit_code == 0
