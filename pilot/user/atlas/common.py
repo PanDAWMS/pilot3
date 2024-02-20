@@ -575,9 +575,11 @@ def prepend_env_vars(environ: str, cmd: str) -> str:
     exports_to_add = ''
     for _cmd in exports:
         exports_to_add += _cmd
-    if exports_to_add:
-        cmd = exports_to_add + cmd
-        logger.debug(f'prepended exports to payload command: {exports_to_add}')
+
+    # add the UTC time zone
+    exports_to_add += "export TZ=\'UTC\'; "
+    cmd = exports_to_add + cmd
+    logger.debug(f'prepended exports to payload command: {exports_to_add}')
 
     return cmd
 
