@@ -915,10 +915,10 @@ def get_middleware_container_script(middleware_container: str, cmd: str, asetup:
         content = cmd[cmd.find('source $AtlasSetup'):]
     elif 'rucio' in middleware_container:
         content = sitename
-        content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
-        content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
-        content += "setupATLAS -3; "
-        content = f'lsetup "python pilot-default";python3 {cmd} '
+        #content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
+        #content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
+        #content += "setupATLAS -3; "
+        content += f'lsetup "python pilot-default";python3 {cmd} '
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
