@@ -35,6 +35,7 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
+from pilot.util.constants import get_rucio_client_version
 from pilot.util.container import obscure_token
 from pilot.util.filehandling import (
     grep,
@@ -918,6 +919,9 @@ def get_middleware_container_script(middleware_container: str, cmd: str, asetup:
         #content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
         #content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
         #content += "setupATLAS -3; "
+        rucio_version = get_rucio_client_version()
+        if rucio_version:
+            content += f'export ATLAS_LOCAL_RUCIOCLIENTS_VERSION={rucio_version}; '
         content += f'lsetup "python pilot-default";python3 {cmd} '
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
