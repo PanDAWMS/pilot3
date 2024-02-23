@@ -21,10 +21,11 @@
 
 """Auxiliary functions."""
 
+import logging
 import os
 import re
+import socket
 import sys
-import logging
 
 from collections.abc import Set, Mapping
 from collections import deque, OrderedDict
@@ -40,7 +41,6 @@ from pilot.util.constants import (
     SERVER_UPDATE_TROUBLE,
     get_pilot_version,
 )
-
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.container import execute
 from pilot.util.filehandling import dump
@@ -705,8 +705,11 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
         elif hasattr(os, 'uname'):
             host = os.uname()[1]
         else:
-            import socket
-            host = socket.gethostname()
+            try:
+                host = socket.gethostname()
+            except socket.herror as exc:
+                logger.warning(f'failed to get host name: {exc}')
+                host = 'localhost'
         return host.split('.')[0]
 
     globaljobid = get_globaljobid()

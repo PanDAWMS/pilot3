@@ -82,6 +82,13 @@ class TestESCommunicationManagerPanda(unittest.TestCase):
     def test_communicator_manager(self):
         """Make sure that es communicator manager thread works as expected."""
         communicator_manager = None
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+        try:
+            fqdn = socket.getfqdn()
+        except socket.herror:
+            fqdn = 'localhost'
         try:
             args = {'workflow': 'eventservice_hpc',
                     'queue': 'BNL_CLOUD_MCORE',
@@ -90,7 +97,7 @@ class TestESCommunicationManagerPanda(unittest.TestCase):
                     'url': 'https://aipanda007.cern.ch',
                     'job_label': 'ptest',
                     'pilot_user': 'ATLAS',
-                    'node': socket.getfqdn(),
+                    'node': fqdn,
                     'mem': 16000,
                     'disk_space': 160000,
                     'working_group': '',
