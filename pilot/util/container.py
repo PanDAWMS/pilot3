@@ -89,6 +89,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     stderr = ''
 
     # Acquire the lock before creating the subprocess
+    process = None
     with execute_lock:
         process = subprocess.Popen(exe,
                                    bufsize=-1,
@@ -122,11 +123,13 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     # (not strictly necessary when process.communicate() is used)
     try:
         # wait for the process to complete with a timeout of 60 seconds
-        process.wait(timeout=60)
+        if process:
+            process.wait(timeout=60)
     except subprocess.TimeoutExpired:
         # Handle the case where the process did not complete within the timeout
-        print("process did not complete within the timeout of 60s - terminating")
-        process.terminate()
+        if process:
+            logger.warning("process did not complete within the timeout of 60s - terminating")
+            process.terminate()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):
@@ -152,8 +155,9 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
         nonlocal exit_code  # Use nonlocal to modify the outer variable
         logger.warning("subprocess execution timed out")
         exit_code = -2
-        process.terminate()  # Terminate the subprocess if it's still running
-        logger.info(f'process terminated after {timeout_seconds}s')
+        if process:
+            process.terminate()  # Terminate the subprocess if it's still running
+            logger.info(f'process terminated after {timeout_seconds}s')
 
     obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
     if not kwargs.get('mute', False):
@@ -162,43 +166,49 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # Create the subprocess with stdout and stderr redirection to files
-    process = subprocess.Popen(exe,
-                               stdout=stdout_file,
-                               stderr=stderr_file,
-                               cwd=kwargs.get('cwd', os.getcwd()),
-                               preexec_fn=os.setsid,
-                               encoding='utf-8',
-                               errors='replace')
+    # Acquire the lock before creating the subprocess
+    process = None
+    with execute_lock:
+        process = subprocess.Popen(exe,
+                                   stdout=stdout_file,
+                                   stderr=stderr_file,
+                                   cwd=kwargs.get('cwd', os.getcwd()),
+                                   preexec_fn=os.setsid,
+                                   encoding='utf-8',
+                                   errors='replace')
 
-    # Set up a timer for the timeout
-    timeout_timer = threading.Timer(timeout_seconds, _timeout_handler)
+        # Set up a timer for the timeout
+        timeout_timer = threading.Timer(timeout_seconds, _timeout_handler)
 
-    try:
-        # Start the timer
-        timeout_timer.start()
-
-        # wait for the process to finish
         try:
-            # wait for the process to complete with a timeout (this will likely never happen since a timer is used)
-            process.wait(timeout=timeout_seconds + 10)
-        except subprocess.TimeoutExpired:
-            # Handle the case where the process did not complete within the timeout
-            timeout_seconds = timeout_seconds + 10
-            logger.warning(f"process wait did not complete within the timeout of {timeout_seconds}s - terminating")
-            exit_code = -2
-            process.terminate()
-    except Exception as exc:
-        logger.warning(f'execution caught: {exc}')
-    finally:
-        # Cancel the timer to avoid it firing after the subprocess has completed
-        timeout_timer.cancel()
+            # Start the timer
+            timeout_timer.start()
+
+            # wait for the process to finish
+            try:
+                # wait for the process to complete with a timeout (this will likely never happen since a timer is used)
+                process.wait(timeout=timeout_seconds + 10)
+            except subprocess.TimeoutExpired:
+                # Handle the case where the process did not complete within the timeout
+                timeout_seconds = timeout_seconds + 10
+                logger.warning(f"process wait did not complete within the timeout of {timeout_seconds}s - terminating")
+                exit_code = -2
+                process.terminate()
+        except Exception as exc:
+            logger.warning(f'execution caught: {exc}')
+        finally:
+            # Cancel the timer to avoid it firing after the subprocess has completed
+            timeout_timer.cancel()
 
     if exit_code == -2:
         # the process was terminated due to a time-out
         exit_code = errors.COMMANDTIMEDOUT
     else:
         # get the exit code after a normal finish
-        exit_code = process.returncode
+        if process:
+            exit_code = process.returncode
+        else:
+            exit_code = -1
 
     return exit_code
 
