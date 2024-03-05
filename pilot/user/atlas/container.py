@@ -894,7 +894,7 @@ def get_root_container_script(cmd: str) -> str:
     :param cmd: root command (str)
     :return: script content (str).
     """
-    content = f'date\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
+    content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
     logger.debug(f'root setup script content:\n\n{content}\n\n')
 
     return content
