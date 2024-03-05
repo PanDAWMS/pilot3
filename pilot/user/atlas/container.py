@@ -371,7 +371,8 @@ def get_container_options(container_options):
             pass
             # opts += 'export ALRB_CONT_CMDOPTS=\"$ALRB_CONT_CMDOPTS -c -i -p\";'
         else:
-            opts += '-e \"-C\"'
+            #opts += '-e \"-C\"'
+            opts += '-e \"-c -i\"'
 
     return opts
 
