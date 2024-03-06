@@ -28,11 +28,12 @@ from sys import exc_info
 from json import dumps
 from os import environ, getuid
 
+from pilot.common.exception import FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
-from pilot.common.exception import FileHandlingFailure
 from pilot.util.filehandling import append_to_file, write_file
+# from pilot.util.https import request3
 
 import logging
 logger = logging.getLogger(__name__)
@@ -102,16 +103,27 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
-        hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+
+        try:
+            hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
+        except socket.herror as exc:
+            logger.warning(f'unable to detect hostname for trace report: {exc}')
+            hostname = os.environ.get('PANDA_HOSTNAME', 'unknown')
+
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
-        except Exception:
-            logger.debug("unable to detect hostname for trace report")
+        except socket.herror as exc:
+            logger.warning(f'unable to detect hostname by address for trace report: {exc}')
+            self['hostname'] = 'unknown'
 
         try:
             self['ip'] = socket.gethostbyname(hostname)
-        except Exception:
-            logger.debug("unable to detect host IP for trace report")
+        except socket.herror as exc:
+            logger.debug(f"unable to detect host IP for trace report: {exc}")
+            self['ip'] = '0.0.0.0'
 
         if job.jobdefinitionid:
             s = 'ppilot_%s' % job.jobdefinitionid
@@ -119,7 +131,7 @@ class TraceReport(dict):
         else:
             #self['uuid'] = commands.getoutput('uuidgen -t 2> /dev/null').replace('-', '')  # all LFNs of one request have the same uuid
             cmd = 'uuidgen -t 2> /dev/null'
-            exit_code, stdout, stderr = execute(cmd)
+            exit_code, stdout, stderr = execute(cmd, timeout=10)
             self['uuid'] = stdout.replace('-', '')
 
     def get_value(self, key):
@@ -186,6 +198,13 @@ class TraceReport(dict):
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
 
             ssl_certificate = self.get_ssl_certificate()
+
+            #ret = request3(url, data)
+            #if ret:
+            #    logger.info("tracing report sent")
+            #    return True
+            #else:
+            #    logger.warning("failed to send tracing report - using old curl command")
 
             # create the command
             command = 'curl'

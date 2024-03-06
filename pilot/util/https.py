@@ -19,16 +19,24 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """Functions for https interactions."""
 
+try:
+    import certifi
+except ImportError:
+    certifi = None
 import json
 import logging
 import os
 import pipes
 import platform
 import random
+try:
+    import requests
+except ImportError:
+    requests = None
 import socket
 import ssl
 import sys
@@ -420,6 +428,7 @@ def get_urlopen_output(req: Any, context: Any) -> (int, str):
     """
     exitcode = -1
     output = ""
+    logger.debug('ok about to open url')
     try:
         output = urllib.request.urlopen(req, context=context)
     except urllib.error.HTTPError as exc:
@@ -428,7 +437,7 @@ def get_urlopen_output(req: Any, context: Any) -> (int, str):
         logger.warning(f'connection error: {exc.reason}')
     else:
         exitcode = 0
-
+    logger.debug(f'ok url opened: exitcode={exitcode}')
     return exitcode, output
 
 
@@ -545,12 +554,20 @@ def get_panda_server(url: str, port: str, update_server: bool = True) -> str:
     if not update_server:
         return pandaserver
 
+    # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+    # server is slow to respond
+    socket.setdefaulttimeout(10)
+
     # add randomization for PanDA server
     default = 'pandaserver.cern.ch'
     if default in pandaserver:
-        rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
-        pandaserver = pandaserver.replace(default, rnd)
-        logger.debug(f'updated {default} to {pandaserver}')
+        try:
+            rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
+        except socket.herror as exc:
+            logger.warning(f'failed to get address from socket: {exc} - will use default server ({pandaserver})')
+        else:
+            pandaserver = pandaserver.replace(default, rnd)
+            logger.debug(f'updated {default} to {pandaserver}')
 
     return pandaserver
 
@@ -609,3 +626,139 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     # randomize server name
     url = get_panda_server(url, port)
     return f'{url}/server/panda/{cmd}'
+
+
+def request2_bad(url: str, data: dict = {}) -> str:
+    """
+    Send a request using HTTPS.
+
+    :param url: the URL of the resource (str)
+    :param data: data to send (dict)
+    :return: server response (str).
+    """
+
+    # convert the dictionary to a JSON string
+    data_json = json.dumps(data).encode('utf-8')
+
+    # Create an SSLContext object
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    logger.debug(f'capath={_ctx.capath}')
+    logger.debug(f'cacert={_ctx.cacert}')
+    ssl_context.load_verify_locations(_ctx.capath)
+    ssl_context.load_cert_chain(_ctx.cacert)
+    # define additional headers
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": _ctx.user_agent,
+    }
+
+    # create a request object with the SSL context
+    request = urllib.request.Request(url, data=data_json, headers=headers, method='POST')
+
+    # perform the HTTP request with the SSL context
+    try:
+        response = urllib.request.urlopen(request, context=ssl_context)
+        ret = response.read().decode('utf-8')
+    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+        logger.warning(f'failed to send request: {exc}')
+        ret = ""
+
+    return ret
+
+
+def request2(url: str, data: dict = {}) -> str:
+    """
+    Send a request using HTTPS (using urllib module).
+
+    :param url: the URL of the resource (str)
+    :param data: data to send (dict)
+    :return: server response (str).
+    """
+    # https might not have been set up if running in a [middleware] container
+    if not _ctx.cacert:
+        logger.debug('setting up unset https')
+        https_setup(None, get_pilot_version())
+
+    # define additional headers
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": _ctx.user_agent,
+    }
+
+    logger.debug(f'headers={headers}')
+
+    # Encode data as JSON
+    data_json = json.dumps(data).encode('utf-8')
+    #data_json = urllib.parse.quote(json.dumps(data))
+    #data_json = data_json.encode('utf-8')
+
+    logger.debug(f'data_json={data_json}')
+
+    # Set up the request
+    req = urllib.request.Request(url, data_json, headers=headers)
+
+    # Create a context with certificate verification
+    logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
+    logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
+    #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
+    #logger.debug(f'context={context}')
+
+    ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
+    # Send the request securely
+    try:
+        with urllib.request.urlopen(req, context=ssl_context) as response:
+            # Handle the response here
+            logger.debug(response.status, response.reason)
+            logger.debug(response.read().decode('utf-8'))
+            ret = response.read().decode('utf-8')
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+        logger.warning(f'failed to send request: {exc}')
+        ret = ""
+
+    return ret
+
+
+def request3(url: str, data: dict = {}) -> str:
+    """
+    Send a request using HTTPS (using requests module).
+
+    :param url: the URL of the resource (str)
+    :param data: data to send (dict)
+    :return: server response (str).
+    """
+    if not requests:
+        logger.warning('cannot use requests module (not available)')
+        return ""
+    if not certifi:
+        logger.warning('cannot use certifi module (not available)')
+        return ""
+
+        # https might not have been set up if running in a [middleware] container
+    if not _ctx.cacert:
+        logger.debug('setting up unset https')
+        https_setup(None, get_pilot_version())
+
+    # define additional headers
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": _ctx.user_agent,
+    }
+
+    # Convert the dictionary to a JSON string
+    data_json = json.dumps(data)
+
+    # Use the requests module to make the HTTP request
+    try:
+        # certifi.where() = /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/x86_64/python/3.11.7-x86_64-el9/
+        #                    lib/python3.11/site-packages/certifi/cacert.pem
+        # _ctx.cacert = /alrb/x509up_u25606_prod
+        response = requests.post(url, data=data_json, headers=headers, verify=_ctx.cacert, cert=certifi.where(), timeout=120)
+        response.raise_for_status()  # Raise an error for bad responses (4xx and 5xx)
+
+        # Handle the response as needed
+        ret = response.text
+    except (requests.exceptions.RequestException, requests.exceptions.Timeout) as exc:
+        logger.warning(f'failed to send request: {exc}')
+        ret = ""
+
+    return ret
