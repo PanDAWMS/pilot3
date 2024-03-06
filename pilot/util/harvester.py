@@ -119,11 +119,20 @@ def get_initial_work_report() -> dict:
 
     :return: work report dictionary (dict).
     """
+    # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+    # server is slow to respond
+    socket.setdefaulttimeout(10)
+    try:
+        hostname = socket.gethostname()
+    except socket.herror as exc:
+        logger.warning(f'failed to get hostname: {exc}')
+        hostname = 'localhost'
+
     return {'jobStatus': 'starting',
             'messageLevel': logging.getLevelName(logger.getEffectiveLevel()),
             'cpuConversionFactor': 1.0,
             'cpuConsumptionTime': '',
-            'node': os.environ.get('PANDA_HOSTNAME', socket.gethostname()),
+            'node': os.environ.get('PANDA_HOSTNAME', hostname),
             'workdir': '',
             'timestamp': time_stamp(),
             'endTime': '',

@@ -155,8 +155,15 @@ class ActiveMQ:
         # prevent stomp from exposing credentials in stdout (in case pilot is running in debug mode)
         logging.getLogger('stomp').setLevel(logging.INFO)
 
-        # get the list of brokers to use
-        _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+        try:
+            # get the list of brokers to use
+            _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
+        except socket.herror as exc:
+            logger.warning(f'failed get address from socket: {exc}')
+            return
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
 
         receive_topic = self.receive_topics[0]

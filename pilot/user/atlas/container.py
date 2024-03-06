@@ -35,6 +35,7 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
+from pilot.util.constants import get_rucio_client_version
 from pilot.util.container import obscure_token
 from pilot.util.filehandling import (
     grep,
@@ -370,7 +371,8 @@ def get_container_options(container_options):
             pass
             # opts += 'export ALRB_CONT_CMDOPTS=\"$ALRB_CONT_CMDOPTS -c -i -p\";'
         else:
-            opts += '-e \"-C\"'
+            #opts += '-e \"-C\"'
+            opts += '-e \"-c -i\"'
 
     return opts
 
@@ -892,7 +894,7 @@ def get_root_container_script(cmd: str) -> str:
     :param cmd: root command (str)
     :return: script content (str).
     """
-    content = f'date\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
+    content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
     logger.debug(f'root setup script content:\n\n{content}\n\n')
 
     return content
@@ -915,10 +917,13 @@ def get_middleware_container_script(middleware_container: str, cmd: str, asetup:
         content = cmd[cmd.find('source $AtlasSetup'):]
     elif 'rucio' in middleware_container:
         content = sitename
-        content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
-        content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
-        content += "setupATLAS -3; "
-        content = f'lsetup "python pilot-default";python3 {cmd} '
+        #content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
+        #content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
+        #content += "setupATLAS -3; "
+        rucio_version = get_rucio_client_version()
+        if rucio_version:
+            content += f'export ATLAS_LOCAL_RUCIOCLIENTS_VERSION={rucio_version}; '
+        content += f'lsetup "python pilot-default";python3 {cmd} '
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
