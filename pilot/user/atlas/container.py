@@ -775,8 +775,8 @@ def create_root_container_command(workdir: str, cmd: str) -> str:
     :return: container command to be executed (str).
     """
     command = f'cd {workdir};'
-    content = get_root_container_script(cmd)
     script_name = 'open_file.sh'
+    content = get_root_container_script(cmd, script_name)
 
     try:
         status = write_file(os.path.join(workdir, script_name), content)
@@ -887,15 +887,16 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     return command
 
 
-def get_root_container_script(cmd: str) -> str:
+def get_root_container_script(cmd: str, script_name: str) -> str:
     """
     Return the content of the root container script.
 
     :param cmd: root command (str)
+    :param script_name: script name (str)
     :return: script content (str).
     """
     content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
-    logger.debug(f'root setup script content:\n\n{content}\n\n')
+    logger.debug(f'root setup script ({script_name}) content:\n\n{content}\n\n')
 
     return content
 
