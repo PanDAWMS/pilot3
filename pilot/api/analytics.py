@@ -59,8 +59,8 @@ class Analytics(Services):
         """
         try:
             self._fit = Fit(x=x, y=y, model=model)
-        except Exception as e:
-            raise UnknownException(e)
+        except Exception as exc:
+            raise UnknownException(exc) from exc
 
         return self._fit
 
@@ -71,12 +71,10 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined.
         :return: slope (float).
         """
-        if self._fit:
-            slope = self._fit.slope()
-        else:
+        if not self._fit:
             raise NotDefined("Fit has not been defined")
 
-        return slope
+        return self._fit.slope()
 
     def intersect(self) -> float:
         """
@@ -87,10 +85,8 @@ class Analytics(Services):
         """
         if not self._fit:
             raise NotDefined("Fit has not been defined")
-        else:
-            _intersect = self._fit.intersect()
 
-        return _intersect
+        return self._fit.intersect()
 
     def chi2(self) -> float:
         """
@@ -99,12 +95,10 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined
         :return: chi2 (float).
         """
-        if self._fit:
-            x2 = self._fit.chi2()
-        else:
+        if not self._fit:
             raise NotDefined("Fit has not been defined")
 
-        return x2
+        return self._fit.chi2()
 
     def get_table(self, filename: str, header: str = "", separator: str = "\t", convert_to_float: bool = True) -> dict:
         """
@@ -139,7 +133,8 @@ class Analytics(Services):
         :return: {"slope": slope, "chi2": chi2} (dict).
         """
         slope = ""
-        chi2 = ""
+        intersect = ""
+        _chi2 = ""
         table = self.get_table(filename)
 
         if table:
@@ -198,24 +193,18 @@ class Analytics(Services):
                     fit = self.fit(x, y)
                     _slope = self.slope()
                 except Exception as exc:
-                    logger.warning(
-                        "failed to fit data, x=%s, y=%s: %s", str(x), str(y), exc
-                    )
+                    logger.warning(f"failed to fit data, x={x}, y={y}: {exc}")
                 else:
                     if _slope:
-                        slope = float_to_rounded_string(
-                            fit.slope(), precision=precision
-                        )
-                        chi2 = float_to_rounded_string(fit.chi2(), precision=precision)
+                        slope = float_to_rounded_string(fit.slope(), precision=precision)
+                        intersect = float_to_rounded_string(fit.intersect(), precision=precision)
+                        _chi2 = float_to_rounded_string(fit.chi2(), precision=precision)
                         if slope != "":
                             logger.info(
-                                "current memory leak: %s B/s (using %d data points, chi2=%s)",
-                                slope,
-                                len(x),
-                                chi2,
+                                f"current memory leak: {slope} B/s (using {len(x)} data points, chi2={_chi2})"
                             )
 
-        return {"slope": slope, "chi2": chi2}
+        return {"slope": slope, "chi2": _chi2, "intersect": intersect}
 
     def find_limit(
         self, _x, _y, _chi2_org, norg, change_limit=0.25, edge="right", steps=5
@@ -244,8 +233,8 @@ class Analytics(Services):
             if change < change_limit:
                 found = True
                 break
-            else:
-                _chi2_prev = _chi2
+
+            _chi2_prev = _chi2
 
         if edge == "right":
             if not found:
@@ -254,13 +243,12 @@ class Analytics(Services):
             else:
                 limit = len(_x) - 1
                 logger.info(f"right removable region: {limit}")
+        elif not found:
+            limit = 0
+            logger.info("left removable region not found")
         else:
-            if not found:
-                limit = 0
-                logger.info("left removable region not found")
-            else:
-                limit = iterations * 10
-                logger.info(f"left removable region: {limit}")
+            limit = iterations * 10
+            logger.info(f"left removable region: {limit}")
 
         return limit
 
@@ -293,7 +281,7 @@ class Analytics(Services):
         return x, y
 
 
-class Fit(object):
+class Fit():
     """Low-level fitting class."""
 
     _model = "linear"  # fitting model
