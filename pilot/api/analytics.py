@@ -85,12 +85,12 @@ class Analytics(Services):
         :raises NotDefined: exception thrown if fit is not defined
         :return: intersect (float).
         """
-        if self._fit:
-            intersect = self._fit.intersect()
-        else:
+        if not self._fit:
             raise NotDefined("Fit has not been defined")
+        else:
+            _intersect = self._fit.intersect()
 
-        return intersect
+        return _intersect
 
     def chi2(self) -> float:
         """
