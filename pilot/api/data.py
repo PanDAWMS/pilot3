@@ -839,7 +839,8 @@ class StageInClient(StagingClient):
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:
-            self.require_protocols(files, copytool, activity, local_dir=kwargs.get('input_dir'))
+            args = kwargs.get('args')
+            self.require_protocols(files, copytool, activity, local_dir=args.input_dir)
 
         # mark direct access files with status=remote_io
         self.set_status_for_direct_access(files, kwargs.get('workdir', ''))

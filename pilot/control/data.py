@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
@@ -212,6 +212,29 @@ def create_trace_report(job: Any, label: str = 'stage-in') -> Any:
     return trace_report
 
 
+def get_stagein_client(job: Any, args: Any, label: str = 'stage-in') -> (Any, str):
+    """
+    Return the proper stage-in client.
+
+    :param job: job object (Any)
+    :param args: pilot args object (Any)
+    :param label: 'stage-in' (str)
+    :return: stage-in client (StageInClient).
+    """
+    # create the trace report
+    trace_report = create_trace_report(job, label=label)
+
+    if job.is_eventservicemerge:
+        client = StageInESClient(job.infosys, logger=logger, trace_report=trace_report)
+        activity = 'es_events_read'
+    else:
+        client = StageInClient(job.infosys, logger=logger, trace_report=trace_report,
+                               ipv=args.internet_protocol_version, workdir=job.workdir)
+        activity = 'pr'
+
+    return client, activity
+
+
 def _stage_in(args: Any, job: Any) -> bool:
     """
     Call the stage-in client.
@@ -256,22 +279,23 @@ def _stage_in(args: Any, job: Any) -> bool:
         try:
             logger.info('stage-in will not be done in a container')
 
-            # create the trace report
-            trace_report = create_trace_report(job, label=label)
-
-            if job.is_eventservicemerge:
-                client = StageInESClient(job.infosys, logger=logger, trace_report=trace_report)
-                activity = 'es_events_read'
-            else:
-                client = StageInClient(job.infosys, logger=logger, trace_report=trace_report, ipv=args.internet_protocol_version, workdir=job.workdir)
-                activity = 'pr'
+            client, activity = get_stagein_client(job, args, label)
             use_pcache = job.infosys.queuedata.use_pcache
+
             # get the proper input file destination (normally job.workdir unless stager workflow)
             jobworkdir = job.workdir  # there is a distinction for mv copy tool on ND vs non-ATLAS
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
-            kwargs = dict(workdir=workdir, cwd=job.workdir, usecontainer=False, use_pcache=use_pcache, use_bulk=False,
-                          input_dir=args.input_dir, use_vp=job.use_vp, catchall=job.infosys.queuedata.catchall,
-                          checkinputsize=True, rucio_host=args.rucio_host, jobworkdir=jobworkdir)
+            kwargs = {'workdir': workdir,
+                      'cwd': job.workdir,
+                      'usecontainer': False,
+                      'use_pcach': use_pcache,
+                      'use_bulk': False,
+                      'use_vp': job.use_vp,
+                      'catchall': job.infosys.queuedata.catchall,
+                      'checkinputsize': True,
+                      'rucio_host': args.rucio_host,
+                      'jobworkdir': jobworkdir,
+                      'args': args}
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
