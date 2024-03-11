@@ -20,7 +20,7 @@
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
@@ -105,6 +105,9 @@ def copy_in(files: list, **kwargs: dict) -> list:
     trace_report = kwargs.get('trace_report')
     use_pcache = kwargs.get('use_pcache')
     rucio_host = kwargs.get('rucio_host', '')
+    pilot_args = kwargs.get('args')
+    if pilot_args:
+        logger.debug('received pilot args object')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
