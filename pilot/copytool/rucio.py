@@ -112,6 +112,9 @@ def copy_in(files: list, **kwargs: dict) -> list:
     # note, env vars might be unknown inside middleware contrainers, if so get the value already in the trace report
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', trace_report.get_value('localSite'))
     for fspec in files:
+        # check if we should abort
+        #..
+
         logger.info(f'rucio copytool, downloading file with scope:{fspec.scope} lfn:{fspec.lfn}')
         # update the trace report
         localsite = localsite if localsite else fspec.ddmendpoint
