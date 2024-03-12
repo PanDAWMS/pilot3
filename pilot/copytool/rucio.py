@@ -107,7 +107,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
     rucio_host = kwargs.get('rucio_host', '')
     pilot_args = kwargs.get('args')
     if pilot_args:
-        logger.debug('received pilot args object')
+        logger.debug(f'received pilot args object: {pilot_args.workdir}')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
