@@ -539,11 +539,6 @@ class StagingClient(object):
                 continue
 
             try:
-                pilot_args = kwargs.get('args')
-                if pilot_args and pilot_args.workdir:
-                    self.logger.debug(f'received: transfer_files() using args.workdir={pilot_args.workdir}')
-                else:
-                    self.logger.debug('pilot_args.workdir is not set')
                 result = self.transfer_files(copytool, remain_files, activity, **kwargs)
                 self.logger.debug('transfer_files() using copytool=%s completed with result=%s', copytool, str(result))
                 break
@@ -887,11 +882,6 @@ class StageInClient(StagingClient):
         # use bulk downloads if necessary
         # if kwargs['use_bulk_transfer']
         # return copytool.copy_in_bulk(remain_files, **kwargs)
-        pilot_args = kwargs.get('args')
-        if pilot_args and pilot_args.workdir:
-            self.logger.debug(f'pilot_args received transfer_files() again using args.workdir={pilot_args.workdir}')
-        else:
-            self.logger.debug('pilot_args not received by transfer_files()')
         return copytool.copy_in(remain_files, **kwargs)
 
     def set_status_for_direct_access(self, files, workdir):

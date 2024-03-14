@@ -106,8 +106,6 @@ def copy_in(files: list, **kwargs: dict) -> list:
     use_pcache = kwargs.get('use_pcache')
     rucio_host = kwargs.get('rucio_host', '')
     pilot_args = kwargs.get('args')
-    if pilot_args:
-        logger.debug(f'received pilot args object: {pilot_args.workdir}')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -116,7 +114,10 @@ def copy_in(files: list, **kwargs: dict) -> list:
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', trace_report.get_value('localSite'))
     for fspec in files:
         # check if we should abort
-        #..
+        if pilot_args.graceful_stop.is_set():
+            msg = f'copytool has detected graceful stop - will abort stage-in ({pilot_args.mainworkdir})'
+            logger.warning(msg)
+            raise PilotException(msg)
 
         logger.info(f'rucio copytool, downloading file with scope:{fspec.scope} lfn:{fspec.lfn}')
         # update the trace report
