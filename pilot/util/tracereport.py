@@ -115,7 +115,7 @@ class TraceReport(dict):
 
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
-        except socket.herror as exc:
+        except (socket.gaierror, socket.herror) as exc:
             logger.warning(f'unable to detect hostname by address for trace report: {exc}')
             self['hostname'] = 'unknown'
 
