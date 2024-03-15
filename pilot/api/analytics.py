@@ -197,6 +197,7 @@ class Analytics(Services):
                 else:
                     if _slope:
                         slope = float_to_rounded_string(fit.slope(), precision=precision)
+                        fit.set_intersect()
                         intersect = float_to_rounded_string(fit.intersect(), precision=precision)
                         _chi2 = float_to_rounded_string(fit.chi2(), precision=precision)
                         if slope != "":
@@ -313,15 +314,22 @@ class Fit():
         if len(self._x) != len(self._y):
             raise NotSameLength("input data (lists) have different lengths")
 
+        logger.info(f'model: {self._model}, x: {self._x}, y: {self._y}')
         # base calculations
         if self._model == "linear":
             self._ss = sum_square_dev(self._x)
+            logger.info("sum of square deviations: %s", self._ss)
             self._ss2 = sum_dev(self._x, self._y)
+            logger.info("sum of deviations: %s", self._ss2)
             self.set_slope()
             self._xm = mean(self._x)
+            logger.info("mean x: %s", self._xm)
             self._ym = mean(self._y)
+            logger.info("mean y: %s", self._ym)
             self.set_intersect()
+            logger.info("intersect: %s", self._intersect)
             self.set_chi2()
+            logger.info("chi2: %s", self._chi2)
         else:
             logger.warning("'%s' model is not implemented", self._model)
             raise NotImplementedError()
@@ -395,8 +403,10 @@ class Fit():
         """
         if self._ym and self._slope and self._xm:
             self._intersect = self._ym - self._slope * self._xm
+            logger.info("-- intersect: %s", self._intersect)
         else:
             self._intersect = None
+            logger.info("could not calculate intersect")
 
     def intersect(self):
         """
