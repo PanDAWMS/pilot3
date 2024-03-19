@@ -1,0 +1,123 @@
+#!/usr/bin/env python
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Authors:
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024
+
+"""Functions related to CVMFS operations."""
+
+import logging
+import os
+import signal
+import time
+import types
+
+logger = logging.getLogger(__name__)
+
+
+class TimeoutException(Exception):
+    """Timeout exception."""
+    pass
+
+
+def timeout_handler(signum: int, frame: types.FrameType) -> None:
+    """Timeout handler."""
+    raise TimeoutException
+
+
+signal.signal(signal.SIGALRM, timeout_handler)
+
+
+def is_cvmfs_available() -> bool or None:
+    """
+    Check if CVMFS is available.
+
+    :return: True if CVMFS is available, False if not available, None if user cvmfs module not implemented.
+    """
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    try:
+        user = __import__(f'pilot.user.{pilot_user}.cvmfs', globals(), locals(), [pilot_user], 0)
+    except ImportError:
+        logger.warning('user cvmfs module does not exist - skipping cvmfs checks')
+        return None
+
+    mount_point = getattr(user, 'cvmfs_mount_point', None)
+    if mount_point:
+        if os.path.exists(mount_point):
+            logger.info(f'CVMFS is available at {mount_point}')
+            return True
+        else:
+            logger.warning(f'CVMFS is not available at {mount_point}')
+            return False
+    else:
+        logger.warning('cvmfs_mount_point not defined in user cvmfs module')
+        return None
+
+
+def get_last_update() -> int:
+    """
+    Check the last update time from the last update file.
+
+    :return: last update time (int).
+    """
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.cvmfs', globals(), locals(), [pilot_user], 0)
+    last_update_file = getattr(user, 'last_update_file', None)
+    timestamp = None
+    if last_update_file:
+        if os.path.exists(last_update_file):
+            try:
+                timestamp = extract_timestamp(last_update_file)
+            except Exception as exc:
+                logger.warning(f'failed to read last update file: {exc}')
+            if timestamp:
+                now = int(time.time())
+                logger.info(f'last cvmfs update time: {timestamp} ({now - timestamp} seconds ago)')
+        else:
+            logger.warning(f'last update file does not exist: {last_update_file}')
+    else:
+        logger.warning('last_update_file not defined in user cvmfs module')
+
+    return timestamp
+
+
+def extract_timestamp(filename: str) -> int:
+    """
+    Extract the timestamp from the last update file.
+
+    The function will wait a maximum of 5 minutes for the file to be read. If the timeout is thrown, the function will
+    return -1.
+
+    :param filename: last update file name (str).
+    :return: timestamp (int).
+    """
+    signal.alarm(300)  # Set the timeout to 5 minutes
+    timestamp = 0
+    try:
+        with open(filename, 'r') as file:
+            line = file.readline()  # e.g. "2024-03-18 19:43:47 | lxcvmfs145.cern.ch | 1710787427"
+            parts = line.split("|")
+            if len(parts) >= 3:
+                timestamp = int(parts[2].strip())  # strip() is used to remove leading/trailing white spaces
+    except TimeoutException:
+        logger.warning("timeout caught while reading last update file")
+        return -1
+    finally:
+        signal.alarm(0)  # Disable the alarm
+
+    return timestamp

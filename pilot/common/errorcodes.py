@@ -177,6 +177,7 @@ class ErrorCodes:
     REMOTEFILEDICTDOESNOTEXIST = 1374
     LEASETIME = 1375
     LOGCREATIONTIMEOUT = 1376
+    CVMFSISNOTALIVE = 1377
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -315,7 +316,8 @@ class ErrorCodes:
         CERTIFICATEHASEXPIRED: "Certificate has expired",
         REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist",
         LEASETIME: "Lease time is up",  # internal use only
-        LOGCREATIONTIMEOUT: "Log file creation timed out"
+        LOGCREATIONTIMEOUT: "Log file creation timed out",
+        CVMFSISNOTALIVE: "CVMFS is not responding"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

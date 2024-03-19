@@ -37,6 +37,10 @@ from typing import Any
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.util.config import config
+from pilot.util.cvmfs import (
+    is_cvmfs_available,
+    get_last_update
+)
 from pilot.info import infosys
 from pilot.util.auxiliary import (
     pilot_version_banner,
@@ -87,6 +91,15 @@ def main() -> int:
     # print the pilot version and other information
     pilot_version_banner()
     dump_ipv6_info()
+
+    # check cvmfs if available
+    if is_cvmfs_available() is True:  # ignore None, False is handled in function
+        timestamp = get_last_update()
+        if timestamp and timestamp > 0:
+            logger.info(f'last cvmfs update: {time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(timestamp))}')
+        else:
+            logger.warning('CVMFS is not responding - aborting pilot')
+            return errors.CVMFSISNOTALIVE
 
     # define threading events
     args.graceful_stop = threading.Event()
