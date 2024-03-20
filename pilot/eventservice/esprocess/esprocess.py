@@ -181,7 +181,7 @@ class ESProcess(threading.Thread):
                 if "--preExec " in executable:
                     executable = executable.replace("--preExec ", preexec_socket_config)
                 else:
-                    logger.warn(f"--preExec has an unknown format - expected '--preExec \"' or \"--preExec '\", got: {executable}")
+                    logger.warning(f"--preExec has an unknown format - expected '--preExec \"' or \"--preExec '\", got: {executable}")
 
         return executable
 
