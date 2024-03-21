@@ -54,6 +54,7 @@ from pilot.util.container import containerise_executable
 from pilot.util.processes import kill_child_processes
 
 logger = logging.getLogger(__name__)
+athenopts_re = re.compile(r'--athenaopts=\'([\w\=\-\"\' ]+)\'')
 
 
 class ESProcess(threading.Thread):
@@ -158,14 +159,30 @@ class ESProcess(threading.Thread):
         socket_name = self.__message_thread.get_yampl_socket_name()
 
         is_ca = "--CA" in executable
+        is_mt = "--multithreaded=true" in executable.lower()
         if is_ca:
-            preexec_socket_config = f" --preExec 'ConfigFlags.MP.EventRangeChannel=\"{socket_name}\"' "
+            if is_mt:
+                preexec_socket_config = f" --mtes=True --mtes_channel=\"{socket_name}\" "
+            else:
+                preexec_socket_config = f" --preExec 'ConfigFlags.MP.EventRangeChannel=\"{socket_name}\"' "
         else:
             preexec_socket_config = \
                 f" --preExec 'from AthenaMP.AthenaMPFlags import jobproperties as jps;jps.AthenaMPFlags.EventRangeChannel=\"{socket_name}\"' "
+            if is_mt:
+                logger.warning("event service is not supported in MT job without CA")
 
         if "PILOT_EVENTRANGECHANNEL" in executable:
             executable = f"export PILOT_EVENTRANGECHANNEL=\"{socket_name}\"; " + executable
+        elif is_mt and is_ca:
+            has_opts = "--athenaopts" in executable
+            if has_opts:
+                executable = athenopts_re.sub(fr"--athenaopts='\1 {preexec_socket_config}'", executable)
+            else:
+                executable = executable.strip()
+                if executable.endswith(";"):
+                    executable = executable[:-1]
+                executable += f" --athenaopts='{preexec_socket_config}' "
+
         elif "--preExec" not in executable:
             executable = executable.strip()
             if executable.endswith(";"):
