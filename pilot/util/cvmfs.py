@@ -56,16 +56,26 @@ def is_cvmfs_available() -> bool or None:
         logger.warning('user cvmfs module does not exist - skipping cvmfs checks')
         return None
 
-    mount_point = getattr(user, 'cvmfs_mount_point', None)
-    if mount_point:
-        if os.path.exists(mount_point):
-            logger.info(f'CVMFS is available at {mount_point}')
-            return True
-        else:
-            logger.warning(f'CVMFS is not available at {mount_point}')
+    mount_points = getattr(user, 'cvmfs_mount_points', None)
+    if mount_points:
+        found_bad_mount_point = False
+        for mount_point in mount_points:
+            # update any base path
+            get_base_path = getattr(user, 'get_cvmfs_base_path', None)
+            if get_base_path:
+                mount_point = mount_point.replace('CVMFS_BASE', get_base_path())
+            if os.path.exists(mount_point):
+                logger.debug(f'CVMFS is available at {mount_point}')
+            else:
+                logger.warning(f'CVMFS is not available at {mount_point}')
+                found_bad_mount_point = True
+                break
+        if found_bad_mount_point:
             return False
+        else:
+            return True
     else:
-        logger.warning('cvmfs_mount_point not defined in user cvmfs module')
+        logger.warning('cvmfs_mount_points not defined in user cvmfs module')
         return None
 
 

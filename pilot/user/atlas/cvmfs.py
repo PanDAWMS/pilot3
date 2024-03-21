@@ -21,5 +21,26 @@
 
 """User specific functions/variables related to CVMFS operations."""
 
-cvmfs_mount_point = '/cvmfs/atlas.cern.ch/repo/sw'
+from .setup import get_file_system_root_path
+
+# CVMFS mount points
+cvmfs_mount_points = [
+    'CVMFS_BASE/atlas.cern.ch/repo/sw',
+    'CVMFS_BASE/atlas.cern.ch/repo/ATLASLocalRootBase/logDir/lastUpdate',
+    'CVMFS_BASE/atlas-condb.cern.ch/repo/conditions/logDir/lastUpdate',
+    'CVMFS_BASE/atlas-nightlies.cern.ch/repo/sw/logs/lastUpdate',
+    'CVMFS_BASE/sft.cern.ch/lcg/lastUpdate',
+    'CVMFS_BASE/unpacked.cern.ch/logDir/lastUpdate',
+    'CVMFS_BASE/sft-nightlies.cern.ch/lcg/lastUpdate',
+]
+# when was the last cvmfs update?
 last_update_file = '/cvmfs/sft.cern.ch/lcg/lastUpdate'
+
+
+def get_cvmfs_base_path() -> str:
+    """
+    Return the base path for CVMFS.
+
+    :return: base path for CVMFS (str).
+    """
+    return get_file_system_root_path()
