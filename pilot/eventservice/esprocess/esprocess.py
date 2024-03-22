@@ -483,17 +483,7 @@ class ESProcess(threading.Thread):
         """
         logger.debug(f'parsing message: {message}')
         try:
-            if message.startswith("/"):
-                parts = message.split(",")
-                ret = {'output': parts[0]}
-                parts = parts[1:]
-                for part in parts:
-                    name, value = part.split(":")
-                    name = name.lower()
-                    ret[name] = value
-                ret['status'] = 'finished'
-                return ret
-            elif message.startswith('ERR'):
+            if message.startswith('ERR'):
                 if "ERR_ATHENAMP_PARSE" in message:
                     pattern = re.compile(r"(ERR\_[A-Z\_]+)\ (.+)\:\ ?(.+)")
                     found = re.findall(pattern, message)
@@ -513,7 +503,15 @@ class ESProcess(threading.Thread):
                     ret = {'id': event_range_id, 'status': 'failed', 'message': message}
                     return ret
             else:
-                raise UnknownException(f"Unknown message {message}")
+                parts = message.split(",")
+                ret = {'output': parts[0]}
+                parts = parts[1:]
+                for part in parts:
+                    name, value = part.split(":")
+                    name = name.lower()
+                    ret[name] = value
+                ret['status'] = 'finished'
+                return ret
         except PilotException as e:
             raise e
         except Exception as e:
