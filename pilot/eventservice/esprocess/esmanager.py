@@ -43,7 +43,7 @@ class ESManager:
         """
         logger.info('initializing hooks')
         if not isinstance(hook, ESHook):
-            raise Exception(f"hook({hook}) is not instance of {ESHook}")
+            raise TypeError(f"hook({hook}) is not instance of {ESHook}")
 
         self.__hook = hook
         logger.info('initialized hooks')
