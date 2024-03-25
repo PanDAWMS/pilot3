@@ -811,6 +811,7 @@ def send_worker_status(
     data["harvesterID"] = os.environ.get("HARVESTER_ID", None)
     data["status"] = status
     data["site"] = queue
+    # use nodeID to send modification host?
 
     # attempt to send the worker info to the server
     if data["workerID"] and data["harvesterID"]:
