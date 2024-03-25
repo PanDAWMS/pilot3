@@ -97,7 +97,9 @@ def get_last_update() -> int:
                 logger.warning(f'failed to read last update file: {exc}')
             if timestamp:
                 now = int(time.time())
-                logger.info(f'last cvmfs update time: {timestamp} ({now - timestamp} seconds ago)')
+                logger.info(f'last cvmfs update on '
+                            f'{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(timestamp))} '
+                            f'{now - timestamp} seconds ago {timestamp}()')
         else:
             logger.warning(f'last update file does not exist: {last_update_file}')
     else:
