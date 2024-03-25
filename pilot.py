@@ -78,6 +78,9 @@ from pilot.util.timing import add_to_pilot_timing
 from pilot.util.workernode import get_node_name
 
 errors = ErrorCodes()
+mainworkdir = ""
+args = None
+trace = None
 
 
 def main() -> int:
