@@ -183,6 +183,8 @@ class RaythenaExecutor(BaseExecutor):
         if message['status'] in ['failed', 'fatal']:
             self.update_failed_event_ranges([message])
         else:
+            if 'output' in message:
+                message['output'] = os.path.join(self.get_job().workdir, message['output'])
             self.__queued_out_messages.append(message)
 
     def stageout_es(self, force: bool = False):
