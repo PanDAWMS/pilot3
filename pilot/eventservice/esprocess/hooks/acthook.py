@@ -32,20 +32,23 @@ class ACTESHook(ESHook):
         """
         Get payload to execute.
 
-        :return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename or without it>} (dict)
+        Should return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename or without it>} (dict)
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
         """
         Get event ranges.
 
-        :param num_ranges: number of event ranges to get (int)
-        :return: dictionary of event ranges (dict).
-        """
-        raise Exception("Not Implemented")
+        Should return: dictionary of event ranges (dict).
 
-    def handle_out_message(self, message):
+        :param num_ranges: number of event ranges to get (int)
+        :raises Exception: if anything goes wrong.
+        """
+        raise NotImplementedError("Not Implemented")
+
+    def handle_out_message(self, message: dict):
         """
         Handle ES output or error messages.
 
@@ -57,4 +60,4 @@ class ACTESHook(ESHook):
         :param message: dictionary of a parsed message (dict).
         :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
