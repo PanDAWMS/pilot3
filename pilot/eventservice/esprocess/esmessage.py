@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 
 """Event Service message class."""
 
@@ -47,7 +47,7 @@ class MessageThread(threading.Thread):
         :raises MessageFailure: when failed to set up message socket.
         """
         threading.Thread.__init__(self, **kwds)
-        self.setName("MessageThread")
+        self.name = "MessageThread"
         self.__message_queue = message_queue
         self._socket_name = socket_name
         self.__stop = threading.Event()
@@ -55,7 +55,7 @@ class MessageThread(threading.Thread):
         try:
             import yampl
         except Exception as exc:
-            raise MessageFailure(f"Failed to import yampl: {exc}")
+            raise MessageFailure(f"Failed to import yampl: {exc}") from exc
 
         logger.info('setup yampl server socket')
         try:
@@ -63,7 +63,8 @@ class MessageThread(threading.Thread):
                 self._socket_name = f'EventService_EventRanges_{os.getpid()}'
             self.__message_server = yampl.ServerSocket(self._socket_name, context)
         except Exception as exc:
-            raise MessageFailure(f"failed to set up yampl server socket: {exc} {traceback.print_exc()}")
+            raise MessageFailure(f"failed to set up yampl server socket: {exc} {traceback.print_exc()}") from exc
+
         logger.info(f'finished setting up yampl server socket (socket_name: {self._socket_name}, context:{context}).')
 
     def get_yampl_socket_name(self) -> str:
@@ -87,7 +88,7 @@ class MessageThread(threading.Thread):
                 raise MessageFailure("No message server.")
             self.__message_server.send_raw(message.encode('utf8'))
         except Exception as exc:
-            raise MessageFailure(exc)
+            raise MessageFailure(exc) from exc
 
     def stop(self):
         """Set stop event."""
