@@ -114,7 +114,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', trace_report.get_value('localSite'))
     for fspec in files:
         # check if we should abort
-        if pilot_args.graceful_stop.is_set():
+        if pilot_args.graceful_stop and pilot_args.graceful_stop.is_set():
             msg = f'copytool has detected graceful stop - will abort stage-in ({pilot_args.mainworkdir})'
             logger.warning(msg)
             raise PilotException(msg)
