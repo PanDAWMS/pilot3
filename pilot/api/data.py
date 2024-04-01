@@ -484,6 +484,9 @@ class StagingClient(object):
         if 'default' not in activity:
             activity.append('default')
 
+        if not kwargs.get('args'):
+            self.logger.warning('no args passed to transfer() function')
+
         copytools = None
         for aname in activity:
             copytools = self.acopytools.get(aname)
@@ -878,6 +881,9 @@ class StageInClient(StagingClient):
 
         # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
         kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
+
+        if not kwargs.get('args'):
+            self.logger.warning('pilot args are missing in kwargs')
 
         # use bulk downloads if necessary
         # if kwargs['use_bulk_transfer']

@@ -228,11 +228,14 @@ class TraceReport(dict):
             # handle errors that only appear in stdout/err (curl)
             if not exit_code:
                 out, err = self.get_trace_curl_files(outname, errname, mode='r')
-                exit_code = self.assign_error(out)
-                if not exit_code:
-                    exit_code = self.assign_error(err)
-                logger.debug(f'curl exit_code from stdout/err={exit_code}')
-                self.close(out, err)
+                if out:
+                    exit_code = self.assign_error(out)
+                    if not exit_code:
+                        exit_code = self.assign_error(err)
+                    logger.debug(f'curl exit_code from stdout/err={exit_code}')
+                    self.close(out, err)
+                else:
+                    logger.warning(f'failed to open curl stdout file: {outname}')
             if not exit_code:
                 logger.info('no errors were detected from curl operation')
             else:
@@ -297,9 +300,9 @@ class TraceReport(dict):
         :param name: name pattern (str)
         :return: stdout file name (str), stderr file name (str).
         """
-
-        workdir = self.workdir if self.workdir else os.getcwd()
-        return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        #workdir = self.workdir if self.workdir else os.getcwd()
+        #return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        return f'{name}.stdout', f'{name}.stderr'
 
     def get_trace_curl_files(self, outpath, errpath, mode='wb'):
         """
