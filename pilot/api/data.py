@@ -484,9 +484,6 @@ class StagingClient(object):
         if 'default' not in activity:
             activity.append('default')
 
-        if not kwargs.get('args'):
-            self.logger.warning('no args passed to transfer() function')
-
         copytools = None
         for aname in activity:
             copytools = self.acopytools.get(aname)
@@ -843,7 +840,8 @@ class StageInClient(StagingClient):
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:
             args = kwargs.get('args')
-            self.require_protocols(files, copytool, activity, local_dir=args.input_dir)
+            input_dir = kwargs.get('input_dir') if not args else args.input_dir
+            self.require_protocols(files, copytool, activity, local_dir=input_dir)
 
         # mark direct access files with status=remote_io
         self.set_status_for_direct_access(files, kwargs.get('workdir', ''))
@@ -881,9 +879,6 @@ class StageInClient(StagingClient):
 
         # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
         kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
-
-        if not kwargs.get('args'):
-            self.logger.warning('pilot args are missing in kwargs')
 
         # use bulk downloads if necessary
         # if kwargs['use_bulk_transfer']
