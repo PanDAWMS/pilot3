@@ -118,7 +118,6 @@ def cacert_default_location() -> Any:
         return f'/tmp/x509up_u{os.getuid()}'
     except AttributeError:
         logger.warning('no UID available? System not POSIX-compatible... trying to continue')
-        pass
 
     return None
 
