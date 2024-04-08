@@ -33,7 +33,7 @@ from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
 from pilot.util.filehandling import append_to_file, write_file
-# from pilot.util.https import request3
+from pilot.util.https import request2
 
 import logging
 logger = logging.getLogger(__name__)
@@ -197,14 +197,14 @@ class TraceReport(dict):
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
 
-            ssl_certificate = self.get_ssl_certificate()
+            ret = request2(url, data)
+            if ret:
+                logger.info("tracing report sent")
+                return True
+            else:
+                logger.warning("failed to send tracing report - using old curl command")
 
-            #ret = request3(url, data)
-            #if ret:
-            #    logger.info("tracing report sent")
-            #    return True
-            #else:
-            #    logger.warning("failed to send tracing report - using old curl command")
+            ssl_certificate = self.get_ssl_certificate()
 
             # create the command
             command = 'curl'

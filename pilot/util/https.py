@@ -44,6 +44,8 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from collections import namedtuple
+from gzip import GzipFile
+from io import BytesIO
 from re import findall
 from time import sleep, time
 from typing import Callable, Any
@@ -686,8 +688,13 @@ def request2(url: str, data: dict = {}) -> str:
 
     logger.debug(f'headers={headers}')
 
-    # Encode data as JSON
-    data_json = json.dumps(data).encode('utf-8')
+    # Encode data as compressed JSON
+    rdata_out = BytesIO()
+    with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
+        f_gzip.write(json.dumps(data).encode())
+    data_json = rdata_out.getvalue()
+
+    #data_json = json.dumps(data).encode('utf-8')
     #data_json = urllib.parse.quote(json.dumps(data))
     #data_json = data_json.encode('utf-8')
 
