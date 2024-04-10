@@ -667,12 +667,14 @@ def request2_bad(url: str, data: dict = {}) -> str:
     return ret
 
 
-def request2(url: str, data: dict = {}) -> str:
+def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str:
     """
     Send a request using HTTPS (using urllib module).
 
     :param url: the URL of the resource (str)
     :param data: data to send (dict)
+    :param secure: use secure connection (bool)
+    :param compressed: compress data (bool)
     :return: server response (str).
     """
     # https might not have been set up if running in a [middleware] container
@@ -689,14 +691,16 @@ def request2(url: str, data: dict = {}) -> str:
     logger.debug(f'headers={headers}')
 
     # Encode data as compressed JSON
-    rdata_out = BytesIO()
-    with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
-        f_gzip.write(json.dumps(data).encode())
-    data_json = rdata_out.getvalue()
-
-    #data_json = json.dumps(data).encode('utf-8')
-    #data_json = urllib.parse.quote(json.dumps(data))
-    #data_json = data_json.encode('utf-8')
+    if compressed:
+        rdata_out = BytesIO()
+        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
+            f_gzip.write(json.dumps(data).encode())
+        data_json = rdata_out.getvalue()
+    else:
+        #data_json = json.dumps(data).encode('utf-8')
+        #data_json = urllib.parse.quote(json.dumps(data))
+        #data_json = data_json.encode('utf-8')
+        data_json = urllib.parse.urlencode(data).encode()
 
     logger.debug(f'data_json={data_json}')
 
@@ -709,7 +713,24 @@ def request2(url: str, data: dict = {}) -> str:
     #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
     #logger.debug(f'context={context}')
 
-    ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
+    # should be
+    # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+    # but it doesn't work, so use this for now even if it throws a deprecation warning
+    logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
+    try:  # for ssl version 3.0 and python 3.10+
+        # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context = ssl.SSLContext(protocol=None)
+    except Exception:  # for ssl version 1.0
+        ssl_context = ssl.SSLContext()
+
+    #ssl_context.verify_mode = ssl.CERT_REQUIRED
+    ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+
+    if not secure:
+        ssl_context.verify_mode = False
+        ssl_context.check_hostname = False
+
+    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
     # Send the request securely
     try:
         with urllib.request.urlopen(req, context=ssl_context) as response:

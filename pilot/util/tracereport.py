@@ -25,7 +25,7 @@ import os
 import socket
 import time
 from sys import exc_info
-from json import dumps
+from json import dumps, loads
 from os import environ, getuid
 
 from pilot.common.exception import FileHandlingFailure
@@ -197,7 +197,7 @@ class TraceReport(dict):
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
 
-            ret = request2(url, data)
+            ret = request2(url=url, data=loads(data), secure=False, compressed=False)
             if ret:
                 logger.info("tracing report sent")
                 return True
