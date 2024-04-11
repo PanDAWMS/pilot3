@@ -29,6 +29,7 @@ from json import dumps, loads
 from os import environ, getuid
 
 from pilot.common.exception import FileHandlingFailure
+from pilot.util.auxiliary import correct_none_types
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
@@ -197,7 +198,15 @@ class TraceReport(dict):
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
 
-            ret = request2(url=url, data=loads(data), secure=False, compressed=False)
+            logger.debug(f'data (type={type(data)})={data}')
+            # send the trace report using the new request2 function
+            # must convert data to a dictionary and make sure None values are kept
+            data_str = data.replace('None', "\'None\'")
+            data_str = data_str.replace("\'", '\"')
+            data_dict = loads(data_str)  # None values will now be 'None'-strings
+            data_dict = correct_none_types(data_dict)
+            logger.debug(f'data_dict={data_dict}')
+            ret = request2(url=url, data=data_dict, secure=False, compressed=False)
             if ret:
                 logger.info("tracing report sent")
                 return True

@@ -629,44 +629,6 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2_bad(url: str, data: dict = {}) -> str:
-    """
-    Send a request using HTTPS.
-
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :return: server response (str).
-    """
-
-    # convert the dictionary to a JSON string
-    data_json = json.dumps(data).encode('utf-8')
-
-    # Create an SSLContext object
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    logger.debug(f'capath={_ctx.capath}')
-    logger.debug(f'cacert={_ctx.cacert}')
-    ssl_context.load_verify_locations(_ctx.capath)
-    ssl_context.load_cert_chain(_ctx.cacert)
-    # define additional headers
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": _ctx.user_agent,
-    }
-
-    # create a request object with the SSL context
-    request = urllib.request.Request(url, data=data_json, headers=headers, method='POST')
-
-    # perform the HTTP request with the SSL context
-    try:
-        response = urllib.request.urlopen(request, context=ssl_context)
-        ret = response.read().decode('utf-8')
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        logger.warning(f'failed to send request: {exc}')
-        ret = ""
-
-    return ret
-
-
 def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str:
     """
     Send a request using HTTPS (using urllib module).

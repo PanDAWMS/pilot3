@@ -783,3 +783,16 @@ class TimeoutException(Exception):
         """Set and return the error string for string representation of the class instance."""
         tmp = f' : {repr(self.args)}' if self.args else ''
         return f"{self.__class__.__name__}: {self.message}, timeout={self.timeout} seconds{tmp}"
+
+
+def correct_none_types(data_dict: dict) -> dict:
+    """
+    Correct None types in the given dictionary.
+
+    :param data_dict: dictionary with None strings (dict)
+    :return: dictionary with corrected None types (dict).
+    """
+    for key, value in data_dict.items():
+        if value == 'None':
+            data_dict[key] = None
+    return data_dict
