@@ -659,10 +659,10 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
             f_gzip.write(json.dumps(data).encode())
         data_json = rdata_out.getvalue()
     else:
-        #data_json = json.dumps(data).encode('utf-8')
+        data_json = json.dumps(data).encode('utf-8')
         #data_json = urllib.parse.quote(json.dumps(data))
         #data_json = data_json.encode('utf-8')
-        data_json = urllib.parse.urlencode(data).encode()
+        #data_json = urllib.parse.urlencode(data).encode()
 
     logger.debug(f'data_json={data_json}')
 
@@ -695,15 +695,18 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
     # Send the request securely
     try:
+        logger.debug('sending')
         with urllib.request.urlopen(req, context=ssl_context) as response:
             # Handle the response here
-            logger.debug(response.status, response.reason)
-            logger.debug(response.read().decode('utf-8'))
+            logger.debug(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
+            logger.info(f"response={ret}")
+        logger.debug('sent')
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
 
+    logger.debug(f'ret={ret}')
     return ret
 
 
