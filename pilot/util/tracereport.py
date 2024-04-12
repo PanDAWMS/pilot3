@@ -193,17 +193,27 @@ class TraceReport(dict):
         err = None
         try:
             # take care of the encoding
-            data = dumps(self).replace('"', '\\"')
+            data = dumps(self).replace('"', '\\"')  # for curl
+            data_urllib = dumps(self)  # for urllib
             # remove the ipv and workdir items since they are for internal pilot use only
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
-
+            try:
+                data_urllib = data_urllib.replace(f'\"ipv\": \"{self.ipv}\", ', '')
+                data_urllib = data_urllib.replace(f'\"workdir\": \"{self.workdir}\", ', '')
+            except Exception as e:
+                logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
             logger.debug(f'data (type={type(data)})={data}')
+            logger.debug(f'data_urllib (type={type(data_urllib)})={data_urllib}')
             # send the trace report using the new request2 function
             # must convert data to a dictionary and make sure None values are kept
             data_str = data.replace('None', "\'None\'")
+            data_str_urllib = data_urllib.replace('None', "\'None\'")
+            data_str_urllib = data_str_urllib.replace('null', "\'None\'")
+            logger.debug(f'data_str_urllib={data_str_urllib}')
             data_str = data_str.replace("\'", '\"')
-            data_dict = loads(data_str)  # None values will now be 'None'-strings
+            #data_str_urllib = data_str_urllib.replace("\'", '\"')
+            data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
             data_dict = correct_none_types(data_dict)
             logger.debug(f'data_dict={data_dict}')
             ret = request2(url=url, data=data_dict, secure=False, compressed=False)

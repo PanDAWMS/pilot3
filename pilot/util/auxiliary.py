@@ -793,6 +793,6 @@ def correct_none_types(data_dict: dict) -> dict:
     :return: dictionary with corrected None types (dict).
     """
     for key, value in data_dict.items():
-        if value == 'None':
+        if value == 'None' or value == 'null':
             data_dict[key] = None
     return data_dict
