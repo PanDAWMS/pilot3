@@ -207,17 +207,14 @@ class TraceReport(dict):
             logger.debug(f'data_urllib (type={type(data_urllib)})={data_urllib}')
             # send the trace report using the new request2 function
             # must convert data to a dictionary and make sure None values are kept
-            #data_str = data.replace('None', "\'None\'")
             data_str_urllib = data_urllib.replace('None', '\"None\"')
             data_str_urllib = data_str_urllib.replace('null', '\"None\"')
             logger.debug(f'data_str_urllib={data_str_urllib}')
-            #data_str = data_str.replace("\'", '\"')
-            #data_str_urllib = data_str_urllib.replace("\'", '\"')
             data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
             data_dict = correct_none_types(data_dict)
             logger.debug(f'data_dict={data_dict}')
             ret = request2(url=url, data=data_dict, secure=False, compressed=False)
-            logger.debug(f'received: {ret}')
+            logger.info(f'received: {ret}')
             if ret:
                 logger.info("tracing report sent")
                 return True

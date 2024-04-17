@@ -706,7 +706,6 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
         logger.warning(f'failed to send request: {exc}')
         ret = ""
 
-    logger.debug(f'ret={ret}')
     return ret
 
 
