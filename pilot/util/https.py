@@ -49,6 +49,7 @@ from io import BytesIO
 from re import findall
 from time import sleep, time
 from typing import Callable, Any
+from urllib.parse import parse_qs
 
 from .config import config
 from .constants import get_pilot_version
@@ -705,6 +706,15 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
+    else:
+        if secure:
+            # for panda server interactions, the response should be in dictionary format
+
+            # Parse the query string into a dictionary
+            query_dict = parse_qs(ret)
+
+            # Convert lists to single values
+            ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
     return ret
 
