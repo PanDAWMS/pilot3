@@ -495,7 +495,10 @@ def get_job_status_from_server(job_id: int, url: str, port: str) -> (str, int, i
     while trial <= max_trials:
         try:
             # open connection
-            ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
+            ret = https.request2(f'{pandaserver}/server/panda/getStatus', data=data)
+            logger.debug(f"request2 response: {ret}")
+            if not ret:
+                ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -1632,7 +1635,10 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
-        res = https.request(cmd, data=data)
+        res = https.request2(cmd, data=data)
+        logger.debug(f"request2 response: {res}")
+        if not res:
+            res = https.request(cmd, data=data)
 
     return res
 
@@ -2091,7 +2097,8 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
-        elif 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0:
+        elif ((isinstance(res, str) and res.startswith('StatusCode')) or
+              ('StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0)):
             # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
             # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
             getjob_failures += 1

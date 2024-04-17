@@ -184,7 +184,7 @@ def request(url: str, data: dict = {}, plain: bool = False, secure: bool = True,
     Send a request using HTTPS.
 
     Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
-    If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise uses :command:`curl`.
+    If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise, uses :command:`curl`.
 
     If ``data`` is provided, encodes it as a URL form data and sends it to the server.
 
