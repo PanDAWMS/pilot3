@@ -455,7 +455,6 @@ def send_update(update_function: str, data: dict, url: str, port: str, job: Any 
     :param ipv: internet protocol version, IPv4 or IPv6 (str)
     :return: server response (dict).
     """
-    time_before = int(time())
     max_attempts = 10
     attempt = 0
     done = False
@@ -490,29 +489,58 @@ def send_update(update_function: str, data: dict, url: str, port: str, job: Any 
             attempt += 1
             continue
         # send the heartbeat
+        res = send_request(pandaserver, update_function, data, job, ipv)
+        if res is not None:
+            done = True
+        attempt += 1
+        if not done:
+            sleep(config.Pilot.update_sleep)
+
+    return res
+
+
+def send_request(pandaserver: str, update_function: str, data: dict, job: Any, ipv: str) -> dict or None:
+    """
+    Send the request to the server using the appropriate method.
+
+    :param pandaserver: PanDA server URL (str)
+    :param update_function: update function (str)
+    :param data: data dictionary (dict)
+    :param job: job object (Any)
+    :param ipv: internet protocol version (str)
+    :return: server response (dict or None).
+    """
+    res = None
+    time_before = int(time())
+
+    # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
+    try:
+        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data)
+    except Exception as exc:
+        logger.warning(f'exception caught in https.request(): {exc}')
+
+    if not res:
+        logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
             res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
-        else:
-            if res is not None:
-                done = True
-            txt = f'server {update_function} request completed in {int(time()) - time_before}s'
-            if job:
-                txt += f' for job {job.jobid}'
-            logger.info(txt)
-            # hide sensitive info
-            pilotsecrets = ''
-            if res and 'pilotSecrets' in res:
-                pilotsecrets = res['pilotSecrets']
-                res['pilotSecrets'] = '********'
-            logger.info(f'server responded with: res = {res}')
-            if pilotsecrets:
-                res['pilotSecrets'] = pilotsecrets
 
-        attempt += 1
-        if not done:
-            sleep(config.Pilot.update_sleep)
+    if res:
+        txt = f'server {update_function} request completed in {int(time()) - time_before}s'
+        if job:
+            txt += f' for job {job.jobid}'
+        logger.info(txt)
+        # hide sensitive info
+        pilotsecrets = ''
+        if res and 'pilotSecrets' in res:
+            pilotsecrets = res['pilotSecrets']
+            res['pilotSecrets'] = '********'
+        logger.info(f'server responded with: res = {res}')
+        if pilotsecrets:
+            res['pilotSecrets'] = pilotsecrets
+    else:
+        logger.warning(f'server {update_function} request failed both with urllib and curl')
 
     return res
 
@@ -652,6 +680,7 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     }
 
     logger.debug(f'headers={headers}')
+    logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
     if compressed:
@@ -665,14 +694,12 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
         #data_json = data_json.encode('utf-8')
         #data_json = urllib.parse.urlencode(data).encode()
 
-    logger.debug(f'data_json={data_json}')
-
     # Set up the request
     req = urllib.request.Request(url, data_json, headers=headers)
 
     # Create a context with certificate verification
-    logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
-    logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
+    #logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
+    #logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
     #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
     #logger.debug(f'context={context}')
 
@@ -696,7 +723,7 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
     # Send the request securely
     try:
-        logger.debug('sending')
+        logger.debug('sending data to server')
         with urllib.request.urlopen(req, context=ssl_context) as response:
             # Handle the response here
             logger.debug(f"response.status={response.status}, response.reason={response.reason}")
@@ -708,8 +735,7 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
         ret = ""
     else:
         if secure:
-            # for panda server interactions, the response should be in dictionary format
-
+            # For panda server interactions, the response should be in dictionary format
             # Parse the query string into a dictionary
             query_dict = parse_qs(ret)
 
