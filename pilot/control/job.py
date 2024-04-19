@@ -2097,7 +2097,8 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
-        elif isinstance(res, str) and res.startswith('StatusCode') and not res.startswith('StatusCode=0'):  # urllib
+        elif ((isinstance(res, str) and res.startswith('StatusCode') and not res.startswith('StatusCode=0') or
+               (isinstance(res, dict) and 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0))):
             # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
             # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
             getjob_failures += 1
@@ -2107,20 +2108,6 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
                 break
 
             logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res}")
-            for _ in range(60):
-                if args.graceful_stop.is_set():
-                    break
-                time.sleep(1)
-        elif isinstance(res, dict) and 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0:  # curl
-            # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
-            # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
-            getjob_failures += 1
-            if getjob_failures >= args.getjob_failures:
-                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
-                args.graceful_stop.set()
-                break
-
-            logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res['StatusCode']}")
             for _ in range(60):
                 if args.graceful_stop.is_set():
                     break
