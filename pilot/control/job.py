@@ -787,6 +787,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
             extra = {'readbyterate': readfrac}
     else:
         logger.debug('read_bytes info not yet available')
+    # extract and remove any GPU info from data since it will be reported with job metrics
+    add_gpu_info(data, extra)
+
     job_metrics = get_job_metrics(job, extra=extra)
     if job_metrics:
         data['jobMetrics'] = job_metrics
@@ -797,6 +800,32 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         https.add_error_codes(data, job)
 
     return data
+
+
+def add_gpu_info(data: dict, extra: dict):
+    """
+    Add GPU info to the extra dictionary.
+
+    :param data: data dictionary (dict)
+    :param extra: extra dictionary (dict)
+    """
+    if 'GPU' in data:
+        ngpu = 0
+        name = ""
+        try:
+            logger.debug(f'data[GPU]={data["GPU"]}')
+            for key in data["GPU"]:
+                if key.startswith('gpu_0'):  # ignore any further GPU info, ie assume they are all the same
+                    name = data["GPU"][key]['name'].replace(' ', '_')  # NVIDIA A100-SXM4-40GB -> NVIDIA_A100-SXM4-40GB
+                elif key == 'nGPU':
+                    ngpu = data["GPU"][key]
+            if name:
+                extra['GPU_name'] = name
+            if ngpu:
+                extra['nGPU'] = ngpu
+            del data['GPU']
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
 
 
 def process_debug_mode(job: Any) -> str:
