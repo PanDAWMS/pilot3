@@ -789,3 +789,45 @@ def request3(url: str, data: dict = {}) -> str:
         ret = ""
 
     return ret
+
+
+def upload_file(url: str, path: str) -> bool:
+    """
+    Upload the contents of the given JSON file to the given URL.
+
+    :param url: server URL (str)
+    :param path: path to the file (str)
+    :return: True if success, False otherwise (bool).
+    """
+    status = False
+    # Define headers
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    # Read file contents
+    with open(path, 'rb') as file:
+        file_content = file.read()
+
+    # Define request object
+    request = urllib.request.Request(url, data=file_content, headers=headers, method='POST')
+
+    # Set timeouts
+    request.timeout = 20
+    request.socket_timeout = 120
+
+    # Perform the request
+    try:
+        with urllib.request.urlopen(request) as response:
+            response_data = response.read()
+            # Handle response if needed
+            logger.info(response_data.decode('utf-8'))  # Example: print the response
+        status = True
+    except urllib.error.URLError as e:
+        # Handle URL errors
+        logger.warning("URL Error:", e)
+    except urllib.error.HTTPError as e:
+        # Handle HTTP errors
+        logger.warning("HTTP Error:", e)
+
+    return status

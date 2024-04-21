@@ -46,6 +46,7 @@ from pilot.common.exception import (
     PilotException,
     FileHandlingFailure
 )
+from pilot.info.filespec import FileSpec
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -72,7 +73,7 @@ from pilot.util.filehandling import (
     update_extension,
     write_file,
 )
-from pilot.info.filespec import FileSpec
+from pilot.util.https import upload_file
 from pilot.util.processes import (
     convert_ps_to_dict,
     find_pid, find_cmd_pids,
@@ -2686,19 +2687,23 @@ def update_server(job: Any) -> None:
         # logger.debug(f'prmon json=\n{out}')
         # logger.debug(f'final logstash prmon dictionary: {metadata_dictionary}')
         url = 'https://pilot.atlas-ml.org'  # 'http://collector.atlas-ml.org:80'
-        cmd = (
-            f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
-            f"--upload-file {new_path} {url}"
-        )
-        # send metadata to logstash
-        try:
-            _, stdout, stderr = execute(cmd, usecontainer=False)
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
-        else:
+        status = upload_file(url, new_path)
+        if status:
             logger.debug('sent prmon JSON dictionary to logstash server')
-            logger.debug(f'stdout: {stdout}')
-            logger.debug(f'stderr: {stderr}')
+        else:
+            cmd = (
+                f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
+                f"--upload-file {new_path} {url}"
+            )
+            # send metadata to logstash
+            try:
+                _, stdout, stderr = execute(cmd, usecontainer=False)
+            except Exception as exc:
+                logger.warning(f'exception caught: {exc}')
+            else:
+                logger.debug('sent prmon JSON dictionary to logstash server')
+                logger.debug(f'stdout: {stdout}')
+                logger.debug(f'stderr: {stderr}')
     else:
         msg = 'no prmon json available - cannot send anything to logstash server'
         logger.warning(msg)
