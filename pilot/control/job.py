@@ -743,7 +743,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    cpumodel = get_cpu_model()
+    cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
     cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
@@ -763,6 +763,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if cpu_arch:
         logger.debug(f'cpu arch={cpu_arch}')
         data['cpu_architecture_level'] = cpu_arch
+        # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
+        if cpu_arch.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
+            data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
