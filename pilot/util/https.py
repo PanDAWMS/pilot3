@@ -817,17 +817,24 @@ def upload_file(url: str, path: str) -> bool:
     request.socket_timeout = 120
 
     # Perform the request
+    ret = 'notok'
     try:
         with urllib.request.urlopen(request) as response:
             response_data = response.read()
-            # Handle response if needed
-            logger.info(response_data.decode('utf-8'))  # Example: print the response
-        status = True
+            # Handle response
+            ret = response_data.decode('utf-8')
     except urllib.error.URLError as e:
         # Handle URL errors
         logger.warning("URL Error:", e)
+        ret = e
     except urllib.error.HTTPError as e:
         # Handle HTTP errors
         logger.warning("HTTP Error:", e)
+        ret = e
+
+    if ret == 'ok':
+        status = True
+    else:
+        logger.warning(f'failed to send data to {url}: response={ret}')
 
     return status

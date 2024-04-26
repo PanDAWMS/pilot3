@@ -213,6 +213,25 @@ class StagingClient(object):
             if not fdat.inputddms and fdat.ddmendpoint:
                 fdat.inputddms = [fdat.ddmendpoint]
 
+    def print_replicas(self, replicas, label='unsorted'):
+        """
+        Print replicas.
+
+        :param replicas: list of replicas (Any)
+        :param label: label (str).
+        """
+        number = 1
+        maxnumber = 10
+        self.logger.info(f'{label} list of replicas: (max {maxnumber})')
+        for pfn, xdat in replicas:
+            self.logger.debug(f"{number}. "
+                              f"lfn={pfn}, "
+                              f"rse={xdat.get('ddmendpoint')}, "
+                              f"domain={xdat.get('domain')}")
+            number += 1
+            if number > maxnumber:
+                break
+
     @classmethod
     def sort_replicas(self, replicas, inputddms):
         """
@@ -242,7 +261,7 @@ class StagingClient(object):
                 continue
             xreplicas.append((pfn, xdat))
 
-        return replicas
+        return xreplicas
 
     def resolve_replicas(self, files, use_vp=False):
         """
@@ -369,7 +388,9 @@ class StagingClient(object):
         sorted_replicas = sorted(iter(list(replica.get('pfns', {}).items())), key=lambda x: x[1]['priority'])
 
         # prefer replicas from inputddms first
+        #self.print_replicas(sorted_replicas)
         xreplicas = self.sort_replicas(sorted_replicas, fdat.inputddms)
+        self.print_replicas(xreplicas)
 
         for pfn, xdat in xreplicas:
 

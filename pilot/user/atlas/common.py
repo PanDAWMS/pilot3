@@ -2689,7 +2689,7 @@ def update_server(job: Any) -> None:
         url = 'https://pilot.atlas-ml.org'  # 'http://collector.atlas-ml.org:80'
         status = upload_file(url, new_path)
         if status:
-            logger.debug('sent prmon JSON dictionary to logstash server')
+            logger.info('sent prmon JSON dictionary to logstash server (urllib method)')
         else:
             cmd = (
                 f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
@@ -2701,7 +2701,7 @@ def update_server(job: Any) -> None:
             except Exception as exc:
                 logger.warning(f'exception caught: {exc}')
             else:
-                logger.debug('sent prmon JSON dictionary to logstash server')
+                logger.info('sent prmon JSON dictionary to logstash server (curl method)')
                 logger.debug(f'stdout: {stdout}')
                 logger.debug(f'stderr: {stderr}')
     else:
