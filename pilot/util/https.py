@@ -518,7 +518,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: Any, i
         res = request2(f'{pandaserver}/server/panda/{update_function}', data=data)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
-
+    logger.debug(f'type(res)={type(res)}')
     if not res:
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
@@ -658,7 +658,7 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str:
+def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 
@@ -666,7 +666,7 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     :param data: data to send (dict)
     :param secure: use secure connection (bool)
     :param compressed: compress data (bool)
-    :return: server response (str).
+    :return: server response (str or dict).
     """
     # https might not have been set up if running in a [middleware] container
     if not _ctx.cacert:

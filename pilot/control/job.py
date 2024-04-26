@@ -1664,9 +1664,9 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
-        res = https.request2(cmd, data=data)
-        logger.debug(f"request2 response: {res}")
-        if not res:
+        res = https.request2(cmd, data=data)  # will be a dictionary
+        logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
+        if not res:  # fallback to curl solution
             res = https.request(cmd, data=data)
 
     return res
