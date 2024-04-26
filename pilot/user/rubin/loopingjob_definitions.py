@@ -50,6 +50,7 @@ def remove_unwanted_files(workdir, files):
                 "pilotlog" in _file or
                 ".lib.tgz" in _file or
                 ".py" in _file or
+                "memory_" in _file or
                 "pandaJob" in _file):
             _files.append(_file)
 
