@@ -827,10 +827,6 @@ def upload_file(url: str, path: str) -> bool:
         # Handle URL errors
         logger.warning("URL Error:", e)
         ret = e
-    except urllib.error.HTTPError as e:
-        # Handle HTTP errors
-        logger.warning("HTTP Error:", e)
-        ret = e
 
     if ret == 'ok':
         status = True
@@ -838,3 +834,23 @@ def upload_file(url: str, path: str) -> bool:
         logger.warning(f'failed to send data to {url}: response={ret}')
 
     return status
+
+
+def download_file(url: str, _timeout: int = 20) -> str:
+    """
+    Download url content.
+
+    :param url: url (str)
+    :return: url content (str).
+    """
+    req = urllib.request.Request(url)
+    req.add_header('User-Agent', ctx.user_agent)
+    try:
+        with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=_timeout) as response:
+            content = response.read()
+    except urllib.error.URLError as exc:
+        logger.warning(f"error occurred with urlopen: {exc.reason}")
+        # Handle the error, set content to None or handle as needed
+        content = ""
+
+    return content
