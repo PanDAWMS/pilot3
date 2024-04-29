@@ -728,19 +728,28 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
             # Handle the response here
             logger.debug(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
-            logger.info(f"response={ret}")
-        logger.debug('sent')
+            if 'getProxy' not in url:
+                logger.debug(f"response={ret}")
+        logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
     else:
-        if secure:
-            # For panda server interactions, the response should be in dictionary format
-            # Parse the query string into a dictionary
-            query_dict = parse_qs(ret)
+        if secure and isinstance(ret, str):
+            if ret.startswith('{') and ret.endswith('}'):
+                logger.debug('loading string into dictionary')
+                try:
+                    ret = json.loads(ret)
+                except Exception as e:
+                    logger.warning(f'failed to parse response: {e}')
+            else:
+                logger.debug('parsing string into dictionary')
+                # For panda server interactions, the response should be in dictionary format
+                # Parse the query string into a dictionary
+                query_dict = parse_qs(ret)
 
-            # Convert lists to single values
-            ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+                # Convert lists to single values
+                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
     return ret
 

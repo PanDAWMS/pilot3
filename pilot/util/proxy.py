@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 import logging
 import os
@@ -86,15 +86,16 @@ def vomsproxyinfo(options='-all', mute=False, path=''):
     return exit_code, stdout, stderr
 
 
-def get_proxy(proxy_outfile_name, voms_role):
+def get_proxy(proxy_outfile_name: str, voms_role: str) -> (bool, str):
     """
     Download and store a proxy.
+
     E.g. on read-only file systems (K8), the default path is not available, in which case the new proxy
     will be stored in the workdir (return the updated path).
 
-    :param proxy_outfile_name: specify the file to store proxy (string).
-    :param voms_role: what proxy (role) to request, e.g. 'atlas' (string).
-    :return: result (Boolean), updated proxy path (string).
+    :param proxy_outfile_name: specify the file to store proxy (str)
+    :param voms_role: what proxy (role) to request, e.g. 'atlas' (str)
+    :return: result (Boolean), updated proxy path (str).
     """
     try:
         # it assumes that https_setup() was done already
@@ -104,10 +105,13 @@ def get_proxy(proxy_outfile_name, voms_role):
         user = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
         data = user.getproxy_dictionary(voms_role)
 
-        res = https.request('{pandaserver}/server/panda/getProxy'.format(pandaserver=url), data=data)
+        res = https.request2(f'{url}/server/panda/getProxy', data=data)
         if res is None:
-            logger.error(f"unable to get proxy with role '{voms_role}' from panda server")
-            return False, proxy_outfile_name
+            logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
+            res = https.request('{url}/server/panda/getProxy', data=data)
+            if res is None:
+                logger.error(f"unable to get proxy with role '{voms_role}' from panda server using curl method")
+                return False, proxy_outfile_name
 
         if res['StatusCode'] != 0:
             logger.error(f"panda server returned: \'{res['errorDialog']}\' for proxy role \'{voms_role}\'")
@@ -118,10 +122,6 @@ def get_proxy(proxy_outfile_name, voms_role):
     except Exception as exc:
         logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
         return False, proxy_outfile_name
-    else:
-        # dump voms-proxy-info -all to log
-        if res and res['StatusCode'] == 0:
-            _, _, _ = vomsproxyinfo(options='-all', path=proxy_outfile_name)
 
     def create_file(filename, contents):
         """
@@ -134,7 +134,7 @@ def get_proxy(proxy_outfile_name, voms_role):
     result = False
     try:
         # pre-create empty proxy file with secure permissions. Prepare it for write_file() which can not
-        # set file permission mode, it will writes to the existing file with correct permissions.
+        # set file permission mode, it will write to the existing file with correct permissions.
         result = create_file(proxy_outfile_name, proxy_contents)
     except (IOError, OSError, FileHandlingFailure) as exc:
         logger.error(f"exception caught:\n{exc},\ntraceback: {traceback.format_exc()}")
@@ -148,6 +148,9 @@ def get_proxy(proxy_outfile_name, voms_role):
             else:
                 logger.debug('updating X509_USER_PROXY to alternative path {path} (valid until end of current job)')
                 os.environ['X509_USER_PROXY'] = proxy_outfile_name
+    else:
+        # dump voms-proxy-info -all to log
+        _, _, _ = vomsproxyinfo(options='-all', path=proxy_outfile_name)
 
     return result, proxy_outfile_name
 
