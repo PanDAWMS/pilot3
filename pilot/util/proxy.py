@@ -32,14 +32,14 @@ from pilot.util.filehandling import write_file
 logger = logging.getLogger(__name__)
 
 
-def get_distinguished_name():
+def get_distinguished_name() -> str:
     """
     Get the user DN.
+
     Note: the DN is also sent by the server to the pilot in the job description (produserid).
 
-    :return: User DN (string).
+    :return: User DN (str).
     """
-
     dn = ""
     executable = 'arcproxy -i subject'
     exit_code, stdout, stderr = execute(executable)
