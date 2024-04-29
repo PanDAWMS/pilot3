@@ -31,7 +31,7 @@ from pilot.info import infosys
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
 from pilot.util.filehandling import read_file, write_file, copy, head
-
+from pilot.util.https import download_file
 from .metadata import get_file_info_from_xml
 
 import logging
@@ -276,7 +276,6 @@ def get_analysis_trf(transform, workdir):
     if not status:
         return errors.TRFDOWNLOADFAILURE, diagnostics, ""
 
-    logger.info("successfully downloaded script")
     path = os.path.join(workdir, transform_name)
     logger.debug(f"changing permission of {path} to 0o755")
     try:
@@ -288,7 +287,65 @@ def get_analysis_trf(transform, workdir):
     return ec, diagnostics, transform_name
 
 
-def download_transform(url, transform_name, workdir):
+def download_transform(url: str, transform_name: str, workdir: str) -> (bool, str):
+    """
+    Download the transform from the given url
+
+    :param url: download URL with path to transform (str)
+    :param transform_name: trf name (str)
+    :param workdir: work directory (str)
+    :return: status (bool), diagnostics (str).
+    """
+    status = False
+    diagnostics = ""
+    path = os.path.join(workdir, transform_name)
+    trial = 1
+    max_trials = 3
+
+    # test if $HARVESTER_WORKDIR is set
+    harvester_workdir = os.environ.get('HARVESTER_WORKDIR')
+    if harvester_workdir is not None:
+        source_path = os.path.join(harvester_workdir, transform_name)
+        try:
+            copy(source_path, path)
+            status = True
+        except Exception as error:
+            diagnostics = f"failed to copy file {source_path} to {path} : {error}"
+            logger.error(diagnostics)
+            status = False
+        return status, diagnostics
+
+    # try to download the trf a maximum of 3 times
+    while trial <= max_trials:
+        logger.info(f"downloading file {transform_name} [trial {trial}/{max_trials}]")
+
+        content = download_file(url)
+        with open(path, "wb+") as _file:  # note: binary mode, so no encoding is needed (or, encoding=None)
+            if content:
+                _file.write(content)
+                logger.info(f'saved data from \"{url}\" resource into file {path}, '
+                            f'length={len(content) / 1024.:.1f} kB')
+                status = True
+
+        if not status:
+            # Analyze exit code / output
+            diagnostics = f'no data was downloaded from {url}'
+            logger.warning(diagnostics)
+            if trial == max_trials:
+                logger.fatal(f'could not download transform: {transform_name}')
+                break
+            else:
+                logger.info("will try again after 60 s")
+                sleep(60)
+        else:
+            logger.info(f"transform {transform_name} downloaded")
+            break
+        trial += 1
+
+    return status, diagnostics
+
+
+def download_transform_old(url, transform_name, workdir):
     """
     Download the transform from the given url
     :param url: download URL with path to transform (string).
