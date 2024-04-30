@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
 Base loader class to retrieve data from Ext sources (file, url).
@@ -31,9 +31,6 @@ import json
 import logging
 import os
 import time
-import urllib.request
-import urllib.error
-import urllib.parse
 from datetime import (
     datetime,
     timedelta
@@ -41,7 +38,7 @@ from datetime import (
 from typing import Any
 
 from pilot.util.timer import timeout
-from pilot.util.https import ctx
+from pilot.util.https import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -116,25 +113,6 @@ class DataLoader:
 
             return ""
 
-        def _readurl(url: str, _timeout: int = 20) -> str:
-            """
-            Read url content.
-
-            :param url: url (str)
-            :return: url content (str).
-            """
-            req = urllib.request.Request(url)
-            req.add_header('User-Agent', ctx.user_agent)
-            try:
-                with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=_timeout) as response:
-                    content = response.read()
-            except urllib.error.URLError as exc:
-                logger.warning(f"error occurred with urlopen: {exc.reason}")
-                # Handle the error, set content to None or handle as needed
-                content = ""
-
-            return content
-
         content = None
         if url and cls.is_file_expired(fname, cache_time):  # load data into temporary cache file
             for trial in range(1, nretry + 1):
@@ -147,9 +125,7 @@ class DataLoader:
                         content = _readfile(url)
                     else:
                         logger.info(f'[attempt={trial}/{nretry}] loading data from url {url}')
-                        req = urllib.request.Request(url)
-                        req.add_header('User-Agent', ctx.user_agent)
-                        content = _readurl(url)
+                        content = download_file(url)
 
                     if fname:  # save to cache
                         with open(fname, "w+", encoding='utf-8') as _file:

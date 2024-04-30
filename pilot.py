@@ -36,13 +36,13 @@ from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
-from pilot.util.config import config
 from pilot.info import infosys
 from pilot.util.auxiliary import (
     pilot_version_banner,
     shell_exit_code,
     convert_signal_to_exit_code
 )
+from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
     SUCCESS,
@@ -52,6 +52,10 @@ from pilot.util.constants import (
     PILOT_END_TIME,
     SERVER_UPDATE_NOT_DONE,
     PILOT_MULTIJOB_START_TIME,
+)
+from pilot.util.cvmfs import (
+    is_cvmfs_available,
+    get_last_update
 )
 from pilot.util.filehandling import (
     get_pilot_work_dir,
@@ -71,8 +75,12 @@ from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
 from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
+from pilot.util.workernode import get_node_name
 
 errors = ErrorCodes()
+mainworkdir = ""
+args = None
+trace = None
 
 
 def main() -> int:
@@ -111,6 +119,15 @@ def main() -> int:
         send_worker_status(
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
+
+    # check cvmfs if available
+    if is_cvmfs_available() is True:  # ignore None, False is handled in function
+        timestamp = get_last_update()
+        if timestamp and timestamp > 0:
+            logger.info('CVMFS has been validated')
+        else:
+            logger.warning('CVMFS is not responding - aborting pilot')
+            return errors.CVMFSISNOTALIVE
 
     if not args.rucio_host:
         args.rucio_host = config.Rucio.host
@@ -798,6 +815,7 @@ def send_worker_status(
     data["harvesterID"] = os.environ.get("HARVESTER_ID", None)
     data["status"] = status
     data["site"] = queue
+    data["node_id"] = get_node_name()
 
     # attempt to send the worker info to the server
     if data["workerID"] and data["harvesterID"]:

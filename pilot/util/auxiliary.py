@@ -191,6 +191,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.MISSINGINPUTFILE: [77, "Missing input file in SE"],  # should pilot report this type of error to wrapper?
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
         errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
+        errors.CVMFSISNOTALIVE: [64, "CVMFS is not responding"],  # same exit code as site offline
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
@@ -782,3 +783,16 @@ class TimeoutException(Exception):
         """Set and return the error string for string representation of the class instance."""
         tmp = f' : {repr(self.args)}' if self.args else ''
         return f"{self.__class__.__name__}: {self.message}, timeout={self.timeout} seconds{tmp}"
+
+
+def correct_none_types(data_dict: dict) -> dict:
+    """
+    Correct None types in the given dictionary.
+
+    :param data_dict: dictionary with None strings (dict)
+    :return: dictionary with corrected None types (dict).
+    """
+    for key, value in data_dict.items():
+        if value == 'None' or value == 'null':
+            data_dict[key] = None
+    return data_dict

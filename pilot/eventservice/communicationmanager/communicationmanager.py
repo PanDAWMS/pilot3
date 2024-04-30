@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
 
 """Main classes to manage the messages between ES and harvester/ACT/Panda."""
 
@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 class CommunicationResponse:
     """Communication response class."""
 
+    exception = None
+
     def __init__(self, attrs: dict = None):
         """
         Initialize variables.
@@ -51,13 +53,12 @@ class CommunicationResponse:
             attrs = json.loads(attrs)
 
         def_attrs = {'status': None, 'content': None, 'exception': None}
-
-        for key in def_attrs:
+        for key, value in def_attrs.items():
             if key not in attrs:
-                attrs[key] = def_attrs[key]
+                attrs[key] = value
 
-        for key in attrs:
-            setattr(self, key, attrs[key])
+        for key, value in attrs.items():
+            setattr(self, key, value)
 
     def __str__(self) -> str:
         """
@@ -66,8 +67,8 @@ class CommunicationResponse:
         :return: string representation (str).
         """
         json_str = {}
-        for key, value in list(self.__dict__.items()):  # Python 2/3
-            if value and type(value) is list:
+        for key, value in list(self.__dict__.items()):
+            if value and isinstance(value, list):
                 json_str[key] = []
                 for list_item in value:
                     json_str[key].append(str(list_item))
@@ -80,6 +81,9 @@ class CommunicationResponse:
 
 class CommunicationRequest():
     """Communication request class."""
+
+    post_hook = None
+    response = None
 
     class RequestType():
         """Request type class."""
@@ -109,12 +113,13 @@ class CommunicationRequest():
         if attrs['request_type'] == CommunicationRequest.RequestType.UpdateJobs:
             def_attrs = {'jobs': None, 'post_hook': None, 'response': None}
 
-        for key in def_attrs:
+        for key, value in def_attrs.items():
             if key not in attrs:
-                attrs[key] = def_attrs[key]
+                attrs[key] = value
 
         for key in attrs:
             setattr(self, key, attrs[key])
+
         self.abort = False
 
     def __str__(self):
@@ -124,8 +129,8 @@ class CommunicationRequest():
         :return: string representation (str).
         """
         json_str = {}
-        for key, value in list(self.__dict__.items()):  # Python 2/3
-            if value and type(value) is list:
+        for key, value in list(self.__dict__.items()):
+            if value and isinstance(value, list):
                 json_str[key] = []
                 for list_item in value:
                     json_str[key].append(str(list_item))
@@ -147,12 +152,12 @@ class CommunicationManager(threading.Thread, PluginFactory):
         :param args: args object (Any)
         :param kwargs: kwargs dictionary (dict).
         """
-        super(CommunicationManager, self).__init__()
+        super().__init__()
         PluginFactory.__init__(self, *args, **kwargs)
-        self.setName("CommunicationManager")
+        self.name = "CommunicationManager"
         self.post_get_jobs = None
         self.post_get_event_ranges_hook = None
-        self.queues = {'request_get_jobs': queue.Queue(),  # Python 2/3
+        self.queues = {'request_get_jobs': queue.Queue(),
                        'update_jobs': queue.Queue(),
                        'request_get_events': queue.Queue(),
                        'update_events': queue.Queue(),
@@ -200,22 +205,22 @@ class CommunicationManager(threading.Thread, PluginFactory):
 
         req_attrs = {}
         if args:
-            if not type(args) is dict:
+            if not isinstance(args, dict):
                 args = vars(args)
-            for key, value in list(args.items()):  # Python 2/3
+            for key, value in list(args.items()):
                 req_attrs[key] = value
 
         other_req_attrs = {'request_type': CommunicationRequest.RequestType.RequestJobs,
                            'num_jobs': njobs,
                            'post_hook': post_hook}
-        for key, value in list(other_req_attrs.items()):  # Python 2/3
+        for key, value in list(other_req_attrs.items()):
             req_attrs[key] = value
 
         req = CommunicationRequest(req_attrs)
         self.queues['request_get_jobs'].put(req)
 
         if req.post_hook:
-            return
+            return None
 
         while req.response is None:
             time.sleep(1)
@@ -223,8 +228,8 @@ class CommunicationManager(threading.Thread, PluginFactory):
             raise req.response.exception
         if req.response.status is False:
             return None
-        else:
-            return req.response.content
+
+        return req.response.content
 
     def update_jobs(self, jobs: Any, post_hook: Any = None) -> Any:
         """
@@ -248,7 +253,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
         self.queues['update_jobs'].put(req)
 
         if req.post_hook:
-            return
+            return None
 
         while req.response is None:
             time.sleep(1)
@@ -256,8 +261,8 @@ class CommunicationManager(threading.Thread, PluginFactory):
             raise req.response.exception
         if req.response.status is False:
             return None
-        else:
-            return req.response.content
+
+        return req.response.content
 
     def get_event_ranges(self, num_event_ranges: int = 1, post_hook: Any = None, job: Any = None) -> Any:
         """
@@ -277,9 +282,12 @@ class CommunicationManager(threading.Thread, PluginFactory):
         if not job:
             resp_attrs = {'status': -1,
                           'content': None,
-                          'exception': exception.CommunicationFailure(f"Get events failed because job info missing(job: {job})")}
+                          'exception': exception.CommunicationFailure(f"get events failed because job info missing "
+                                                                      f"(job: {job})")}
             resp = CommunicationResponse(resp_attrs)
-            raise resp.exception
+            if resp.exception is not None:
+                raise resp.exception
+            raise exception.CommunicationFailure(f"get events failed because job info missing (job: {job})")
 
         req_attrs = {'request_type': CommunicationRequest.RequestType.RequestEvents,
                      'num_event_ranges': num_event_ranges,
@@ -293,7 +301,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
         self.queues['request_get_events'].put(req)
 
         if req.post_hook:
-            return
+            return None
 
         while req.response is None:
             time.sleep(1)
@@ -301,8 +309,8 @@ class CommunicationManager(threading.Thread, PluginFactory):
             raise req.response.exception
         if req.response.status is False:
             return None
-        else:
-            return req.response.content
+
+        return req.response.content
 
     def update_events(self, update_events: Any, post_hook: Any = None) -> Any:
         """
@@ -353,7 +361,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
             plugin_confs = {'class': 'pilot.eventservice.communicationmanager.plugins.pandacommunicator.PandaCommunicator'}
 
         if self.args:
-            for key, value in list(vars(self.args).items()):  # Python 2/3
+            for key, value in list(vars(self.args).items()):
                 plugin_confs[key] = value
 
         return plugin_confs
@@ -381,38 +389,45 @@ class CommunicationManager(threading.Thread, PluginFactory):
 
         return False
 
-    def run(self):
-        """Handle communication requests."""
+    def get_processor(self) -> dict:
+        """
+        Get processor dictionary.
+
+        :return: processor dictionary (dict).
+        """
         confs = self.get_plugin_confs()
         logger.info(f"communication plugin confs: {confs}")
         communicator = self.get_plugin(confs)
-        logger.info(f"communicator: {communicator}")
 
-        processor = {'request_get_jobs': {'pre_check': communicator.pre_check_get_jobs,
-                                          'handler': communicator.request_get_jobs,
-                                          'next_queue': 'processing_get_jobs',
-                                          'process_req_post_hook': False},
-                     'request_get_events': {'pre_check': communicator.pre_check_get_events,
-                                            'handler': communicator.request_get_events,
-                                            'next_queue': 'processing_get_events',
-                                            'process_req_post_hook': False},
-                     'update_jobs': {'pre_check': communicator.pre_check_update_jobs,
-                                     'handler': communicator.update_jobs,
-                                     'next_queue': None,
-                                     'process_req_post_hook': True},
-                     'update_events': {'pre_check': communicator.pre_check_update_events,
-                                       'handler': communicator.update_events,
-                                       'next_queue': None,
-                                       'process_req_post_hook': True},
-                     'processing_get_jobs': {'pre_check': communicator.check_get_jobs_status,
-                                             'handler': communicator.get_jobs,
-                                             'next_queue': None,
-                                             'process_req_post_hook': True},
-                     'processing_get_events': {'pre_check': communicator.check_get_events_status,
-                                               'handler': communicator.get_events,
-                                               'next_queue': None,
-                                               'process_req_post_hook': True}
-                     }
+        return {'request_get_jobs': {'pre_check': communicator.pre_check_get_jobs,
+                                     'handler': communicator.request_get_jobs,
+                                     'next_queue': 'processing_get_jobs',
+                                     'process_req_post_hook': False},
+                'request_get_events': {'pre_check': communicator.pre_check_get_events,
+                                       'handler': communicator.request_get_events,
+                                       'next_queue': 'processing_get_events',
+                                       'process_req_post_hook': False},
+                'update_jobs': {'pre_check': communicator.pre_check_update_jobs,
+                                'handler': communicator.update_jobs,
+                                'next_queue': None,
+                                'process_req_post_hook': True},
+                'update_events': {'pre_check': communicator.pre_check_update_events,
+                                  'handler': communicator.update_events,
+                                  'next_queue': None,
+                                  'process_req_post_hook': True},
+                'processing_get_jobs': {'pre_check': communicator.check_get_jobs_status,
+                                        'handler': communicator.get_jobs,
+                                        'next_queue': None,
+                                        'process_req_post_hook': True},
+                'processing_get_events': {'pre_check': communicator.check_get_events_status,
+                                          'handler': communicator.get_events,
+                                          'next_queue': None,
+                                          'process_req_post_hook': True}
+                }
+
+    def run(self):
+        """Handle communication requests."""
+        processor = self.get_processor()
 
         while True:
             has_req = False
@@ -420,7 +435,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
                 if self.is_stop():
                     while not self.queues[process_type].empty():
                         req = self.queues[process_type].get()
-                        logger.info(f"Is going to stop, aborting request: {req}")
+                        logger.info(f"is going to stop, aborting request: {req}")
                         req.abort = True
                         resp_attrs = {'status': None,
                                       'content': None,

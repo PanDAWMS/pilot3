@@ -25,15 +25,16 @@ import os
 import socket
 import time
 from sys import exc_info
-from json import dumps
+from json import dumps, loads
 from os import environ, getuid
 
 from pilot.common.exception import FileHandlingFailure
+from pilot.util.auxiliary import correct_none_types
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
 from pilot.util.filehandling import append_to_file, write_file
-# from pilot.util.https import request3
+from pilot.util.https import request2
 
 import logging
 logger = logging.getLogger(__name__)
@@ -115,7 +116,7 @@ class TraceReport(dict):
 
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
-        except socket.herror as exc:
+        except (socket.gaierror, socket.herror) as exc:
             logger.warning(f'unable to detect hostname by address for trace report: {exc}')
             self['hostname'] = 'unknown'
 
@@ -192,19 +193,35 @@ class TraceReport(dict):
         err = None
         try:
             # take care of the encoding
-            data = dumps(self).replace('"', '\\"')
+            data = dumps(self).replace('"', '\\"')  # for curl
+            data_urllib = dumps(self)  # for urllib
             # remove the ipv and workdir items since they are for internal pilot use only
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
+            try:
+                data_urllib = data_urllib.replace(f'\"ipv\": \"{self.ipv}\", ', '')
+                data_urllib = data_urllib.replace(f'\"workdir\": \"{self.workdir}\", ', '')
+            except Exception as e:
+                logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
+            logger.debug(f'data (type={type(data)})={data}')
+            logger.debug(f'data_urllib (type={type(data_urllib)})={data_urllib}')
+            # send the trace report using the new request2 function
+            # must convert data to a dictionary and make sure None values are kept
+            data_str_urllib = data_urllib.replace('None', '\"None\"')
+            data_str_urllib = data_str_urllib.replace('null', '\"None\"')
+            logger.debug(f'data_str_urllib={data_str_urllib}')
+            data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
+            data_dict = correct_none_types(data_dict)
+            logger.debug(f'data_dict={data_dict}')
+            ret = request2(url=url, data=data_dict, secure=False, compressed=False)
+            logger.info(f'received: {ret}')
+            if ret:
+                logger.info("tracing report sent")
+                return True
+            else:
+                logger.warning("failed to send tracing report - using old curl command")
 
             ssl_certificate = self.get_ssl_certificate()
-
-            #ret = request3(url, data)
-            #if ret:
-            #    logger.info("tracing report sent")
-            #    return True
-            #else:
-            #    logger.warning("failed to send tracing report - using old curl command")
 
             # create the command
             command = 'curl'
@@ -228,11 +245,14 @@ class TraceReport(dict):
             # handle errors that only appear in stdout/err (curl)
             if not exit_code:
                 out, err = self.get_trace_curl_files(outname, errname, mode='r')
-                exit_code = self.assign_error(out)
-                if not exit_code:
-                    exit_code = self.assign_error(err)
-                logger.debug(f'curl exit_code from stdout/err={exit_code}')
-                self.close(out, err)
+                if out:
+                    exit_code = self.assign_error(out)
+                    if not exit_code:
+                        exit_code = self.assign_error(err)
+                    logger.debug(f'curl exit_code from stdout/err={exit_code}')
+                    self.close(out, err)
+                else:
+                    logger.warning(f'failed to open curl stdout file: {outname}')
             if not exit_code:
                 logger.info('no errors were detected from curl operation')
             else:
@@ -297,9 +317,9 @@ class TraceReport(dict):
         :param name: name pattern (str)
         :return: stdout file name (str), stderr file name (str).
         """
-
-        workdir = self.workdir if self.workdir else os.getcwd()
-        return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        #workdir = self.workdir if self.workdir else os.getcwd()
+        #return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        return f'{name}.stdout', f'{name}.stderr'
 
     def get_trace_curl_files(self, outpath, errpath, mode='wb'):
         """

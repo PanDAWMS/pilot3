@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """Base communicator."""
 
@@ -33,7 +33,7 @@ class BaseCommunicator:
 
     _instance = None
 
-    def __new__(class_, *args: Any, **kwargs: dict) -> Any:
+    def __new__(cls, *args: Any, **kwargs: dict) -> Any:
         """
         Create new instance of class.
 
@@ -41,10 +41,10 @@ class BaseCommunicator:
         :param kwargs: kwargs dictionary (dict)
         :return: new class instance (Any).
         """
-        if not isinstance(class_._instance, class_):
-            class_._instance = object.__new__(class_, *args, **kwargs)
+        if not isinstance(cls._instance, cls):
+            cls._instance = object.__new__(cls, *args, **kwargs)
 
-        return class_._instance
+        return cls._instance
 
     def __init__(self, *args: Any, **kwargs: dict):
         """
@@ -53,9 +53,9 @@ class BaseCommunicator:
         :param args: args object (Any)
         :param kwargs: kwargs dictionary (dict)
         """
-        super(BaseCommunicator, self).__init__()
-        for key in kwargs:
-            setattr(self, key, kwargs[key])
+        super().__init__()
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def pre_check_get_jobs(self, req: Any):
         """
