@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
 
 """Hooks for EventService."""
 
@@ -30,18 +30,21 @@ class ESHook:
         """
         Get payload to execute.
 
-        :return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>} (dict).
+        Should return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>} (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
         """
         Get event ranges.
 
+        Should returns: dictionary of event ranges (dict).
+
         :param num_ranges: Number of event ranges to download, default is 1 (int)
-        :returns: dictionary of event ranges (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
 
     def handle_out_message(self, message: dict):
         """
@@ -53,5 +56,6 @@ class ESHook:
             For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
 
         :param message: dictionary of a parsed message (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")

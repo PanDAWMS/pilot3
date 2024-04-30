@@ -81,8 +81,8 @@ def run(args):
     else:
         communication_point = os.getcwd()
     work_report = get_initial_work_report()
-    worker_attributes_file = config.Harvester.workerAttributesFile
-    worker_stageout_declaration = config.Harvester.StageOutnFile
+    worker_attributes_file = config.Harvester.workerattributes_file
+    worker_stageout_declaration = config.Harvester.stageoutn_file
     payload_report_file = config.Payload.jobreport
     payload_stdout_file = config.Payload.payloadstdout
     payload_stderr_file = config.Payload.payloadstderr

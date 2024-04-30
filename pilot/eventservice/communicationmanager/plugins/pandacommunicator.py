@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """PanDA communicator."""
 
@@ -47,13 +47,13 @@ class PandaCommunicator(BaseCommunicator):
         :param args: args object (Any)
         :param kwargs: kwargs dictionary (dict)
         """
-        super(PandaCommunicator, self).__init__(args, kwargs)
+        super().__init__(args, kwargs)
         self.get_jobs_lock = threading.Lock()
         self.get_events_lock = threading.Lock()
         self.update_events_lock = threading.Lock()
         self.update_jobs_lock = threading.Lock()
 
-    def pre_check_get_jobs(self, req=None) -> Any:
+    def pre_check_get_jobs(self, req: Any = None) -> Any:
         """
         Check whether it's ok to send a request to get jobs.
 
@@ -71,7 +71,7 @@ class PandaCommunicator(BaseCommunicator):
         """
         return CommunicationResponse({'status': 0})
 
-    def check_get_jobs_status(self, req=None):
+    def check_get_jobs_status(self, req: Any = None):
         """
         Check whether jobs are prepared.
 
@@ -79,6 +79,23 @@ class PandaCommunicator(BaseCommunicator):
         :return: CommunicationResponse({'status': 0}) (Any).
         """
         return CommunicationResponse({'status': 0})
+
+    def get_data(self, req: Any) -> dict:
+        """
+        Get data from request.
+
+        :param req: request (Any)
+        :return: data dictionary (dict).
+        """
+        data = {'getProxyKey': 'False'}
+        kmap = {'node': 'node', 'mem': 'mem', 'getProxyKey': 'getProxyKey', 'computingElement': 'queue',
+                'diskSpace': 'disk_space',
+                'siteName': 'site', 'prodSourceLabel': 'job_label', 'workingGroup': 'working_group', 'cpu': 'cpu'}
+        for key, value in list(kmap.items()):
+            if hasattr(req, value):
+                data[key] = getattr(req, value)
+
+        return data
 
     def get_jobs(self, req: Any) -> dict:
         """
@@ -93,14 +110,10 @@ class PandaCommunicator(BaseCommunicator):
             jobs = []
             resp_attrs = None
 
-            data = {'getProxyKey': 'False'}
-            kmap = {'node': 'node', 'mem': 'mem', 'getProxyKey': 'getProxyKey', 'computingElement': 'queue', 'diskSpace': 'disk_space',
-                    'siteName': 'site', 'prodSourceLabel': 'job_label', 'workingGroup': 'working_group', 'cpu': 'cpu'}
-            for key, value in list(kmap.items()):  # Python 2/3
-                if hasattr(req, value):
-                    data[key] = getattr(req, value)
+            # get the data dictionary
+            data = self.get_data(req)
 
-            for i in range(req.num_jobs):
+            for _ in range(req.num_jobs):
                 logger.info(f"Getting jobs: {data}")
                 url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
                 res = https.request(f'{url}/server/panda/getJob', data=data)
@@ -109,7 +122,7 @@ class PandaCommunicator(BaseCommunicator):
                 if res is None:
                     resp_attrs = {'status': None, 'content': None, 'exception': exception.CommunicationFailure("Get job failed to get response from Panda.")}
                     break
-                elif res['StatusCode'] == 20 and 'no jobs in PanDA' in res['errorDialog']:
+                if res['StatusCode'] == 20 and 'no jobs in PanDA' in res['errorDialog']:
                     resp_attrs = {'status': res['StatusCode'],
                                   'content': None,
                                   'exception': exception.CommunicationFailure("No jobs in panda")}
@@ -127,7 +140,7 @@ class PandaCommunicator(BaseCommunicator):
                 resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException("Failed to get jobs")}
 
             resp = CommunicationResponse(resp_attrs)
-        except Exception as e:  # Python 2/3
+        except Exception as e:
             logger.error(f"Failed to get jobs: {e}, {traceback.format_exc()}")
             resp_attrs = {'status': -1, 'content': None, 'exception': exception.UnknownException(f"Failed to get jobs: {traceback.format_exc()}")}
             resp = CommunicationResponse(resp_attrs)

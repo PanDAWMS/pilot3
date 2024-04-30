@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -495,7 +495,10 @@ def get_job_status_from_server(job_id: int, url: str, port: str) -> (str, int, i
     while trial <= max_trials:
         try:
             # open connection
-            ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
+            ret = https.request2(f'{pandaserver}/server/panda/getStatus', data=data)
+            logger.debug(f"request2 response: {ret}")
+            if not ret:
+                ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -740,7 +743,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    cpumodel = get_cpu_model()
+    cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
     cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
@@ -760,6 +763,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if cpu_arch:
         logger.debug(f'cpu arch={cpu_arch}')
         data['cpu_architecture_level'] = cpu_arch
+        # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
+        if cpu_arch.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
+            data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
@@ -784,6 +790,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
             extra = {'readbyterate': readfrac}
     else:
         logger.debug('read_bytes info not yet available')
+    # extract and remove any GPU info from data since it will be reported with job metrics
+    add_gpu_info(data, extra)
+
     job_metrics = get_job_metrics(job, extra=extra)
     if job_metrics:
         data['jobMetrics'] = job_metrics
@@ -794,6 +803,32 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         https.add_error_codes(data, job)
 
     return data
+
+
+def add_gpu_info(data: dict, extra: dict):
+    """
+    Add GPU info to the extra dictionary.
+
+    :param data: data dictionary (dict)
+    :param extra: extra dictionary (dict)
+    """
+    if 'GPU' in data:
+        ngpu = 0
+        name = ""
+        try:
+            logger.debug(f'data[GPU]={data["GPU"]}')
+            for key in data["GPU"]:
+                if key.startswith('gpu_0'):  # ignore any further GPU info, ie assume they are all the same
+                    name = data["GPU"][key]['name'].replace(' ', '_')  # NVIDIA A100-SXM4-40GB -> NVIDIA_A100-SXM4-40GB
+                elif key == 'nGPU':
+                    ngpu = data["GPU"][key]
+            if name:
+                extra['GPU_name'] = name
+            if ngpu:
+                extra['nGPU'] = ngpu
+            del data['GPU']
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
 
 
 def process_debug_mode(job: Any) -> str:
@@ -1632,7 +1667,10 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
-        res = https.request(cmd, data=data)
+        res = https.request2(cmd, data=data)  # will be a dictionary
+        logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
+        if not res:  # fallback to curl solution
+            res = https.request(cmd, data=data)
 
     return res
 
@@ -2091,7 +2129,8 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
-        elif 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0:
+        elif ((isinstance(res, str) and res.startswith('StatusCode') and not res.startswith('StatusCode=0') or
+               (isinstance(res, dict) and 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0))):
             # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
             # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
             getjob_failures += 1
@@ -2100,7 +2139,7 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
                 args.graceful_stop.set()
                 break
 
-            logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res['StatusCode']}")
+            logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res}")
             for _ in range(60):
                 if args.graceful_stop.is_set():
                     break

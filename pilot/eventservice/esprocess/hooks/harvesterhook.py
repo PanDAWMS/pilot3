@@ -32,18 +32,21 @@ class HarvesterESHook(ESHook):
         """
         Get payload to execute.
 
-        :return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename>} (dict).
+        Should return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename>} (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
         """
         Get event ranges.
 
+        Should return: dictionary of event ranges (dict).
+
         :param num_ranges: Number of event ranges to download, default is 1 (int)
-        :return: dictionary of event ranges (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")
 
     def handle_out_message(self, message: dict):
         """
@@ -55,5 +58,6 @@ class HarvesterESHook(ESHook):
             For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
 
         :param message: dictionary of parsed message (dict).
+        :raises Exception: if anything goes wrong.
         """
-        raise Exception("Not Implemented")
+        raise NotImplementedError("Not Implemented")

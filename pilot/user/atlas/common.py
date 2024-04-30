@@ -46,6 +46,7 @@ from pilot.common.exception import (
     PilotException,
     FileHandlingFailure
 )
+from pilot.info.filespec import FileSpec
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -72,7 +73,7 @@ from pilot.util.filehandling import (
     update_extension,
     write_file,
 )
-from pilot.info.filespec import FileSpec
+from pilot.util.https import upload_file
 from pilot.util.processes import (
     convert_ps_to_dict,
     find_pid, find_cmd_pids,
@@ -80,8 +81,10 @@ from pilot.util.processes import (
     is_child
 )
 from pilot.util.tracereport import TraceReport
-
-from .container import create_root_container_command
+from .container import (
+    create_root_container_command,
+    execute_remote_file_open
+)
 from .dbrelease import get_dbrelease_version, create_dbrelease
 from .setup import (
     should_pilot_prepare_setup,
@@ -178,7 +181,7 @@ def validate(job: Any) -> bool:
     return status
 
 
-def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list):
+def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list):  # noqa: C901
     """
     Verify that direct i/o files can be opened.
 
@@ -198,54 +201,91 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
         # execute file open script which will attempt to open each file
 
         # copy pilot source into container directory, unless it is already there
-        script = 'open_remote_file.py'
         diagnostics = copy_pilot_source(workdir)
         if diagnostics:
             raise PilotException(diagnostics)
 
-        final_script_path = os.path.join(workdir, script)
         os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
-        script_path = os.path.join('pilot/scripts', script)
-        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
-        dir2 = os.path.join(workdir, script_path)
-        full_script_path = dir1 if os.path.exists(dir1) else dir2
-        if not os.path.exists(full_script_path):
-            # do not set ec since this will be a pilot issue rather than site issue
-            diagnostics = (
-                f'cannot perform file open test - script path does not exist: {full_script_path}'
-            )
-            logger.warning(diagnostics)
-            logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
-            return exitcode, diagnostics, not_opened
-        try:
-            copy(full_script_path, final_script_path)
-        except PilotException as exc:
-            # do not set ec since this will be a pilot issue rather than site issue
-            diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
+
+        # first copy all scripts that are needed
+        scripts = ['open_remote_file.py', 'open_file.sh']
+        final_paths = {}
+        for script in scripts:
+
+            final_script_path = os.path.join(workdir, script)
+            script_path = os.path.join('pilot/scripts', script)
+            dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
+            dir2 = os.path.join(workdir, script_path)
+            full_script_path = dir1 if os.path.exists(dir1) else dir2
+            if not os.path.exists(full_script_path):
+                # do not set ec since this will be a pilot issue rather than site issue
+                diagnostics = (
+                    f'cannot perform file open test - script path does not exist: {full_script_path}'
+                )
+                logger.warning(diagnostics)
+                logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
+                return exitcode, diagnostics, not_opened
+
+            try:
+                copy(full_script_path, final_script_path)
+            except PilotException as exc:
+                # do not set ec since this will be a pilot issue rather than site issue
+                diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
+                logger.warning(diagnostics)
+                return exitcode, diagnostics, not_opened
+
+            # correct the path when containers have been used
+            if "open_remote_file.py" in script:
+                final_script_path = os.path.join('.', script)
+
+            final_paths[script] = final_script_path
+            logger.debug(f'final path={final_script_path}')
+
+        logger.debug(f'reading file: {final_paths["open_file.sh"]}')
+        script_content = read_file(final_paths['open_file.sh'])
+        if not script_content:
+            diagnostics = (f'cannot perform file open test - failed to read script content from path '
+                           f'{final_paths["open_file.sh"]}')
             logger.warning(diagnostics)
             return exitcode, diagnostics, not_opened
 
-        # correct the path when containers have been used
-        final_script_path = os.path.join('.', script)
-
-        _cmd = get_file_open_command(final_script_path, turls, nthreads)
-        cmd = create_root_container_command(workdir, _cmd)
+        logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
+        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads)
+        if not _cmd:
+            diagnostics = (f'cannot perform file open test - failed to create file open command from path '
+                           f'{final_paths["open_remote_file.py"]}')
+            logger.warning(diagnostics)
+            return exitcode, diagnostics, not_opened
 
         timeout = get_timeout_for_remoteio(indata)
-        logger.info(f'executing file open verification script (timeout={timeout}):\n\n\'{cmd}\'\n\n')
+        cmd = create_root_container_command(workdir, _cmd, script_content)
+        path = os.path.join(workdir, 'open_remote_file_cmd.sh')
+        logger.info(f'executing file open verification script (path={path}, timeout={timeout}):\n\n\'{cmd}\'\n\n')
+        try:
+            write_file(path, cmd)
+        except FileHandlingFailure as exc:
+            diagnostics = f'failed to write file: {exc}'
+            logger.warning(diagnostics)
+            return 11, diagnostics, not_opened
 
-        exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
-        if config.Pilot.remotefileverification_log:
-            fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
-            write_file(fpath, stdout + stderr, mute=False)
+        try:
+            exitcode, stdout = execute_remote_file_open(path, timeout)
+        except PilotException as exc:
+            logger.warning(f'caught pilot exception: {exc}')
+            exitcode = 11
+            stdout = exc
+#        exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
+#        if config.Pilot.remotefileverification_log:
+#            fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
+#            write_file(fpath, stdout + stderr, mute=False)
         logger.info(f'remote file open finished with ec={exitcode}')
 
         # error handling
         if exitcode:
             # first check for apptainer errors
-            _exitcode = errors.resolve_transform_error(exitcode, stdout + stderr)
+            _exitcode = errors.resolve_transform_error(exitcode, stdout)
             if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
-                return _exitcode, stderr, not_opened
+                return _exitcode, stdout, not_opened
 
             # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
             _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
@@ -2647,19 +2687,23 @@ def update_server(job: Any) -> None:
         # logger.debug(f'prmon json=\n{out}')
         # logger.debug(f'final logstash prmon dictionary: {metadata_dictionary}')
         url = 'https://pilot.atlas-ml.org'  # 'http://collector.atlas-ml.org:80'
-        cmd = (
-            f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
-            f"--upload-file {new_path} {url}"
-        )
-        # send metadata to logstash
-        try:
-            _, stdout, stderr = execute(cmd, usecontainer=False)
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
+        status = upload_file(url, new_path)
+        if status:
+            logger.info('sent prmon JSON dictionary to logstash server (urllib method)')
         else:
-            logger.debug('sent prmon JSON dictionary to logstash server')
-            logger.debug(f'stdout: {stdout}')
-            logger.debug(f'stderr: {stderr}')
+            cmd = (
+                f"curl --connect-timeout 20 --max-time 120 -H \"Content-Type: application/json\" -X POST "
+                f"--upload-file {new_path} {url}"
+            )
+            # send metadata to logstash
+            try:
+                _, stdout, stderr = execute(cmd, usecontainer=False)
+            except Exception as exc:
+                logger.warning(f'exception caught: {exc}')
+            else:
+                logger.info('sent prmon JSON dictionary to logstash server (curl method)')
+                logger.debug(f'stdout: {stdout}')
+                logger.debug(f'stderr: {stderr}')
     else:
         msg = 'no prmon json available - cannot send anything to logstash server'
         logger.warning(msg)

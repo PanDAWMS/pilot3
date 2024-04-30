@@ -17,6 +17,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024
 
 import io
 import logging

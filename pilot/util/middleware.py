@@ -82,40 +82,39 @@ def containerise_general_command(job, container_options, label='command', contai
         logger.debug(f'{label} script returned exit_code={exit_code}')
 
 
-def containerise_middleware(job, xdata, queue, eventtype, localsite, remotesite, container_options, external_dir,
-                            label='stage-in', container_type='container', rucio_host=''):
+def containerise_middleware(job, args, xdata, eventtype, localsite, remotesite, container_options,
+                            label='stage-in', container_type='container'):
     """
     Containerise the middleware by performing stage-in/out steps in a script that in turn can be run in a container.
 
     Note: a container will only be used for option container_type='container'. If this is 'bash', then stage-in/out
     will still be done by a script, but not containerised.
 
-    Note: this function is tailor made for stage-in/out.
+    Note: this function is tailormade for stage-in/out.
 
     :param job: job object.
-    :param xdata: list of FileSpec objects.
-    :param queue: queue name (string).
+    :param args: command line arguments (dict)
+    :param xdata: list of FileSpec objects
     :param eventtype:
     :param localsite:
     :param remotesite:
-    :param container_options: container options from queuedata (string).
-    :param external_dir: input or output files directory (string).
-    :param label: optional 'stage-in/out' (string).
-    :param container_type: optional 'container/bash' (string).
-    :param rucio_host: optiona rucio host (string).
+    :param container_options: container options from queuedata (str)
+    :param label: optional 'stage-in/out' (str)
+    :param container_type: optional 'container/bash' (str)
     :raises StageInFailure: for stage-in failures
     :raises StageOutFailure: for stage-out failures
     :return:
     """
 
     cwd = getcwd()
+    external_dir = args.input_dir if label == 'stage-in' else args.output_dir
 
     # get the name of the stage-in/out isolation script
     script = config.Container.middleware_container_stagein_script if label == 'stage-in' else config.Container.middleware_container_stageout_script
 
     try:
-        cmd = get_command(job, xdata, queue, script, eventtype, localsite, remotesite, external_dir, label=label,
-                          container_type=container_type, rucio_host=rucio_host)
+        cmd = get_command(job, xdata, args.queue, script, eventtype, localsite, remotesite, external_dir, label=label,
+                          container_type=container_type, rucio_host=args.rucio_host)
     except PilotException as exc:
         raise exc
 

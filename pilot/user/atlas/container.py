@@ -20,11 +20,14 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
 
+import fcntl
 import json
+import logging
 import os
 import pipes
 import re
-import logging
+import subprocess
+import time
 from typing import Any, Callable
 
 # for user container test: import urllib
@@ -766,19 +769,22 @@ def container_wrapper(cmd, workdir, job=None):
     return cmd
 
 
-def create_root_container_command(workdir: str, cmd: str) -> str:
+def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
     """
     Create the container command for root.
 
     :param workdir: workdir (str)
     :param cmd: command to be containerised (str)
+    :param script: script content (str)
     :return: container command to be executed (str).
     """
     command = f'cd {workdir};'
-    content = get_root_container_script(cmd)
+    # parse the 'open_file.sh' script
+    content = get_root_container_script(cmd, script)
     script_name = 'open_file.sh'
-
+    logger.info(f'{script_name}:\n\n{content}\n\n')
     try:
+        # overwrite the 'open_file.sh' script with updated information
         status = write_file(os.path.join(workdir, script_name), content)
     except PilotException as exc:
         raise exc
@@ -797,6 +803,81 @@ def create_root_container_command(workdir: str, cmd: str) -> str:
     logger.debug(f'container command: {command}')
 
     return command
+
+
+def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str):
+    """
+    Execute the remote file open script.
+
+    :param path: path to container script (str)
+    :param workdir: workdir (str)
+    :param python_script_timeout: timeout (int)
+    :return: exit code (int), stdout (str).
+    """
+    lsetup_timeout = 600  # Timeout for 'lsetup' step
+    exit_code = 1
+    stdout = ""
+
+    # Start the Bash script process with non-blocking I/O
+    try:
+        process = subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
+    except OSError as e:
+        logger.warning(f"error starting subprocess: {e}")
+        return exit_code
+
+    start_time = time.time()  # Track execution start time
+    lsetup_completed = False  # Flag to track completion of 'lsetup'
+
+    while True:
+        # Check for timeout (once per second)
+        if time.time() - start_time > lsetup_timeout and not lsetup_completed:
+            logger.warning("timeout for 'lsetup' exceeded - killing script")
+            process.kill()
+            break
+
+        # Try to read output without blocking (might return None)
+        try:
+            output = process.stdout.readline()  # Read bytes directly
+            if output is not None:  # Check if any output is available (not None)
+                output = output.decode().strip()
+                logger.info(output)  # Print output for monitoring
+
+                # Check for LSETUP_COMPLETED message
+                if output == "LSETUP_COMPLETED":
+                    lsetup_completed = True
+                    start_time = time.time()  # Reset start time for 'python3' timeout
+
+                stdout += output + "\n"
+        except BlockingIOError:
+            time.sleep(0.1)  # No output available yet, continue the loop
+            continue
+        except (OSError, ValueError):  # Catch potential errors from process.stdout
+            #        print(f"Error reading from subprocess output: {e}")
+            #        # Handle the error (e.g., log it, retry, exit)
+            #        break
+            # logger.warning(f"error reading from subprocess output: {e}")
+            time.sleep(0.1)
+            continue
+
+        # Timeout for python script after LSETUP_COMPLETED
+        if lsetup_completed and time.time() - start_time > python_script_timeout:
+            logger.warning("timeout for 'python3' subscript exceeded - killing script")
+            process.kill()
+            break
+
+        # Check if script has completed normally
+        return_code = process.poll()
+        if return_code is not None:
+            logger.info("script execution completed with return code: {return_code}")
+            exit_code = return_code
+            break
+
+    # Ensure process is terminated
+    if process.poll() is None:
+        process.terminate()
+
+    return exit_code, stdout
 
 
 def fix_asetup(asetup):
@@ -887,17 +968,16 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     return command
 
 
-def get_root_container_script(cmd: str) -> str:
+def get_root_container_script(cmd: str, script: str) -> str:
     """
     Return the content of the root container script.
 
     :param cmd: root command (str)
+    :param script: script content (str)
     :return: script content (str).
     """
-    content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
-    logger.debug(f'root setup script content:\n\n{content}\n\n')
-
-    return content
+    # content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
+    return script.replace('REPLACE_ME_FOR_CMD', cmd)
 
 
 def get_middleware_container_script(middleware_container: str, cmd: str, asetup: bool = False, label: str = '') -> str:

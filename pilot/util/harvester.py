@@ -154,7 +154,7 @@ def get_event_status_file(args: Any) -> str:
         work_dir = args.harvester_workdir
     else:
         work_dir = os.environ['PILOT_HOME']
-    event_status_file = config.Harvester.stageoutnfile
+    event_status_file = config.Harvester.stageoutn_file
     event_status_file = os.path.join(work_dir, event_status_file)
     logger.debug(f'event_status_file = {event_status_file}')
 
@@ -168,17 +168,12 @@ def get_worker_attributes_file(args: Any):
     :param args: Pilot arguments object (Any)
     :return: worker attributes file name (str).
     """
-    logger.debug(f'config.Harvester.__dict__ : {config.Harvester.__dict__}')
-
     if args.harvester_workdir != '':
         work_dir = args.harvester_workdir
     else:
         work_dir = os.environ['PILOT_HOME']
-    worker_attributes_file = config.Harvester.workerattributesfile
-    worker_attributes_file = os.path.join(work_dir, worker_attributes_file)
-    logger.debug(f'worker_attributes_file = {worker_attributes_file}')
 
-    return worker_attributes_file
+    return os.path.join(work_dir, config.Harvester.workerattributes_file)
 
 
 def findfile(path: str, name: str) -> str:

@@ -213,6 +213,25 @@ class StagingClient(object):
             if not fdat.inputddms and fdat.ddmendpoint:
                 fdat.inputddms = [fdat.ddmendpoint]
 
+    def print_replicas(self, replicas, label='unsorted'):
+        """
+        Print replicas.
+
+        :param replicas: list of replicas (Any)
+        :param label: label (str).
+        """
+        number = 1
+        maxnumber = 10
+        self.logger.info(f'{label} list of replicas: (max {maxnumber})')
+        for pfn, xdat in replicas:
+            self.logger.debug(f"{number}. "
+                              f"lfn={pfn}, "
+                              f"rse={xdat.get('ddmendpoint')}, "
+                              f"domain={xdat.get('domain')}")
+            number += 1
+            if number > maxnumber:
+                break
+
     @classmethod
     def sort_replicas(self, replicas, inputddms):
         """
@@ -242,7 +261,7 @@ class StagingClient(object):
                 continue
             xreplicas.append((pfn, xdat))
 
-        return replicas
+        return xreplicas
 
     def resolve_replicas(self, files, use_vp=False):
         """
@@ -369,7 +388,9 @@ class StagingClient(object):
         sorted_replicas = sorted(iter(list(replica.get('pfns', {}).items())), key=lambda x: x[1]['priority'])
 
         # prefer replicas from inputddms first
+        #self.print_replicas(sorted_replicas)
         xreplicas = self.sort_replicas(sorted_replicas, fdat.inputddms)
+        self.print_replicas(xreplicas)
 
         for pfn, xdat in xreplicas:
 
@@ -494,7 +515,7 @@ class StagingClient(object):
             raise PilotException('failed to resolve copytool by preferred activities=%s, acopytools=%s' %
                                  (activity, self.acopytools))
 
-        # populate inputddms if need
+        # populate inputddms if needed
         self.prepare_inputddms(files)
 
         # initialize ddm_activity name for requested files if not set
@@ -839,7 +860,9 @@ class StageInClient(StagingClient):
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:
-            self.require_protocols(files, copytool, activity, local_dir=kwargs.get('input_dir'))
+            args = kwargs.get('args')
+            input_dir = kwargs.get('input_dir') if not args else args.input_dir
+            self.require_protocols(files, copytool, activity, local_dir=input_dir)
 
         # mark direct access files with status=remote_io
         self.set_status_for_direct_access(files, kwargs.get('workdir', ''))

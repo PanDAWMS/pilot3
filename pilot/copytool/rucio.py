@@ -20,7 +20,7 @@
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
@@ -105,6 +105,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
     trace_report = kwargs.get('trace_report')
     use_pcache = kwargs.get('use_pcache')
     rucio_host = kwargs.get('rucio_host', '')
+    pilot_args = kwargs.get('args')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -112,6 +113,14 @@ def copy_in(files: list, **kwargs: dict) -> list:
     # note, env vars might be unknown inside middleware contrainers, if so get the value already in the trace report
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', trace_report.get_value('localSite'))
     for fspec in files:
+        # check if we should abort
+        if pilot_args and pilot_args.graceful_stop and pilot_args.graceful_stop.is_set():
+            msg = f'copytool has detected graceful stop - will abort stage-in ({pilot_args.mainworkdir})'
+            logger.warning(msg)
+            raise PilotException(msg)
+        if not pilot_args:
+            logger.warning('pilot_args not set, cannot check for graceful stop')
+
         logger.info(f'rucio copytool, downloading file with scope:{fspec.scope} lfn:{fspec.lfn}')
         # update the trace report
         localsite = localsite if localsite else fspec.ddmendpoint

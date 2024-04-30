@@ -44,9 +44,12 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from collections import namedtuple
+from gzip import GzipFile
+from io import BytesIO
 from re import findall
 from time import sleep, time
 from typing import Callable, Any
+from urllib.parse import parse_qs
 
 from .config import config
 from .constants import get_pilot_version
@@ -118,7 +121,6 @@ def cacert_default_location() -> Any:
         return f'/tmp/x509up_u{os.getuid()}'
     except AttributeError:
         logger.warning('no UID available? System not POSIX-compatible... trying to continue')
-        pass
 
     return None
 
@@ -183,7 +185,7 @@ def request(url: str, data: dict = {}, plain: bool = False, secure: bool = True,
     Send a request using HTTPS.
 
     Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
-    If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise uses :command:`curl`.
+    If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise, uses :command:`curl`.
 
     If ``data`` is provided, encodes it as a URL form data and sends it to the server.
 
@@ -453,7 +455,6 @@ def send_update(update_function: str, data: dict, url: str, port: str, job: Any 
     :param ipv: internet protocol version, IPv4 or IPv6 (str)
     :return: server response (dict).
     """
-    time_before = int(time())
     max_attempts = 10
     attempt = 0
     done = False
@@ -488,29 +489,58 @@ def send_update(update_function: str, data: dict, url: str, port: str, job: Any 
             attempt += 1
             continue
         # send the heartbeat
+        res = send_request(pandaserver, update_function, data, job, ipv)
+        if res is not None:
+            done = True
+        attempt += 1
+        if not done:
+            sleep(config.Pilot.update_sleep)
+
+    return res
+
+
+def send_request(pandaserver: str, update_function: str, data: dict, job: Any, ipv: str) -> dict or None:
+    """
+    Send the request to the server using the appropriate method.
+
+    :param pandaserver: PanDA server URL (str)
+    :param update_function: update function (str)
+    :param data: data dictionary (dict)
+    :param job: job object (Any)
+    :param ipv: internet protocol version (str)
+    :return: server response (dict or None).
+    """
+    res = None
+    time_before = int(time())
+
+    # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
+    try:
+        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data)
+    except Exception as exc:
+        logger.warning(f'exception caught in https.request(): {exc}')
+    logger.debug(f'type(res)={type(res)}')
+    if not res:
+        logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
             res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
-        else:
-            if res is not None:
-                done = True
-            txt = f'server {update_function} request completed in {int(time()) - time_before}s'
-            if job:
-                txt += f' for job {job.jobid}'
-            logger.info(txt)
-            # hide sensitive info
-            pilotsecrets = ''
-            if res and 'pilotSecrets' in res:
-                pilotsecrets = res['pilotSecrets']
-                res['pilotSecrets'] = '********'
-            logger.info(f'server responded with: res = {res}')
-            if pilotsecrets:
-                res['pilotSecrets'] = pilotsecrets
 
-        attempt += 1
-        if not done:
-            sleep(config.Pilot.update_sleep)
+    if res:
+        txt = f'server {update_function} request completed in {int(time()) - time_before}s'
+        if job:
+            txt += f' for job {job.jobid}'
+        logger.info(txt)
+        # hide sensitive info
+        pilotsecrets = ''
+        if res and 'pilotSecrets' in res:
+            pilotsecrets = res['pilotSecrets']
+            res['pilotSecrets'] = '********'
+        logger.info(f'server responded with: res = {res}')
+        if pilotsecrets:
+            res['pilotSecrets'] = pilotsecrets
+    else:
+        logger.warning(f'server {update_function} request failed both with urllib and curl')
 
     return res
 
@@ -628,51 +658,15 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2_bad(url: str, data: dict = {}) -> str:
-    """
-    Send a request using HTTPS.
-
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :return: server response (str).
-    """
-
-    # convert the dictionary to a JSON string
-    data_json = json.dumps(data).encode('utf-8')
-
-    # Create an SSLContext object
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    logger.debug(f'capath={_ctx.capath}')
-    logger.debug(f'cacert={_ctx.cacert}')
-    ssl_context.load_verify_locations(_ctx.capath)
-    ssl_context.load_cert_chain(_ctx.cacert)
-    # define additional headers
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": _ctx.user_agent,
-    }
-
-    # create a request object with the SSL context
-    request = urllib.request.Request(url, data=data_json, headers=headers, method='POST')
-
-    # perform the HTTP request with the SSL context
-    try:
-        response = urllib.request.urlopen(request, context=ssl_context)
-        ret = response.read().decode('utf-8')
-    except (urllib.error.URLError, urllib.error.HTTPError) as exc:
-        logger.warning(f'failed to send request: {exc}')
-        ret = ""
-
-    return ret
-
-
-def request2(url: str, data: dict = {}) -> str:
+def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 
     :param url: the URL of the resource (str)
     :param data: data to send (dict)
-    :return: server response (str).
+    :param secure: use secure connection (bool)
+    :param compressed: compress data (bool)
+    :return: server response (str or dict).
     """
     # https might not have been set up if running in a [middleware] container
     if not _ctx.cacert:
@@ -686,34 +680,76 @@ def request2(url: str, data: dict = {}) -> str:
     }
 
     logger.debug(f'headers={headers}')
+    logger.info(f'data = {data}')
 
-    # Encode data as JSON
-    data_json = json.dumps(data).encode('utf-8')
-    #data_json = urllib.parse.quote(json.dumps(data))
-    #data_json = data_json.encode('utf-8')
-
-    logger.debug(f'data_json={data_json}')
+    # Encode data as compressed JSON
+    if compressed:
+        rdata_out = BytesIO()
+        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
+            f_gzip.write(json.dumps(data).encode())
+        data_json = rdata_out.getvalue()
+    else:
+        data_json = json.dumps(data).encode('utf-8')
+        #data_json = urllib.parse.quote(json.dumps(data))
+        #data_json = data_json.encode('utf-8')
+        #data_json = urllib.parse.urlencode(data).encode()
 
     # Set up the request
     req = urllib.request.Request(url, data_json, headers=headers)
 
     # Create a context with certificate verification
-    logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
-    logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
+    #logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
+    #logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
     #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
     #logger.debug(f'context={context}')
 
-    ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
+    # should be
+    # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+    # but it doesn't work, so use this for now even if it throws a deprecation warning
+    logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
+    try:  # for ssl version 3.0 and python 3.10+
+        # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context = ssl.SSLContext(protocol=None)
+    except Exception:  # for ssl version 1.0
+        ssl_context = ssl.SSLContext()
+
+    #ssl_context.verify_mode = ssl.CERT_REQUIRED
+    ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+
+    if not secure:
+        ssl_context.verify_mode = False
+        ssl_context.check_hostname = False
+
+    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
     # Send the request securely
     try:
+        logger.debug('sending data to server')
         with urllib.request.urlopen(req, context=ssl_context) as response:
             # Handle the response here
-            logger.debug(response.status, response.reason)
-            logger.debug(response.read().decode('utf-8'))
+            logger.debug(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
+            if 'getProxy' not in url:
+                logger.debug(f"response={ret}")
+        logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
+    else:
+        if secure and isinstance(ret, str):
+            if ret.startswith('{') and ret.endswith('}'):
+                logger.debug('loading string into dictionary')
+                try:
+                    ret = json.loads(ret)
+                except Exception as e:
+                    logger.warning(f'failed to parse response: {e}')
+            else:
+                logger.debug('parsing string into dictionary')
+                # For panda server interactions, the response should be in dictionary format
+                # Parse the query string into a dictionary
+                query_dict = parse_qs(ret)
+
+                # Convert lists to single values
+                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
     return ret
 
@@ -762,3 +798,68 @@ def request3(url: str, data: dict = {}) -> str:
         ret = ""
 
     return ret
+
+
+def upload_file(url: str, path: str) -> bool:
+    """
+    Upload the contents of the given JSON file to the given URL.
+
+    :param url: server URL (str)
+    :param path: path to the file (str)
+    :return: True if success, False otherwise (bool).
+    """
+    status = False
+    # Define headers
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    # Read file contents
+    with open(path, 'rb') as file:
+        file_content = file.read()
+
+    # Define request object
+    request = urllib.request.Request(url, data=file_content, headers=headers, method='POST')
+
+    # Set timeouts
+    request.timeout = 20
+    request.socket_timeout = 120
+
+    # Perform the request
+    ret = 'notok'
+    try:
+        with urllib.request.urlopen(request) as response:
+            response_data = response.read()
+            # Handle response
+            ret = response_data.decode('utf-8')
+    except urllib.error.URLError as e:
+        # Handle URL errors
+        logger.warning("URL Error:", e)
+        ret = e
+
+    if ret == 'ok':
+        status = True
+    else:
+        logger.warning(f'failed to send data to {url}: response={ret}')
+
+    return status
+
+
+def download_file(url: str, _timeout: int = 20) -> str:
+    """
+    Download url content.
+
+    :param url: url (str)
+    :return: url content (str).
+    """
+    req = urllib.request.Request(url)
+    req.add_header('User-Agent', ctx.user_agent)
+    try:
+        with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=_timeout) as response:
+            content = response.read()
+    except urllib.error.URLError as exc:
+        logger.warning(f"error occurred with urlopen: {exc.reason}")
+        # Handle the error, set content to None or handle as needed
+        content = ""
+
+    return content

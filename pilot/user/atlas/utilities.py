@@ -479,6 +479,12 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 logger.warning("standard memory fields were not found in prmon json (or json doesn't exist yet)")
             else:
                 logger.info("extracted standard memory fields from prmon json")
+            try:
+                node['GPU'] = summary_dictionary['HW']['gpu']
+            except Exception:
+                logger.warning("GPU info not found in prmon json")
+            else:
+                logger.info("GPU info extracted from prmon json")
         else:
             logger.warning('unknown memory monitor version')
     else:
