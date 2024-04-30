@@ -93,8 +93,13 @@ def looping_job(job: Any, montime: Any) -> (int, str):
         # correct for job suspension if detected
         time_since_job_suspension = time_since_suspension()
         if time_since_job_suspension:
-            logger.info(f'looping job killer adjusting for job suspension: {time_since_job_suspension} s (adding to time_last_touched))')
-            time_last_touched += time_since_job_suspension
+            # if there was no measurement, the time_last_touched will be zero
+            if not time_last_touched:
+                logger.warning('no time_last_touched measurement found (setting to 0)')
+                return 0, ""
+            else:
+                logger.info(f'looping job killer adjusting for job suspension: {time_since_job_suspension} s (adding to time_last_touched))')
+                time_last_touched += time_since_job_suspension
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
