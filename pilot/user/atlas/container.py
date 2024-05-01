@@ -833,6 +833,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
         # Check for timeout (once per second)
         if time.time() - start_time > lsetup_timeout and not lsetup_completed:
             logger.warning("timeout for 'lsetup' exceeded - killing script")
+            exit_code = 2  # 'lsetup' timeout
             process.kill()
             break
 
@@ -863,6 +864,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
         # Timeout for python script after LSETUP_COMPLETED
         if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
             logger.warning("timeout for 'python3' subscript exceeded - killing script")
+            exit_code = 3  # python script timeout
             process.kill()
             break
 

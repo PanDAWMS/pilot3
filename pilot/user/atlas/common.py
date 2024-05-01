@@ -268,6 +268,8 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
             logger.warning(diagnostics)
             return 11, diagnostics, not_opened
 
+        # if execute_remote_file_open() returns exit code 1, it means general error.
+        # exit code 2 means that lsetup timed out, while 3 means that the python script (actual file open) timed out
         try:
             exitcode, stdout = execute_remote_file_open(path, timeout)
         except PilotException as exc:

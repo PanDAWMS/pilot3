@@ -178,6 +178,7 @@ class ErrorCodes:
     LEASETIME = 1375
     LOGCREATIONTIMEOUT = 1376
     CVMFSISNOTALIVE = 1377
+    LSETUPTIMEDOUT = 1378
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -317,7 +318,8 @@ class ErrorCodes:
         REMOTEFILEDICTDOESNOTEXIST: "Remote file open dictionary does not exist",
         LEASETIME: "Lease time is up",  # internal use only
         LOGCREATIONTIMEOUT: "Log file creation timed out",
-        CVMFSISNOTALIVE: "CVMFS is not responding"
+        CVMFSISNOTALIVE: "CVMFS is not responding",
+        LSETUPTIMEDOUT: "Lsetup command timed out during remote file open"
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -435,34 +437,39 @@ class ErrorCodes:
         :param stderr: transform stderr (str)
         :return: pilot error code (int).
         """
-        if exit_code and "Not mounting requested bind point" in stderr:
-            exit_code = self.SINGULARITYBINDPOINTFAILURE
-        elif exit_code == 251:
-            exit_code = self.UNKNOWNTRFFAILURE
-        elif exit_code and "No more available loop devices" in stderr:
-            exit_code = self.SINGULARITYNOLOOPDEVICES
-        elif exit_code and ("Failed to mount image" in stderr or "error: while mounting" in stderr):
-            exit_code = self.SINGULARITYIMAGEMOUNTFAILURE
-        elif exit_code and "Operation not permitted" in stderr:
-            exit_code = self.SINGULARITYGENERALFAILURE
-        elif exit_code and "Failed to create user namespace" in stderr:
-            exit_code = self.SINGULARITYFAILEDUSERNAMESPACE
-        elif "Singularity is not installed" in stderr:  # exit code should be 64 but not always?
-            exit_code = self.SINGULARITYNOTINSTALLED
-        elif "Apptainer is not installed" in stderr:  # exit code should be 64 but not always?
-            exit_code = self.APPTAINERNOTINSTALLED
-        elif exit_code == 64 and "cannot create directory" in stderr:
-            exit_code = self.MKDIR
-        elif exit_code and "General payload setup verification error" in stderr:
-            exit_code = self.SETUPFAILURE
-        elif exit_code == -1:
-            exit_code = self.UNKNOWNTRFFAILURE
-        elif exit_code == self.COMMANDTIMEDOUT:
-            pass
-        elif exit_code != 0:
-            exit_code = self.PAYLOADEXECUTIONFAILURE
+        error_map = {
+            "Not mounting requested bind point": self.SINGULARITYBINDPOINTFAILURE,
+            "No more available loop devices": self.SINGULARITYNOLOOPDEVICES,
+            "Failed to mount image": self.SINGULARITYIMAGEMOUNTFAILURE,
+            "error: while mounting": self.SINGULARITYIMAGEMOUNTFAILURE,
+            "Operation not permitted": self.SINGULARITYGENERALFAILURE,
+            "Failed to create user namespace": self.SINGULARITYFAILEDUSERNAMESPACE,
+            "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
+            "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
+            "cannot create directory": self.MKDIR,
+            "General payload setup verification error": self.SETUPFAILURE
+        }
 
-        return exit_code
+        # Check if stderr contains any known error messages
+        for error_message, error_code in error_map.items():
+            if error_message in stderr:
+                return error_code
+
+        # Handle specific exit codes
+        if exit_code == 2:
+            return self.LSETUPTIMEDOUT
+        elif exit_code == 3:
+            return self.REMOTEFILEOPENTIMEDOUT
+        elif exit_code == 251:
+            return self.UNKNOWNTRFFAILURE
+        elif exit_code == -1:
+            return self.UNKNOWNTRFFAILURE
+        elif exit_code == self.COMMANDTIMEDOUT:
+            return exit_code
+        elif exit_code != 0:
+            return self.PAYLOADEXECUTIONFAILURE
+
+        return exit_code  # Return original exit code if no specific error is found
 
     def extract_stderr_error(self, stderr: str) -> str:
         """
