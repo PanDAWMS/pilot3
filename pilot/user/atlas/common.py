@@ -321,7 +321,7 @@ def get_timeout_for_remoteio(indata: list) -> int:
     """
     remote_io = [fspec.status == 'remote_io' for fspec in indata]
 
-    return len(remote_io) * 30 + 600
+    return len(remote_io) * 30 + 900
 
 
 def parse_remotefileverification_dictionary(workdir: str) -> (int, str, list):
