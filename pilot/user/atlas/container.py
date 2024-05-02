@@ -842,10 +842,11 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
             output = process.stdout.readline()  # Read bytes directly
             if output is not None:  # Check if any output is available (not None)
                 output = output.decode().strip()
-                logger.info(output)  # Print output for monitoring
+                logger.info(f'remote file open: {output}')
 
                 # Check for LSETUP_COMPLETED message
                 if output == "LSETUP_COMPLETED":
+                    logger.info('lsetup has completed (resetting start time)')
                     lsetup_completed = True
                     start_time = time.time()  # Reset start time for 'python3' timeout
 
@@ -863,7 +864,8 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
 
         # Timeout for python script after LSETUP_COMPLETED
         if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
-            logger.warning("timeout for 'python3' subscript exceeded - killing script")
+            logger.warning(f"timeout for 'python3' subscript exceeded - killing script "
+                           f"({time.time()} - {start_time} > {python_script_timeout})")
             exit_code = 3  # python script timeout
             process.kill()
             break
