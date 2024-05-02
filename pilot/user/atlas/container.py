@@ -873,7 +873,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
         # Check if script has completed normally
         return_code = process.poll()
         if return_code is not None:
-            logger.info("script execution completed with return code: {return_code}")
+            logger.info(f"script execution completed with return code: {return_code}")
             exit_code = return_code
             break
 
