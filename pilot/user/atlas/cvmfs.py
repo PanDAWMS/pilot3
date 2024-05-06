@@ -33,8 +33,6 @@ cvmfs_mount_points = [
     'CVMFS_BASE/unpacked.cern.ch/logDir/lastUpdate',
     'CVMFS_BASE/sft-nightlies.cern.ch/lcg/lastUpdate',
 ]
-# when was the last cvmfs update?
-last_update_file = '/cvmfs/sft.cern.ch/lcg/lastUpdate'
 
 
 def get_cvmfs_base_path() -> str:
@@ -44,3 +42,12 @@ def get_cvmfs_base_path() -> str:
     :return: base path for CVMFS (str).
     """
     return get_file_system_root_path()
+
+
+def get_last_update_file() -> str:
+    """
+    Return the last update file.
+
+    :return: last update file (str).
+    """
+    return f'{get_cvmfs_base_path()}/sft.cern.ch/lcg/lastUpdate'
