@@ -65,7 +65,16 @@ def is_cvmfs_available() -> bool or None:
             if get_base_path:
                 mount_point = mount_point.replace('CVMFS_BASE', get_base_path())
             if os.path.exists(mount_point):
-                logger.debug(f'CVMFS is available at {mount_point}')
+                # verify that the file can be opened
+                try:
+                    with open(mount_point, 'r'):
+                        pass
+                except Exception as exc:
+                    logger.warning(f'failed to open file {mount_point}: {exc}')
+                    found_bad_mount_point = True
+                    break
+                else:
+                    logger.info(f'CVMFS is available at {mount_point} (and could be opened)')
             else:
                 logger.warning(f'CVMFS is not available at {mount_point}')
                 found_bad_mount_point = True
