@@ -87,7 +87,11 @@ def get_last_update() -> int:
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.cvmfs', globals(), locals(), [pilot_user], 0)
-    last_update_file = getattr(user, 'last_update_file', None)
+    try:
+        last_update_file = user.get_last_update_file()
+    except AttributeError:
+        last_update_file = None
+
     timestamp = None
     if last_update_file:
         if os.path.exists(last_update_file):
