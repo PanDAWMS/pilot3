@@ -66,6 +66,9 @@ def is_cvmfs_available() -> bool or None:
                 mount_point = mount_point.replace('CVMFS_BASE', get_base_path())
             if os.path.exists(mount_point):
                 # verify that the file can be opened
+                if 'lastUpdate' not in mount_point:  # skip directories
+                    logger.info(f'CVMFS is available at {mount_point}')
+                    continue
                 try:
                     with open(mount_point, 'r'):
                         pass
