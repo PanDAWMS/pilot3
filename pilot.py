@@ -121,13 +121,19 @@ def main() -> int:
         )  # note: assuming IPv6, fallback in place
 
     # check cvmfs if available
-    if is_cvmfs_available() is True:  # ignore None, False is handled in function
+    is_available = is_cvmfs_available()
+    if is_available is None:
+        pass  # ignore this case
+    elif is_available is True:
         timestamp = get_last_update()
         if timestamp and timestamp > 0:
             logger.info('CVMFS has been validated')
         else:
             logger.warning('CVMFS is not responding - aborting pilot')
             return errors.CVMFSISNOTALIVE
+    else:
+        logger.warning('CVMFS is not alive - aborting pilot')
+        return errors.CVMFSISNOTALIVE
 
     if not args.rucio_host:
         args.rucio_host = config.Rucio.host
@@ -736,7 +742,7 @@ def get_proper_exit_code() -> (int, int):
     """
     try:
         exitcode = trace.pilot["error_code"]
-    except KeyError:
+    except (KeyError, AttributeError):
         exitcode = trace
         logging.debug(f"trace was not a class, trace={trace}")
     else:
