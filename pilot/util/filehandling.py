@@ -401,14 +401,25 @@ def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, i
     """
     status = False
 
+    logger.debug(f"data: {data} (type={type(data)}")
+    if os.path.exists(filename):
+        logger.debug(f'file already exists: {filename} timestamp: {os.path.getmtime(filename)}')
+    else:
+        logger.debug(f'writing data to file: {filename} (file does not exist yet)')
     try:
         with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
+        if os.path.exists(filename):
+            logger.debug(f'wrote data to file: {filename} timestamp: {os.path.getmtime(filename)}')
+        else:
+            logger.warning(f'failed to write data to file: {filename}')
     except (IOError, TypeError) as exc:
-        logger.warning(f'exception caught in write_json: {exc}')
+        logger.warning(f'exception caught (1) in write_json: {exc}')
+    except Exception as exc:
+        logger.warning(f'exception caught (2) in write_json: {exc}')
     else:
         status = True
-
+    logger.debug(f"write_json status: {status} timestamp: {os.path.getmtime(filename)}")
     return status
 
 
