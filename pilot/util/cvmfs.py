@@ -65,7 +65,19 @@ def is_cvmfs_available() -> bool or None:
             if get_base_path:
                 mount_point = mount_point.replace('CVMFS_BASE', get_base_path())
             if os.path.exists(mount_point):
-                logger.debug(f'CVMFS is available at {mount_point}')
+                # verify that the file can be opened
+                if 'lastUpdate' not in mount_point:  # skip directories
+                    logger.info(f'CVMFS is available at {mount_point}')
+                    continue
+                try:
+                    with open(mount_point, 'r'):
+                        pass
+                except Exception as exc:
+                    logger.warning(f'failed to open file {mount_point}: {exc}')
+                    found_bad_mount_point = True
+                    break
+                else:
+                    logger.info(f'CVMFS is available at {mount_point} (and could be opened)')
             else:
                 logger.warning(f'CVMFS is not available at {mount_point}')
                 found_bad_mount_point = True
@@ -103,7 +115,7 @@ def get_last_update() -> int:
                 now = int(time.time())
                 logger.info(f'last cvmfs update on '
                             f'{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(timestamp))} '
-                            f'{now - timestamp} seconds ago {timestamp}()')
+                            f'{now - timestamp} seconds ago ({timestamp})')
         else:
             logger.warning(f'last update file does not exist: {last_update_file}')
     else:
