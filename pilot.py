@@ -742,7 +742,7 @@ def get_proper_exit_code() -> (int, int):
     """
     try:
         exitcode = trace.pilot["error_code"]
-    except KeyError:
+    except (KeyError, AttributeError):
         exitcode = trace
         logging.debug(f"trace was not a class, trace={trace}")
     else:
