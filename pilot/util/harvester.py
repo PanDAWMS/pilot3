@@ -282,8 +282,8 @@ def publish_work_report(work_report: dict = {}, worker_attributes_file: str = "w
         if "xml" in work_report:
             del (work_report["xml"])
 
-        ec = write_json(worker_attributes_file, work_report)
-        if ec:
+        status = write_json(worker_attributes_file, work_report)
+        if not status:
             logger.error(f"work report publish failed: {work_report}")
             return False
         else:
