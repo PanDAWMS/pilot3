@@ -121,19 +121,9 @@ def main() -> int:
         )  # note: assuming IPv6, fallback in place
 
     # check cvmfs if available
-    is_available = is_cvmfs_available()
-    if is_available is None:
-        pass  # ignore this case
-    elif is_available is True:
-        timestamp = get_last_update()
-        if timestamp and timestamp > 0:
-            logger.info('CVMFS has been validated')
-        else:
-            logger.warning('CVMFS is not responding - aborting pilot')
-            return errors.CVMFSISNOTALIVE
-    else:
-        logger.warning('CVMFS is not alive - aborting pilot')
-        return errors.CVMFSISNOTALIVE
+    ec = check_cvmfs(logger)
+    if ec:
+        return ec
 
     if not args.rucio_host:
         args.rucio_host = config.Rucio.host
@@ -200,6 +190,35 @@ def main() -> int:
         )
 
     return exitcode
+
+
+def check_cvmfs(logger: Any) -> int:
+    """
+    Check if cvmfs is available.
+
+    :param logger: logging object.
+    :return: exit code (int).
+    """
+    # skip all tests if required
+    if os.environ.get("NO_CVMFS_OK", False):
+        logger.info("skipping cvmfs checks")
+        return 0
+
+    is_available = is_cvmfs_available()
+    if is_available is None:
+        pass  # ignore this case
+    elif is_available is True:
+        timestamp = get_last_update()
+        if timestamp and timestamp > 0:
+            logger.info('CVMFS has been validated')
+        else:
+            logger.warning('CVMFS is not responding - aborting pilot')
+            return errors.CVMFSISNOTALIVE
+    else:
+        logger.warning('CVMFS is not alive - aborting pilot')
+        return errors.CVMFSISNOTALIVE
+
+    return 0
 
 
 def str2bool(var: str) -> bool:
