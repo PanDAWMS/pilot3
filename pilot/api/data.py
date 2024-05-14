@@ -139,14 +139,14 @@ class StagingClient:
         :param catchall: catchall from queuedata (str)
         :return: True if 'mv_final_destination' is present in catchall, otherwise False (bool).
         """
-        return True if catchall and 'mv_final_destination' in catchall else False
+        return catchall and 'mv_final_destination' in catchall
 
     def set_acopytools(self):
         """Set the internal acopytools."""
         if not self.acopytools:  # resolve from queuedata.acopytools using infosys
             self.acopytools = (self.infosys.queuedata.acopytools or {}).copy()
         if not self.acopytools:  # resolve from queuedata.copytools using infosys
-            self.acopytools = dict(default=list((self.infosys.queuedata.copytools or {}).keys()))
+            self.acopytools = {"default": list((self.infosys.queuedata.copytools or {}).keys())}
 
     @staticmethod
     def get_default_copytools(default_copytools: str):
@@ -162,51 +162,44 @@ class StagingClient:
         return default_copytools
 
     @classmethod
-    def get_preferred_replica(self, replicas, allowed_schemas):
+    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Any:
         """
         Get preferred replica from the `replicas` list suitable for `allowed_schemas`.
 
-        :return: first matched replica or None if not found.
+        :param replicas: list of replicas (list)
+        :param allowed_schemas: list of allowed schemas (list)
+        :return: first matched replica or None if not found (Any).
         """
         for replica in replicas:
             pfn = replica.get('pfn')
             for schema in allowed_schemas:
                 if pfn and (not schema or pfn.startswith(f'{schema}://')):
                     return replica
+        return None
 
-    def prepare_sources(self, files, activities=None):
+    def prepare_sources(self, files: list, activities: Any = None):
         """
         Prepare sources.
 
-        Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`
-        (custom StageClient could extend the logic if need)
+        Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`.
+        (custom StageClient could extend the logic if needed).
 
-        :param files: list of `FileSpec` objects to be processed
-        :param activities: string or ordered list of activities to resolve `astorages` (optional)
-        :return: None.
+        :param files: list of `FileSpec` objects to be processed (list)
+        :param activities: string or ordered list of activities to resolve `astorages` (optional) (Any)
+        :return: (None)
         """
         return None
 
-    def prepare_inputddms(self, files, activities=None):
+    def prepare_inputddms(self, files: list):
         """
         Prepare input DDMs.
 
-        Populates filespec.inputddms for each entry from `files` list
+        Populates filespec.inputddms for each entry from `files` list.
 
         :param files: list of `FileSpec` objects
-        :param activities: sting or ordered list of activities to resolve astorages (optional).
         """
-        activities = activities or 'read_lan'
-        if isinstance(activities, str):
-            activities = [activities]
-
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
-
-        storages = []
-        for a in activities:
-            storages = astorages.get(a, [])
-            if storages:
-                break
+        storages = astorages.get('read_lan', [])
 
         #activity = activities[0]
         #if not storages:  ## ignore empty astorages
@@ -219,7 +212,7 @@ class StagingClient:
             if not fdat.inputddms and fdat.ddmendpoint:
                 fdat.inputddms = [fdat.ddmendpoint]
 
-    def print_replicas(self, replicas, label='unsorted'):
+    def print_replicas(self, replicas: list, label: str = 'unsorted'):
         """
         Print replicas.
 
@@ -239,15 +232,15 @@ class StagingClient:
                 break
 
     @classmethod
-    def sort_replicas(self, replicas, inputddms):
+    def sort_replicas(self, replicas: list, inputddms: list) -> list:
         """
         Sort input replicas.
 
         Consider first affected replicas from inputddms.
 
-        :param replicas: Prioritized list of replicas [(pfn, dat)]
-        :param inputddms: preferred list of ddmebdpoint
-        :return: sorted `replicas`.
+        :param replicas: Prioritized list of replicas [(pfn, dat)] (list)
+        :param inputddms: preferred list of ddmebdpoint (list)
+        :return: sorted list of `replicas` (list).
         """
         if not inputddms:
             return replicas
@@ -269,21 +262,22 @@ class StagingClient:
 
         return xreplicas
 
-    def resolve_replicas(self, files, use_vp=False):
+    def resolve_replicas(self, files: list, use_vp: bool = False) -> list:
         """
         Populate filespec.replicas for each entry from `files` list.
 
             fdat.replicas = [{'ddmendpoint':'ddmendpoint', 'pfn':'replica', 'domain':'domain value'}]
 
-        :param files: list of `FileSpec` objects
-        :param use_vp: True for VP jobs (boolean)
-        :return: files object.
+        :param files: list of `FileSpec` objects (list)
+        :param use_vp: True for VP jobs (bool)
+        :raise: Exception in case of list_replicas() failure
+        :return: list of files (list).
         """
         logger = self.logger
         xfiles = []
 
         for fdat in files:
-            # skip fdat if need for further workflow (e.g. to properly handle OS ddms)
+            # skip fdat if needed (e.g. to properly handle OS ddms)
             xfiles.append(fdat)
 
         if not xfiles:  # no files for replica look-up
@@ -336,14 +330,15 @@ class StagingClient:
 
         return files
 
-    def list_replicas(self, xfiles, use_vp):
+    def list_replicas(self, xfiles: list, use_vp: bool) -> list:
         """
         List Rucio replicas.
 
         Wrapper around rucio_client.list_replicas()
 
-        :param xfiles: files object
+        :param xfiles: list of files objects (list)
         :param use_vp: True for VP jobs (bool)
+        :raise: PilotException in case of list_replicas() failure
         :return: replicas (list).
         """
         # load replicas from Rucio
@@ -380,13 +375,13 @@ class StagingClient:
 
         return replicas
 
-    def add_replicas(self, fdat, replica):
+    def add_replicas(self, fdat: Any, replica: Any) -> Any:
         """
         Add the replicas to the fdat structure.
 
-        :param fdat: fdat object
-        :param replica: replica object
-        :return: updated fdat object.
+        :param fdat: fdat object (Any)
+        :param replica: replica object (Any)
+        :return: updated fdat object (Any).
         """
         fdat.replicas = []  # reset replicas list
 
@@ -589,14 +584,14 @@ class StagingClient:
 
         if remain_files:  # failed or incomplete transfer
             # propagate message from first error back up
-            errmsg = str(caught_errors[0]) if caught_errors else ''
+            # errmsg = str(caught_errors[0]) if caught_errors else ''
             if caught_errors and "Cannot authenticate" in str(caught_errors):
                 code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE
             elif caught_errors and "bad queue configuration" in str(caught_errors):
                 code = ErrorCodes.BADQUEUECONFIGURATION
             elif caught_errors and isinstance(caught_errors[0], PilotException):
                 code = caught_errors[0].get_error_code()
-                errmsg = caught_errors[0].get_last_error()
+                # errmsg = caught_errors[0].get_last_error()
             elif caught_errors and isinstance(caught_errors[0], TimeoutException):
                 code = ErrorCodes.STAGEINTIMEOUT if self.mode == 'stage-in' else ErrorCodes.STAGEOUTTIMEOUT  # is it stage-in/out?
                 self.logger.warning('caught time-out exception: %s', caught_errors[0])
@@ -686,15 +681,15 @@ class StagingClient:
         return files
 
     @classmethod
-    def resolve_protocol(self, fspec, allowed_schemas=None):
+    def resolve_protocol(cls, fspec: Any, allowed_schemas: Any = None) -> list:
         """
         Resolve protocol.
 
         Resolve protocol according to allowed schema
 
-        :param fspec: `FileSpec` instance
-        :param allowed_schemas: list of allowed schemas or any if None
-        :return: list of dict(endpoint, path, flavour).
+        :param fspec: `FileSpec` instance (list)
+        :param allowed_schemas: list of allowed schemas or any if None (Any)
+        :return: list of dict(endpoint, path, flavour) (list).
         """
         if not fspec.protocols:
             return []
@@ -715,7 +710,7 @@ class StageInClient(StagingClient):
 
     mode = "stage-in"
 
-    def resolve_replica(self, fspec, primary_schemas=None, allowed_schemas=None, domain=None):
+    def resolve_replica(self, fspec: Any, primary_schemas: Any = None, allowed_schemas: Any = None, domain: Any = None) -> dict or None:
         """
         Resolve replica.
 
@@ -724,9 +719,9 @@ class StageInClient(StagingClient):
 
         Primary schemas ignore replica priority (used to resolve direct access replica, which could be not with top priority set).
 
-        :param fspec: input `FileSpec` objects
-        :param allowed_schemas: list of allowed schemas or any if None
-        :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found.
+        :param fspec: input `FileSpec` objects (Any)
+        :param allowed_schemas: list of allowed schemas or any if None (Any)
+        :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found (dict or None).
         """
         if not fspec.replicas:
             self.logger.warning('resolve_replica() received no fspec.replicas')
@@ -769,12 +764,12 @@ class StageInClient(StagingClient):
 
         return {'surl': surl['pfn'], 'ddmendpoint': replica['ddmendpoint'], 'pfn': replica['pfn'], 'domain': replica['domain']}
 
-    def get_direct_access_variables(self, job):
+    def get_direct_access_variables(self, job: Any) -> (bool, str):
         """
         Return the direct access settings for the PQ.
 
-        :param job: job object.
-        :return: allow_direct_access (bool), direct_access_type (string).
+        :param job: job object (Any)
+        :return: allow_direct_access (bool), direct_access_type (str).
         """
         allow_direct_access, direct_access_type = False, ''
         if self.infosys.queuedata:  # infosys is initialized
@@ -1054,8 +1049,9 @@ class StageOutClient(StagingClient):
             if 'mv' in self.infosys.queuedata.copytools:
                 return files
             else:
-                raise PilotException("Failed to resolve destination: no associated storages defined for activity=%s (%s)"
-                                     % (activity, ','.join(activities)), code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
+                act = ','.join(activities)
+                raise PilotException(f"Failed to resolve destination: no associated storages defined for activity={activity} ({act})",
+                                     code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
         # take the fist choice for now, extend the logic later if need
         ddm = storages[0]
@@ -1077,7 +1073,7 @@ class StageOutClient(StagingClient):
         return files
 
     @classmethod
-    def get_path(self, scope, lfn, prefix='rucio'):
+    def get_path(cls, scope: str, lfn: str) -> str:
         """
         Construct a partial Rucio PFN using the scope and the LFN.
 
@@ -1085,12 +1081,11 @@ class StageOutClient(StagingClient):
 
         :param scope: replica scope (str)
         :param lfn: repliva LFN (str)
-        :param prefix: prefix (str).
+        :return: constructed path (str).
         """
         s = f'{scope}:{lfn}'
         hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
 
-        #paths = [prefix] + scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
         # exclude prefix from the path: this should be properly considered in protocol/AGIS for today
         paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
         paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
@@ -1119,8 +1114,8 @@ class StageOutClient(StagingClient):
             # path = protocol.get('path', '').rstrip('/')
             # if not (ddm.is_deterministic or (path and path.endswith('/rucio'))):
             if not ddm.is_deterministic:
-                raise PilotException('resolve_surl(): Failed to construct SURL for non deterministic ddm=%s: '
-                                     'NOT IMPLEMENTED' % fspec.ddmendpoint, code=ErrorCodes.NONDETERMINISTICDDM)
+                raise PilotException(f'resolve_surl(): Failed to construct SURL for non deterministic '
+                                     f'ddm={fspec.ddmendpoint}: NOT IMPLEMENTED', code=ErrorCodes.NONDETERMINISTICDDM)
 
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), self.get_path(fspec.scope, fspec.lfn))
         return {'surl': surl}
