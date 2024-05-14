@@ -232,7 +232,7 @@ class StagingClient:
                 break
 
     @classmethod
-    def sort_replicas(self, replicas: list, inputddms: list) -> list:
+    def sort_replicas(cls, replicas: list, inputddms: list) -> list:
         """
         Sort input replicas.
 
@@ -311,7 +311,7 @@ class StagingClient:
                 fdat.filesize = replica['bytes']
                 logger.warning("Filesize value for input file=%s is not defined, assigning info from Rucio replica: filesize=%s", fdat.lfn, replica['bytes'])
 
-            for ctype in ['adler32', 'md5']:
+            for ctype in ('adler32', 'md5'):
                 if fdat.checksum.get(ctype) != replica[ctype] and replica[ctype]:
                     logger.warning("Checksum value of input file=%s mismatched with info got from Rucio replica: checksum=%s, replica.checksum=%s, fdat=%s",
                                    fdat.lfn, fdat.checksum, replica[ctype], fdat)
@@ -325,8 +325,7 @@ class StagingClient:
                 self.trace_report.update(clientState="DONE")
 
         logger.info('Number of resolved replicas:\n' +
-                    '\n'.join(["lfn=%s: replicas=%s, is_directaccess=%s"
-                               % (f.lfn, len(f.replicas or []), f.is_directaccess(ensure_replica=False)) for f in files]))
+                    '\n'.join([f"lfn={f.lfn}: nr replicas={len(f.replicas or [])}, is_directaccess={f.is_directaccess(ensure_replica=False)}" for f in files]))
 
         return files
 
@@ -351,7 +350,7 @@ class StagingClient:
 
         query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
+            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
         }
         query.update(sort='geoip', client_location=location)
         # reset the schemas for VP jobs
@@ -368,7 +367,7 @@ class StagingClient:
         try:
             replicas = rucio_client.list_replicas(**query)
         except Exception as exc:
-            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED)
+            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED) from exc
 
         replicas = list(replicas)
         self.logger.debug(f"replicas received from Rucio: {replicas}")
@@ -473,7 +472,7 @@ class StagingClient:
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
-    def transfer_files(self, copytool, files, **kwargs):
+    def transfer_files(self, copytool, files, activity, **kwargs):
         """
         Transfer the files.
 
@@ -482,6 +481,7 @@ class StagingClient:
 
         :param copytool: copytool module
         :param files: list of `FileSpec` objects
+        :param activity: list of activity names used to determine appropriate copytool (prioritized list)
         :param kwargs: extra kwargs to be passed to copytool transfer handler
         :raise: PilotException in case of controlled error.
         """
@@ -513,8 +513,7 @@ class StagingClient:
                 break
 
         if not copytools:
-            raise PilotException('failed to resolve copytool by preferred activities=%s, acopytools=%s' %
-                                 (activity, self.acopytools))
+            raise PilotException(f'failed to resolve copytool by preferred activities={activity}, acopytools={self.acopytools}')
 
         # populate inputddms if needed
         self.prepare_inputddms(files)
@@ -548,30 +547,30 @@ class StagingClient:
                                          code=ErrorCodes.UNKNOWNCOPYTOOL)
 
                 module = self.copytool_modules[name]['module_name']
-                self.logger.info('trying to use copytool=%s for activity=%s', name, activity)
+                self.logger.info(f'trying to use copytool={name} for activity={activity}')
                 copytool = __import__(f'pilot.copytool.{module}', globals(), locals(), [module], 0)
                 #self.trace_report.update(protocol=name)
 
             except PilotException as exc:
                 caught_errors.append(exc)
-                self.logger.debug('error: %s', exc)
+                self.logger.debug(f'error: {exc}')
                 continue
             except Exception as exc:
-                self.logger.warning('failed to import copytool module=%s, error=%s', module, exc)
+                self.logger.warning(f'failed to import copytool module={module}, error={exc}')
                 continue
 
             try:
                 result = self.transfer_files(copytool, remain_files, activity, **kwargs)
-                self.logger.debug('transfer_files() using copytool=%s completed with result=%s', copytool, str(result))
+                self.logger.debug(f'transfer_files() using copytool={copytool} completed with result={result}')
                 break
             except PilotException as exc:
-                self.logger.warning('failed to transfer_files() using copytool=%s .. skipped; error=%s', copytool, exc)
+                self.logger.warning(f'failed to transfer_files() using copytool={copytool} .. skipped; error={exc}')
                 caught_errors.append(exc)
             except TimeoutException as exc:
-                self.logger.warning('function timed out: %s', exc)
+                self.logger.warning(f'function timed out: {exc}')
                 caught_errors.append(exc)
             except Exception as exc:
-                self.logger.warning('failed to transfer files using copytool=%s .. skipped; error=%s', copytool, exc)
+                self.logger.warning(f'failed to transfer files using copytool={copytool} .. skipped; error={exc}')
                 caught_errors.append(exc)
                 import traceback
                 self.logger.error(traceback.format_exc())
@@ -594,7 +593,7 @@ class StagingClient:
                 # errmsg = caught_errors[0].get_last_error()
             elif caught_errors and isinstance(caught_errors[0], TimeoutException):
                 code = ErrorCodes.STAGEINTIMEOUT if self.mode == 'stage-in' else ErrorCodes.STAGEOUTTIMEOUT  # is it stage-in/out?
-                self.logger.warning('caught time-out exception: %s', caught_errors[0])
+                self.logger.warning(f'caught time-out exception: {caught_errors[0]}')
             else:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
             details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
@@ -793,6 +792,7 @@ class StageInClient(StagingClient):
 
         :param copytool: copytool module
         :param files: list of `FileSpec` objects
+        :param activity: list of activity names used to determine appropriate copytool (prioritized list)
         :param kwargs: extra kwargs to be passed to copytool transfer handler
 
         :return: list of processed `FileSpec` objects
@@ -978,18 +978,17 @@ class StageInClient(StagingClient):
         :raise: PilotException in case of not enough space or total input size too large.
         """
         for f in files:
-            self.logger.debug('lfn=%s filesize=%d accessmode=%s', f.lfn, f.filesize, f.accessmode)
+            self.logger.debug(f'lfn={f.lfn} filesize={f.filesize} accessmode={f.accessmode}')
 
         maxinputsize = convert_mb_to_b(get_maximum_input_sizes())
         totalsize = reduce(lambda x, y: x + y.filesize, files, 0)
 
         # verify total filesize
         if maxinputsize and totalsize > maxinputsize:
-            error = "too many/too large input files (%s). total file size=%s B > maxinputsize=%s B" % \
-                    (len(files), totalsize, maxinputsize)
+            error = f"too many/too large input files ({len(files)}). total file size={totalsize} B > maxinputsize={maxinputsize} B"
             raise SizeTooLarge(error)
 
-        self.logger.info("total input file size=%s B within allowed limit=%s B (zero value means unlimited)", totalsize, maxinputsize)
+        self.logger.info(f"total input file size={totalsize} B within allowed limit={maxinputsize} B (zero value means unlimited)")
 
         # get available space
         try:
@@ -1000,12 +999,11 @@ class StageInClient(StagingClient):
         else:
             if disk_space:
                 available_space = convert_mb_to_b(disk_space)
-                self.logger.info("locally available space: %d B", available_space)
+                self.logger.info("locally available space: {available_space} B")
 
                 # are we within the limit?
                 if totalsize > available_space:
-                    error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
-                            (totalsize, available_space)
+                    error = f"not enough local space for staging input files and run the job (need {totalsize} B, but only have {available_space} B)"
                     raise NoLocalSpace(error)
             else:
                 self.logger.warning('get_local_disk_space() returned None')
@@ -1048,10 +1046,10 @@ class StageOutClient(StagingClient):
         if not storages:
             if 'mv' in self.infosys.queuedata.copytools:
                 return files
-            else:
-                act = ','.join(activities)
-                raise PilotException(f"Failed to resolve destination: no associated storages defined for activity={activity} ({act})",
-                                     code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
+
+            act = ','.join(activities)
+            raise PilotException(f"Failed to resolve destination: no associated storages defined for activity={activity} ({act})",
+                                 code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
         # take the fist choice for now, extend the logic later if need
         ddm = storages[0]
