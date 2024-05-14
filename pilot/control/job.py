@@ -3152,7 +3152,7 @@ def send_heartbeat_if_time(job: Any, args: Any, update_time: float) -> int:
             send_state(job, args, 'running')
             update_time = time.time()
     else:
-        logger.info('will not send any job update')
+        logger.debug('will not send any job update')
 
     return int(update_time)
 
