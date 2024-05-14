@@ -149,15 +149,16 @@ class StagingClient:
             self.acopytools = dict(default=list((self.infosys.queuedata.copytools or {}).keys()))
 
     @staticmethod
-    def get_default_copytools(default_copytools):
+    def get_default_copytools(default_copytools: str):
         """
-        Get the default copytools.
+        Get the default copytools as a list.
 
         :param default_copytools: default copytools (str)
         :return: default copytools (str).
         """
         if isinstance(default_copytools, str):
             default_copytools = [default_copytools] if default_copytools else []
+
         return default_copytools
 
     @classmethod
