@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
@@ -29,7 +29,7 @@ import hashlib
 import logging
 import time
 from functools import reduce
-
+from typing import Any
 try:
     import requests
 except ImportError:
@@ -56,7 +56,7 @@ from pilot.util.auxiliary import TimeoutException
 from pilot.util.tracereport import TraceReport
 
 
-class StagingClient(object):
+class StagingClient:
     """Base Staging Client."""
 
     ipv = "IPv6"
@@ -80,18 +80,23 @@ class StagingClient(object):
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
-    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None, ipv='IPv6', workdir=''):
+    def __init__(self, infosys_instance: Any = None, acopytools: dict = None, logger: Any = None,
+                 default_copytools: str = 'rucio', trace_report: dict = None, ipv: str = 'IPv6', workdir: str = ""):
         """
         Set default/init values.
 
-        If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys` requires initialization.
+        If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys`
+        requires initialization.
 
+        :param infosys_instance: infosys instance to be used for data resolution (Any)
         :param acopytools: copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed (dict)
-        :param logger: logging.Logger object to use for logging (None means no logging)
+        :param logger: logging.Logger object to use for logging (None means no logging) (Any)
         :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value (str)
-        :param ipv: internet protocol version (str).
+        :param trace_report: trace report object (dict)
+        :param ipv: internet protocol version (str)
+        :param workdir: working directory (str).
         """
-        super(StagingClient, self).__init__()
+        super().__init__()
 
         if not logger:
             logger = logging.getLogger(__name__ + '.null')
@@ -127,12 +132,12 @@ class StagingClient(object):
             raise PilotException("failed to resolve acopytools settings")
         logger.info('configured copytools per activity: acopytools=%s', self.acopytools)
 
-    def allow_mvfinaldest(self, catchall):
+    def allow_mvfinaldest(self, catchall: str):
         """
         Check if there is an override in catchall to allow mv to final destination.
 
         :param catchall: catchall from queuedata (str)
-        :return: True if 'mv_final_destination' is present in catchall, otherwise False (bool)
+        :return: True if 'mv_final_destination' is present in catchall, otherwise False (bool).
         """
         return True if catchall and 'mv_final_destination' in catchall else False
 
