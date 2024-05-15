@@ -162,13 +162,13 @@ class StagingClient:
         return default_copytools
 
     @classmethod
-    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Any:
+    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Any or None:
         """
         Get preferred replica from the `replicas` list suitable for `allowed_schemas`.
 
         :param replicas: list of replicas (list)
         :param allowed_schemas: list of allowed schemas (list)
-        :return: first matched replica or None if not found (Any).
+        :return: first matched replica or None if not found (Any or None).
         """
         for replica in replicas:
             pfn = replica.get('pfn')
@@ -472,32 +472,32 @@ class StagingClient:
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
-    def transfer_files(self, copytool, files, activity, **kwargs):
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict):
         """
         Transfer the files.
 
         Apply transfer of given `files` using passed `copytool` module.
         Should be implemented by custom Staging Client.
 
-        :param copytool: copytool module
-        :param files: list of `FileSpec` objects
-        :param activity: list of activity names used to determine appropriate copytool (prioritized list)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
         :raise: PilotException in case of controlled error.
         """
         raise NotImplementedError()
 
-    def transfer(self, files, activity='default', **kwargs):  # noqa: C901
+    def transfer(self, files: list, activity: list or str = 'default', **kwargs: dict) -> list:  # noqa: C901
         """
         Perform file transfer.
 
         Automatically stage passed files using copy tools related to given `activity`.
 
-        :param files: list of `FileSpec` objects
-        :param activity: list of activity names used to determine appropriate copytool (prioritized list)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list or str)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
         :raise: PilotException in case of controlled error
-        :return: list of processed `FileSpec` objects.
+        :return: list of processed `FileSpec` objects (list).
         """
         self.trace_report.update(relativeStart=time.time(), transferStart=time.time())
 
@@ -602,14 +602,14 @@ class StagingClient:
 
         return files
 
-    def require_protocols(self, files, copytool, activity, local_dir=''):
+    def require_protocols(self, files: list, copytool: Any, activity: list or str, local_dir: str = ''):
         """
         Require protocols.
 
         Populates fspec.protocols and fspec.turl for each entry in `files` according to preferred fspec.ddm_activity
 
-        :param files: list of `FileSpec` objects
-        :param activity: str or ordered list of transfer activity names to resolve acopytools related data.
+        :param files: list of `FileSpec` objects (list)
+        :param activity: str or ordered list of transfer activity names to resolve acopytools related data (list or str).
         """
         allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
@@ -632,13 +632,13 @@ class StagingClient:
             protocols = self.resolve_protocol(fspec, allowed_schemas)
             if not protocols and 'mv' not in self.infosys.queuedata.copytools:  # no protocols found
                 error = f'Failed to resolve protocol for file={fspec.lfn}, allowed_schemas={allowed_schemas}, fspec={fspec}'
-                self.logger.error("resolve_protocol: %s", error)
+                self.logger.error(f"resolve_protocol: {error}")
                 raise PilotException(error, code=ErrorCodes.NOSTORAGEPROTOCOL)
 
             # take first available protocol for copytool: FIX ME LATER if need (do iterate over all allowed protocols?)
             protocol = protocols[0]
 
-            self.logger.info("Resolved protocol to be used for transfer: \'%s\': lfn=\'%s\'", protocol, fspec.lfn)
+            self.logger.info(f"Resolved protocol to be used for transfer: \'{protocol}\': lfn=\'{fspec.lfn}\'")
 
             resolve_surl = getattr(copytool, 'resolve_surl', None)
             if not callable(resolve_surl):
@@ -651,14 +651,16 @@ class StagingClient:
             if r.get('ddmendpoint'):
                 fspec.ddmendpoint = r['ddmendpoint']
 
-    def resolve_protocols(self, files):
+    def resolve_protocols(self, files: list) -> list:
         """
         Resolve protocols.
 
         Populates filespec.protocols for each entry from `files` according to preferred `fspec.ddm_activity` value
-        :param files: list of `FileSpec` objects
+
         fdat.protocols = [dict(endpoint, path, flavour), ..]
-        :return: `files` object.
+
+        :param files: list of `FileSpec` objects (list)
+        :return: list of `files` object (list).
         """
         ddmconf = self.infosys.resolve_storage_data()
 
@@ -666,7 +668,7 @@ class StagingClient:
             ddm = ddmconf.get(fdat.ddmendpoint)
             if not ddm:
                 error = f'Failed to resolve output ddmendpoint by name={fdat.ddmendpoint} (from PanDA), please check configuration.'
-                self.logger.error("resolve_protocols: %s, fspec=%s", error, fdat)
+                self.logger.error(f"resolve_protocols: {error}, fspec={fdat}")
                 raise PilotException(error, code=ErrorCodes.NOSTORAGE)
 
             protocols = []
@@ -719,7 +721,9 @@ class StageInClient(StagingClient):
         Primary schemas ignore replica priority (used to resolve direct access replica, which could be not with top priority set).
 
         :param fspec: input `FileSpec` objects (Any)
+        :param primary_schemas: list of primary schemas or any if None (Any)
         :param allowed_schemas: list of allowed schemas or any if None (Any)
+        :param domain: domain value to match (Any)
         :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found (dict or None).
         """
         if not fspec.replicas:
@@ -759,7 +763,7 @@ class StageInClient(StagingClient):
         # prefer SRM protocol for surl -- to be verified, can it be deprecated?
         rse_replicas = replicas.get(replica['ddmendpoint'], [])
         surl = self.get_preferred_replica(rse_replicas, ['srm']) or rse_replicas[0]
-        self.logger.info("[stage-in] surl (srm replica) from Rucio: pfn=%s, ddmendpoint=%s", surl['pfn'], surl['ddmendpoint'])
+        self.logger.info(f"[stage-in] surl (srm replica) from Rucio: pfn={surl['pfn']}, ddmendpoint={surl['ddmendpoint']}")
 
         return {'surl': surl['pfn'], 'ddmendpoint': replica['ddmendpoint'], 'pfn': replica['pfn'], 'domain': replica['domain']}
 
@@ -782,7 +786,7 @@ class StageInClient(StagingClient):
 
         if job and not job.is_analysis() and job.transfertype != 'direct':  # task forbids direct access
             allow_direct_access = False
-            self.logger.info('switched off direct access mode for production job since transfertype=%s', job.transfertype)
+            self.logger.info(f'switched off direct access mode for production job since transfertype={job.transfertype}')
 
         return allow_direct_access, direct_access_type
 
