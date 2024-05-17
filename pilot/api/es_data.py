@@ -58,7 +58,8 @@ class StageInESClient(StageInClient):
             return
 
         if activities:
-            pass
+            pass  # to bypass pylint complaint about activities not used (it cannot be removed)
+
         for fspec in files:
             if fspec.storage_token:   ## FIX ME LATER: no need to parse each time storage_id, all this staff should be applied in FileSpec clean method
                 storage_id, path_convention = fspec.get_storage_id_and_path_convention()
