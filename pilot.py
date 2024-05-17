@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
