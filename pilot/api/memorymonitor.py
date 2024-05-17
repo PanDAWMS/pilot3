@@ -65,7 +65,7 @@ class MemoryMonitoring(Services):
         """
         Execute the memory monitor command.
 
-        :return: process (currently None).
+        return: process (currently None).
         """
         return None
 
@@ -81,6 +81,6 @@ class MemoryMonitoring(Services):
         """
         Return the results from the memory monitoring.
 
-        :return: results (currently None).
+        return: results (currently None).
         """
         return None
