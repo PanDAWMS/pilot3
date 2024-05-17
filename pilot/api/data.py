@@ -472,7 +472,7 @@ class StagingClient:
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
-    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict):
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
         """
         Transfer the files.
 
@@ -790,7 +790,7 @@ class StageInClient(StagingClient):
 
         return allow_direct_access, direct_access_type
 
-    def transfer_files(self, copytool, files, activity=None, **kwargs):  # noqa: C901
+    def transfer_files(self, copytool, files, activity=None, **kwargs) -> list:  # noqa: C901
         """
         Automatically stage in files using the selected copy tool module.
 
@@ -1122,7 +1122,7 @@ class StageOutClient(StagingClient):
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), self.get_path(fspec.scope, fspec.lfn))
         return {'surl': surl}
 
-    def transfer_files(self, copytool, files, activity, **kwargs):
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
         """
         Transfer files.
 
