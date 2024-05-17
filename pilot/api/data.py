@@ -472,12 +472,32 @@ class StagingClient:
                         client_location = response.json()
                         # put back the site
                         client_location['site'] = site
-                except Exception as exc:
-                    diagnostics = f'requests.post failed: {exc}'
+                except requests.exceptions.Timeout as exc:
+                    diagnostics = f'requests.post timed out: {exc}'
+                    self.logger.warning(diagnostics)
+                except requests.exceptions.RequestException as exc:
+                    diagnostics = f'requests.post failed with general exception: {exc}'
                     self.logger.warning(diagnostics)
 
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
+
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
+        """
+        Resolve SURL.
+
+        Only needed in StageOutClient.
+
+        Get final destination SURL for file to be transferred.
+        Can be customized at the level of specific copytool.
+
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        """
+        raise NotImplementedError()
 
     def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
         """
@@ -616,7 +636,9 @@ class StagingClient:
         Populates fspec.protocols and fspec.turl for each entry in `files` according to preferred fspec.ddm_activity
 
         :param files: list of `FileSpec` objects (list)
-        :param activity: str or ordered list of transfer activity names to resolve acopytools related data (list or str).
+        :param copytool: copytool module (Any)
+        :param activity: list of activity names used to determine appropriate copytool (list or str)
+        :param local_dir: local directory (str).
         """
         allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
@@ -774,6 +796,23 @@ class StageInClient(StagingClient):
 
         return {'surl': surl['pfn'], 'ddmendpoint': replica['ddmendpoint'], 'pfn': replica['pfn'], 'domain': replica['domain']}
 
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
+        """
+        Resolve SURL.
+
+        Only needed in StageOutClient.
+
+        Get final destination SURL for file to be transferred.
+        Can be customized at the level of specific copytool.
+
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        """
+        raise NotImplementedError()
+
     def get_direct_access_variables(self, job: Any) -> (bool, str):
         """
         Return the direct access settings for the PQ.
@@ -797,16 +836,15 @@ class StageInClient(StagingClient):
 
         return allow_direct_access, direct_access_type
 
-    def transfer_files(self, copytool, files, activity=None, **kwargs) -> list:  # noqa: C901
+    def transfer_files(self, copytool: Any, files: list, activity: list = None, **kwargs: dict) -> list:  # noqa: C901
         """
         Automatically stage in files using the selected copy tool module.
 
-        :param copytool: copytool module
-        :param files: list of `FileSpec` objects
-        :param activity: list of activity names used to determine appropriate copytool (prioritized list)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler
-
-        :return: list of processed `FileSpec` objects
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list or None)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :return: list of processed `FileSpec` objects (list)
         :raise: PilotException in case of controlled error.
         """
         if getattr(copytool, 'require_replicas', False) and files:
@@ -1100,17 +1138,18 @@ class StageOutClient(StagingClient):
 
         return '/'.join(paths)
 
-    def resolve_surl(self, fspec, protocol, ddmconf, **kwargs):
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
         """
         Resolve SURL.
 
         Get final destination SURL for file to be transferred.
         Can be customized at the level of specific copytool.
 
-        :param protocol: suggested protocol
-        :param ddmconf: full ddmconf data
-        :param activity: ordered list of preferred activity names to resolve SE protocols
-        :return: dict with keys ('pfn', 'ddmendpoint').
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
         """
         local_dir = kwargs.get('local_dir', '')
         if not local_dir:
@@ -1126,6 +1165,7 @@ class StageOutClient(StagingClient):
                                      f'ddm={fspec.ddmendpoint}: NOT IMPLEMENTED', code=ErrorCodes.NONDETERMINISTICDDM)
 
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), self.get_path(fspec.scope, fspec.lfn))
+
         return {'surl': surl}
 
     def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
@@ -1134,11 +1174,11 @@ class StageOutClient(StagingClient):
 
         Automatically stage out files using the selected copy tool module.
 
-        :param copytool: copytool module
-        :param files: list of `FileSpec` objects
-        :param activity: ordered list of preferred activity names to resolve SE protocols
-        :param kwargs: extra kwargs to be passed to copytool transfer handler
-        :return: the output of the copytool transfer operation
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: ordered list of preferred activity names to resolve SE protocols (list)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :return: the output of the copytool transfer operation (list)
         :raise: PilotException in case of controlled error.
         """
         # check if files exist before actual processing
@@ -1172,7 +1212,9 @@ class StageOutClient(StagingClient):
                 try:
                     fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
                                                                                    algorithm=config.File.checksum_type)
-                except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+                except (FileHandlingFailure, NotImplementedError) as exc:
+                    raise exc
+                except Exception as exc:
                     raise exc
 
         # prepare files (resolve protocol/transfer url)
