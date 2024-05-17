@@ -439,8 +439,14 @@ class StagingClient:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
-        except Exception as exc:
-            diagnostics = f'failed to get socket info: {exc}'
+        except socket.gaierror as e:
+            diagnostics = f'failed to get socket info due to address-related error: {e}'
+            self.logger.warning(diagnostics)
+        except socket.timeout as e:
+            diagnostics = f'failed to get socket info due to timeout: {e}'
+            self.logger.warning(diagnostics)
+        except socket.error as e:
+            diagnostics = f'failed to get socket info due to general socket error: {e}'
             self.logger.warning(diagnostics)
         client_location['ip'] = ip
         site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
