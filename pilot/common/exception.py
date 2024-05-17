@@ -18,15 +18,16 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 
 """Exceptions set by the pilot."""
 
 import time
 import threading
 import traceback
+from collections.abc import Callable
 from sys import exc_info
-from typing import Callable, Any, Dict
+from typing import Any
 
 from .errorcodes import ErrorCodes
 errors = ErrorCodes()
@@ -418,7 +419,7 @@ class JobAlreadyRunning(PilotException):
 class ExcThread(threading.Thread):
     """Support class that allows for catching exceptions in threads."""
 
-    def __init__(self, bucket: Any, target: Callable, kwargs: Dict[str, Any], name: str):
+    def __init__(self, bucket: Any, target: Callable, kwargs: dict[str, Any], name: str):
         """
         Set data members.
 
@@ -446,12 +447,24 @@ class ExcThread(threading.Thread):
         by the run() function and placed in the bucket belonging to the retrieve thread. The bucket is emptied in
         job.control().
         """
+        # pylint: disable=broad-except
         try:
-            self.target(**self.kwargs)
+            self._target(**self.kwargs)
+        except ValueError:
+            print(f'ValueError caught by thread run() function: {exc_info()}')
+            print(traceback.format_exc())
+            print(traceback.print_tb(exc_info()[2]))
+            self.bucket.put(exc_info())
+            print(f"exception has been put in bucket queue belonging to thread \'{self.name}\'")
+            args = self._kwargs.get('args', None)
+            if args:
+                print('setting graceful stop in 10 s since there is no point in continuing')
+                time.sleep(10)
+                args.graceful_stop.set()
         except Exception:
             # logger object can't be used here for some reason:
             # IOError: [Errno 2] No such file or directory: '/state/partition1/scratch/PanDA_Pilot2_*/pilotlog.txt'
-            print(f'exception caught by thread run() function: {exc_info()}')
+            print(f'unexpected exception caught by thread run() function: {exc_info()}')
             print(traceback.format_exc())
             print(traceback.print_tb(exc_info()[2]))
             self.bucket.put(exc_info())
@@ -464,12 +477,7 @@ class ExcThread(threading.Thread):
                 args.graceful_stop.set()
 
     @property
-    def target(self) -> Callable:
-        """Help Pyright understand the type for self._target."""
-        return self._target
-
-    @property
-    def kwargs(self) -> Dict[str, Any]:
+    def kwargs(self) -> dict[str, Any]:
         """Help Pyright understand the type for self._kwargs."""
         return self._kwargs
 
