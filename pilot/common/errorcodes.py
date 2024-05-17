@@ -17,13 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Error codes set by the pilot."""
 
 import re
-from typing import Any, Tuple, List
+from typing import Any
 
 
 class ErrorCodes:
@@ -36,8 +36,8 @@ class ErrorCodes:
     """
 
     # global variables shared by all modules/jobs
-    pilot_error_codes: List[int] = []
-    pilot_error_diags: List[str] = []
+    pilot_error_codes: list[int] = []
+    pilot_error_diags: list[str] = []
 
     # Error code constants (from Pilot 1)
     GENERALERROR = 1008
@@ -355,7 +355,7 @@ class ErrorCodes:
         """
         return self._error_messages.get(errorcode, f"unknown error code: {errorcode}")
 
-    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> Tuple[list, list]:
+    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> tuple[list, list]:
         """
         Add pilot error code to list of error codes.
 
@@ -365,10 +365,8 @@ class ErrorCodes:
         The function also sets the corresponding error message.
 
         :param errorcode: pilot error code (int)
-        :param pilot_error_codes: list of pilot error codes (list of integers)
-        :param pilot_error_diags: list of pilot error diags (list of strings)
         :param priority: if set to True, the new errorcode will be added to the error code list first (highest priority) (bool)
-        :param msg: error message (more detailed) to overwrite standard error message (str).
+        :param msg: error message (more detailed) to overwrite standard error message (str)
         :return: pilot_error_codes (list), pilot_error_diags (list).
         """
         # do nothing if the error code has already been added
@@ -385,7 +383,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode: int) -> Tuple[list, list]:
+    def remove_error_code(self, errorcode: int) -> tuple[list, list]:
         """
         Silently remove an error code and its diagnostics from the internal error lists.
 
@@ -419,7 +417,7 @@ class ErrorCodes:
         counter = 0
         pilot_error_codes = ErrorCodes.pilot_error_codes
         pilot_error_diags = ErrorCodes.pilot_error_diags
-        if pilot_error_codes == []:
+        if not pilot_error_codes:
             report = "no pilot errors were reported"
         else:
             report = "Nr.\tError code\tError diagnostics"
@@ -458,15 +456,15 @@ class ErrorCodes:
         # Handle specific exit codes
         if exit_code == 2:
             return self.LSETUPTIMEDOUT
-        elif exit_code == 3:
+        if exit_code == 3:
             return self.REMOTEFILEOPENTIMEDOUT
-        elif exit_code == 251:
+        if exit_code == 251:
             return self.UNKNOWNTRFFAILURE
-        elif exit_code == -1:
+        if exit_code == -1:
             return self.UNKNOWNTRFFAILURE
-        elif exit_code == self.COMMANDTIMEDOUT:
+        if exit_code == self.COMMANDTIMEDOUT:
             return exit_code
-        elif exit_code != 0:
+        if exit_code != 0:
             return self.PAYLOADEXECUTIONFAILURE
 
         return exit_code  # Return original exit code if no specific error is found
@@ -524,7 +522,7 @@ class ErrorCodes:
         max_message_length = 256
         try:
             standard_message = self._error_messages[code] + ":"
-        except Exception:
+        except KeyError:
             standard_message = ""
 
         # extract the relevant info for reporting exceptions
@@ -548,18 +546,17 @@ class ErrorCodes:
                         error_message = standard_message + diag[-(max_message_length - len(standard_message)):]
                     else:
                         error_message = standard_message + diag[len(standard_message):][-max_message_length:]
+                elif len(diag) + len(standard_message) > max_message_length:
+                    error_message = standard_message + diag[:(max_message_length + len(standard_message))]
                 else:
-                    if len(diag) + len(standard_message) > max_message_length:
-                        error_message = standard_message + diag[:(max_message_length + len(standard_message))]
-                    else:
-                        error_message = standard_message + diag
+                    error_message = standard_message + diag
 
                 if '::' in error_message:
                     error_message = re.sub(':+', ':', error_message)
 
             else:
                 error_message = standard_message
-        except Exception:
+        except (TypeError, IndexError):
             error_message = diag
 
         return error_message
