@@ -911,14 +911,14 @@ class StageInClient(StagingClient):
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
-    def set_status_for_direct_access(self, files, workdir):
+    def set_status_for_direct_access(self, files: list, workdir: str):
         """
         Update the FileSpec status with 'remote_io' for direct access mode.
 
         Should be called only once since the function sends traces.
 
-        :param files: list of FileSpec objects.
-        :param workdir: work directory (string).
+        :param files: list of FileSpec objects (list)
+        :param workdir: work directory (str).
         """
         for fspec in files:
             direct_lan = (fspec.domain == 'lan' and fspec.direct_access_lan and
@@ -974,11 +974,11 @@ class StageInClient(StagingClient):
                 else:
                     self.trace_report.send()
 
-    def check_availablespace(self, files):
+    def check_availablespace(self, files: list):
         """
         Verify that enough local space is available to stage in and run the job.
 
-        :param files: list of FileSpec objects.
+        :param files: list of FileSpec objects (list)
         :raise: PilotException in case of not enough space or total input size too large.
         """
         for f in files:
@@ -1018,15 +1018,15 @@ class StageOutClient(StagingClient):
 
     mode = "stage-out"
 
-    def prepare_destinations(self, files, activities):
+    def prepare_destinations(self, files: list, activities: list or str) -> list:
         """
         Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`.
 
         Apply Pilot-side logic to choose proper destination.
 
-        :param files: list of FileSpec objects to be processed
-        :param activities: ordered list of activities to be used to resolve astorages
-        :return: updated fspec entries.
+        :param files: list of FileSpec objects to be processed (list)
+        :param activities: ordered list of activities to be used to resolve astorages (list or str)
+        :return: updated fspec entries (list).
         """
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
@@ -1039,7 +1039,6 @@ class StageOutClient(StagingClient):
                                  code=ErrorCodes.INTERNALPILOTPROBLEM, state='INTERNAL_ERROR')
 
         astorages = self.infosys.queuedata.astorages or {}
-
         storages = None
         activity = activities[0]
         for a in activities:
@@ -1058,8 +1057,8 @@ class StageOutClient(StagingClient):
         # take the fist choice for now, extend the logic later if need
         ddm = storages[0]
 
-        self.logger.info("[prepare_destinations][%s]: allowed (local) destinations: %s", activity, storages)
-        self.logger.info("[prepare_destinations][%s]: resolved default destination ddm=%s", activity, ddm)
+        self.logger.info(f"[prepare_destinations][{activity}]: allowed (local) destinations: {storages}")
+        self.logger.info(f"[prepare_destinations][{activity}]: resolved default destination ddm={ddm}")
 
         for e in files:
             if not e.ddmendpoint:  # no preferences => use default destination
