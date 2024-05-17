@@ -177,7 +177,7 @@ class StagingClient:
                     return replica
         return None
 
-    def prepare_sources(self, files: list, activities: Any = None):
+    def prepare_sources(self, files: list, activities: Any = None) -> None:
         """
         Prepare sources.
 
