@@ -59,7 +59,6 @@ class StageInESClient(StageInClient):
 
         if activities:
             pass
-
         for fspec in files:
             if fspec.storage_token:   ## FIX ME LATER: no need to parse each time storage_id, all this staff should be applied in FileSpec clean method
                 storage_id, path_convention = fspec.get_storage_id_and_path_convention()
