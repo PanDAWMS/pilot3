@@ -319,7 +319,7 @@ class ErrorCodes:
         LEASETIME: "Lease time is up",  # internal use only
         LOGCREATIONTIMEOUT: "Log file creation timed out",
         CVMFSISNOTALIVE: "CVMFS is not responding",
-        LSETUPTIMEDOUT: "Lsetup command timed out during remote file open"
+        LSETUPTIMEDOUT: "Lsetup command timed out during remote file open",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -337,12 +337,14 @@ class ErrorCodes:
         :param signal: signal name (str).
         :return: Pilot error code (int).
         """
-        signals_dictionary = {'SIGTERM': self.SIGTERM,
-                              'SIGQUIT': self.SIGQUIT,
-                              'SIGSEGV': self.SIGSEGV,
-                              'SIGXCPU': self.SIGXCPU,
-                              'SIGUSR1': self.SIGUSR1,
-                              'SIGBUS': self.SIGBUS}
+        signals_dictionary = {
+            "SIGTERM": self.SIGTERM,
+            "SIGQUIT": self.SIGQUIT,
+            "SIGSEGV": self.SIGSEGV,
+            "SIGXCPU": self.SIGXCPU,
+            "SIGUSR1": self.SIGUSR1,
+            "SIGBUS": self.SIGBUS,
+        }
 
         return signals_dictionary.get(signal, self.KILLSIGNAL)
 
@@ -355,7 +357,9 @@ class ErrorCodes:
         """
         return self._error_messages.get(errorcode, f"unknown error code: {errorcode}")
 
-    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> tuple[list, list]:
+    def add_error_code(
+        self, errorcode: int, priority: bool = False, msg: Any = None
+    ) -> tuple[list, list]:
         """
         Add pilot error code to list of error codes.
 
@@ -445,7 +449,7 @@ class ErrorCodes:
             "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
-            "General payload setup verification error": self.SETUPFAILURE
+            "General payload setup verification error": self.SETUPFAILURE,
         }
 
         # Check if stderr contains any known error messages
@@ -480,7 +484,9 @@ class ErrorCodes:
         if "command not found" in stderr:
             msg = stderr
         else:
-            msg = self.get_message_for_pattern([r"ERROR\s*:\s*(.*)", r"Error\s*:\s*(.*)", r"error\s*:\s*(.*)"], stderr)
+            msg = self.get_message_for_pattern(
+                [r"ERROR\s*:\s*(.*)", r"Error\s*:\s*(.*)", r"error\s*:\s*(.*)"], stderr
+            )
         return msg
 
     def extract_stderr_warning(self, stderr: str) -> str:
@@ -490,7 +496,10 @@ class ErrorCodes:
         :param stderr: stderr (str)
         :return: warning message (str).
         """
-        return self.get_message_for_pattern([r"WARNING\s*:\s*(.*)", r"Warning\s*:\s*(.*)", r"warning\s*:\s*(.*)"], stderr)
+        return self.get_message_for_pattern(
+            [r"WARNING\s*:\s*(.*)", r"Warning\s*:\s*(.*)", r"warning\s*:\s*(.*)"],
+            stderr,
+        )
 
     def get_message_for_pattern(self, patterns: list, stderr: str) -> str:
         """
@@ -527,14 +536,14 @@ class ErrorCodes:
 
         # extract the relevant info for reporting exceptions
         if "Traceback" in diag:
-            pattern = 'details:(.+)'
+            pattern = "details:(.+)"
             found = re.findall(pattern, diag)
             if found:
                 diag = found[0]
-                diag = re.sub(r'\[?PilotException\(\"?\'?', r'', diag)
-                diag = re.sub(r'\[?StageInFailure\(\"?\'?', r'', diag)
-                diag = re.sub(r'\[?StageOutFailure\(\"?\'?', r'', diag)
-                diag = re.sub(' +', ' ', diag)
+                diag = re.sub(r"\[?PilotException\(\"?\'?", r"", diag)
+                diag = re.sub(r"\[?StageInFailure\(\"?\'?", r"", diag)
+                diag = re.sub(r"\[?StageOutFailure\(\"?\'?", r"", diag)
+                diag = re.sub(" +", " ", diag)
 
         try:
             if diag:
@@ -543,16 +552,25 @@ class ErrorCodes:
                 # e.g. "Failed to stage-in file:abcdefghijklmnopqrstuvwxyz0123456789"
                 if standard_message in diag:
                     if len(diag) > max_message_length:
-                        error_message = standard_message + diag[-(max_message_length - len(standard_message)):]
+                        error_message = (
+                            standard_message +
+                            diag[-(max_message_length - len(standard_message)):]
+                        )
                     else:
-                        error_message = standard_message + diag[len(standard_message):][-max_message_length:]
+                        error_message = (
+                            standard_message +
+                            diag[len(standard_message):][-max_message_length:]
+                        )
                 elif len(diag) + len(standard_message) > max_message_length:
-                    error_message = standard_message + diag[:(max_message_length + len(standard_message))]
+                    error_message = (
+                        standard_message +
+                        diag[:(max_message_length + len(standard_message))]
+                    )
                 else:
                     error_message = standard_message + diag
 
-                if '::' in error_message:
-                    error_message = re.sub(':+', ':', error_message)
+                if "::" in error_message:
+                    error_message = re.sub(":+", ":", error_message)
 
             else:
                 error_message = standard_message

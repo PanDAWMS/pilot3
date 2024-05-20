@@ -30,6 +30,7 @@ from sys import exc_info
 from typing import Any
 
 from .errorcodes import ErrorCodes
+
 errors = ErrorCodes()
 
 
@@ -41,22 +42,26 @@ class PilotException(Exception):
         super().__init__(args, kwargs)
         self.args = args
         self.kwargs = kwargs
-        code = self.kwargs.get('code', None)
+        code = self.kwargs.get("code", None)
         if code:
             self._errorCode = code
         else:
             self._errorCode = errors.UNKNOWNEXCEPTION
         self._message = errors.get_error_message(self._errorCode)
         self._error_string = None
-        self._stack_trace = f'{traceback.format_exc()}'
+        self._stack_trace = f"{traceback.format_exc()}"
 
     def __str__(self):
         """Set and return the error string for string representation of the class instance."""
         try:
-            self._error_string = f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+            self._error_string = (
+                f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+            )
         except TypeError:
             # at least get the core message out if something happened
-            self._error_string = f"error code: {self._errorCode}, message: {self._message}"
+            self._error_string = (
+                f"error code: {self._errorCode}, message: {self._message}"
+            )
 
         if len(self.args) > 0:
             # If there is a non-kwarg parameter, assume it's the error
@@ -64,19 +69,23 @@ class PilotException(Exception):
             # of the exception message
             # Convert all arguments into their string representations...
             try:
-                args = [f'{arg}' for arg in self.args if arg]
+                args = [f"{arg}" for arg in self.args if arg]
             except TypeError:
-                args = [f'{self.args}']
-            self._error_string = (self._error_string + "\ndetails: %s" % '\n'.join(args))
+                args = [f"{self.args}"]
+            self._error_string = self._error_string + "\ndetails: %s" % "\n".join(args)
         return self._error_string.strip()
 
     def get_detail(self):
         """Set and return the error string with the exception details."""
         try:
-            self._error_string = f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+            self._error_string = (
+                f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+            )
         except TypeError:
             # at least get the core message out if something happened
-            self._error_string = f"error code: {self._errorCode}, message: {self._message}"
+            self._error_string = (
+                f"error code: {self._errorCode}, message: {self._message}"
+            )
 
         return self._error_string + f"\nstacktrace: {self._stack_trace}"
 
@@ -91,7 +100,7 @@ class PilotException(Exception):
         return self._message
 
 
-#class NotImplementedError(PilotException):
+# class NotImplementedError(PilotException):
 #    """
 #    Not implemented exception.
 #    """
@@ -419,7 +428,9 @@ class JobAlreadyRunning(PilotException):
 class ExcThread(threading.Thread):
     """Support class that allows for catching exceptions in threads."""
 
-    def __init__(self, bucket: Any, target: Callable, kwargs: dict[str, Any], name: str):
+    def __init__(
+        self, bucket: Any, target: Callable, kwargs: dict[str, Any], name: str
+    ):
         """
         Set data members.
 
@@ -451,28 +462,36 @@ class ExcThread(threading.Thread):
         try:
             self._target(**self.kwargs)
         except ValueError:
-            print(f'ValueError caught by thread run() function: {exc_info()}')
+            print(f"ValueError caught by thread run() function: {exc_info()}")
             print(traceback.format_exc())
             print(traceback.print_tb(exc_info()[2]))
             self.bucket.put(exc_info())
-            print(f"exception has been put in bucket queue belonging to thread \'{self.name}\'")
-            args = self._kwargs.get('args', None)
+            print(
+                f"exception has been put in bucket queue belonging to thread '{self.name}'"
+            )
+            args = self._kwargs.get("args", None)
             if args:
-                print('setting graceful stop in 10 s since there is no point in continuing')
+                print(
+                    "setting graceful stop in 10 s since there is no point in continuing"
+                )
                 time.sleep(10)
                 args.graceful_stop.set()
         except Exception:
             # logger object can't be used here for some reason:
             # IOError: [Errno 2] No such file or directory: '/state/partition1/scratch/PanDA_Pilot2_*/pilotlog.txt'
-            print(f'unexpected exception caught by thread run() function: {exc_info()}')
+            print(f"unexpected exception caught by thread run() function: {exc_info()}")
             print(traceback.format_exc())
             print(traceback.print_tb(exc_info()[2]))
             self.bucket.put(exc_info())
-            print(f"exception has been put in bucket queue belonging to thread \'{self.name}\'")
-            args = self._kwargs.get('args', None)
+            print(
+                f"exception has been put in bucket queue belonging to thread '{self.name}'"
+            )
+            args = self._kwargs.get("args", None)
             if args:
                 # the sleep is needed to allow the threads to catch up
-                print('setting graceful stop in 10 s since there is no point in continuing')
+                print(
+                    "setting graceful stop in 10 s since there is no point in continuing"
+                )
                 time.sleep(10)
                 args.graceful_stop.set()
 

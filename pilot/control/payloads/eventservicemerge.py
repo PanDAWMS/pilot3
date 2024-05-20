@@ -24,7 +24,7 @@
 
 import logging
 import os
-from typing import Any  #, TextIO
+from typing import Any  # , TextIO
 
 from pilot.control.payloads import generic
 from pilot.util.container import execute
@@ -37,7 +37,7 @@ class Executor(generic.Executor):
 
     # only define the __init__ function if it actually does anything - otherwise it can be omitted since the
     # parent __init__ function will be called automatically
-    #def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    # def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
     #    """
     #    Set initial values.
     #
