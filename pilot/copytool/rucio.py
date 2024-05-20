@@ -27,8 +27,6 @@
 
 """Rucio copy tool."""
 
-from __future__ import absolute_import  # Python 2 (2to3 complains about this)
-
 import json
 import logging
 import os
@@ -573,7 +571,7 @@ def _stage_in_api(dst: str, fspec: Any, trace_report: dict, trace_report_out: li
     return ec, trace_report_out
 
 
-def _stage_in_bulk(dst: str, files: list, trace_report_out: list = [], trace_common_fields: dict = {},
+def _stage_in_bulk(dst: str, files: list, trace_report_out: list = None, trace_common_fields: dict = None,
                    rucio_host: str = ''):
     """
     Stage-in files in bulk using the Rucio API.
@@ -585,6 +583,10 @@ def _stage_in_bulk(dst: str, files: list, trace_report_out: list = [], trace_com
     :param rucio_host: optional rucio host (string).
     :raises Exception: download_client.download_pfns exception.
     """
+    if trace_report_out is None:
+        trace_report_out = []
+    if trace_common_fields is None:
+        trace_common_fields = {}
     # init. download client
     from rucio.client import Client
     from rucio.client.downloadclient import DownloadClient

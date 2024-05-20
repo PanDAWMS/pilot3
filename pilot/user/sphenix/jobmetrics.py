@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
@@ -27,7 +27,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: Any, extra: dict = {}) -> str:
+def get_job_metrics(job: Any, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
 
@@ -42,4 +42,6 @@ def get_job_metrics(job: Any, extra: dict = {}) -> str:
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
+    #if extra is None:
+    #    extra = {}
     return ""

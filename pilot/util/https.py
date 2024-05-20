@@ -180,7 +180,7 @@ def https_setup(args: Any = None, version: str = ""):
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url: str, data: dict = {}, plain: bool = False, secure: bool = True, ipv: str = 'IPv6') -> Any:
+def request(url: str, data: dict = None, plain: bool = False, secure: bool = True, ipv: str = 'IPv6') -> Any:
     """
     Send a request using HTTPS.
 
@@ -204,12 +204,14 @@ def request(url: str, data: dict = {}, plain: bool = False, secure: bool = True,
     :param data: data to send (dict)
     :param plain: if true, treats the response as a plain text (bool)
     :param secure: default: True, i.e. use certificates (bool)
-    :param ipv: internet protocol version (str).
+    :param ipv: internet protocol version (str)
     :returns:
         - :keyword:`dict` -- if everything went OK
         - `str` -- if ``plain`` parameter is `True`
-        - `None` -- if something went wrong
+        - `None` -- if something went wrong.
     """
+    if data is None:
+        data = {}
     _ctx.ssl_context = None  # certificates are not available on the grid, use curl
 
     # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
@@ -658,7 +660,7 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bool = True) -> str or dict:
+def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 
@@ -668,6 +670,8 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     :param compressed: compress data (bool)
     :return: server response (str or dict).
     """
+    if data is None:
+        data = {}
     # https might not have been set up if running in a [middleware] container
     if not _ctx.cacert:
         logger.debug('setting up unset https')
@@ -754,7 +758,7 @@ def request2(url: str = "", data: dict = {}, secure: bool = True, compressed: bo
     return ret
 
 
-def request3(url: str, data: dict = {}) -> str:
+def request3(url: str, data: dict = None) -> str:
     """
     Send a request using HTTPS (using requests module).
 
@@ -762,6 +766,8 @@ def request3(url: str, data: dict = {}) -> str:
     :param data: data to send (dict)
     :return: server response (str).
     """
+    if data is None:
+        data = {}
     if not requests:
         logger.warning('cannot use requests module (not available)')
         return ""

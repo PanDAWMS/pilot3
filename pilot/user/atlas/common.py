@@ -2077,7 +2077,7 @@ def remove_special_files(workdir: str, dir_list: list):
             remove_dir_tree(item)
 
 
-def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = [], debugmode: bool = False):
+def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False):
     """
     Remove redundant files and directories prior to creating the log file.
 
@@ -2090,7 +2090,8 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     """
     if outputfiles is None:
         outputfiles = []
-
+    if piloterrors is None:
+        piloterrors = []
     logger.debug("removing redundant files prior to log creation")
     workdir = os.path.abspath(workdir)
 

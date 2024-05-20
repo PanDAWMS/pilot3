@@ -17,33 +17,38 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
+
+""" CPU related functionality."""
+
+import logging
+from typing import Any
 
 from pilot.util.container import execute
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-def get_core_count(job):
+def get_core_count(job: Any) -> int:
     """
     Return the core count.
 
-    :param job: job object.
+    :param job: job object (Any)
     :return: core count (int).
     """
-
     return 0
 
 
-def add_core_count(corecount, core_counts=[]):
+def add_core_count(corecount: int, core_counts: list = None):
     """
     Add a core count measurement to the list of core counts.
 
-    :param corecount: current actual core count (int).
-    :param core_counts: list of core counts (list).
+    :param corecount: current actual core count (int)
+    :param core_counts: list of core counts (list)
     :return: updated list of core counts (list).
     """
+    if core_counts is None:
+        core_counts = []
 
     return core_counts.append(corecount)
 

@@ -17,10 +17,11 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """Functions for interactiving with Harvester."""
 
+import logging
 import os
 import os.path
 import socket
@@ -31,7 +32,6 @@ from pilot.util.config import config
 from pilot.util.filehandling import write_json, touch, remove, read_json, get_checksum_value
 from pilot.util.timing import time_stamp
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -262,7 +262,7 @@ def publish_stageout_files(job: Any, event_status_file: str) -> bool:
         return False
 
 
-def publish_work_report(work_report: dict = {}, worker_attributes_file: str = "worker_attributes.json") -> bool:
+def publish_work_report(work_report: dict = None, worker_attributes_file: str = "worker_attributes.json") -> bool:
     """
     Publish the work report.
 
@@ -273,6 +273,8 @@ def publish_work_report(work_report: dict = {}, worker_attributes_file: str = "w
     :raises FileHandlingFailure: in case of IOError
     :return: True if successfully published, False otherwise (bool).
     """
+    if work_report is None:
+        work_report = {}
     if work_report:
         work_report['timestamp'] = time_stamp()
         if "outputfiles" in work_report:

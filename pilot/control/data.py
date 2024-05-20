@@ -27,6 +27,7 @@
 
 import os
 import time
+import traceback
 import queue
 from typing import Any
 from pathlib import Path
@@ -75,6 +76,10 @@ from pilot.util.filehandling import (
     find_files_with_pattern,
     rename_xrdlog
 )
+from pilot.util.middleware import (
+    containerise_middleware,
+    use_middleware_script
+)
 from pilot.util.processes import threads_aborted
 from pilot.util.queuehandling import (
     declare_failed_by_kill,
@@ -102,7 +107,7 @@ def control(queues: Any, traces: Any, args: Any):
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]  # Python 2/3
 
-    [thread.start() for thread in threads]
+    _ = [thread.start() for thread in threads]
 
     # if an exception is thrown, the graceful_stop will be set by the ExcThread class run() function
     try:
@@ -114,7 +119,8 @@ def control(queues: Any, traces: Any, args: Any):
                 except queue.Empty:
                     pass
                 else:
-                    exc_type, exc_obj, exc_trace = exc
+                    # exc_type, exc_obj, exc_trace = exc
+                    _, exc_obj, _ = exc
                     logger.warning("thread \'%s\' received an exception from bucket: %s", thread.name, exc_obj)
 
                     # deal with the exception
@@ -260,18 +266,17 @@ def _stage_in(args: Any, job: Any) -> bool:
     label = 'stage-in'
 
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
-    use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
+    use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
     if use_container:
         logger.info('stage-in will be done in a container')
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
-            pilot.util.middleware.containerise_middleware(job, args, job.indata, eventtype, localsite, remotesite,
-                                                          job.infosys.queuedata.container_options, label=label,
-                                                          container_type=job.infosys.queuedata.container_type.get("middleware"))
+            containerise_middleware(job, args, job.indata, eventtype, localsite, remotesite,
+                                    job.infosys.queuedata.container_options, label=label,
+                                    container_type=job.infosys.queuedata.container_type.get("middleware"))
         except PilotException as error:
             logger.warning('stage-in containerisation threw a pilot exception: %s', error)
         except Exception as error:
-            import traceback
             logger.warning('stage-in containerisation threw an exception: %s', error)
             logger.error(traceback.format_exc())
     else:
@@ -298,7 +303,6 @@ def _stage_in(args: Any, job: Any) -> bool:
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
-            import traceback
             error_msg = traceback.format_exc()
             logger.error(error_msg)
             msg = errors.format_diagnostics(error.get_error_code(), error_msg)
@@ -322,7 +326,10 @@ def _stage_in(args: Any, job: Any) -> bool:
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEIN, time.time(), args)
 
     remain_files = [infile for infile in job.indata if infile.status not in ['remote_io', 'transferred', 'no_transfer']]
-    logger.info("stage-in finished") if not remain_files else logger.info("stage-in failed")
+    if not remain_files:
+        logger.info("stage-in finished")
+    else:
+        logger.info("stage-in failed")
     os.environ['PILOT_JOB_STATE'] = 'stageincompleted'
 
     return not remain_files
@@ -698,8 +705,22 @@ def get_input_file_dictionary(indata: list) -> dict:
     return ret
 
 
-def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool, input_files: list = [],
-               output_files: list = [], piloterrors: list = [], debugmode: bool = False):
+def remove_input_output_files(workdir: str, files: list):
+    """
+    Remove input/output files.
+
+    :param workdir: work directory (str)
+    :param files: list of files to remove (list).
+    """
+    for fname in files:
+        path = os.path.join(workdir, fname)
+        if os.path.exists(path):
+            logger.info(f'removing file: {path}')
+            remove(path)
+
+
+def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool,  # noqa: C901
+               input_files: list = None, output_files: list = None, piloterrors: list = None, debugmode: bool = False):  # noqa: C901
     """
     Create the tarball for the job.
 
@@ -713,16 +734,19 @@ def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool
     :param debugmode: True if debug mode has been switched on (bool)
     :raises LogFileCreationFailure: in case of log file creation problem.
     """
+    if input_files is None:
+        input_files = []
+    if output_files is None:
+        output_files = []
+    if piloterrors is None:
+        piloterrors = []
     logger.debug(f'preparing to create log file (debug mode={debugmode})')
-    logger.debug(f'workdir: {workdir}')
 
     # PILOT_HOME is the launch directory of the pilot (or the one specified in pilot options as pilot workdir)
     pilot_home = os.environ.get('PILOT_HOME', os.getcwd())
     current_dir = os.getcwd()
     if pilot_home != current_dir:
         os.chdir(pilot_home)
-
-    logger.debug(f'current_dir: {current_dir}')
 
     # copy special files if they exist (could be made experiment specific if there's a need for it)
     copy_special_files(workdir)
@@ -734,26 +758,18 @@ def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool
         user.remove_redundant_files(workdir, piloterrors=piloterrors, debugmode=debugmode)
 
     # remove any present input/output files before tarring up workdir
-    for fname in input_files + output_files:
-        path = os.path.join(workdir, fname)
-        if os.path.exists(path):
-            logger.info(f'removing file: {path}')
-            remove(path)
+    remove_input_output_files(workdir, input_files + output_files)
 
     if logfile_name is None or len(logfile_name.strip('/ ')) == 0:
         logger.info('skipping tarball creation, since the logfile_name is empty')
         return
 
-    # rename the workdir for the tarball creation
     newworkdir = os.path.join(os.path.dirname(workdir), tarball_name)
     orgworkdir = workdir
     os.rename(workdir, newworkdir)
     workdir = newworkdir
-
-    # get the size of the workdir
     dirsize = get_directory_size(workdir)
     timeout = get_tar_timeout(dirsize)
-
     fullpath = os.path.join(current_dir, logfile_name)  # /some/path/to/dirname/log.tgz
     logger.info(f'will create archive {fullpath} using timeout={timeout} s for directory size={dirsize} MB')
 
@@ -900,13 +916,11 @@ def _do_stageout(job: Any, args: Any, xdata: list, activity: list, title: str, i
                 client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
             client.transfer(xdata, activity, **kwargs)
         except PilotException as error:
-            import traceback
             error_msg = traceback.format_exc()
             logger.error(error_msg)
             msg = errors.format_diagnostics(error.get_error_code(), error_msg)
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code(), msg=msg)
         except Exception:
-            import traceback
             logger.error(traceback.format_exc())
             # do not raise the exception since that will prevent also the log from being staged out
             # error = PilotException("stageOut failed with error=%s" % e, code=ErrorCodes.STAGEOUTFAILED)

@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-2024
 
 """Handling of file states."""
 
@@ -39,12 +39,14 @@ class FileState(object):
     _lfns = []
     _state_list = ['NOT_YET_TRANSFERRED', 'TRANSFER_IN_PROGRESS', 'TRANSFERRED', 'TRANSFER_FAILED']
 
-    def __init__(self, file_states={}):
+    def __init__(self, file_states: dict = None):
         """
         Initialize variables.
 
         :param file_states: file states (dict).
         """
+        if file_states is None:
+            file_states = {}
         self._lfns = file_states.get('lfns', [])
         self.set_initial_list()
 
@@ -61,7 +63,7 @@ class FileState(object):
         """
         return self._file_states
 
-    def update(self, lfn='', state=''):
+    def update(self, lfn: str = "", state: str = ""):
         """
         Update the state for a given LFN.
 

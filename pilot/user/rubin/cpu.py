@@ -17,45 +17,47 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 
-from pilot.util.container import execute
+""" CPU related functionality."""
 
 import logging
+from typing import Any
+from pilot.util.container import execute
+
 logger = logging.getLogger(__name__)
 
 
-def get_core_count(job):
+def get_core_count(job: Any) -> int:
     """
     Return the core count.
 
-    :param job: job object.
+    :param job: job object (Any)
     :return: core count (int).
     """
-
     return 0
 
 
-def add_core_count(corecount, core_counts=[]):
+def add_core_count(corecount: int, core_counts: list = None):
     """
     Add a core count measurement to the list of core counts.
 
-    :param corecount: current actual core count (int).
-    :param core_counts: list of core counts (list).
+    :param corecount: current actual core count (int)
+    :param core_counts: list of core counts (list)
     :return: updated list of core counts (list).
     """
+    if core_counts is None:
+        core_counts = []
 
     return core_counts.append(corecount)
 
 
-def set_core_counts(**kwargs):
+def set_core_counts(**kwargs: dict):
     """
     Set the number of used cores.
 
-    :param kwargs: kwargs (dictionary).
-    :return:
+    :param kwargs: kwargs (dict).
     """
-
     job = kwargs.get('job', None)
     if job and job.pgrp:
         cmd = f"ps axo pgid,psr | sort | grep {job.pgrp} | uniq | awk '{{print $1}}' | grep -x {job.pgrp} | wc -l"

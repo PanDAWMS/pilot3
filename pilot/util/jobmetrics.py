@@ -17,14 +17,14 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """Functions for building job metrics."""
 
+import logging
 from os import environ
 from typing import Any
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +45,7 @@ def get_job_metrics_entry(name: str, value: str) -> str:
     return job_metrics_entry
 
 
-def get_job_metrics(job: Any, extra: dict = {}) -> str:
+def get_job_metrics(job: Any, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
 
@@ -62,6 +62,8 @@ def get_job_metrics(job: Any, extra: dict = {}) -> str:
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
+    if extra is None:
+        extra = {}
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     try:
         job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)
