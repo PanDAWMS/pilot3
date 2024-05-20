@@ -532,9 +532,7 @@ class Executor():
         :return: updated secondary command (str).
         """
         def cut_str_from(_cmd: str, _str: str) -> str:
-            """
-            Cut the string from the position of the given _cmd.
-            """
+            """Cut the string from the position of the given _cmd."""
             return _cmd[:_cmd.find(_str)]
 
         def cut_str_from_last_semicolon(_cmd: str) -> str:
