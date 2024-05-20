@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 
 """S3 copy tool."""
 
@@ -33,12 +33,12 @@ try:
 except Exception:
     pass
 
-from .common import resolve_common_transfer_errors
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.info import infosys
 from pilot.util.config import config
 from pilot.util.ruciopath import get_rucio_path
+from .common import resolve_common_transfer_errors
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -56,9 +56,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
+    :param files: list of FileSpec objects (list)
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -71,9 +73,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
+    :param files: list of FileSpec objects (list)
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -130,6 +134,8 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
     :param kwargs: kwargs dictionary (dict)
     :return: SURL dictionary {'surl': surl} (dict).
     """
+    if kwargs:  # to get rid of pylint warning
+        pass
     try:
         pandaqueue = infosys.pandaqueue
     except Exception:
@@ -143,10 +149,10 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
 
     if ddm.is_deterministic:
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), get_rucio_path(fspec.scope, fspec.lfn))
-    elif ddm.type in ['OS_ES', 'OS_LOGS']:
+    elif ddm.type in {'OS_ES', 'OS_LOGS'}:
         try:
             pandaqueue = infosys.pandaqueue
-        except Exception:
+        except AttributeError:
             pandaqueue = ""
         if pandaqueue is None:
             pandaqueue = ""
@@ -327,13 +333,12 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def upload_file(file_name: str, full_url: str, object_name: str = None) -> (bool, str):
+def upload_file(file_name: str, full_url: str) -> (bool, str):
     """
     Upload a file to an S3 bucket.
 
     :param file_name: file to upload (str)
-    :param turl: target url to upload to (str)
-    :param object_name: S3 object name. If not specified then file_name is used (str)
+    :param full_url: full URL to upload to (str)
     :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
     """
     # upload the file

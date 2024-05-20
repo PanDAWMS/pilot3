@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Alexey Anisenkov, anisyonk@cern.ch, 2017
 
 """Xrdcp copy tool."""
@@ -28,10 +28,10 @@ import os
 import re
 from time import time
 
-from .common import resolve_common_transfer_errors, verify_catalog_checksum  #, get_timeout
 from pilot.util.container import execute
 from pilot.common.exception import PilotException, ErrorCodes
 #from pilot.util.timer import timeout
+from .common import resolve_common_transfer_errors, verify_catalog_checksum  #, get_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,8 @@ def is_valid_for_copy_in(files: list) -> bool:
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
+    if files:  # to get rid of pylint warning
+        pass
     return True  ## FIX ME LATER
 
 
@@ -68,10 +70,12 @@ def is_valid_for_copy_out(files: list) -> bool:
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
+    if files:  # to get rid of pylint warning
+        pass
     return True  ## FIX ME LATER
 
 
-def _resolve_checksum_option(setup: str, **kwargs) -> str:
+def _resolve_checksum_option(setup: str, **kwargs: dict) -> str:
     """
     Resolve which checksum option to use.
 
@@ -79,13 +83,6 @@ def _resolve_checksum_option(setup: str, **kwargs) -> str:
     :param kwargs: kwargs dictionary (dict)
     :return: option (str).
     """
-    cmd = f"{copy_command} --version"
-    if setup:
-        cmd = f"source {setup}; {cmd}"
-
-    logger.info(f"execute command ({cmd}) to check xrdcp client version")
-
-    rcode, stdout, stderr = execute(cmd, **kwargs)
     cmd = f"{copy_command} -h"
     if setup:
         cmd = f"source {setup}; {cmd}"
@@ -100,13 +97,12 @@ def _resolve_checksum_option(setup: str, **kwargs) -> str:
 
     if rcode:
         logger.error(f'FAILED to execute command={cmd}: {output}')
-    else:
-        if "--cksum" in output:
-            coption = f"--cksum {checksum_type}:print"
-        elif "-adler" in output and checksum_type == 'adler32':
-            coption = "-adler"
-        elif "-md5" in output and checksum_type == 'md5':
-            coption = "-md5"
+    elif "--cksum" in output:
+        coption = f"--cksum {checksum_type}:print"
+    elif "-adler" in output and checksum_type == 'adler32':
+        coption = "-adler"
+    elif "-md5" in output and checksum_type == 'md5':
+        coption = "-md5"
 
     if coption:
         logger.info(f"use {coption} option to get the checksum for {copy_command} command")
@@ -130,6 +126,8 @@ def _stagefile(coption: str, source: str, destination: str, filesize: int, is_st
     :raises: PilotException in case of controlled error
     :return: destination file details - file size (int) checksum (str), checksum_type (str).
     """
+    if filesize:  # to get rid of pylint warning - could be useful
+        pass
     filesize_cmd, checksum_cmd, checksum_type = None, None, None
 
     cmd = f'{copy_command} -np -f {coption} {source} {destination}'
@@ -173,8 +171,8 @@ def copy_in(files: list, **kwargs: dict) -> list:
 
     :param files: list of `FileSpec` objects (list)
     :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated list of files (list).
+    :return: updated list of files (list)
+    :raises: PilotException in case of controlled error.
     """
     #allow_direct_access = kwargs.get('allow_direct_access') or False
     setup = kwargs.pop('copytools', {}).get('xrdcp', {}).get('setup')
@@ -214,16 +212,16 @@ def copy_in(files: list, **kwargs: dict) -> list:
             state = 'STAGEIN_ATTEMPT_FAILED'
             trace_report.update(clientState=state, stateReason=diagnostics, timeEnd=time())
             trace_report.send()
+            raise PilotException(diagnostics, code=fspec.status_code, state=state) from error
+
+        # compare checksums
+        fspec.checksum[checksum_type] = checksum_cmd  # remote checksum
+        state, diagnostics = verify_catalog_checksum(fspec, destination)
+        if diagnostics != "":
+            trace_report.update(clientState=state or 'STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics,
+                                timeEnd=time())
+            trace_report.send()
             raise PilotException(diagnostics, code=fspec.status_code, state=state)
-        else:
-            # compare checksums
-            fspec.checksum[checksum_type] = checksum_cmd  # remote checksum
-            state, diagnostics = verify_catalog_checksum(fspec, destination)
-            if diagnostics != "":
-                trace_report.update(clientState=state or 'STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics,
-                                    timeEnd=time())
-                trace_report.send()
-                raise PilotException(diagnostics, code=fspec.status_code, state=state)
 
         trace_report.update(clientState='DONE', stateReason='OK', timeEnd=time())
         trace_report.send()
@@ -263,16 +261,16 @@ def copy_out(files: list, **kwargs: dict) -> list:
             diagnostics = error.get_detail()
             trace_report.update(clientState=state, stateReason=diagnostics, timeEnd=time())
             trace_report.send()
+            raise PilotException(diagnostics, code=fspec.status_code, state=state) from error
+
+        # compare checksums
+        fspec.checksum[checksum_type] = checksum_cmd  # remote checksum
+        state, diagnostics = verify_catalog_checksum(fspec, fspec.surl)
+        if diagnostics != "":
+            trace_report.update(clientState=state or 'STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics,
+                                timeEnd=time())
+            trace_report.send()
             raise PilotException(diagnostics, code=fspec.status_code, state=state)
-        else:
-            # compare checksums
-            fspec.checksum[checksum_type] = checksum_cmd  # remote checksum
-            state, diagnostics = verify_catalog_checksum(fspec, fspec.surl)
-            if diagnostics != "":
-                trace_report.update(clientState=state or 'STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics,
-                                    timeEnd=time())
-                trace_report.send()
-                raise PilotException(diagnostics, code=fspec.status_code, state=state)
 
     return files
 
