@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
 # Note: leave this module for now - the code might be useful for reuse
 
@@ -46,7 +46,7 @@ def run(args: Any):
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'args': args},
                          name=name) for name, target in list(targets.items())]  # Python 2/3
 
-    [thread.start() for thread in threads]
+    _ = [thread.start() for thread in threads]
 
     # if an exception is thrown, the graceful_stop will be set by the ExcThread class run() function
     while not args.graceful_stop.is_set():
@@ -57,7 +57,7 @@ def run(args: Any):
             except queue.Empty:
                 pass
             else:
-                exc_type, exc_obj, exc_trace = exc
+                _, exc_obj, _ = exc
                 logger.warning("thread \'%s\' received an exception from bucket: %s", thread.name, exc_obj)
 
                 # deal with the exception

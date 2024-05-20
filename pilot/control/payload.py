@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
 """Functions for handling the payload."""
@@ -76,7 +76,7 @@ def control(queues: Any, traces: Any, args: Any):
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 
-    [thread.start() for thread in threads]
+    _ = [thread.start() for thread in threads]
 
     # if an exception is thrown, the graceful_stop will be set by the ExcThread class run() function
     try:
@@ -88,7 +88,8 @@ def control(queues: Any, traces: Any, args: Any):
                 except queue.Empty:
                     pass
                 else:
-                    exc_type, exc_obj, exc_trace = exc
+                    # exc_type, exc_obj, exc_trace = exc
+                    _, exc_obj, _ = exc
                     logger.warning(f"thread \'{thread.name}\' received an exception from bucket: {exc_obj}")
 
                     # deal with the exception
@@ -293,7 +294,7 @@ def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
             user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
             try:
                 exit_code_interpret = user.interpret(job)
-            except Exception as error:
+            except (Exception, PilotException) as error:
                 logger.warning(f'exception caught: {error}')
                 if isinstance(error, PilotException):
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error._errorCode, msg=error._message)
@@ -439,11 +440,11 @@ def get_logging_info(job: Any, args: Any) -> dict:
         except IndexError as exc:
             logger.warning(f'exception caught: {exc}')
             return {}
-        else:
-            # find the log file to tail
-            path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
-            logger.info(f'using {path} for real-time logging')
-            info_dic['logfiles'] = [path]
+
+        # find the log file to tail
+        path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
+        logger.info(f'using {path} for real-time logging')
+        info_dic['logfiles'] = [path]
 
     if 'logfiles' not in info_dic:
         # Rubin
@@ -529,7 +530,7 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
                                      f'(job.debug={job.debug}, job.debug_command={job.debug_command})')
                         first1 = False
                     break
-                if job.state == 'stageout' or job.state == 'failed' or job.state == 'holding':
+                if job.state in {'stageout', 'failed', 'holding'}:
                     if first2:
                         logger.debug(f'job is in state {job.state}, continue to next job or abort (wait for graceful stop)')
                         first1 = True
@@ -578,9 +579,8 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
         if realtime_logger is None:
             logger.debug('realtime logger was not found, waiting ..')
             continue
-        else:
-            logger.debug('realtime logger was found')
 
+        logger.debug('realtime logger was found')
         realtime_logger.sending_logs(args, job)
 
     # proceed to set the job_aborted flag?
@@ -661,22 +661,6 @@ def perform_initial_payload_error_analysis(job: Any, exit_code: int):
             msg = errors.format_diagnostics(exit_code, msg)
 
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=msg)
-
-        '''
-        if exit_code != 0:
-            if msg:
-                msg = errors.format_diagnostics(exit_code, msg)
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=msg)
-        else:
-            if job.piloterrorcodes:
-                logger.warning('error code(s) already set: %s', str(job.piloterrorcodes))
-            else:
-                # check if core dumps exist, if so remove them and return True
-                if remove_core_dumps(job.workdir) and not job.debug:
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
-                else:
-                    logger.warning('initial error analysis did not resolve the issue (and core dumps were not found)')
-        '''
     else:
         logger.info('main payload execution returned zero exit code')
 

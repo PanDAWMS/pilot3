@@ -37,6 +37,9 @@ errors = ErrorCodes()
 class PilotException(Exception):
     """Pilot exceptions class."""
 
+    _errorCode = None
+    _message = None
+
     def __init__(self, *args, **kwargs):
         """Set default or initial values."""
         super().__init__(args, kwargs)

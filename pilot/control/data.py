@@ -25,6 +25,7 @@
 
 """Control interface to data API."""
 
+import logging
 import os
 import time
 import traceback
@@ -87,9 +88,7 @@ from pilot.util.queuehandling import (
 )
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
-import pilot.util.middleware
 
-import logging
 logger = logging.getLogger(__name__)
 
 errors = ErrorCodes()
@@ -778,11 +777,11 @@ def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool
         cmd = f"pwd;tar cvfz {fullpath} {tarball_name} --dereference --one-file-system; echo $?"
         exit_code, stdout, stderr = execute(cmd, timeout=timeout)
     except Exception as error:
-        raise LogFileCreationFailure(error)
-    else:
-        if pilot_home != current_dir:
-            os.chdir(pilot_home)
-        logger.debug(f'stdout: {stdout}')
+        raise LogFileCreationFailure(error) from error
+    if pilot_home != current_dir:
+        os.chdir(pilot_home)
+    logger.debug(f'stdout: {stdout}')
+
     try:
         os.rename(workdir, orgworkdir)
     except OSError as error:
@@ -877,7 +876,7 @@ def _do_stageout(job: Any, args: Any, xdata: list, activity: list, title: str, i
     label = 'stage-out'
 
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
-    use_container = pilot.util.middleware.use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
+    use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
 
     # switch the X509_USER_PROXY on unified dispatch queues (restore later in this function)
     x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')
@@ -894,9 +893,9 @@ def _do_stageout(job: Any, args: Any, xdata: list, activity: list, title: str, i
         logger.info('stage-out will be done in a container')
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
-            pilot.util.middleware.containerise_middleware(job, args, xdata, eventtype, localsite, remotesite,
-                                                          job.infosys.queuedata.container_options, label=label,
-                                                          container_type=job.infosys.queuedata.container_type.get("middleware"))
+            containerise_middleware(job, args, xdata, eventtype, localsite, remotesite,
+                                    job.infosys.queuedata.container_options, label=label,
+                                    container_type=job.infosys.queuedata.container_type.get("middleware"))
         except PilotException as error:
             logger.warning('stage-out containerisation threw a pilot exception: %s', error)
         except Exception as error:
@@ -909,8 +908,9 @@ def _do_stageout(job: Any, args: Any, xdata: list, activity: list, title: str, i
             trace_report = create_trace_report(job, label=label)
 
             client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir)
-            kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job, output_dir=args.output_dir,
-                          catchall=job.infosys.queuedata.catchall, rucio_host=args.rucio_host)  #, mode='stage-out')
+            kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job,
+                      'output_dir': args.output_dir, 'catchall': job.infosys.queuedata.catchall,
+                      'rucio_host': args.rucio_host}  #, mode='stage-out')
             # prod analy unification: use destination preferences from PanDA server for unified queues
             if job.infosys.queuedata.type != 'unified':
                 client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
@@ -975,7 +975,7 @@ def _stage_out_new(job: Any, args: Any) -> bool:
             is_success = False
             logger.warning('transfer of output file(s) failed')
 
-    if job.stageout in ['log', 'all'] and job.logdata:  ## do stage-out log files
+    if job.stageout in {'log', 'all'} and job.logdata:  ## do stage-out log files
         # prepare log file, consider only 1st available log file
         status = job.get_status('LOG_TRANSFER')
         if status != LOG_TRANSFER_NOT_DONE:
@@ -1058,7 +1058,7 @@ def generate_fileinfo(job: Any) -> dict:
     fileinfo = {}
     checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
     for iofile in job.outdata + job.logdata:
-        if iofile.status in ['transferred']:
+        if iofile.status in {'transferred'}:
             fileinfo[iofile.lfn] = {'guid': iofile.guid,
                                     'fsize': iofile.filesize,
                                     f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),

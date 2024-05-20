@@ -17,14 +17,12 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
-
-from __future__ import print_function  # Python 2
 
 import os
 import time
@@ -2896,7 +2894,7 @@ def job_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
                         # by turning on debug mode, ie we need to get the heartbeat period in case it has changed)
                         try:
                             update_time = send_heartbeat_if_time(jobs[i], args, update_time)
-                        except Exception as exc:
+                        except (ValueError, TypeError) as exc:
                             logger.warning(f'exception caught during send_heartbeat_if_time: {exc}')
 
                         # note: when sending a state change to the server, the server might respond with 'tobekilled'
@@ -3000,7 +2998,7 @@ def job_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
                     # has expired in the meantime)
                     try:
                         _job = jobs[i]
-                    except Exception:
+                    except (IndexError, TypeError):
                         logger.info('aborting job monitoring since job object (job id=%s) has expired', current_id)
                         break
 
@@ -3008,7 +3006,7 @@ def job_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
                     # by turning on debug mode, ie we need to get the heartbeat period in case it has changed)
                     try:
                         update_time = send_heartbeat_if_time(_job, args, update_time)
-                    except Exception as error:
+                    except (ValueError, TypeError) as error:
                         logger.warning('exception caught: %s (job id=%s)', error, current_id)
                         break
                     else:
@@ -3147,7 +3145,7 @@ def send_heartbeat_if_time(job: Any, args: Any, update_time: float) -> int:
         # check for state==running here, and send explicit 'running' in send_state, rather than sending job.state
         # since the job state can actually change in the meantime by another thread
         # job.completed will anyway be checked in https::send_update()
-        if job.serverstate != 'finished' and job.serverstate != 'failed':
+        if job.serverstate not in {'finished', 'failed'}:
             logger.info(f'will send heartbeat for job in \'{job.state}\' state')
             send_state(job, args, job.state)
             update_time = time.time()
