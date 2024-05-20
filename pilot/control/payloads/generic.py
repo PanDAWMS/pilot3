@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Executor module for generic payloads."""
@@ -29,6 +29,7 @@ import logging
 import os
 import signal
 import time
+import traceback
 from subprocess import PIPE
 from typing import Any, TextIO
 
@@ -82,12 +83,12 @@ class Executor():
         self.__out = out  # payload stdout file object
         self.__err = err  # payload stderr file object
         self.__traces = traces
-        self.__preprocess_stdout_name = ''
-        self.__preprocess_stderr_name = ''
+#        self.__preprocess_stdout_name = ''
+#        self.__preprocess_stderr_name = ''
         self.__coprocess_stdout_name = 'coprocess_stdout.txt'
         self.__coprocess_stderr_name = 'coprocess_stderr.txt'
-        self.__postprocess_stdout_name = ''
-        self.__postprocess_stderr_name = ''
+#        self.__postprocess_stdout_name = ''
+#        self.__postprocess_stderr_name = ''
 
     def get_job(self):
         """
@@ -396,14 +397,14 @@ class Executor():
         """
         # dump to file
         try:
-            name_stdout = step + '_stdout.txt'
-            name_stderr = step + '_stderr.txt'
-            if step == 'preprocess':
-                self.__preprocess_stdout_name = name_stdout
-                self.__preprocess_stderr_name = name_stderr
-            elif step == 'postprocess':
-                self.__postprocess_stdout_name = name_stdout
-                self.__postprocess_stderr_name = name_stderr
+            #name_stdout = step + '_stdout.txt'
+            #name_stderr = step + '_stderr.txt'
+            #if step == 'preprocess':
+            #    self.__preprocess_stdout_name = name_stdout
+            #    self.__preprocess_stderr_name = name_stderr
+            #elif step == 'postprocess':
+            #    self.__postprocess_stdout_name = name_stdout
+            #    self.__postprocess_stderr_name = name_stderr
             name = os.path.join(workdir, step + '_stdout.txt')
             write_file(name, stdout, unique=True)
         except PilotException as error:
@@ -533,10 +534,6 @@ class Executor():
         def cut_str_from(_cmd: str, _str: str) -> str:
             """
             Cut the string from the position of the given _cmd.
-
-            :param _cmd: command (str)
-            :param _str: substring (str)
-            :return: cut command (str).
             """
             return _cmd[:_cmd.find(_str)]
 
@@ -545,9 +542,6 @@ class Executor():
             Cut the string from the last semicolon.
 
             NOTE: this will not work if jobParams also contain ;
-
-            :param _cmd: command (str)
-            :return: cut command (str).
             """
             # remove any trailing spaces and ;-signs
             _cmd = _cmd.strip()
@@ -608,8 +602,7 @@ class Executor():
                 logger.info(f'running: iteration={iteration} pid={proc.pid} exit_code={exit_code}')
             if exit_code is not None:
                 break
-            else:
-                continue
+            continue
 
         return exit_code
 
@@ -628,7 +621,6 @@ class Executor():
             cmd = user.get_payload_command(job)  #+ 'sleep 900'  # to test looping jobs
         except PilotException as error:
             self.post_setup(job)
-            import traceback
             logger.error(traceback.format_exc())
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code())
             self.__traces.pilot['error_code'] = job.piloterrorcodes[0]
@@ -941,14 +933,14 @@ class Executor():
                 if os.WIFEXITED(status):
                     logger.debug('normal exit')
                     return os.WEXITSTATUS(status)
-                else:
-                    # Handle abnormal termination if needed
-                    logger.warning('abnormal termination')
-                    return None
-            else:
-                # Process doesn't exist - ignore
-                logger.info(f'process {pid} no longer exists')
-                return True
+
+                # Handle abnormal termination if needed
+                logger.warning('abnormal termination')
+                return None
+
+            # Process doesn't exist - ignore
+            logger.info(f'process {pid} no longer exists')
+            return True
 
         except OSError as exc:
             # Handle errors, such as process not found
@@ -998,16 +990,16 @@ class Executor():
 #            logger.warning(f"exception caught: {exc}")
 #            return None
 
-    def rename_log_files(self, iteration: int):
-        """
-        Rename log files.
-
-        :param iteration: iteration (int).
-        """
-        names = [self.__preprocess_stdout_name, self.__preprocess_stderr_name,
-                 self.__postprocess_stdout_name, self.__postprocess_stderr_name]
-        for name in names:
-            if os.path.exists(name):
-                os.rename(name, name + f'{iteration}')
-            else:
-                logger.warning(f'cannot rename {name} since it does not exist')
+#    def rename_log_files(self, iteration: int):
+#        """
+#        Rename log files.
+#
+#        :param iteration: iteration (int).
+#        """
+#        names = [self.__preprocess_stdout_name, self.__preprocess_stderr_name,
+#                 self.__postprocess_stdout_name, self.__postprocess_stderr_name]
+#        for name in names:
+#            if os.path.exists(name):
+#                os.rename(name, name + f'{iteration}')
+#            else:
+#                logger.warning(f'cannot rename {name} since it does not exist')
