@@ -33,6 +33,11 @@ import queue
 from re import findall, split
 from typing import Any, TextIO
 
+from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import (
+    ExcThread,
+    PilotException
+)
 from pilot.control.payloads import (
     generic,
     eventservice,
@@ -41,22 +46,20 @@ from pilot.control.payloads import (
 from pilot.control.job import send_state
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.container import execute
-from pilot.util.processes import get_cpu_consumption_time
 from pilot.util.config import config
 from pilot.util.filehandling import (
-    read_file,
-    remove_core_dumps,
-    get_guid,
     extract_lines_from_file,
-    find_file
+    find_file,
+    get_guid,
+    read_file,
+    read_json,
+    remove_core_dumps
 )
-from pilot.util.processes import threads_aborted
+from pilot.util.processes import (
+    get_cpu_consumption_time,
+    threads_aborted
+)
 from pilot.util.queuehandling import put_in_queue
-from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import (
-    ExcThread,
-    PilotException
-)
 from pilot.util.realtimelogger import get_realtime_logger
 
 logger = logging.getLogger(__name__)
@@ -616,6 +619,23 @@ def perform_initial_payload_error_analysis(job: Any, exit_code: int):
     if exit_code != 0:
         logger.warning(f'main payload execution returned non-zero exit code: {exit_code}')
 
+    # check if the transform has produced an error report
+    path = os.path.join(job.workdir, config.Payload.error_report)
+    if os.path.exists(path):
+        error_report = read_json(path)
+        error_code = error_report.get('error_code')
+        error_diag = error_report.get('error_diag')
+        if error_code:
+            logger.warning(f'{config.Payload.error_report} contained error code: {error_code}')
+            logger.warning(f'{config.Payload.error_report} contained error diag: {error_diag}')
+            job.exeerrorcode = error_code
+            job.exeerrordiag = error_report.get('error_diag')
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONFAILURE, msg=error_diag)
+            return
+        logger.info(f'{config.Payload.error_report} exists but did not contain any non-zero error code')
+    else:
+        logger.debug(f'{config.Payload.error_report} does not exist')
+
     # look for singularity/apptainer errors (the exit code can be zero in this case)
     path = os.path.join(job.workdir, config.Payload.payloadstderr)
     if os.path.exists(path):
@@ -664,9 +684,8 @@ def perform_initial_payload_error_analysis(job: Any, exit_code: int):
     else:
         logger.info('main payload execution returned zero exit code')
 
-    # check if core dumps exist, if so remove them and return True
+    # check if core dumps exist, if so remove them
     if not job.debug:  # do not shorten these if-statements
-        # only return True if found core dump belongs to payload
         if remove_core_dumps(job.workdir, pid=job.pid):
             # COREDUMP error will only be set if the core dump belongs to the payload (ie 'core.<payload pid>')
             logger.warning('setting COREDUMP error')
