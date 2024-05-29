@@ -17,8 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
-
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 """
 Info Service module.
@@ -141,7 +140,7 @@ class InfoService:
         return inspect.stack()[1][3]
 
     @classmethod
-    def _resolve_data(cls, fname: Any, providers: list = [], args: list = [], kwargs: dict = {}, merge: bool = False) -> Any:
+    def _resolve_data(cls, fname: Any, providers: Any = None, args: list = None, kwargs: dict = None, merge: bool = False) -> Any:
         """
         Resolve data by calling function `fname` of passed provider objects.
 
@@ -150,12 +149,18 @@ class InfoService:
         and resolve data by execution function `fname` with passed arguments `args` and `kwargs`
 
         :param fname: name of function to be called (Any)
-        :param providers: list of provider objects (list)
+        :param providers: list or tuple of provider objects (Any)
         :param args: list of arguments to be passed to function (list)
         :param kwargs: list of keyword arguments to be passed to function (dict)
         :param merge: if True then merge data from all providers (bool)
         :return: The result of first successful execution will be returned (Any).
         """
+        if providers is None:
+            providers = []
+        if args is None:
+            args = []
+        if kwargs is None:
+            kwargs = {}
         ret = None
         if merge:
             providers = list(providers)
@@ -196,7 +201,7 @@ class InfoService:
         return cache.get(pandaqueue)
 
     #@require_init
-    def resolve_storage_data(self, ddmendpoints: list = []) -> dict:  ## high level API
+    def resolve_storage_data(self, ddmendpoints: list = None) -> dict:  ## high level API
         """
         Resolve final full storage data details.
 
@@ -204,6 +209,8 @@ class InfoService:
         :return: dictionary of DDMEndpoint settings by DDMEndpoint name as a key (dict)
         :raises PilotException: in case of error.
         """
+        if ddmendpoints is None:
+            ddmendpoints = []
         if isinstance(ddmendpoints, str):
             ddmendpoints = [ddmendpoints]
 
@@ -252,12 +259,14 @@ class InfoService:
     #    # look up priority order: either from job, local config, extinfo provider
     #    return self._resolve_data(self.whoami(), providers=(self.confinfo, self.jobinfo, self.extinfo), args=[name])
 
-    def resolve_ddmendpoint_storageid(self, ddmendpoint: list = []):
+    def resolve_ddmendpoint_storageid(self, ddmendpoint: list = None):
         """
         Resolve the map between ddmendpoint and storage_id.
 
         :param ddmendpoint: ddmendpoint name (list).
         """
+        if ddmendpoint is None:
+            ddmendpoint = []
         if not ddmendpoint or ddmendpoint not in self.ddmendpoint2storage_id:
             storages = self.resolve_storage_data(ddmendpoint)
             for storage_name, storage in storages.items():

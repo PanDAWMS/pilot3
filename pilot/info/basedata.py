@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 """
 Base data class.
@@ -54,7 +54,7 @@ class BaseData:
 
     _keys = {}
 
-    def _load_data(self, data: dict, kmap: dict = {}, validators: dict = None):
+    def _load_data(self, data: dict, kmap: dict = None, validators: dict = None):
         """
         Construct and initialize data from ext source.
 
@@ -62,6 +62,8 @@ class BaseData:
         :param kmap: the translation map of data attributes from external format to internal schema (dict)
         :param validators: map of validation handlers to be applied (dict).
         """
+        if kmap is None:
+            kmap = {}
         # the translation map of the queue data attributes from external data to internal schema
         # 'internal_name':('ext_name1', 'extname2_if_any')
         # 'internal_name2':'ext_name3'

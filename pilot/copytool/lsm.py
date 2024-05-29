@@ -19,7 +19,7 @@
 # Authors:
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """Local site mover copy tool."""
 
@@ -28,17 +28,17 @@ import errno
 import os
 from time import time
 
+from pilot.common.exception import (
+    ErrorCodes,
+    PilotException
+)
+from pilot.util.container import execute
+#from pilot.util.timer import timeout
 from .common import (
     get_copysetup,
     verify_catalog_checksum,
     resolve_common_transfer_errors  #, get_timeout
 )
-from pilot.common.exception import (
-    PilotException,
-    ErrorCodes
-)
-from pilot.util.container import execute
-#from pilot.util.timer import timeout
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
+    :param files: list of FileSpec objects (list)
     :return: always True (for now) (bool).
     """
     # for f in files:
@@ -69,7 +69,7 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
+    :param files: list of FileSpec objects (list)
     :return: always True (for now) (bool).
     """
     # for f in files:
@@ -84,8 +84,8 @@ def copy_in(files: list, **kwargs: dict) -> list:
 
     :param files: list of `FileSpec` objects (list)
     :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated files (list).
+    :return: updated files (list)
+    :raises: PilotException in case of controlled error.
     """
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
@@ -157,8 +157,9 @@ def copy_out(files: list, **kwargs: dict) -> list:
     Upload given files using lsm copytool.
 
     :param files: list of `FileSpec` objects (list)
-    :raise: PilotException in case of controlled error
-    :return: updated files (list).
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raises: PilotException in case of controlled error.
     """
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
@@ -194,16 +195,16 @@ def copy_out(files: list, **kwargs: dict) -> list:
         checksum = f"adler32:{fspec.checksum.get('adler32')}"
 
         # define the command options
-        opts = {'--size': fspec.filesize,
-                '-t': token,
-                '--checksum': checksum,
-                '--guid': fspec.guid}
-        opts = " ".join([f"{k} {v}" for (k, v) in list(opts.items())])
+        _opts = {'--size': fspec.filesize,
+                 '-t': token,
+                 '--checksum': checksum,
+                 '--guid': fspec.guid}
+        opts = " ".join([f"{k} {v}" for (k, v) in list(_opts.items())])
 
         logger.info(f"transferring file {fspec.lfn} from {source} to {destination}")
 
         nretries = 1  # input parameter to function?
-        for retry in range(nretries):
+        for _ in range(nretries):
             exit_code, stdout, stderr = move(source, destination, dst_in=False, copysetup=copysetup, options=opts)
 
             if exit_code != 0:
@@ -217,9 +218,9 @@ def copy_out(files: list, **kwargs: dict) -> list:
                                     timeEnd=time())
                 trace_report.send()
                 raise PilotException(error.get('error'), code=error.get('exit_code'), state=error.get('state'))
-            else:  # all successful
-                logger.info('all successful')
-                break
+
+            logger.info('all successful')
+            break
 
         fspec.status_code = 0
         fspec.status = 'transferred'
@@ -250,7 +251,7 @@ def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):
             exit_code, stdout, stderr = move(source, destination, dst_in=True)
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
                     logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
@@ -280,7 +281,7 @@ def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):
             exit_code, stdout, stderr = move(source, destination, dst_in=False)
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
                     logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
@@ -297,6 +298,8 @@ def move(source: str, destination: str, dst_in: bool = True, copysetup: str = ""
     :param source: path to source (str)
     :param destination: path to destination (str)
     :param dst_in: True for stage-in, False for stage-out (bool)
+    :param copysetup: path to copysetup (str)
+    :param options: additional options (str)
     :return: exit code (int), stdout (str), stderr (str).
     """
     # copysetup = '/osg/mwt2/app/atlas_app/atlaswn/setup.sh'
@@ -321,7 +324,7 @@ def move(source: str, destination: str, dst_in: bool = True, copysetup: str = ""
             exit_code = ErrorCodes.STAGEINFAILED
         else:
             exit_code = ErrorCodes.STAGEOUTFAILED
-        stdout = 'exception caught: e' % error
+        stdout = f'exception caught: {error}'
         stderr = ''
         logger.warning(stdout)
 

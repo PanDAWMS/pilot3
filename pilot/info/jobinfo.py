@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 
 """
@@ -33,7 +33,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class JobInfoProvider(object):
+class JobInfoProvider:
     """
         Job info provider which is used to extract settings specific for given Job
         and overwrite general configuration used by Information Service
@@ -85,12 +85,13 @@ class JobInfoProvider(object):
 
         return {pandaqueue: data}
 
-    def resolve_storage_data(self, ddmendpoints=[], **kwargs):
+    def resolve_storage_data(self, ddmendpoints: list = None, **kwargs: dict) -> dict:
         """
             Resolve Job specific settings for storage data (including data passed via --overwriteStorageData)
             :return: dict of settings for requested DDMEndpoints with ddmendpoin as a key
         """
-
+        if ddmendpoints is None:
+            ddmendpoints = []
         data = {}
 
         ## use job.overwrite_storagedata as a master source

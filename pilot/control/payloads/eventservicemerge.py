@@ -18,13 +18,13 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
 """Executor module for event service merge payloads."""
 
 import logging
 import os
-from typing import Any, TextIO
+from typing import Any  # , TextIO
 
 from pilot.control.payloads import generic
 from pilot.util.container import execute
@@ -35,17 +35,19 @@ logger = logging.getLogger(__name__)
 class Executor(generic.Executor):
     """Executor class for event service merge payloads."""
 
-    def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
-        """
-        Set initial values.
-
-        :param args: args object (Any)
-        :param job: job object (Any)
-        :param out: stdout file object (TextIO)
-        :param err: stderr file object (TextIO)
-        :param traces: traces object (Any).
-        """
-        super().__init__(args, job, out, err, traces)
+    # only define the __init__ function if it actually does anything - otherwise it can be omitted since the
+    # parent __init__ function will be called automatically
+    # def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    #    """
+    #    Set initial values.
+    #
+    #    :param args: args object (Any)
+    #    :param job: job object (Any)
+    #    :param out: stdout file object (TextIO)
+    #    :param err: stderr file object (TextIO)
+    #    :param traces: traces object (Any).
+    #    """
+    #    super().__init__(args, job, out, err, traces)
 
     def untar_file(self, lfn: str, workdir: str):
         """

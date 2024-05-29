@@ -22,40 +22,43 @@
 
 """A factory to manage plugins."""
 
-from typing import Any, Dict
+from typing import Any
 import logging
+
 logger = logging.getLogger(__name__)
 
 
 class PluginFactory:
     """Plugin factory class."""
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, **kwargs: dict):
         """Set initial values."""
-        self.classMap: Dict[str, Any] = {}
+        if kwargs:  # to avoid pylint complaint
+            pass
+        self.classMap: dict[str, Any] = {}
 
     def get_plugin(self, confs: dict) -> dict:
         """
         Load plugin class.
 
-        :param confs: a dict of configurations.
-        :return: plugin class.
+        :param confs: a dict of configurations (dict)
+        :return: plugin class (dict).
         """
-        class_name = confs['class']
+        class_name = confs["class"]
         if class_name is None:
             logger.error(f"class is not defined in confs: {confs}")
             return {}
 
         if class_name not in self.classMap:
             logger.info(f"trying to import {class_name}")
-            components = class_name.split('.')
-            mod = __import__('.'.join(components[:-1]))
+            components = class_name.split(".")
+            mod = __import__(".".join(components[:-1]))
             for comp in components[1:]:
                 mod = getattr(mod, comp)
             self.classMap[class_name] = mod
 
         args = {}
-        excluded_keys = {'class'}  # Use a set to store keys to exclude
+        excluded_keys = {"class"}  # Use a set to store keys to exclude
         for key in confs:
             if key in excluded_keys:
                 continue

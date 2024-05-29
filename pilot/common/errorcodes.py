@@ -17,13 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Error codes set by the pilot."""
 
 import re
-from typing import Any, Tuple, List
+from typing import Any
 
 
 class ErrorCodes:
@@ -36,8 +36,8 @@ class ErrorCodes:
     """
 
     # global variables shared by all modules/jobs
-    pilot_error_codes: List[int] = []
-    pilot_error_diags: List[str] = []
+    pilot_error_codes: list[int] = []
+    pilot_error_diags: list[str] = []
 
     # Error code constants (from Pilot 1)
     GENERALERROR = 1008
@@ -319,7 +319,7 @@ class ErrorCodes:
         LEASETIME: "Lease time is up",  # internal use only
         LOGCREATIONTIMEOUT: "Log file creation timed out",
         CVMFSISNOTALIVE: "CVMFS is not responding",
-        LSETUPTIMEDOUT: "Lsetup command timed out during remote file open"
+        LSETUPTIMEDOUT: "Lsetup command timed out during remote file open",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -337,12 +337,14 @@ class ErrorCodes:
         :param signal: signal name (str).
         :return: Pilot error code (int).
         """
-        signals_dictionary = {'SIGTERM': self.SIGTERM,
-                              'SIGQUIT': self.SIGQUIT,
-                              'SIGSEGV': self.SIGSEGV,
-                              'SIGXCPU': self.SIGXCPU,
-                              'SIGUSR1': self.SIGUSR1,
-                              'SIGBUS': self.SIGBUS}
+        signals_dictionary = {
+            "SIGTERM": self.SIGTERM,
+            "SIGQUIT": self.SIGQUIT,
+            "SIGSEGV": self.SIGSEGV,
+            "SIGXCPU": self.SIGXCPU,
+            "SIGUSR1": self.SIGUSR1,
+            "SIGBUS": self.SIGBUS,
+        }
 
         return signals_dictionary.get(signal, self.KILLSIGNAL)
 
@@ -355,7 +357,9 @@ class ErrorCodes:
         """
         return self._error_messages.get(errorcode, f"unknown error code: {errorcode}")
 
-    def add_error_code(self, errorcode: int, priority: bool = False, msg: Any = None) -> Tuple[list, list]:
+    def add_error_code(
+        self, errorcode: int, priority: bool = False, msg: Any = None
+    ) -> tuple[list, list]:
         """
         Add pilot error code to list of error codes.
 
@@ -365,10 +369,8 @@ class ErrorCodes:
         The function also sets the corresponding error message.
 
         :param errorcode: pilot error code (int)
-        :param pilot_error_codes: list of pilot error codes (list of integers)
-        :param pilot_error_diags: list of pilot error diags (list of strings)
         :param priority: if set to True, the new errorcode will be added to the error code list first (highest priority) (bool)
-        :param msg: error message (more detailed) to overwrite standard error message (str).
+        :param msg: error message (more detailed) to overwrite standard error message (str)
         :return: pilot_error_codes (list), pilot_error_diags (list).
         """
         # do nothing if the error code has already been added
@@ -385,7 +387,7 @@ class ErrorCodes:
 
         return pilot_error_codes, pilot_error_diags
 
-    def remove_error_code(self, errorcode: int) -> Tuple[list, list]:
+    def remove_error_code(self, errorcode: int) -> tuple[list, list]:
         """
         Silently remove an error code and its diagnostics from the internal error lists.
 
@@ -419,7 +421,7 @@ class ErrorCodes:
         counter = 0
         pilot_error_codes = ErrorCodes.pilot_error_codes
         pilot_error_diags = ErrorCodes.pilot_error_diags
-        if pilot_error_codes == []:
+        if not pilot_error_codes:
             report = "no pilot errors were reported"
         else:
             report = "Nr.\tError code\tError diagnostics"
@@ -447,7 +449,7 @@ class ErrorCodes:
             "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
-            "General payload setup verification error": self.SETUPFAILURE
+            "General payload setup verification error": self.SETUPFAILURE,
         }
 
         # Check if stderr contains any known error messages
@@ -458,15 +460,15 @@ class ErrorCodes:
         # Handle specific exit codes
         if exit_code == 2:
             return self.LSETUPTIMEDOUT
-        elif exit_code == 3:
+        if exit_code == 3:
             return self.REMOTEFILEOPENTIMEDOUT
-        elif exit_code == 251:
+        if exit_code == 251:
             return self.UNKNOWNTRFFAILURE
-        elif exit_code == -1:
+        if exit_code == -1:
             return self.UNKNOWNTRFFAILURE
-        elif exit_code == self.COMMANDTIMEDOUT:
+        if exit_code == self.COMMANDTIMEDOUT:
             return exit_code
-        elif exit_code != 0:
+        if exit_code != 0:
             return self.PAYLOADEXECUTIONFAILURE
 
         return exit_code  # Return original exit code if no specific error is found
@@ -482,7 +484,9 @@ class ErrorCodes:
         if "command not found" in stderr:
             msg = stderr
         else:
-            msg = self.get_message_for_pattern([r"ERROR\s*:\s*(.*)", r"Error\s*:\s*(.*)", r"error\s*:\s*(.*)"], stderr)
+            msg = self.get_message_for_pattern(
+                [r"ERROR\s*:\s*(.*)", r"Error\s*:\s*(.*)", r"error\s*:\s*(.*)"], stderr
+            )
         return msg
 
     def extract_stderr_warning(self, stderr: str) -> str:
@@ -492,7 +496,10 @@ class ErrorCodes:
         :param stderr: stderr (str)
         :return: warning message (str).
         """
-        return self.get_message_for_pattern([r"WARNING\s*:\s*(.*)", r"Warning\s*:\s*(.*)", r"warning\s*:\s*(.*)"], stderr)
+        return self.get_message_for_pattern(
+            [r"WARNING\s*:\s*(.*)", r"Warning\s*:\s*(.*)", r"warning\s*:\s*(.*)"],
+            stderr,
+        )
 
     def get_message_for_pattern(self, patterns: list, stderr: str) -> str:
         """
@@ -524,19 +531,19 @@ class ErrorCodes:
         max_message_length = 256
         try:
             standard_message = self._error_messages[code] + ":"
-        except Exception:
+        except KeyError:
             standard_message = ""
 
         # extract the relevant info for reporting exceptions
         if "Traceback" in diag:
-            pattern = 'details:(.+)'
+            pattern = "details:(.+)"
             found = re.findall(pattern, diag)
             if found:
                 diag = found[0]
-                diag = re.sub(r'\[?PilotException\(\"?\'?', r'', diag)
-                diag = re.sub(r'\[?StageInFailure\(\"?\'?', r'', diag)
-                diag = re.sub(r'\[?StageOutFailure\(\"?\'?', r'', diag)
-                diag = re.sub(' +', ' ', diag)
+                diag = re.sub(r"\[?PilotException\(\"?\'?", r"", diag)
+                diag = re.sub(r"\[?StageInFailure\(\"?\'?", r"", diag)
+                diag = re.sub(r"\[?StageOutFailure\(\"?\'?", r"", diag)
+                diag = re.sub(" +", " ", diag)
 
         try:
             if diag:
@@ -545,21 +552,29 @@ class ErrorCodes:
                 # e.g. "Failed to stage-in file:abcdefghijklmnopqrstuvwxyz0123456789"
                 if standard_message in diag:
                     if len(diag) > max_message_length:
-                        error_message = standard_message + diag[-(max_message_length - len(standard_message)):]
+                        error_message = (
+                            standard_message +
+                            diag[-(max_message_length - len(standard_message)):]
+                        )
                     else:
-                        error_message = standard_message + diag[len(standard_message):][-max_message_length:]
+                        error_message = (
+                            standard_message +
+                            diag[len(standard_message):][-max_message_length:]
+                        )
+                elif len(diag) + len(standard_message) > max_message_length:
+                    error_message = (
+                        standard_message +
+                        diag[:(max_message_length + len(standard_message))]
+                    )
                 else:
-                    if len(diag) + len(standard_message) > max_message_length:
-                        error_message = standard_message + diag[:(max_message_length + len(standard_message))]
-                    else:
-                        error_message = standard_message + diag
+                    error_message = standard_message + diag
 
-                if '::' in error_message:
-                    error_message = re.sub(':+', ':', error_message)
+                if "::" in error_message:
+                    error_message = re.sub(":+", ":", error_message)
 
             else:
                 error_message = standard_message
-        except Exception:
+        except (TypeError, IndexError):
             error_message = diag
 
         return error_message

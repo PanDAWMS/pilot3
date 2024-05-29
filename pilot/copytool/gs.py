@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
 """GS copy tool."""
@@ -30,19 +30,18 @@ import subprocess
 from glob import glob
 from typing import Any
 
-from pilot.info import infosys
-
 try:
     from google.cloud import storage
-except Exception:
+except ImportError:
     storage_client = None
 else:
     storage_client = storage.Client()
 
-from .common import resolve_common_transfer_errors
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
+from pilot.info import infosys
 from pilot.util.config import config
+from .common import resolve_common_transfer_errors
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -98,7 +97,7 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
     """
     try:
         pandaqueue = infosys.pandaqueue
-    except Exception:
+    except AttributeError:
         pandaqueue = ""
     if pandaqueue is None:
         pandaqueue = ""
@@ -128,8 +127,9 @@ def copy_in(files: list, **kwargs: dict) -> list:
     Download given files from a GCS bucket.
 
     :param files: list of `FileSpec` objects (list)
-    :raise: PilotException in case of controlled error
-    :return: updated files (list).
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raise: PilotException in case of controlled error.
     """
     for fspec in files:
 
@@ -180,8 +180,9 @@ def copy_out(files: list, **kwargs: dict):
     Upload given files to GS storage.
 
     :param files: list of `FileSpec` objects (list)
-    :raise: PilotException in case of controlled error
-    :return: updated files (list).
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raise: PilotException in case of controlled error.
     """
     workdir = kwargs.pop('workdir')
 
@@ -215,7 +216,7 @@ def copy_out(files: list, **kwargs: dict):
         for path in logfiles:
             logfile = os.path.basename(path)
             if os.path.exists(path):
-                if logfile == config.Pilot.pilotlog or logfile == config.Payload.payloadstdout or logfile == config.Payload.payloadstderr:
+                if logfile in (config.Pilot.pilotlog, config.Payload.payloadstdout, config.Payload.payloadstderr):
                     content_type = "text/plain"
                     logger.debug(f'change the file {logfile} content-type to text/plain')
                 else:
@@ -225,7 +226,7 @@ def copy_out(files: list, **kwargs: dict):
                         if not isinstance(result, str):
                             result = result.decode('utf-8')
                         if result.find(';') > 0:
-                            content_type = result.split(';')[0]
+                            content_type = result.split(';', maxsplit=1)[0]
                             logger.debug(f'change the file {logfile} content-type to {content_type}')
                     except Exception:
                         pass

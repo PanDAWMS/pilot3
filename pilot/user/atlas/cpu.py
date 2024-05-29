@@ -17,26 +17,29 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
-import os
+""" CPU related functionality."""
+
 import logging
+import os
+from typing import Any
 
 # from .utilities import get_memory_values
 #from pilot.util.container import execute
 from pilot.util.math import float_to_rounded_string
 from .utilities import get_memory_values
+
 logger = logging.getLogger(__name__)
 
 
-def get_core_count(job):
+def get_core_count(job: Any) -> int:
     """
     Return the core count from ATHENA_PROC_NUMBER.
 
-    :param job: job object.
+    :param job: job object (Any)
     :return: core count (int).
     """
-
     if "HPC_HPC" in job.infosys.queuedata.catchall:
         if job.corecount is None:
             job.corecount = 0
@@ -58,30 +61,27 @@ def get_core_count(job):
     return job.corecount
 
 
-def add_core_count(corecount, core_counts=[]):
+def add_core_count(corecount: int, core_counts: list = None) -> list:
     """
     Add a core count measurement to the list of core counts.
 
-    :param corecount: current actual core count (int).
-    :param core_counts: list of core counts (list).
+    :param corecount: current actual core count (int)
+    :param core_counts: list of core counts (list)
     :return: updated list of core counts (list).
     """
-
-    if core_counts is None:  # protection
+    if core_counts is None:
         core_counts = []
     core_counts.append(corecount)
 
     return core_counts
 
 
-def set_core_counts(**kwargs):
+def set_core_counts(**kwargs: dict):
     """
     Set the number of used cores.
 
-    :param kwargs: kwargs (dictionary).
-    :return:
+    :param kwargs: kwargs (dict).
     """
-
     # something like this could be used if prmon also gave info about ncores
     # (change nprocs -> ncores and add ncores to list in utilities module, get_average_summary_dictionary_prmon())
 

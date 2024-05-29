@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """Functions for performing analytics including fitting of data."""
 
@@ -379,8 +379,6 @@ class Fit():
     def set_slope(self):
         """
         Calculate and set the slope of the linear fit.
-
-        :return:
         """
         if self._ss2 and self._ss and self._ss != 0:
             self._slope = self._ss2 / float(self._ss)
@@ -398,8 +396,6 @@ class Fit():
     def set_intersect(self):
         """
         Calculate and set the intersect of the linear fit.
-
-        :return:
         """
         if self._ym and self._slope and self._xm:
             self._intersect = self._ym - self._slope * self._xm

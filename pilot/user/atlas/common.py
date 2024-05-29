@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Common functions for ATLAS."""
@@ -101,7 +101,6 @@ from .utilities import (
     post_memory_monitor_action,
     get_memory_monitor_summary_filename,
     get_prefetcher_setup,
-    get_benchmark_setup,
     get_memory_monitor_output_filename,
     get_metadata_dict_from_txt,
 )
@@ -2078,7 +2077,7 @@ def remove_special_files(workdir: str, dir_list: list):
             remove_dir_tree(item)
 
 
-def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = [], debugmode: bool = False):
+def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False):
     """
     Remove redundant files and directories prior to creating the log file.
 
@@ -2091,7 +2090,8 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     """
     if outputfiles is None:
         outputfiles = []
-
+    if piloterrors is None:
+        piloterrors = []
     logger.debug("removing redundant files prior to log creation")
     workdir = os.path.abspath(workdir)
 
@@ -2480,9 +2480,6 @@ def get_utility_command_setup(name: str, job: Any, setup: str = None) -> str:
 
     if name == 'Prefetcher':
         return get_prefetcher_setup(job)
-
-    if name == 'Benchmark':
-        return get_benchmark_setup(job)
 
     return ""
 
