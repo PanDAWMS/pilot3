@@ -300,7 +300,7 @@ def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
             except (Exception, PilotException) as error:
                 logger.warning(f'exception caught: {error}')
                 if isinstance(error, PilotException):
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error._errorCode, msg=error._message)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error._error_code, msg=error._message)
                 elif isinstance(error, str):
                     if 'error code:' in error and 'message:' in error:
                         error_code, diagnostics = extract_error_info(error)

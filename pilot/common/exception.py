@@ -37,7 +37,7 @@ errors = ErrorCodes()
 class PilotException(Exception):
     """Pilot exceptions class."""
 
-    _errorCode = None
+    _error_code = None
     _message = None
 
     def __init__(self, *args, **kwargs):
@@ -47,10 +47,10 @@ class PilotException(Exception):
         self.kwargs = kwargs
         code = self.kwargs.get("code", None)
         if code:
-            self._errorCode = code
+            self._error_code = code
         else:
-            self._errorCode = errors.UNKNOWNEXCEPTION
-        self._message = errors.get_error_message(self._errorCode)
+            self._error_code = errors.UNKNOWNEXCEPTION
+        self._message = errors.get_error_message(self._error_code)
         self._error_string = None
         self._stack_trace = f"{traceback.format_exc()}"
 
@@ -58,12 +58,12 @@ class PilotException(Exception):
         """Set and return the error string for string representation of the class instance."""
         try:
             self._error_string = (
-                f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+                f"error code: {self._error_code}, message: {self._message % self.kwargs}"
             )
         except TypeError:
             # at least get the core message out if something happened
             self._error_string = (
-                f"error code: {self._errorCode}, message: {self._message}"
+                f"error code: {self._error_code}, message: {self._message}"
             )
 
         if len(self.args) > 0:
@@ -82,19 +82,19 @@ class PilotException(Exception):
         """Set and return the error string with the exception details."""
         try:
             self._error_string = (
-                f"error code: {self._errorCode}, message: {self._message % self.kwargs}"
+                f"error code: {self._error_code}, message: {self._message % self.kwargs}"
             )
         except TypeError:
             # at least get the core message out if something happened
             self._error_string = (
-                f"error code: {self._errorCode}, message: {self._message}"
+                f"error code: {self._error_code}, message: {self._message}"
             )
 
         return self._error_string + f"\nstacktrace: {self._stack_trace}"
 
     def get_error_code(self):
         """Return the error code."""
-        return self._errorCode
+        return self._error_code
 
     def get_last_error(self):
         """Return the last error message."""
@@ -109,8 +109,8 @@ class PilotException(Exception):
 #    """
 #    def __init__(self, *args, **kwargs):
 #        super().__init__(args, kwargs)
-#        self._errorCode = errors.NOTIMPLEMENTED
-#        self._message = errors.get_error_message(self._errorCode)
+#        self._error_code = errors.NOTIMPLEMENTED
+#        self._message = errors.get_error_message(self._error_code)
 
 
 class UnknownException(PilotException):
@@ -119,8 +119,8 @@ class UnknownException(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.UNKNOWNEXCEPTION
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.UNKNOWNEXCEPTION
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NoLocalSpace(PilotException):
@@ -129,8 +129,8 @@ class NoLocalSpace(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOLOCALSPACE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOLOCALSPACE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class SizeTooLarge(PilotException):
@@ -139,8 +139,8 @@ class SizeTooLarge(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.SIZETOOLARGE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.SIZETOOLARGE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class StageInFailure(PilotException):
@@ -149,8 +149,8 @@ class StageInFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.STAGEINFAILED
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.STAGEINFAILED
+        self._message = errors.get_error_message(self._error_code)
 
 
 class StageOutFailure(PilotException):
@@ -159,8 +159,8 @@ class StageOutFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.STAGEOUTFAILED
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.STAGEOUTFAILED
+        self._message = errors.get_error_message(self._error_code)
 
 
 class SetupFailure(PilotException):
@@ -169,8 +169,8 @@ class SetupFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.SETUPFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.SETUPFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class RunPayloadFailure(PilotException):
@@ -179,8 +179,8 @@ class RunPayloadFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.PAYLOADEXECUTIONFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.PAYLOADEXECUTIONFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class MessageFailure(PilotException):
@@ -189,8 +189,8 @@ class MessageFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.MESSAGEHANDLINGFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.MESSAGEHANDLINGFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class CommunicationFailure(PilotException):
@@ -199,8 +199,8 @@ class CommunicationFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.COMMUNICATIONFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.COMMUNICATIONFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class FileHandlingFailure(PilotException):
@@ -209,8 +209,8 @@ class FileHandlingFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.FILEHANDLINGFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.FILEHANDLINGFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NoSuchFile(PilotException):
@@ -219,8 +219,8 @@ class NoSuchFile(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOSUCHFILE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOSUCHFILE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ConversionFailure(PilotException):
@@ -229,8 +229,8 @@ class ConversionFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.CONVERSIONFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.CONVERSIONFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class MKDirFailure(PilotException):
@@ -239,8 +239,8 @@ class MKDirFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.MKDIR
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.MKDIR
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NoGridProxy(PilotException):
@@ -249,8 +249,8 @@ class NoGridProxy(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOPROXY
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOPROXY
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NoVomsProxy(PilotException):
@@ -259,8 +259,8 @@ class NoVomsProxy(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOVOMSPROXY
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOVOMSPROXY
+        self._message = errors.get_error_message(self._error_code)
 
 
 class TrfDownloadFailure(PilotException):
@@ -269,8 +269,8 @@ class TrfDownloadFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.TRFDOWNLOADFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.TRFDOWNLOADFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NotDefined(PilotException):
@@ -279,8 +279,8 @@ class NotDefined(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOTDEFINED
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOTDEFINED
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NotSameLength(PilotException):
@@ -289,8 +289,8 @@ class NotSameLength(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOTSAMELENGTH
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOTSAMELENGTH
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ESRecoverable(PilotException):
@@ -299,8 +299,8 @@ class ESRecoverable(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.ESRECOVERABLE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.ESRECOVERABLE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ESFatal(PilotException):
@@ -309,8 +309,8 @@ class ESFatal(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.ESFATAL
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.ESFATAL
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ExecutedCloneJob(PilotException):
@@ -319,8 +319,8 @@ class ExecutedCloneJob(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.EXECUTEDCLONEJOB
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.EXECUTEDCLONEJOB
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ESNoEvents(PilotException):
@@ -329,8 +329,8 @@ class ESNoEvents(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.ESNOEVENTS
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.ESNOEVENTS
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ExceededMaxWaitTime(PilotException):
@@ -339,8 +339,8 @@ class ExceededMaxWaitTime(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.EXCEEDEDMAXWAITTIME
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.EXCEEDEDMAXWAITTIME
+        self._message = errors.get_error_message(self._error_code)
 
 
 class BadXML(PilotException):
@@ -349,8 +349,8 @@ class BadXML(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.BADXML
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.BADXML
+        self._message = errors.get_error_message(self._error_code)
 
 
 class NoSoftwareDir(PilotException):
@@ -359,8 +359,8 @@ class NoSoftwareDir(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOSOFTWAREDIR
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOSOFTWAREDIR
+        self._message = errors.get_error_message(self._error_code)
 
 
 class LogFileCreationFailure(PilotException):
@@ -369,8 +369,8 @@ class LogFileCreationFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.LOGFILECREATIONFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.LOGFILECREATIONFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class QueuedataFailure(PilotException):
@@ -379,8 +379,8 @@ class QueuedataFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.QUEUEDATA
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.QUEUEDATA
+        self._message = errors.get_error_message(self._error_code)
 
 
 class QueuedataNotOK(PilotException):
@@ -389,8 +389,8 @@ class QueuedataNotOK(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.QUEUEDATANOTOK
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.QUEUEDATANOTOK
+        self._message = errors.get_error_message(self._error_code)
 
 
 class ReplicasNotFound(PilotException):
@@ -399,8 +399,8 @@ class ReplicasNotFound(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.NOREPLICAS
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.NOREPLICAS
+        self._message = errors.get_error_message(self._error_code)
 
 
 class MiddlewareImportFailure(PilotException):
@@ -409,8 +409,8 @@ class MiddlewareImportFailure(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.MIDDLEWAREIMPORTFAILURE
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.MIDDLEWAREIMPORTFAILURE
+        self._message = errors.get_error_message(self._error_code)
 
 
 class JobAlreadyRunning(PilotException):
@@ -419,8 +419,8 @@ class JobAlreadyRunning(PilotException):
     def __init__(self, *args, **kwargs):
         """Set default and initial values."""
         super().__init__(args, kwargs)
-        self._errorCode = errors.JOBALREADYRUNNING
-        self._message = errors.get_error_message(self._errorCode)
+        self._error_code = errors.JOBALREADYRUNNING
+        self._message = errors.get_error_message(self._error_code)
 
     def __str__(self):
         """Return string for exception object."""

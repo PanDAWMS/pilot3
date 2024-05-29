@@ -657,7 +657,7 @@ def create_main_work_dir() -> (int, str):
                 f"failed to create workdir at {_mainworkdir} -- aborting: {error}",
                 file=sys.stderr,
             )
-            exitcode = shell_exit_code(error._errorCode)
+            exitcode = shell_exit_code(error._error_code)
     else:
         _mainworkdir = getcwd()
 
