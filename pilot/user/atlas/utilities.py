@@ -17,11 +17,15 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
+"""Functions related to memory monitoring and other utilities."""
+
+import logging
 import os
 import time
 from re import search
+from typing import Any
 
 # from pilot.info import infosys
 from .setup import get_asetup
@@ -31,47 +35,33 @@ from pilot.util.parameters import convert_to_int
 from pilot.util.processes import is_process_running
 from pilot.util.psutils import get_command_by_pid
 
-import logging
 logger = logging.getLogger(__name__)
 
 
-def get_benchmark_setup(job):
-    """
-    Return the proper setup for the benchmark command.
-
-    :param job: job object.
-    :return: setup string for the benchmark command.
-    """
-
-    return ''
-
-
-def get_prefetcher_setup(job):
+def get_prefetcher_setup(job: Any) -> str:
     """
     Return the proper setup for the Prefetcher.
+
     Prefetcher is a tool used with the Event Streaming Service.
 
-    :param job: job object.
-    :return: setup string for the Prefetcher command.
+    :param job: job object (Any)
+    :return: setup string for the Prefetcher command (str).
     """
-
-    # add code here ..
-
-    return ''
+    return ""
 
 
-def get_network_monitor_setup(setup, job):
+def get_network_monitor_setup(setup: str, job: Any) -> str:
     """
     Return the proper setup for the network monitor.
+
     The network monitor is currently setup together with the payload and is start before it. The payload setup should
     therefore be provided. The network monitor setup is prepended to it.
 
-    :param setup: payload setup string.
-    :param job: job object.
-    :return: network monitor setup string.
+    :param setup: payload setup string (str)
+    :param job: job object (Any)
+    :return: network monitor setup string (str).
     """
-
-    return ''
+    return ""
 
 
 def get_memory_monitor_summary_filename(selector=None):
@@ -811,14 +801,12 @@ def get_memory_values(workdir, name=""):
     return summary_dictionary
 
 
-def post_memory_monitor_action(job):
+def post_memory_monitor_action(job: Any):
     """
     Perform post action items for memory monitor.
 
-    :param job: job object.
-    :return:
+    :param job: job object (Any).
     """
-
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
@@ -841,10 +829,7 @@ def post_memory_monitor_action(job):
 def precleanup():
     """
     Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
-
-    :return:
     """
-
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
     if os.path.exists(path):
@@ -852,16 +837,15 @@ def precleanup():
         remove(path)
 
 
-def get_cpu_arch():
+def get_cpu_arch() -> str:
     """
     Return the CPU architecture string.
 
     The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
     For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
 
-    :return: CPU arch (string).
+    :return: CPU arch (str).
     """
-
     cpu_arch = ''
 
     def filter_output(stdout):
@@ -883,7 +867,8 @@ def get_cpu_arch():
     # CPU arch script has now been copied, time to execute it
     # (reset irrelevant stderr)
     ec, stdout, stderr = execute(cmd)
-    if ec == 0 and 'RHEL9 and clone support is relatively new' in stderr:
+    if ec == 0 and ('RHEL9 and clone support is relatively new' in stderr or
+                    'RHEL8 and clones are not supported for users' in stderr):
         stderr = ''
     if ec or stderr:
         logger.warning(f'ec={ec}, stdout={stdout}, stderr={stderr}')

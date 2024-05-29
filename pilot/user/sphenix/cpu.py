@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
 from typing import Any
 from pilot.util.container import execute
@@ -36,7 +36,7 @@ def get_core_count(job: Any) -> int:
     return 0
 
 
-def add_core_count(corecount: int, core_counts: list = []) -> list:
+def add_core_count(corecount: int, core_counts: list = None) -> list:
     """
     Add a core count measurement to the list of core counts.
 
@@ -44,6 +44,8 @@ def add_core_count(corecount: int, core_counts: list = []) -> list:
     :param core_counts: list of core counts (list).
     :return: updated list of core counts (list).
     """
+    if core_counts is None:
+        core_counts = []
     return core_counts.append(corecount)
 
 

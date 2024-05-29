@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-2024
 
 """Main classes to manage the messages between ES and harvester/ACT/Panda."""
 
@@ -320,8 +320,8 @@ class CommunicationManager(threading.Thread, PluginFactory):
 
         :param update_events: update events (Any)
         :param post_hook: post hook function (Any)
-        :raises: Exception caught when updating event ranges
-        :return: status of updating event ranges
+        :return: status of updating event ranges (Any)
+        :raises: Exception caught when updating event ranges.
         """
         if self.is_stop():
             return None
@@ -333,7 +333,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
         self.queues['update_events'].put(req)
 
         if req.post_hook:
-            return
+            return None
 
         while req.response is None:
             time.sleep(1)
@@ -341,8 +341,8 @@ class CommunicationManager(threading.Thread, PluginFactory):
             raise req.response.exception
         if req.response.status is False:
             return None
-        else:
-            return req.response.content
+
+        return req.response.content
 
     def get_plugin_confs(self) -> dict:
         """

@@ -17,8 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
+import logging
 import os
 import time
 from re import search
@@ -31,7 +32,6 @@ from pilot.util.filehandling import read_json, copy, write_json, remove
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import is_process_running
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +60,7 @@ def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
 
 
 def get_memory_monitor_setup(pid: int, pgrp: int, jobid: int, workdir: str, command: str, setup: str = "",
-                             use_container: bool = True, transformation: str = "", outdata: list = [],
+                             use_container: bool = True, transformation: str = "", outdata: list = None,
                              dump_ps: bool = False) -> (str, int):
     """
     Return the proper setup for the memory monitor.
@@ -81,6 +81,10 @@ def get_memory_monitor_setup(pid: int, pgrp: int, jobid: int, workdir: str, comm
     :param dump_ps: should ps output be dumped when identifying prmon process? (bool)
     :return: job work directory (str), pid for process inside container (int).
     """
+    if setup:  # to get rid of pylint warning, setup is not used for this user
+        pass
+    if outdata is None:
+        outdata = []
     # try to get the pid from a pid.txt file which might be created by a container_script
     pid = get_proper_pid(pid, pgrp, jobid, command=command, transformation=transformation, outdata=outdata, use_container=use_container, dump_ps=dump_ps)
     if pid == -1:

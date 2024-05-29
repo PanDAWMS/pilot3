@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 
 """Executor module for event service payloads."""
 
@@ -37,17 +37,19 @@ logger = logging.getLogger(__name__)
 class Executor(generic.Executor):
     """Executor class for event service payloads."""
 
-    def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
-        """
-        Set initial values.
-
-        :param args: args object (Any)
-        :param job: job object (Any)
-        :param out: stdout file object (TextIO)
-        :param err: stderr file object (TextIO)
-        :param traces: traces object (Any).
-        """
-        super().__init__(args, job, out, err, traces)
+    # only define the __init__ function if it actually does anything - otherwise it can be omitted since the
+    # parent __init__ function will be called automatically
+    # def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    #    """
+    #    Set initial values.
+    #
+    #    :param args: args object (Any)
+    #    :param job: job object (Any)
+    #    :param out: stdout file object (TextIO)
+    #    :param err: stderr file object (TextIO)
+    #    :param traces: traces object (Any).
+    #    """
+    #    super().__init__(args, job, out, err, traces)
 
     def run_payload(self, job: Any, cmd: str, out: TextIO, err: TextIO) -> Any:
         """
@@ -62,8 +64,10 @@ class Executor(generic.Executor):
         self.pre_setup(job)
 
         # get the payload command from the user specific code
-        pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
-        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+        pilot_user = os.environ.get("PILOT_USER", "atlas").lower()
+        user = __import__(
+            f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
+        )
 
         self.post_setup(job)
 
@@ -74,13 +78,19 @@ class Executor(generic.Executor):
         try:
             executable = user.get_payload_command(job)
         except exception.PilotException:
-            logger.fatal('could not define payload command')
+            logger.fatal("could not define payload command")
             return None
 
         logger.info(f"payload execution command: {executable}")
 
         try:
-            payload = {'executable': executable, 'workdir': job.workdir, 'output_file': out, 'error_file': err, 'job': job}
+            payload = {
+                "executable": executable,
+                "workdir": job.workdir,
+                "output_file": out,
+                "error_file": err,
+                "job": job,
+            }
             logger.debug("payload: %s", payload)
 
             logger.info("starting EventService WorkExecutor")
@@ -97,7 +107,7 @@ class Executor(generic.Executor):
 
             self.utility_after_payload_started(job)
         except Exception as error:
-            logger.error(f'could not execute: {error}')
+            logger.error(f"could not execute: {error}")
             return None
 
         return executor
@@ -113,7 +123,7 @@ class Executor(generic.Executor):
         """
         # executor_type = 'hpo' if job.is_hpo else os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic')
         # return {'executor_type': executor_type}
-        return {'executor_type': os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic')}
+        return {"executor_type": os.environ.get("PILOT_ES_EXECUTOR_TYPE", "generic")}
 
     def wait_graceful(self, args: Any, proc: Any) -> int:
         """

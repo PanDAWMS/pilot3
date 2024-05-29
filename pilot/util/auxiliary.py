@@ -776,7 +776,7 @@ class TimeoutException(Exception):
         """Initialize variables."""
         self.timeout = timeout
         self.message = message
-        self._errorCode = 1334
+        self._error_code = 1334
         super(TimeoutException, self).__init__(*args)
 
     def __str__(self):

@@ -19,7 +19,7 @@
 # Authors:
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
 """GFAL2 copy tool."""
@@ -29,10 +29,18 @@ import logging
 import os
 from time import time
 
-from .common import resolve_common_transfer_errors, get_timeout
-from pilot.common.exception import PilotException, ErrorCodes, StageInFailure, StageOutFailure
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes,
+    StageInFailure,
+    StageOutFailure
+)
 from pilot.util.container import execute
 #from pilot.util.timer import timeout
+from .common import (
+    resolve_common_transfer_errors,
+    get_timeout
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +156,9 @@ def copy_out(files: list, **kwargs: dict) -> list:
     Upload given files using gfal command.
 
     :param files: Files to upload (files)
-    :raises: PilotException in case of errors
-    :return: updated files (list).
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raises: PilotException in case of errors.
     """
     if not check_for_gfal():
         raise StageOutFailure("No GFAL2 tools found")
@@ -222,7 +231,7 @@ def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):   ### 
             exit_code, stdout, stderr = move(source, destination, entry.get('recursive', False))
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
                     logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
@@ -236,6 +245,7 @@ def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### 
     Move all output files.
 
     :param files: list of FileSpec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
     :return: exit_code (int), stdout (str), stderr (str).
     """
     exit_code = 0
@@ -253,7 +263,7 @@ def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### 
             exit_code, stdout, stderr = move(source, destination)
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
                     logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful

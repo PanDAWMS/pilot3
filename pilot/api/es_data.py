@@ -19,11 +19,12 @@
 # Authors:
 # - Wen Guan, wen.guan@cern,ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 
 """API for event service data transfers."""
 
 import logging
+from typing import Any
 
 from pilot.api.data import StageInClient, StageOutClient
 
@@ -33,14 +34,14 @@ logger = logging.getLogger(__name__)
 class StageInESClient(StageInClient):
     """Stage-in client."""
 
-    def __init__(self, *argc, **kwargs):
+    def __init__(self, **kwargs: dict):
         """Set default/init values."""
-        super(StageInESClient, self).__init__(*argc, **kwargs)
+        super().__init__(**kwargs)
 
         self.copytool_modules.setdefault('objectstore', {'module_name': 'objectstore'})
         self.acopytools.setdefault('es_events_read', ['objectstore'])
 
-    def prepare_sources(self, files, activities=None):
+    def prepare_sources(self, files: list, activities: Any = None):
         """
         Prepare sources.
 
@@ -49,13 +50,15 @@ class StageInESClient(StageInClient):
 
         If storage_id is specified, replace ddmendpoint by parsing storage_id.
 
-        :param files: list of `FileSpec` objects to be processed
-        :param activities: string or ordered list of activities to resolve `astorages` (optional)
-        :return: None.
+        :param files: list of `FileSpec` objects to be processed (list)
+        :param activities: string or ordered list of activities to resolve `astorages` (optional) (list or str)
         """
         if not self.infosys:
             self.logger.warning('infosys instance is not initialized: skip calling prepare_sources()')
-            return None
+            return
+
+        if activities:
+            pass  # to bypass pylint complaint about activities not used (it cannot be removed)
 
         for fspec in files:
             if fspec.storage_token:   ## FIX ME LATER: no need to parse each time storage_id, all this staff should be applied in FileSpec clean method
@@ -65,15 +68,14 @@ class StageInESClient(StageInClient):
                 if storage_id:
                     fspec.ddmendpoint = self.infosys.get_ddmendpoint(storage_id)
                 logger.info(f"Processed file with storage id: {fspec}")
-        return None
 
 
 class StageOutESClient(StageOutClient):
     """Stage-out client."""
 
-    def __init__(self, *argc, **kwargs):
+    def __init__(self, **kwargs: dict):
         """Set default/init values."""
-        super(StageOutESClient, self).__init__(*argc, **kwargs)
+        super().__init__(**kwargs)
 
         self.copytool_modules.setdefault('objectstore', {'module_name': 'objectstore'})
         self.acopytools.setdefault('es_events', ['objectstore'])

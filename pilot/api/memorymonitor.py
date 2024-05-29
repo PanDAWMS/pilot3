@@ -17,14 +17,15 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """API for memory monitoring."""
 
+import logging
 from os import getcwd
+
 from .services import Services
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -36,14 +37,14 @@ class MemoryMonitoring(Services):
     workdir = ""  # Job work directory
     _cmd = ""     # Memory monitoring command (full path, all options)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """
         Init function.
 
-        :param kwargs: kwargs dictionary.
+        :param kwargs: kwargs dictionary (dict).
         """
-        for key in kwargs:
-            setattr(self, key, kwargs[key])
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
         if not self.workdir:
             self.workdir = getcwd()
@@ -52,7 +53,7 @@ class MemoryMonitoring(Services):
             user_utility = __import__(f'pilot.user.{self.user}.utilities', globals(), locals(), [self.user], 0)  # Python 2/3
             self._cmd = user_utility.get_memory_monitor_setup(self.pid, self.workdir)
 
-    def get_command(self):
+    def get_command(self) -> str:
         """
         Return the full command for the memory monitor.
 
@@ -64,15 +65,15 @@ class MemoryMonitoring(Services):
         """
         Execute the memory monitor command.
 
-        :return: process (currently None).
+        return: process (currently None).
         """
         return None
 
-    def get_filename(self):
+    def get_filename(self) -> str:
         """
         Return the filename from the memory monitor tool.
 
-        :return: fiename (str).
+        :return: filename (str).
         """
         return ""
 
@@ -80,6 +81,6 @@ class MemoryMonitoring(Services):
         """
         Return the results from the memory monitoring.
 
-        :return: results (currently None).
+        return: results (currently None).
         """
         return None

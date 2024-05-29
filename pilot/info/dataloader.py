@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 """
 Base loader class to retrieve data from Ext sources (file, url).
@@ -218,7 +218,7 @@ class DataLoader:
         return None
 
 
-def merge_dict_data(dic1: dict, dic2: dict, keys: list = [], common: bool = True, left: bool = True,
+def merge_dict_data(dic1: dict, dic2: dict, keys: list = None, common: bool = True, left: bool = True,
                     right: bool = True, rec: bool = False) -> dict:
     """
     Recursively merge two dictionary objects.
@@ -234,6 +234,8 @@ def merge_dict_data(dic1: dict, dic2: dict, keys: list = [], common: bool = True
     :param rec: if True then merge recursively (bool)
     :return: merged dictionary (dict).
     """
+    if keys is None:
+        keys = []
     ### TODO: verify and configure logic later
 
     if not (isinstance(dic1, dict) and isinstance(dic2, dict)):

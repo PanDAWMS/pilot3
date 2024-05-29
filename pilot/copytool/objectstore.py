@@ -19,7 +19,7 @@
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 """Objectstore copy tool."""
 
@@ -57,6 +57,8 @@ def is_valid_for_copy_in(files: list) -> bool:
     :param files: list of FileSpec objects (list).
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -72,6 +74,8 @@ def is_valid_for_copy_out(files: list) -> bool:
     :param files: list of FileSpec objects (list).
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -87,15 +91,18 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
     :param fspec: file spec data (Any)
     :param protocol: suggested protocol (dict)
     :param ddmconf: full ddm storage data (dict)
+    :param kwargs: kwargs dictionary (dict)
     :return: SURL dictionary {'surl': surl} (dict).
     """
+    if kwargs:  # to get rid of pylint warning
+        pass
     ddm = ddmconf.get(fspec.ddmendpoint)
     if not ddm:
         raise PilotException(f'failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
     if ddm.is_deterministic:
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), get_rucio_path(fspec.scope, fspec.lfn))
-    elif ddm.type in ['OS_ES', 'OS_LOGS']:
+    elif ddm.type in {'OS_ES', 'OS_LOGS'}:
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), fspec.lfn)
         fspec.protocol_id = protocol.get('id')
     else:
@@ -109,8 +116,9 @@ def copy_in(files: list, **kwargs: dict) -> list:
     Download given files using rucio copytool.
 
     :param files: list of `FileSpec` objects (list)
-    :raise: PilotException in case of controlled error
-    :return: updated list of files (list).
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated list of files (list)
+    :raises: PilotException in case of controlled error.
     """
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -166,7 +174,7 @@ def is_new_rucio_version() -> bool:
     :return: True if new rucio version (bool).
     """
     _, stdout, _ = execute('rucio download -h')
-    return True if '--rses RSES' in stdout else False
+    return '--rses RSES' in stdout
 
 
 def copy_out(files: list, **kwargs: dict) -> list:

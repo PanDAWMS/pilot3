@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
-"""High-level base class for Benchmark(), MemoryMonitoring() and Analytics() classes."""
+"""High-level base class for MemoryMonitoring and Analytics classes."""
 
 # from pilot.util.container import execute
 
@@ -28,4 +28,4 @@ logger = logging.getLogger(__name__)
 
 
 class Services:
-    """High-level base class for Benchmark(), MemoryMonitoring() and Analytics() classes."""
+    """High-level base class for MemoryMonitoring( and Analytics classes."""

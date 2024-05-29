@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """Functions for building job metrics."""
 
@@ -49,7 +49,7 @@ from .utilities import get_memory_monitor_output_filename
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job: Any, extra: dict = {}) -> str:
+def get_job_metrics_string(job: Any, extra: dict = None) -> str:
     """
     Get the job metrics string.
 
@@ -57,6 +57,8 @@ def get_job_metrics_string(job: Any, extra: dict = {}) -> str:
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
+    if extra is None:
+        extra = {}
     job_metrics = ""
 
     # report core count (will also set corecount in job object)
@@ -146,7 +148,7 @@ def get_trace_exit_code(workdir: str) -> str:
     return trace_exit_code
 
 
-def add_features(job_metrics: str, corecount: int, add: list = []) -> str:
+def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
     """
     Add job and machine feature data to the job metrics if available.
 
@@ -157,13 +159,18 @@ def add_features(job_metrics: str, corecount: int, add: list = []) -> str:
     :param add: features to be added (list)
     :return: updated job metrics (str).
     """
+    if add is None:
+        add = []
     if job_metrics and not job_metrics.endswith(' '):
         job_metrics += ' '
 
-    def add_sub_features(features_dic, add=[]):
+    def add_sub_features(features_dic: dict, _add: list = None):
+        """Helper function."""
+        if _add is None:
+            _add = []
         features_str = ''
         for key in features_dic.keys():
-            if add and key not in add:
+            if _add and key not in _add:
                 continue
             value = features_dic.get(key, None)
             if value:
@@ -185,7 +192,7 @@ def add_features(job_metrics: str, corecount: int, add: list = []) -> str:
             logger.warning(f'cannot process hs06 machine feature: {exc} (hs06={hs06}, total_cpu={total_cpu}, corecount={corecount})')
     features_list = [machinefeatures, jobfeatures]
     for feature_item in features_list:
-        features_str = add_sub_features(feature_item, add=add)
+        features_str = add_sub_features(feature_item, _add=add)
         if features_str:
             job_metrics += features_str
 
@@ -241,9 +248,10 @@ def add_event_number(job_metrics: str, workdir: str) -> str:
     return job_metrics
 
 
-def get_job_metrics(job: Any, extra: dict = {}) -> str:
+def get_job_metrics(job: Any, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
+
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
     Example of job metrics:
@@ -251,11 +259,12 @@ def get_job_metrics(job: Any, extra: dict = {}) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object
+    :param job: job object (Any)
     :param extra: any extra information to be added (dict)
-    :return: job metrics (string).
+    :return: job metrics (str).
     """
-
+    if extra is None:
+        extra = {}
     # get job metrics string
     job_metrics = get_job_metrics_string(job, extra=extra)
 

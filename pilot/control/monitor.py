@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
@@ -29,7 +29,7 @@ import logging
 import threading
 import time
 import re
-from os import environ, getpid, getuid
+from os import environ, getuid
 from subprocess import Popen, PIPE
 from typing import Any
 
@@ -64,8 +64,8 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
     threadchecktime = int(config.Pilot.thread_check)
 
     # for CPU usage debugging
-    cpuchecktime = int(config.Pilot.cpu_check)
-    tcpu = t_0
+    # cpuchecktime = int(config.Pilot.cpu_check)
+    # tcpu = t_0
     last_minute_check = t_0
 
     queuedata = get_queuedata_from_job(queues)
@@ -110,9 +110,8 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
                 break
-            else:
-                if niter % 60 == 0:
-                    logger.info(f'{time_since_start}s have passed since pilot start')
+            if niter % 60 == 0:
+                logger.info(f'{time_since_start}s have passed since pilot start')
 
             # every minute run the following check
             if is_pilot_check(check='machinefeatures'):
@@ -127,15 +126,15 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
             time.sleep(1)
 
             # time to check the CPU usage?
-            if is_pilot_check(check='cpu_usage'):
-                if int(time.time() - tcpu) > cpuchecktime and False:  # for testing only
-                    processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
-                    if processes:
-                        logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
-                        nproc = processes[3]
-                        if nproc > 1:
-                            logger.info(f'.. there are {nproc} such processes running')
-                    tcpu = time.time()
+            # if is_pilot_check(check='cpu_usage'):
+            #     if int(time.time() - tcpu) > cpuchecktime:
+            #         processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
+            #         if processes:
+            #             logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
+            #             nproc = processes[3]
+            #             if nproc > 1:
+            #                 logger.info(f'.. there are {nproc} such processes running')
+            #         tcpu = time.time()
 
             # proceed with running the other checks
             run_checks(queues, args)
@@ -154,7 +153,7 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
 
     except Exception as error:
         print((f"monitor: exception caught: {error}"))
-        raise PilotException(error)
+        raise PilotException(error) from error
 
     logger.info('[monitor] control thread has ended')
 
@@ -185,8 +184,7 @@ def run_shutdowntime_minute_check(time_since_start: int) -> bool:
             except (TypeError, ValueError):  # as exc:
                 #logger.debug(f'failed to convert shutdowntime: {exc}')
                 return False  # will be ignored
-            else:
-                logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
+            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
         if not shutdowntime:
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored
@@ -268,19 +266,19 @@ def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0)
     pattern = re.compile(r"\S+|[-+]?\d*\.\d+|\d+")
     arguments = ['ps', '-u', user, args, '--no-headers']
 
-    process = Popen(arguments, stdout=PIPE, stderr=PIPE, encoding='utf-8')
-    stdout, _ = process.communicate()
-    for line in stdout.splitlines():
-        found = re.findall(pattern, line)
-        if found is not None:
-            processid = found[1]
-            cpu = found[2]
-            mem = found[3]
-            command = ' '.join(found[10:])
-            if cmd in command:
-                num += 1
-                if processid == str(pid):
-                    processes = [cpu, mem, command]
+    with Popen(arguments, stdout=PIPE, stderr=PIPE, encoding='utf-8') as process:
+        stdout, _ = process.communicate()
+        for line in stdout.splitlines():
+            found = re.findall(pattern, line)
+            if found is not None:
+                processid = found[1]
+                cpu = found[2]
+                mem = found[3]
+                command = ' '.join(found[10:])
+                if cmd in command:
+                    num += 1
+                    if processid == str(pid):
+                        processes = [cpu, mem, command]
 
     if processes:
         processes.append(num)
@@ -327,7 +325,7 @@ def run_checks(queues: Any, args: Any) -> None:
         _pilot_heartbeat = get_proper_pilot_heartbeat()
 
         if last_heartbeat > _pilot_heartbeat:
-            detected_job_suspension = True if last_heartbeat > 10 * 60 else False
+            detected_job_suspension = last_heartbeat > 10 * 60
             if detected_job_suspension:
                 logger.warning(f'detected job suspension (last heartbeat was updated more than 10 minutes ago: {last_heartbeat} s)')
             else:
@@ -427,8 +425,7 @@ def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool,
             logger.warning(f'failed to convert maxtime from queuedata, will use default value for max running time '
                            f'({max_running_time}s)')
         else:
-            if max_running_time == 0:
-                max_running_time = lifetime  # fallback to default value
+            max_running_time = lifetime if max_running_time == 0 else max_running_time
             #    logger.debug(f'will use default value for max running time: {max_running_time}s')
             #else:
             #    logger.debug(f'will use queuedata.maxtime value for max running time: {max_running_time}s')

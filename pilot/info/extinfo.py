@@ -16,8 +16,8 @@
 # under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-21
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
 """
 Information provider from external source(s).
@@ -59,7 +59,7 @@ class ExtInfoProvider(DataLoader):
         self.cache_time = cache_time
 
     @classmethod
-    def load_schedconfig_data(cls, pandaqueues: list = [], priority: list = [], cache_time: int = 60) -> dict:
+    def load_schedconfig_data(cls, pandaqueues: list = None, priority: list = None, cache_time: int = 60) -> dict:
         """
         Download the (CRIC-extended) data associated to PandaQueue from various sources (prioritized).
 
@@ -71,6 +71,10 @@ class ExtInfoProvider(DataLoader):
         :param cache_time: default cache time in seconds (int).
         :return: dict of schedconfig settings by PandaQueue name as a key (dict).
         """
+        if pandaqueues is None:
+            pandaqueues = []
+        if priority is None:
+            priority = []
         pandaqueues = sorted(set(pandaqueues))
 
         cache_dir = config.Information.cache_dir
@@ -121,7 +125,7 @@ class ExtInfoProvider(DataLoader):
         return cvmfs_path
 
     @classmethod
-    def load_queuedata(cls, pandaqueue: str, priority: list = [], cache_time: int = 60) -> dict:
+    def load_queuedata(cls, pandaqueue: str, priority: list = None, cache_time: int = 60) -> dict:
         """
         Download the queuedata from various sources (prioritized).
 
@@ -135,6 +139,8 @@ class ExtInfoProvider(DataLoader):
         :return: dict of queuedata settings by PandaQueue name as a key (dict)
         :raises PilotException: in case of error.
         """
+        if priority is None:
+            priority = []
         if not pandaqueue:
             raise PilotException('load_queuedata(): pandaqueue name is not specififed', code=ErrorCodes.QUEUEDATA)
 
@@ -195,7 +201,7 @@ class ExtInfoProvider(DataLoader):
         return cls.load_data(sources, priority, cache_time)
 
     @classmethod
-    def load_storage_data(cls, ddmendpoints: list = [], priority: list = [], cache_time: int = 60) -> dict:
+    def load_storage_data(cls, ddmendpoints: list = None, priority: list = None, cache_time: int = 60) -> dict:
         """
         Download DDM Storages details by given name (DDMEndpoint) from various sources (prioritized).
 
@@ -206,6 +212,10 @@ class ExtInfoProvider(DataLoader):
         :param cache_time: default cache time in seconds (int)
         :return: dictionary of DDMEndpoint settings by DDMendpoint name as a key (dict).
         """
+        if ddmendpoints is None:
+            ddmendpoints = []
+        if priority is None:
+            priority = []
         ddmendpoints = sorted(set(ddmendpoints))
 
         cache_dir = config.Information.cache_dir
@@ -268,12 +278,14 @@ class ExtInfoProvider(DataLoader):
         # merge
         return merge_dict_data(r, master_data)
 
-    def resolve_storage_data(self, ddmendpoints: list = []) -> dict:
+    def resolve_storage_data(self, ddmendpoints: list = None) -> dict:
         """
         Resolve final DDM Storages details by given names (DDMEndpoint).
 
         :param ddmendpoints: list of ddmendpoint names (list)
         :return: dictionary of settings for given DDMEndpoint as a key (dict).
         """
+        if ddmendpoints is None:
+            ddmendpoints = []
         # load ddmconf settings
         return self.load_storage_data(ddmendpoints, cache_time=self.cache_time)  ## use default priority

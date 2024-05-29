@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
 """Base communicator."""
 
@@ -53,6 +53,8 @@ class BaseCommunicator:
         :param args: args object (Any)
         :param kwargs: kwargs dictionary (dict)
         """
+        if args:  # to get rid of pylint warning
+            pass
         super().__init__()
         for key, value in kwargs.items():
             setattr(self, key, value)

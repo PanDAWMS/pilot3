@@ -45,6 +45,8 @@ def is_valid_for_copy_in(files: list) -> bool:
     :param files: list of FileSpec objects (list).
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -60,6 +62,8 @@ def is_valid_for_copy_out(files: list) -> bool:
     :param files: list of FileSpec objects (list).
     :return: always True (for now) (bool).
     """
+    if files:  # to get rid of pylint warning
+        pass
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
@@ -90,7 +94,7 @@ def create_output_list(files: list, init_dir: str):
 
         logger.info(f'adding to output.list: {fspec.lfn} {arcturl}')
         # Write output.list
-        with open(os.path.join(init_dir, 'output.list'), 'a') as f:
+        with open(os.path.join(init_dir, 'output.list'), 'a', encoding='utf-8') as f:
             f.write(f'{fspec.lfn} {arcturl}\n')
 
 
@@ -128,8 +132,12 @@ def build_final_path(turl: str, prefix: str = 'file://localhost') -> (int, str, 
     except FileExistsError:
         # ignore if sub dirs already exist
         pass
-    except (IsADirectoryError, OSError) as exc:
-        diagnostics = f'caught exception: {exc}'
+    except IsADirectoryError as exc:
+        diagnostics = f'caught IsADirectoryError exception: {exc}'
+        logger.warning(diagnostics)
+        return ErrorCodes.MKDIR, diagnostics, path
+    except OSError as exc:
+        diagnostics = f'caught OSError exception: {exc}'
         logger.warning(diagnostics)
         return ErrorCodes.MKDIR, diagnostics, path
     else:
@@ -168,11 +176,11 @@ def copy_in(files: list, copy_type: str = "symlink", **kwargs: dict) -> list:
 
     logger.debug(f"workdir={kwargs.get('workdir')}")
     logger.debug(f"jobworkdir={kwargs.get('jobworkdir')}")
-    exit_code, stdout, stderr = move_all_files(files,
-                                               copy_type,
-                                               kwargs.get('workdir'),
-                                               kwargs.get('jobworkdir'),
-                                               mvfinaldest=kwargs.get('mvfinaldest', False))
+    exit_code, stdout, _ = move_all_files(files,
+                                          copy_type,
+                                          kwargs.get('workdir'),
+                                          kwargs.get('jobworkdir'),
+                                          mvfinaldest=kwargs.get('mvfinaldest', False))
     if exit_code != 0:
         # raise failure
         raise StageInFailure(stdout)
@@ -187,8 +195,8 @@ def copy_out(files: list, copy_type: str = "mv", **kwargs: dict) -> list:
     :param files: list of `FileSpec` objects (list)
     :param copy_type: copy type (str)
     :param kwargs: kwargs dictionary (dict)
-    :raises PilotException: StageOutFailure, MKDirFailure
-    :return: updated files (list).
+    :return: updated files (list)
+    :raises PilotException: StageOutFailure, MKDirFailure.
     """
     if copy_type not in ["cp", "mv"]:
         raise StageOutFailure("incorrect method for copy out")
@@ -205,8 +213,7 @@ def copy_out(files: list, copy_type: str = "mv", **kwargs: dict) -> list:
         # raise failure
         if exit_code == ErrorCodes.MKDIR:
             raise MKDirFailure(stdout)
-        else:
-            raise StageOutFailure(stdout)
+        raise StageOutFailure(stdout)
 
     # Create output list for ARC CE if necessary
     logger.debug(f"init_dir for output.list={os.path.dirname(kwargs.get('workdir'))}")
@@ -282,9 +289,9 @@ def move_all_files(files: list, copy_type: str, workdir: str, jobworkdir: str,
             else:
                 fspec.status_code = ErrorCodes.STAGEOUTFAILED
             break
-        else:
-            fspec.status_code = 0
-            fspec.status = 'transferred'
+
+        fspec.status_code = 0
+        fspec.status = 'transferred'
 
     return exit_code, stdout, stderr
 
