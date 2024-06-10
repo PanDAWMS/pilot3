@@ -180,38 +180,7 @@ class RealTimeLogger(Logger):
                     database_path='logstash_test.db'
                 )
             elif logtype == 'loki':
-                from loki_logger_handler.loki_logger_handler import LokiLoggerHandler
-
-                loki_labels = {'application': 'PanDA_Pilot', 'envirnment': 'Production'}
-                try:
-                    labels = os.environ.get('LOKI_LABELS', {})
-                    if labels:
-                        labels = json.loads(labels)
-                        loki_labels = labels
-                except Exception as ex:
-                    logger.warning(f'failed to load LOKI_LABELS from environment: {ex}')
-
-                loki_labelkeys = ['application', 'environment']
-                try:
-                    labelkeys = os.environ.get('LOKI_LABELKEYS', {})
-                    if labelkeys:
-                        labelkeys = json.loads(labelkeys)
-                        loki_labelkeys = labelkeys
-                except Exception as ex:
-                    logger.warning(f'failed to load LOKI_LABELKEYS from environment: {ex}')
-
-                try:
-                    loki_period = int(os.environ.get('LOKI_PERIOD', 30))
-                except Exception as ex:
-                    logger.warning(f'failed to load LOKI_PERIOD from environment: {ex}')
-                    loki_period = 30
-
-                _handler = LokiLoggerHandler(
-                    url=os.environ["LOKI_URL"],
-                    labels=loki_labels,
-                    labelKeys=loki_labelkeys,
-                    timeout=loki_period
-                )
+                _handler = self.setup_loki_handler()
             else:
                 logger.warning(f'unknown logtype: {logtype}')
                 _handler = None
@@ -225,6 +194,41 @@ class RealTimeLogger(Logger):
         else:
             RealTimeLogger.glogger = None
             del self
+
+    def setup_loki_handler(self):
+        from loki_logger_handler.loki_logger_handler import LokiLoggerHandler
+
+        loki_labels = {'application': 'PanDA_Pilot', 'envirnment': 'Production'}
+        try:
+            labels = os.environ.get('LOKI_LABELS', {})
+            if labels:
+                labels = json.loads(labels)
+                loki_labels = labels
+        except Exception as ex:
+            logger.warning(f'failed to load LOKI_LABELS from environment: {ex}')
+
+        loki_labelkeys = ['application', 'environment']
+        try:
+            labelkeys = os.environ.get('LOKI_LABELKEYS', {})
+            if labelkeys:
+                labelkeys = json.loads(labelkeys)
+                loki_labelkeys = labelkeys
+        except Exception as ex:
+            logger.warning(f'failed to load LOKI_LABELKEYS from environment: {ex}')
+
+        try:
+            loki_period = int(os.environ.get('LOKI_PERIOD', 30))
+        except Exception as ex:
+            logger.warning(f'failed to load LOKI_PERIOD from environment: {ex}')
+            loki_period = 30
+
+        _handler = LokiLoggerHandler(
+            url=os.environ["LOKI_URL"],
+            labels=loki_labels,
+            labelKeys=loki_labelkeys,
+            timeout=loki_period
+        )
+        return _handler
 
     def cleanup(self):
         """
