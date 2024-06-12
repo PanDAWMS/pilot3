@@ -51,3 +51,15 @@ def get_last_update_file() -> str:
     :return: last update file (str).
     """
     return f'{get_cvmfs_base_path()}/sft.cern.ch/lcg/lastUpdate'
+
+
+def get_cvmfs_diagnostics_commands() -> list:
+    """
+    Return a list of commands to be used for CVMFS diagnostics.
+
+    :return: list of commands (list).
+    """
+    return [
+        'cvmfs_config stat atlas.cern.ch',
+        f'attr -g revision {get_cvmfs_base_path()}/atlas.cern.ch'
+    ]

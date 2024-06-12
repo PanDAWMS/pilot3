@@ -54,6 +54,7 @@ from pilot.util.constants import (
     PILOT_MULTIJOB_START_TIME,
 )
 from pilot.util.cvmfs import (
+    cvmfs_diagnostics,
     is_cvmfs_available,
     get_last_update
 )
@@ -123,6 +124,7 @@ def main() -> int:
     # check cvmfs if available
     ec = check_cvmfs(logger)
     if ec:
+        cvmfs_diagnostics()
         return ec
 
     if not args.rucio_host:

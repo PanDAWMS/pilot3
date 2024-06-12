@@ -27,6 +27,8 @@ import signal
 import time
 import types
 
+from pilot.util.container import execute
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,3 +151,26 @@ def extract_timestamp(filename: str) -> int:
         signal.alarm(0)  # Disable the alarm
 
     return timestamp
+
+
+def cvmfs_diagnostics():
+    """Run cvmfs_diagnostics."""
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.cvmfs', globals(), locals(), [pilot_user], 0)
+    try:
+        cmds = user.get_cvmfs_diagnostics_commands()
+    except AttributeError:
+        logger.warning('get_cvmfs_diagnostics_commands not defined in user cvmfs module')
+        return
+
+    if cmds:
+        for cmd in cmds:
+            timeout = 60
+            logger.info(f'running cvmfs diagnostics command using timeout={timeout}s')
+            exit_code, stdout, stderr = execute(cmd, timeout=timeout)
+            if exit_code == 0:
+                logger.info(f'cvmfs diagnostics completed successfully:\n{stdout}')
+            else:
+                logger.warning(f'cvmfs diagnostics failed: {stderr}')
+    else:
+        logger.warning('cvmfs diagnostics commands not defined in user cvmfs module')
