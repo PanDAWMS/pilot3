@@ -17,20 +17,20 @@
 # under the License.
 #
 # Authors:
-# - Wen Guan, wen.guan@cern.ch, 2023 - 2024
+# - Wen Guan, wen.guan@cern.ch, 2023-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024
 
 import json
+import logging
 import os
 import time
 import traceback
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-
 from .baseexecutor import BaseExecutor
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 """
@@ -40,43 +40,60 @@ FineGrainedProc Executor with one process to manage EventService
 
 class FineGrainedProcExecutor(BaseExecutor):
     def __init__(self, **kwargs):
-        super(FineGrainedProcExecutor, self).__init__(**kwargs)
-        self.setName("FineGrainedProcExecutor")
+        """
+        Init function for FineGrainedProcExecutor.
 
+        :param kwargs: keyword arguments (dict).
+        """
+        super().__init__(**kwargs)
+        self.setName("FineGrainedProcExecutor")
         self.__queued_out_messages = []
         self.__stageout_failures = 0
         self.__max_allowed_stageout_failures = 20
         self.__last_stageout_time = None
         self.__all_out_messages = []
-
         self.proc = None
         self.exit_code = None
 
-    def is_payload_started(self):
+    def is_payload_started(self) -> bool:
+        """
+        Check if payload is started.
+
+        :return: True if payload is started, False otherwise.
+        """
         return self.proc.is_payload_started() if self.proc else False
 
-    def get_pid(self):
+    def get_pid(self) -> int or None:
+        """
+        Return the process ID.
+
+        :return: process ID (int or None).
+        """
         return self.proc.pid if self.proc else None
 
-    def get_exit_code(self):
+    def get_exit_code(self) -> int or None:
+        """
+        Get exit code of the process.
+
+        :return: exit code of the process (int or None).
+        """
         return self.exit_code
 
-    def update_finished_event_ranges(self, out_messagess, output_file, fsize, checksum, storage_id):
+    def update_finished_event_ranges(self, out_messages: list, output_file: str, fsize: int, checksum: str, storage_id: Any):
         """
         Update finished event ranges
 
-        :param out_messages: messages from AthenaMP.
-        :param output_file: output file name.
-        :param fsize: file size.
-        :param adler32: checksum (adler32) of the file.
-        :param storage_id: the id of the storage.
+        :param out_messages: messages from AthenaMP (list)
+        :param output_file: output file name (str)
+        :param fsize: file size (int)
+        :param checksum: checksum (adler32) of the file (str)
+        :param storage_id: the id of the storage (Any).
         """
-
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for out_msg in out_messagess:
+        for out_msg in out_messages:
             event_ranges.append({"eventRangeID": out_msg['id'], "eventStatus": 'finished'})
         event_range_status = {"zipFile": {"numEvents": len(event_ranges),
                                           "objstoreID": storage_id,
@@ -92,18 +109,17 @@ class FineGrainedProcExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += len(event_ranges)
 
-    def update_failed_event_ranges(self, out_messagess):
+    def update_failed_event_ranges(self, out_messages: list):
         """
-        Update failed event ranges
+        Update failed event ranges.
 
         :param out_messages: messages from AthenaMP.
         """
-
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for message in out_messagess:
+        for message in out_messages:
             status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
