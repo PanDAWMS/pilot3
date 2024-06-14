@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Common functions for ATLAS."""
@@ -270,7 +270,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
         # if execute_remote_file_open() returns exit code 1, it means general error.
         # exit code 2 means that lsetup timed out, while 3 means that the python script (actual file open) timed out
         try:
-            exitcode, stdout = execute_remote_file_open(path, timeout)
+            exitcode, stdout, lsetup_time = execute_remote_file_open(path, timeout)
         except PilotException as exc:
             logger.warning(f'caught pilot exception: {exc}')
             exitcode = 11
@@ -279,7 +279,12 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
 #        if config.Pilot.remotefileverification_log:
 #            fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
 #            write_file(fpath, stdout + stderr, mute=False)
+
         logger.info(f'remote file open finished with ec={exitcode}')
+        if lsetup_time > 0:
+            logger.info(f"lsetup completed after {lsetup_time} seconds")
+        else:
+            logger.info("lsetup did not finish correctly")
 
         # error handling
         if exitcode:

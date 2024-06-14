@@ -805,14 +805,14 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
     return command
 
 
-def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str):
+def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str, int):
     """
     Execute the remote file open script.
 
     :param path: path to container script (str)
     :param workdir: workdir (str)
     :param python_script_timeout: timeout (int)
-    :return: exit code (int), stdout (str).
+    :return: exit code (int), stdout (str), lsetup time (int).
     """
     lsetup_timeout = 600  # Timeout for 'lsetup' step
     exit_code = 1
@@ -828,6 +828,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
 
     start_time = time.time()  # Track execution start time
     lsetup_completed = False  # Flag to track completion of 'lsetup'
+    lsetup_completed_at = None
 
     while True:
         # Check for timeout (once per second)
@@ -848,6 +849,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
                 if output == "LSETUP_COMPLETED":
                     logger.info('lsetup has completed (resetting start time)')
                     lsetup_completed = True
+                    lsetup_completed_at = time.time()
                     start_time = time.time()  # Reset start time for 'python3' timeout
 
                 stdout += output + "\n"
@@ -883,7 +885,10 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
     if process.poll() is None:
         process.terminate()
 
-    return exit_code, stdout
+    # Check if 'lsetup' was completed
+    lsetup_time = int(lsetup_completed_at - start_time) if lsetup_completed_at else 0
+
+    return exit_code, stdout, lsetup_time
 
 
 def fix_asetup(asetup):
