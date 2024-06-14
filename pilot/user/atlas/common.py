@@ -1985,7 +1985,8 @@ def get_redundants() -> list:
                 "docs/",
                 "/venv/",
                 "/pilot3",
-                "%1"]
+                "%1",
+                "open_remote_file_cmd.sh"]
 
     return dir_list
 
