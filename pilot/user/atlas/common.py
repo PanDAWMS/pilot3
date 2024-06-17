@@ -180,19 +180,20 @@ def validate(job: Any) -> bool:
     return status
 
 
-def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list):  # noqa: C901
+def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list, int):  # noqa: C901
     """
     Verify that direct i/o files can be opened.
 
     :param indata: list of FileSpec (list)
     :param workdir: working directory (str)
     :param nthreads: number of concurrent file open threads (int)
-    :return: exit code (int), diagnostics (str), not opened files (list)
+    :return: exit code (int), diagnostics (str), not opened files (list), lsetup time (int).
     :raises PilotException: in case of pilot error.
     """
     exitcode = 0
     diagnostics = ""
     not_opened = []
+    lsetup_time = 0
 
     # extract direct i/o files from indata (string of comma-separated turls)
     turls = extract_turls(indata)
@@ -223,7 +224,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
                 )
                 logger.warning(diagnostics)
                 logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
-                return exitcode, diagnostics, not_opened
+                return exitcode, diagnostics, not_opened, lsetup_time
 
             try:
                 copy(full_script_path, final_script_path)
@@ -231,7 +232,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
                 # do not set ec since this will be a pilot issue rather than site issue
                 diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
                 logger.warning(diagnostics)
-                return exitcode, diagnostics, not_opened
+                return exitcode, diagnostics, not_opened, lsetup_time
 
             # correct the path when containers have been used
             if "open_remote_file.py" in script:
@@ -246,7 +247,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
             diagnostics = (f'cannot perform file open test - failed to read script content from path '
                            f'{final_paths["open_file.sh"]}')
             logger.warning(diagnostics)
-            return exitcode, diagnostics, not_opened
+            return exitcode, diagnostics, not_opened, lsetup_time
 
         logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
         _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads)
@@ -254,7 +255,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
             diagnostics = (f'cannot perform file open test - failed to create file open command from path '
                            f'{final_paths["open_remote_file.py"]}')
             logger.warning(diagnostics)
-            return exitcode, diagnostics, not_opened
+            return exitcode, diagnostics, not_opened, lsetup_time
 
         timeout = get_timeout_for_remoteio(indata)
         cmd = create_root_container_command(workdir, _cmd, script_content)
@@ -265,7 +266,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
         except FileHandlingFailure as exc:
             diagnostics = f'failed to write file: {exc}'
             logger.warning(diagnostics)
-            return 11, diagnostics, not_opened
+            return 11, diagnostics, not_opened, lsetup_time
 
         # if execute_remote_file_open() returns exit code 1, it means general error.
         # exit code 2 means that lsetup timed out, while 3 means that the python script (actual file open) timed out
@@ -291,7 +292,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
             # first check for apptainer errors
             _exitcode = errors.resolve_transform_error(exitcode, stdout)
             if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
-                return _exitcode, stdout, not_opened
+                return _exitcode, stdout, not_opened, lsetup_time
 
             # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
             _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
@@ -313,7 +314,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, l
     if exitcode:
         logger.warning(f'remote file open exit code: {exitcode}')
 
-    return exitcode, diagnostics, not_opened
+    return exitcode, diagnostics, not_opened, lsetup_time
 
 
 def get_timeout_for_remoteio(indata: list) -> int:
@@ -516,10 +517,14 @@ def get_payload_command(job: Any) -> str:
 
         try:
             logger.debug('executing open_remote_files()')
-            exitcode, diagnostics, not_opened_turls = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
+            exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
             logger.warning(f'caught std exception: {exc}')
         else:
+            # store the lsetup time for later reporting with job metrics
+            #if lsetup_time:
+            #    job.lsetuptime = lsetup_time
+
             # read back the base trace report
             path = os.path.join(job.workdir, config.Pilot.base_trace_report)
             if not os.path.exists(path):

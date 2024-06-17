@@ -805,7 +805,7 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
     return command
 
 
-def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str, int):
+def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str, int):  # noqa: C901
     """
     Execute the remote file open script.
 
@@ -824,69 +824,98 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str
         fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
     except OSError as e:
         logger.warning(f"error starting subprocess: {e}")
-        return exit_code
+        return exit_code, "", 0
+
+    # Split the path at the last dot
+    filename, old_suffix = path.rsplit(".", 1)
+
+    # Create the new path with the desired suffix
+    new_path = f"{filename}.stdout"
 
     start_time = time.time()  # Track execution start time
-    lsetup_completed = False  # Flag to track completion of 'lsetup'
+    lsetup_start_time = start_time
+    lsetup_completed = False  # Flag to track completion of 'lsetup' process
+    python_completed = False  # Flag to track completion of 'python3' process
     lsetup_completed_at = None
 
-    while True:
-        # Check for timeout (once per second)
-        if time.time() - start_time > lsetup_timeout and not lsetup_completed:
-            logger.warning("timeout for 'lsetup' exceeded - killing script")
-            exit_code = 2  # 'lsetup' timeout
-            process.kill()
-            break
+    with open(new_path, "w", encoding='utf-8') as file:
+        while True:
+            # Check for timeout (once per second)
+            if time.time() - start_time > lsetup_timeout and not lsetup_completed:
+                logger.warning("timeout for 'lsetup' exceeded - killing script")
+                exit_code = 2  # 'lsetup' timeout
+                process.kill()
+                break
 
-        # Try to read output without blocking (might return None)
-        try:
-            output = process.stdout.readline()  # Read bytes directly
-            if output is not None:  # Check if any output is available (not None)
-                output = output.decode().strip()
-                logger.info(f'remote file open: {output}')
+            # Try to read output without blocking (might return None)
+            try:
+                output = process.stdout.readline()  # Read bytes directly
+                if output is not None:  # Check if any output is available (not None)
+                    output = output.decode().strip()
+                    if output:
+                        file.write(output + "\n")
+                        # logger.info(f'remote file open: {output}')
 
-                # Check for LSETUP_COMPLETED message
-                if output == "LSETUP_COMPLETED":
-                    logger.info('lsetup has completed (resetting start time)')
-                    lsetup_completed = True
-                    lsetup_completed_at = time.time()
-                    start_time = time.time()  # Reset start time for 'python3' timeout
+                    # Check for LSETUP_COMPLETED message
+                    if output == "LSETUP_COMPLETED":
+                        logger.info('lsetup has completed (resetting start time)')
+                        lsetup_completed = True
+                        lsetup_completed_at = time.time()
+                        start_time = time.time()  # Reset start time for 'python3' timeout
 
-                stdout += output + "\n"
-        except BlockingIOError:
-            time.sleep(0.1)  # No output available yet, continue the loop
-            continue
-        except (OSError, ValueError):  # Catch potential errors from process.stdout
-            #        print(f"Error reading from subprocess output: {e}")
-            #        # Handle the error (e.g., log it, retry, exit)
-            #        break
-            # logger.warning(f"error reading from subprocess output: {e}")
-            time.sleep(0.1)
-            continue
+                    # Check for LSETUP_COMPLETED message
+                    if "PYTHON_COMPLETED" in output:
+                        python_completed = True
+                        match = re.search(r"\d+$", output)
+                        if match:
+                            exit_code = int(match.group())
+                            logger.info(f"python remote open command has completed with exit code {exit_code}")
+                        else:
+                            logger.info("python remote open command has completed without any exit code")
 
-        # Timeout for python script after LSETUP_COMPLETED
-        if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
-            logger.warning(f"timeout for 'python3' subscript exceeded - killing script "
-                           f"({time.time()} - {start_time} > {python_script_timeout})")
-            exit_code = 3  # python script timeout
-            process.kill()
-            break
+                    stdout += output + "\n"
+            except BlockingIOError:
+                time.sleep(0.1)  # No output available yet, continue the loop
+                continue
+            except (OSError, ValueError):  # Catch potential errors from process.stdout
+                #        print(f"Error reading from subprocess output: {e}")
+                #        # Handle the error (e.g., log it, retry, exit)
+                #        break
+                time.sleep(0.1)
+                continue
 
-        # Check if script has completed normally
-        return_code = process.poll()
-        if return_code is not None:
-            logger.info(f"script execution completed with return code: {return_code}")
-            exit_code = return_code
-            break
+            # Timeout for python script after LSETUP_COMPLETED
+            if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
+                logger.warning(f"timeout for 'python3' subscript exceeded - killing script "
+                               f"({time.time()} - {start_time} > {python_script_timeout})")
+                exit_code = 3  # python script timeout
+                process.kill()
+                break
 
-        time.sleep(0.5)
+            if python_completed:
+                logger.info('aborting since python command has finished')
+                return_code = process.poll()
+                if return_code:
+                    logger.warning(f"script execution completed with return code: {return_code}")
+                    # exit_code = return_code
+                break
+
+            # Check if script has completed normally
+            return_code = process.poll()
+            if return_code is not None:
+                pass
+            #    logger.info(f"script execution completed with return code: {return_code}")
+            #    exit_code = return_code
+            #    break
+
+            time.sleep(0.5)
 
     # Ensure process is terminated
     if process.poll() is None:
         process.terminate()
 
     # Check if 'lsetup' was completed
-    lsetup_time = int(lsetup_completed_at - start_time) if lsetup_completed_at else 0
+    lsetup_time = int(lsetup_completed_at - lsetup_start_time) if lsetup_completed_at else 0
 
     return exit_code, stdout, lsetup_time
 
