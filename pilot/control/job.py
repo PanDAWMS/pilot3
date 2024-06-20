@@ -788,8 +788,13 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
             extra = {'readbyterate': readfrac}
     else:
         logger.debug('read_bytes info not yet available')
+
     # extract and remove any GPU info from data since it will be reported with job metrics
     add_gpu_info(data, extra)
+
+    # add the lsetup time if set
+    if job.lsetuptime:
+        extra['lsetup_time'] = job.lsetuptime
 
     job_metrics = get_job_metrics(job, extra=extra)
     if job_metrics:
