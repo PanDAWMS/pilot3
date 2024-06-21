@@ -522,8 +522,8 @@ def get_payload_command(job: Any) -> str:
             logger.warning(f'caught std exception: {exc}')
         else:
             # store the lsetup time for later reporting with job metrics
-            #if lsetup_time:
-            #    job.lsetuptime = lsetup_time
+            if lsetup_time:
+                job.lsetuptime = lsetup_time
 
             # read back the base trace report
             path = os.path.join(job.workdir, config.Pilot.base_trace_report)
