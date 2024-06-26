@@ -44,7 +44,7 @@ class BaseExecutor(threading.Thread, PluginFactory):
         :param kwargs: keyword arguments (dict).
         """
         super().__init__()
-        self.setName("BaseExecutor")
+        self.name = "BaseExecutor"
         self.queue = None
         self.payload = None
         self.args = None

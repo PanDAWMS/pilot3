@@ -39,14 +39,14 @@ FineGrainedProc Executor with one process to manage EventService
 
 
 class FineGrainedProcExecutor(BaseExecutor):
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """
         Init function for FineGrainedProcExecutor.
 
         :param kwargs: keyword arguments (dict).
         """
         super().__init__(**kwargs)
-        self.setName("FineGrainedProcExecutor")
+        self.name = "FineGrainedProcExecutor"
         self.__queued_out_messages = []
         self.__stageout_failures = 0
         self.__max_allowed_stageout_failures = 20
@@ -113,41 +113,40 @@ class FineGrainedProcExecutor(BaseExecutor):
         """
         Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP.
+        :param out_messages: messages from AthenaMP (list).
         """
         if len(out_messages) == 0:
             return
 
         event_ranges = []
         for message in out_messages:
-            status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
+            status = message['status'] if message['status'] in {'failed', 'fatal'} else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def update_terminated_event_ranges(self, out_messagess):
+    def update_terminated_event_ranges(self, out_messages: list):
         """
         Update terminated event ranges
 
-        :param out_messages: messages from AthenaMP.
+        :param out_messages: messages from AthenaMP (list).
         """
-
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
         finished_events = 0
-        for message in out_messagess:
-            if message['status'] in ['failed', 'fatal', 'finished', 'running', 'transferring']:
+        for message in out_messages:
+            if message['status'] in {'failed', 'fatal', 'finished', 'running', 'transferring'}:
                 status = message['status']
-                if message['status'] in ['finished']:
+                if message['status'] in {'finished'}:
                     finished_events += 1
             else:
-                logger.warn("status is unknown for messages, set it running: %s" % str(message))
+                logger.warning(f"status is unknown for messages, set it running: {message}")
                 status = 'running'
             error_code = message.get("error_code", None)
-            if status in ["failed", "fatal"] and error_code is None:
+            if status in {"failed", "fatal"} and error_code is None:
                 error_code = errors.UNKNOWNPAYLOADFAILURE
             error_diag = message.get("error_diag")
 
@@ -159,30 +158,31 @@ class FineGrainedProcExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += finished_events
 
-    def handle_out_message(self, message):
+    def handle_out_message(self, message: dict):
         """
         Handle ES output or error messages hook function for tests.
 
-        :param message: a dict of parsed message.
-                        For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
+        Example of message:
+                For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
-                        Fro 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
+                For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
+
+        :param message: a dict of parsed message (dict).
         """
-
         logger.info(f"handling out message: {message}")
-
         self.__all_out_messages.append(message)
-
         self.__queued_out_messages.append(message)
 
-    def stageout_es(self, force=False):
+    def stageout_es(self, force: bool = False):
         """
         Stage out event service outputs.
-        When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
-        """
 
+        When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
+
+        :param force: force to stage out (bool).
+        """
         job = self.get_job()
-        if len(self.__queued_out_messages):
+        if self.__queued_out_messages:
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
 
                 out_messages = []
@@ -194,18 +194,15 @@ class FineGrainedProcExecutor(BaseExecutor):
                     self.update_terminated_event_ranges(out_messages)
 
     def clean(self):
-        """
-        Clean temp produced files
-        """
-
+        """Clean temp produced files."""
         for msg in self.__all_out_messages:
-            if msg['status'] in ['failed', 'fatal']:
+            if msg['status'] in {'failed', 'fatal'}:
                 pass
             elif 'output' in msg:
                 try:
                     logger.info(f"removing ES pre-merge file: {msg['output']}")
                     os.remove(msg['output'])
-                except Exception as exc:
+                except OSError as exc:
                     logger.error(f"failed to remove file({msg['output']}): {exc}")
         self.__queued_out_messages = []
         self.__stageout_failures = 0
@@ -229,7 +226,7 @@ class FineGrainedProcExecutor(BaseExecutor):
             proc = esprocessfinegrainedproc.ESProcessFineGrainedProc(payload)
             return proc
         except Exception as ex:
-            logger.warn("use specific ESProcessFineGrainedProc does not exist. Using the pilot.eventservice.esprocess.esprocessfinegrainedproc: " + str(ex))
+            logger.warning(f"use specific ESProcessFineGrainedProc does not exist. Using the pilot.eventservice.esprocess.esprocessfinegrainedproc: {ex}")
             from pilot.eventservice.esprocess.esprocessfinegrainedproc import ESProcessFineGrainedProc
             proc = ESProcessFineGrainedProc(payload)
             return proc
@@ -240,7 +237,7 @@ class FineGrainedProcExecutor(BaseExecutor):
         """
 
         try:
-            logger.info("starting ES FineGrainedProcExecutor with thread identifier: %s" % (self.ident))
+            logger.info(f"starting ES FineGrainedProcExecutor with thread identifier: {self.ident}")
             if self.is_set_payload():
                 payload = self.get_payload()
             elif self.is_retrieve_payload():
@@ -291,7 +288,7 @@ class FineGrainedProcExecutor(BaseExecutor):
             self.stageout_es(force=True)
             self.clean()
             self.exit_code = proc.poll()
-            logger.info("ESProcess exit_code: %s" % self.exit_code)
+            logger.info(f"ESProcess exit_code: {self.exit_code}")
 
         except Exception as exc:
             logger.error(f'execute payload failed: {exc}, {traceback.format_exc()}')
