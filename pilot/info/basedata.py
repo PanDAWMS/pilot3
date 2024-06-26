@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
 Base data class.
@@ -141,7 +141,7 @@ class BaseData:
 
         try:
             return ktype(raw)
-        except Exception:
+        except TypeError:
             if raw is not None:
                 logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}, defval={defval}')
             return defval
@@ -166,7 +166,7 @@ class BaseData:
             raw = raw.strip()
         try:
             return ktype(raw)
-        except Exception:
+        except TypeError:
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
@@ -215,7 +215,7 @@ class BaseData:
             return defval
         try:
             return ktype(raw)
-        except Exception:
+        except TypeError:
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
@@ -239,7 +239,7 @@ class BaseData:
             raw = raw.split(',')
         try:
             return ktype(raw)
-        except Exception:
+        except TypeError:
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
