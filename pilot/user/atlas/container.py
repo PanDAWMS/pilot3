@@ -996,7 +996,7 @@ def create_middleware_container_command(job, cmd, label='stage-in', proxy=True):
             if label == 'setup':
                 # set the platform info
                 command += f'export thePlatform="{job.platform}";'
-            command += 'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c '
+            command += f'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c '  # noqa: F541
             if middleware_container:
                 command += f'{middleware_container}'
             elif label == 'stage-in' or label == 'stage-out':
