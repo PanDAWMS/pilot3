@@ -30,11 +30,17 @@ import traceback
 from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import FileHandlingFailure
+from pilot.common.exception import (
+    FileHandlingFailure,
+    NoSuchFile
+)
 from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.info.filespec import FileSpec
 from pilot.util.config import config
-from pilot.util.filehandling import calculate_checksum, move
+from pilot.util.filehandling import (
+    calculate_checksum,
+    move
+)
 from .baseexecutor import BaseExecutor
 
 logger = logging.getLogger(__name__)
@@ -50,8 +56,8 @@ class RaythenaExecutor(BaseExecutor):
 
         :param kwargs: kwargs dictionary (dict).
         """
-        super(RaythenaExecutor, self).__init__(**kwargs)
-        self.setName("RaythenaExecutor")
+        super().__init__(**kwargs)
+        self.name = "RaythenaExecutor"
         self.__queued_out_messages = []
         self.__last_stageout_time = None
         self.__all_out_messages = []
@@ -91,7 +97,7 @@ class RaythenaExecutor(BaseExecutor):
         """
         try:
             checksum = calculate_checksum(pfn, algorithm=config.File.checksum_type)
-        except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+        except Exception as exc:
             logger.warning(f'caught exception: {exc}')
             checksum = ''  # fail later
 
@@ -115,7 +121,7 @@ class RaythenaExecutor(BaseExecutor):
         if outputdir:
             try:
                 move(pfn, outputdir)
-            except Exception as exc:
+            except (NoSuchFile, FileHandlingFailure) as exc:
                 logger.warning(f'failed to move output: {exc}')
 
     def update_finished_event_ranges(self, out_messages: Any) -> None:
@@ -159,7 +165,7 @@ class RaythenaExecutor(BaseExecutor):
 
         event_ranges = []
         for message in out_messages:
-            status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
+            status = message['status'] if message['status'] in {'failed', 'fatal'} else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
@@ -180,7 +186,7 @@ class RaythenaExecutor(BaseExecutor):
 
         self.__all_out_messages.append(message)
 
-        if message['status'] in ['failed', 'fatal']:
+        if message['status'] in {'failed', 'fatal'}:
             self.update_failed_event_ranges([message])
         else:
             if 'output' in message:
@@ -194,7 +200,7 @@ class RaythenaExecutor(BaseExecutor):
         :param force: force stage out (bool).
         """
         job = self.get_job()
-        if len(self.__queued_out_messages):
+        if self.__queued_out_messages:
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
                 out_messages = []
                 while len(self.__queued_out_messages) > 0:
@@ -226,6 +232,7 @@ class RaythenaExecutor(BaseExecutor):
                 payload = self.retrieve_payload()
             else:
                 logger.error("payload is not set but is_retrieve_payload is also not set. No payloads.")
+                payload = None
 
             logger.info(f"payload: {payload}")
 
