@@ -934,7 +934,7 @@ def fix_asetup(asetup):
     return asetup
 
 
-def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
+def create_middleware_container_command(job, cmd, label='stage-in', proxy=True):
     """
     Create the container command for stage-in/out or other middleware.
 
@@ -996,7 +996,11 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
             if label == 'setup':
                 # set the platform info
                 command += f'export thePlatform="{job.platform}";'
-            command += f'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c {middleware_container}'
+            command += 'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c '
+            if middleware_container:
+                command += f'{middleware_container}'
+            elif label == 'stage-in' or label == 'stage-out':
+                command += 'el9 '
             if label == 'setup':
                 command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
             else:
@@ -1050,7 +1054,7 @@ def get_middleware_container_script(middleware_container: str, cmd: str, asetup:
             _asetup = get_asetup(asetup=False)
             _asetup = fix_asetup(_asetup)
             content += _asetup
-        if label == 'stagein' or label == 'stageout':
+        if label == 'stage-in' or label == 'stage-out':
             content += sitename + 'lsetup rucio davix xrootd; '
             content += f'python3 {cmd} '
         else:
