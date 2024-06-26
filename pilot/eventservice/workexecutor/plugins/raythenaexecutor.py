@@ -235,7 +235,6 @@ class RaythenaExecutor(BaseExecutor):
                 payload = None
 
             logger.info(f"payload: {payload}")
-
             logger.info("starting ESProcess")
             proc = ESProcess(payload, waiting_time=999999)
             self.proc = proc
