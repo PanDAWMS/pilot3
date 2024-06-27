@@ -141,7 +141,7 @@ class BaseData:
 
         try:
             return ktype(raw)
-        except TypeError:
+        except (ValueError, TypeError):
             if raw is not None:
                 logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}, defval={defval}')
             return defval
@@ -166,7 +166,7 @@ class BaseData:
             raw = raw.strip()
         try:
             return ktype(raw)
-        except TypeError:
+        except (ValueError, TypeError):
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
@@ -215,7 +215,7 @@ class BaseData:
             return defval
         try:
             return ktype(raw)
-        except TypeError:
+        except (ValueError, TypeError):
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
@@ -239,7 +239,7 @@ class BaseData:
             raw = raw.split(',')
         try:
             return ktype(raw)
-        except TypeError:
+        except (ValueError, TypeError):
             logger.warning(f'failed to convert data for key={kname}, raw={raw} to type={ktype}')
             return defval
 
