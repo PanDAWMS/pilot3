@@ -555,6 +555,7 @@ def move(path1: str, path2: str):
 
     :param path1: source path (str)
     :param path2: destination path (str).
+    :raises PilotException: FileHandlingFailure, NoSuchFile.
     """
     if not os.path.exists(path1):
         diagnostic = f'file copy failure: path does not exist: {path1}'
