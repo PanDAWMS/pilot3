@@ -261,6 +261,9 @@ def get_command_by_pid(pid: int) -> str or None:
         process = psutil.Process(pid)
         command = " ".join(process.cmdline())
         return command
+    except NameError:
+        logger.warning('psutil module not available - aborting')
+        return None
     except psutil.NoSuchProcess:
-        print(f"process with PID {pid} not found")
+        logger.warning(f"process with PID {pid} not found")
         return None
