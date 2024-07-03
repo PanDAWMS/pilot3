@@ -50,14 +50,14 @@ errors = ErrorCodes()
 class GenericExecutor(BaseExecutor):
     """Generic executor class."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """
         Initialize generic executor.
 
         :param kwargs: kwargs dictionary (dict).
         """
-        super(GenericExecutor, self).__init__(**kwargs)
-        self.setName("GenericExecutor")
+        super().__init__(**kwargs)
+        self.name = "GenericExecutor"
         self.__queued_out_messages = []
         self.__stageout_failures = 0
         self.__max_allowed_stageout_failures = 20
@@ -90,7 +90,7 @@ class GenericExecutor(BaseExecutor):
         """
         return self.exit_code
 
-    def update_finished_event_ranges(self, out_messagess: Any, output_file: str, fsize: int, checksum: str,
+    def update_finished_event_ranges(self, out_messages: Any, output_file: str, fsize: int, checksum: str,
                                      storage_id: Any) -> None:
         """
         Update finished event ranges.
@@ -98,14 +98,14 @@ class GenericExecutor(BaseExecutor):
         :param out_messages: messages from AthenaMP (Any)
         :param output_file: output file name (str)
         :param fsize: file size (int)
-        :param adler32: checksum (adler32) of the file (str)
+        :param checksum: checksum (adler32) of the file (str)
         :param storage_id: the id of the storage (Any).
         """
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for out_msg in out_messagess:
+        for out_msg in out_messages:
             event_ranges.append({"eventRangeID": out_msg['id'], "eventStatus": 'finished'})
         event_range_status = {"zipFile": {"numEvents": len(event_ranges),
                                           "objstoreID": storage_id,
@@ -132,13 +132,13 @@ class GenericExecutor(BaseExecutor):
 
         event_ranges = []
         for message in out_messages:
-            status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
+            status = message['status'] if message['status'] in {'failed', 'fatal'} else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def handle_out_message(self, message: Any):
+    def handle_out_message(self, message: dict):
         """
         Handle ES output or error messages hook function for tests.
 
@@ -147,13 +147,13 @@ class GenericExecutor(BaseExecutor):
                                                            'wall': <wall>, 'message': <full message>}.
             For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
-        :param message: a dict of parsed message (Any).
+        :param message: a dict of parsed message (dict).
         """
         logger.info(f"handling out message: {message}")
 
         self.__all_out_messages.append(message)
 
-        if message['status'] in ['failed', 'fatal']:
+        if message['status'] in {'failed', 'fatal'}:
             self.update_failed_event_ranges([message])
         else:
             self.__queued_out_messages.append(message)
@@ -213,7 +213,7 @@ class GenericExecutor(BaseExecutor):
                      }
         file_spec = FileSpec(filetype='output', **file_data)
         xdata = [file_spec]
-        kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job)
+        kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job}
 
         try_failover = False
         activity = ['es_events', 'pw']  ## FIX ME LATER: replace `pw` with `write_lan` once AGIS is updated (acopytools)
@@ -234,7 +234,7 @@ class GenericExecutor(BaseExecutor):
         try:
             if _error:
                 pass
-        except Exception as exc:
+        except NameError as exc:
             logger.error(f'found no error object - stage-out must have failed: {exc}')
             _error = StageOutFailure("stage-out failed")
 
@@ -293,40 +293,40 @@ class GenericExecutor(BaseExecutor):
         :param force: force to stage out (bool).
         """
         job = self.get_job()
-        if len(self.__queued_out_messages):
+        if self.__queued_out_messages:
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
 
-                out_messagess, output_file = self.tarzip_output_es()
-                logger.info(f"tar/zip event ranges: {out_messagess}, output_file: {output_file}")
+                out_messages, output_file = self.tarzip_output_es()
+                logger.info(f"tar/zip event ranges: {out_messages}, output_file: {output_file}")
 
-                if out_messagess:
+                if out_messages:
                     self.__last_stageout_time = time.time()
                     try:
                         logger.info(f"staging output file: {output_file}")
                         storage, storage_id, fsize, checksum = self.stageout_es_real(output_file)
                         logger.info(f"staged output file ({output_file}) to storage: {storage} storage_id: {storage_id}")
 
-                        self.update_finished_event_ranges(out_messagess, output_file, fsize, checksum, storage_id)
+                        self.update_finished_event_ranges(out_messages, output_file, fsize, checksum, storage_id)
                     except Exception as exc:
                         logger.error(f"failed to stage out file({output_file}): {exc}, {traceback.format_exc()}")
 
                         if force:
-                            self.update_failed_event_ranges(out_messagess)
+                            self.update_failed_event_ranges(out_messages)
                         else:
                             logger.info("failed to stage out, adding messages back to the queued messages")
-                            self.__queued_out_messages += out_messagess
+                            self.__queued_out_messages += out_messages
                             self.__stageout_failures += 1
 
     def clean(self):
         """Clean temp produced files."""
         for msg in self.__all_out_messages:
-            if msg['status'] in ['failed', 'fatal']:
+            if msg['status'] in {'failed', 'fatal'}:
                 pass
             elif 'output' in msg:
                 try:
                     logger.info(f"removing ES pre-merge file: {msg['output']}")
                     os.remove(msg['output'])
-                except Exception as exc:
+                except OSError as exc:
                     logger.error(f"failed to remove file({msg['output']}): {exc}")
         self.__queued_out_messages = []
         self.__stageout_failures = 0

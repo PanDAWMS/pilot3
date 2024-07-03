@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """Base executor - Main class to manage the event service work."""
 
@@ -41,7 +41,7 @@ class WorkExecutor(PluginFactory):
 
         :param args: args dictionary (Any).
         """
-        super(WorkExecutor, self).__init__()
+        super().__init__()
         self.payload = None
         self.plugin = None
         self.is_retrieve_payload = False
@@ -82,30 +82,22 @@ class WorkExecutor(PluginFactory):
 
         :return: plugin configurations (dict).
         """
-        plugin_confs = {}
-        if self.args and 'executor_type' in list(self.args.keys()):  # Python 2/3
-            if self.args['executor_type'] == 'hpo':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.hpoexecutor.HPOExecutor'}
-            elif self.args['executor_type'] == 'raythena':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.raythenaexecutor.RaythenaExecutor'}
-            elif self.args['executor_type'] == 'generic':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor'}
-            elif self.args['executor_type'] == 'base':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.baseexecutor.BaseExecutor'}
-            elif self.args['executor_type'] == 'nl':  # network-less
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.nlexecutor.NLExecutor'}
-            elif self.args['executor_type'] == 'boinc':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.boincexecutor.BOINCExecutor'}
-            elif self.args['executor_type'] == 'hammercloud':  # hammercloud test: refine normal simul to ES
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.hammercloudexecutor.HammerCloudExecutor'}
-            elif self.args['executor_type'] == 'mpi':  # network-less
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.mpiexecutor.MPIExecutor'}
-            elif self.args['executor_type'] == 'fineGrainedProc':
-                plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.finegrainedprocexecutor.FineGrainedProcExecutor'}
-        else:
-            plugin_confs = {'class': 'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor'}
+        executor_type_to_class = {
+            'hpo': 'pilot.eventservice.workexecutor.plugins.hpoexecutor.HPOExecutor',
+            'raythena': 'pilot.eventservice.workexecutor.plugins.raythenaexecutor.RaythenaExecutor',
+            'generic': 'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor',
+            'base': 'pilot.eventservice.workexecutor.plugins.baseexecutor.BaseExecutor',
+            'nl': 'pilot.eventservice.workexecutor.plugins.nlexecutor.NLExecutor',
+            'boinc': 'pilot.eventservice.workexecutor.plugins.boincexecutor.BOINCExecutor',
+            'hammercloud': 'pilot.eventservice.workexecutor.plugins.hammercloudexecutor.HammerCloudExecutor',
+            'mpi': 'pilot.eventservice.workexecutor.plugins.mpiexecutor.MPIExecutor',
+            'fineGrainedProc': 'pilot.eventservice.workexecutor.plugins.finegrainedprocexecutor.FineGrainedProcExecutor'
+        }
 
-        plugin_confs['args'] = self.args
+        executor_type = self.args.get('executor_type', 'generic')
+        class_name = executor_type_to_class.get(executor_type,
+                                                'pilot.eventservice.workexecutor.plugins.genericexecutor.GenericExecutor')
+        plugin_confs = {'class': class_name, 'args': self.args}
 
         return plugin_confs
 
@@ -127,8 +119,8 @@ class WorkExecutor(PluginFactory):
         else:
             if not self.get_payload():
                 raise exception.SetupFailure("Payload is not assigned.")
-            else:
-                self.plugin.set_payload(self.get_payload())
+
+            self.plugin.set_payload(self.get_payload())
 
         logger.info(f"Starting plugin: {self.plugin}")
         self.plugin.start()

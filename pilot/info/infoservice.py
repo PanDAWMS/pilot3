@@ -78,6 +78,7 @@ class InfoService:
             :raises PilotException: in case of error.
             """
             if getattr(self, key, None) is None:
+                # pylint: disable=no-member
                 raise PilotException(f"failed to call {func.__name__}(): InfoService instance is not initialized. "
                                      f"Call init() first!")
 
@@ -173,6 +174,7 @@ class InfoService:
                     if not merge:
                         return r
                     ret = merge_dict_data(ret or {}, r or {})
+                # pylint: disable=broad-except
                 except Exception as exc:
                     logger.warning(f"failed to resolve data ({fcall.__name__}) from provider={provider} .. skipped, error={exc}")
                     logger.warning(traceback.format_exc())

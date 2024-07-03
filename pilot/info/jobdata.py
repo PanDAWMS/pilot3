@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -125,6 +125,7 @@ class JobData(BaseData):
     subprocesses = []              # list of PIDs for payload subprocesses
     prodproxy = ""                 # to keep track of production proxy on unified queues
     completed = False              # True when job has finished or failed, used by https::send_update()
+    lsetuptime = 0                 # payload setup time (lsetup)
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time

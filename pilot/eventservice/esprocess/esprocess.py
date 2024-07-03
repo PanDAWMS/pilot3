@@ -163,7 +163,7 @@ class ESProcess(threading.Thread):
         is_mt = "--multithreaded=true" in executable.lower()
         if is_ca:
             if is_mt:
-                preexec_socket_config = f" --mtes=True --mtes-channel=\"{socket_name}\" "
+                preexec_socket_config = f" --mtes --mtes-channel=\"{socket_name}\" "
             else:
                 preexec_socket_config = f" --preExec 'ConfigFlags.MP.EventRangeChannel=\"{socket_name}\"' "
         else:

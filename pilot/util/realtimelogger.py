@@ -147,7 +147,7 @@ class RealTimeLogger(logging.Logger):
             client = google.cloud.logging.Client()
             _handler = CloudLoggingHandler(client, name=name)
             api_logger = logging.getLogger('google.cloud.logging_v2')
-            api_logger.setLevel(logger.INFO)
+            api_logger.setLevel(logging.INFO)
         elif logtype == "fluent":
             _handler = fluent_handler.FluentHandler(name, host=server, port=port)
         elif logtype == "logstash":

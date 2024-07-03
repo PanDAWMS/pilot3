@@ -31,6 +31,7 @@ import threading
 import time
 from os import getcwd, chdir, environ
 from os.path import exists, join
+from re import match
 from shutil import rmtree
 from typing import Any
 
@@ -241,6 +242,25 @@ def str2bool(var: str) -> bool:
         raise argparse.ArgumentTypeError(f"boolean value expected (var={var})")
 
     return ret
+
+
+def validate_resource_type(value: str) -> str:
+    """
+    Validate the resource type.
+
+    :param value: resource type (str)
+    :return: resource type (str)
+    :raises: argparse.ArgumentTypeError if the resource type is invalid.
+    """
+    # Define the allowed patterns
+    allowed_patterns = ["SCORE", "MCORE", "SCORE_*", "MCORE_*"]
+    if value in allowed_patterns:
+        return value
+    # Check for pattern matching
+    for pattern in allowed_patterns:
+        if pattern.endswith('*') and match(f"^{pattern[:-1]}", value):
+            return value
+    raise argparse.ArgumentTypeError(f"Invalid resource type: {value}")
 
 
 def get_args() -> Any:
@@ -548,9 +568,8 @@ def get_args() -> Any:
         "--resource-type",
         dest="resource_type",
         default="",
-        type=str,
-        choices=["SCORE", "MCORE", "SCORE_HIMEM", "MCORE_HIMEM"],
-        help="Resource type; MCORE, SCORE, SCORE_HIMEM or MCORE_HIMEM",
+        type=validate_resource_type,
+        help="Resource type; MCORE, SCORE or patterns like SCORE_* and MCORE_*",
     )
     arg_parser.add_argument(
         "--use-https",
