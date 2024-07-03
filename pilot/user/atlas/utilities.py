@@ -171,7 +171,8 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         if _pid:
             logger.debug(f'discovered pid={_pid} for job id {jobid}')
             cmd = get_command_by_pid(_pid)
-            logger.debug(f'command for pid {_pid}: {cmd}')
+            if cmd:
+                logger.debug(f'command for pid {_pid}: {cmd}')
             break
 
         logger.warning(f'payload pid has not yet been identified (#{i + 1}/#{imax})')

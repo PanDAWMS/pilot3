@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
 Pilot Information component.
@@ -36,11 +36,11 @@ import logging
 from collections import namedtuple
 from typing import Any
 
+from pilot.common.exception import PilotException
 from .infoservice import InfoService
 from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
-from pilot.common.exception import PilotException
 
 logger = logging.getLogger(__name__)
 
