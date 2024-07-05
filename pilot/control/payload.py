@@ -30,8 +30,15 @@ import os
 import time
 import traceback
 import queue
-from re import findall, split
-from typing import Any, TextIO
+from re import (
+    findall,
+    split,
+    search
+)
+from typing import (
+    Any,
+    TextIO
+)
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import (
@@ -410,30 +417,36 @@ def get_logging_info(job: Any, args: Any) -> dict:
     info_dic['logname'] = args.realtime_logname if args.realtime_logname else "pilot-log"
     logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
-    pattern = r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)'
-    info = findall(pattern, get_rtlogging())
-
+    info = findall(r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)', get_rtlogging())
     if not logserver and not info:
-        logger.warning('not enough info available for activating real-time logging')
+        logger.warning(f"not enough info available for activating real-time logging (info='{info}', logserver='{logserver}')")
         return {}
 
     if len(logserver) > 0:
-        items = logserver.split(':')
-        info_dic['logging_type'] = items[0].lower()
-        pattern = r'(\S+)\:\/\/(\S+)'
-        if len(items) > 2:
-            _address = findall(pattern, items[1])
-            info_dic['port'] = items[2]
+        if ';' not in logserver:
+            logger.warning(f'wrong format of logserver: does not contain a \';\' character: {logserver}')
+            logger.info("correct logserver formal: logging_type;protocol://hostname:port")
+            return {}
+
+        regex = r"logserver='(?P<logging_type>[^;]+);(?P<protocol>[^:]+)://(?P<hostname>[^:]+):(?P<port>\d+)'"
+        match = search(regex, logserver)
+        if match:
+            logging_type = match.group('logging_type')
+            protocol = match.group('protocol')
+            hostname = match.group('hostname')
+            port = match.group('port')
+
+            # Print the extracted values
+            logger.debug(f"extracted logging_type='{logging_type}', protocol='{protocol}', hostname='{hostname}',"
+                         f"port='{port}' from logserver='{logserver}'")
+
+            info_dic['logging_type'] = logging_type
+            info_dic['protocol'] = protocol
+            info_dic['url'] = hostname
+            info_dic['port'] = port
         else:
-            _address = None
-            info_dic['port'] = 24224
-        if _address:
-            info_dic['protocol'] = _address[0][0]
-            info_dic['url'] = _address[0][1]
-        else:
-            logger.warning(f'protocol/url could not be extracted from {items}')
-            info_dic['protocol'] = ''
-            info_dic['url'] = ''
+            logger.warning(f"no match found in logserver='{logserver}' for pattern=r'{regex}'")
+            return {}
     elif info:
         try:
             info_dic['logging_type'] = info[0][0]
