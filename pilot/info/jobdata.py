@@ -38,6 +38,7 @@ import logging
 import os
 import re
 import shlex
+from json import dumps
 from time import sleep
 from typing import Any
 
@@ -624,7 +625,7 @@ class JobData(BaseData):
 
         return v
 
-    def clean__jobparams(self, raw, value):
+    def clean__jobparams(self, raw: Any, value: str) -> str:
         """
         Verify and validate value for the jobparams key.
 
@@ -632,9 +633,9 @@ class JobData(BaseData):
         The function will in particular extract and remove --overwriteQueueData, ZIP_MAP and --containerimage.
         It will remove the old Pilot 1 option --overwriteQueuedata which should be replaced with --overwriteQueueData.
 
-        :param raw: (unused).
-        :param value: job parameters (string).
-        :return: updated job parameters (string).
+        :param raw: (unused) (Any)
+        :param value: job parameters (str)
+        :return: updated job parameters (str).
         """
         #   value += ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" someblah'
         logger.info(f'cleaning jobparams: {value}')
@@ -688,7 +689,7 @@ class JobData(BaseData):
         """
         Extract the container image from the job parameters if present, and remove it.
 
-        :param jobparams: job parameters (string).
+        :param jobparams: job parameters (str)
         :return: string with updated job parameters, string with extracted image name (tuple).
         """
         imagename = ""
@@ -720,7 +721,7 @@ class JobData(BaseData):
         return jobparams, imagename
 
     @classmethod
-    def parse_args(self, data: str, options: dict, remove: bool = False) -> tuple:
+    def parse_args(cls, data: str, options: dict, remove: bool = False) -> tuple:
         """
         Extract option/values from string containing command line options (arguments).
 
@@ -734,11 +735,11 @@ class JobData(BaseData):
         if not options:
             return {}, data
 
-        opts, pargs = self.get_opts_pargs(data)
+        opts, pargs = cls.get_opts_pargs(data)
         if not opts:
             return {}, data
 
-        ret = self.get_ret(options, opts)
+        ret = cls.get_ret(options, opts)
 
         ## serialize parameters back to string
         rawdata = data
@@ -757,7 +758,7 @@ class JobData(BaseData):
         return ret, rawdata
 
     @staticmethod
-    def get_opts_pargs(data: str) -> tuple:
+    def get_opts_pargs(data: str) -> tuple[dict, list]:
         """
         Get the opts and pargs variables.
 
@@ -768,7 +769,7 @@ class JobData(BaseData):
             args = shlex.split(data)
         except ValueError as exc:
             logger.error(f'Failed to parse input arguments from data={data}, error={exc} .. skipped.')
-            return {}, data
+            return {}, []
 
         opts, curopt, pargs = {}, None, []
         for arg in args:
@@ -790,15 +791,14 @@ class JobData(BaseData):
         return opts, pargs
 
     @staticmethod
-    def get_ret(options, opts):
+    def get_ret(options: dict, opts: dict):
         """
         Get the ret variable from the options.
 
-        :param options:
-        :param opts:
+        :param options: dict of option names to be considered: (name, type) (dict)
+        :param opts: dict of extracted options (dict)
         :return: ret (dict).
         """
-
         ret = {}
         for opt, fcast in list(options.items()):
             val = opts.get(opt)
@@ -811,15 +811,14 @@ class JobData(BaseData):
 
         return ret
 
-    def add_workdir_size(self, workdir_size):
+    def add_workdir_size(self, workdir_size: int):
         """
         Add a measured workdir size to the workdirsizes field.
+
         The function will deduce any input and output file sizes from the workdir size.
 
         :param workdir_size: workdir size (int).
-        :return:
         """
-
         if not isinstance(workdir_size, int):
             try:
                 workdir_size = int(workdir_size)
@@ -853,15 +852,14 @@ class JobData(BaseData):
 
         self.workdirsizes.append(workdir_size)
 
-    def get_max_workdir_size(self):
+    def get_max_workdir_size(self) -> int:
         """
         Return the maximum disk space used by the payload.
 
         :return: workdir size (int).
         """
-
         maxdirsize = 0
-        if self.workdirsizes != []:
+        if self.workdirsizes:
             # Get the maximum value from the list
             maxdirsize = max(self.workdirsizes)
         else:
@@ -869,13 +867,12 @@ class JobData(BaseData):
 
         return maxdirsize
 
-    def get_lfns_and_guids(self):
+    def get_lfns_and_guids(self) -> tuple[list, list]:
         """
         Return ordered lists with the input file LFNs and GUIDs.
 
-        :return: list of input files, list of corresponding GUIDs.
+        :return: list of input files, list of corresponding GUIDs (tuple).
         """
-
         lfns = []
         guids = []
 
@@ -885,17 +882,16 @@ class JobData(BaseData):
 
         return lfns, guids
 
-    def get_status(self, key):
+    def get_status(self, key: str) -> str:
         """
 
         Return the value for the given key (e.g. LOG_TRANSFER) from the status dictionary.
         LOG_TRANSFER_NOT_DONE is returned if job object is not defined for key='LOG_TRANSFER'.
         If no key is found, None will be returned.
 
-        :param key: key name (string).
-        :return: corresponding key value in job.status dictionary (string).
+        :param key: key name (str)
+        :return: corresponding key value in job.status dictionary (str).
         """
-
         log_transfer = self.status.get(key, None)
 
         if not log_transfer:
@@ -904,21 +900,27 @@ class JobData(BaseData):
 
         return log_transfer
 
-    def get_job_option_for_input_name(self, input_name):
+    def get_job_option_for_input_name(self, input_name: str) -> str or None:
         """
+        Get the job option for the given input name.
+
         Expecting something like --inputHitsFile=@input_name in jobparams.
 
-        :returns: job_option such as --inputHitsFile
+        :param input_name: input name (str)
+        :return: job_option such as --inputHitsFile (str).
         """
         job_options = self.jobparams.split(' ')
         input_name_option = f'=@{input_name}'
         for job_option in job_options:
             if input_name_option in job_option:
                 return job_option.split("=")[0]
+
         return None
 
     def process_writetofile(self):
         """
+        Process the writetofile field.
+
         Expecting writetofile from the job definition.
         The format is 'inputFor_file1:lfn1,lfn2^inputFor_file2:lfn3,lfn4'
 
@@ -935,19 +937,20 @@ class JobData(BaseData):
                     logger.error(f"writeToFile doesn't have the correct format, expecting a separator \':\' for {fileinfo}")
 
         if writetofile_dictionary:
-            for input_name in writetofile_dictionary:
+            for input_name, input_files in writetofile_dictionary.items():
                 input_name_new = input_name + '.txt'
                 input_name_full = os.path.join(self.workdir, input_name_new)
-                f = open(input_name_full, 'w')
-                job_option = self.get_job_option_for_input_name(input_name)
-                if not job_option:
-                    logger.error("unknown job option format, expected job options such as \'--inputHitsFile\' for input file: {input_name}")
-                else:
-                    f.write(f"{job_option}\n")
-                for input_file in writetofile_dictionary[input_name]:
-                    f.write(f"{input_file}\n")
-                f.close()
-                logger.info(f"wrote input file list to file {input_name_full}: {writetofile_dictionary[input_name]}")
+
+                with open(input_name_full, 'w', encoding='utf-8') as f:
+                    job_option = self.get_job_option_for_input_name(input_name)
+                    if not job_option:
+                        logger.error("unknown job option format, "
+                                     "expected job options such as \'--inputHitsFile\' for input file: {input_name}")
+                    else:
+                        f.write(f"{job_option}\n")
+                    for input_file in input_files:
+                        f.write(f"{input_file}\n")
+                    logger.info(f"wrote input file list to file {input_name_full}: {input_files}")
 
                 self.jobparams = self.jobparams.replace(input_name, input_name_new)
                 if job_option:
@@ -955,15 +958,14 @@ class JobData(BaseData):
                 self.jobparams = self.jobparams.replace('--autoConfiguration=everything', '')
                 logger.info(f"jobparams after processing writeToFile: {self.jobparams}")
 
-    def add_size(self, size):
+    def add_size(self, size: int):
         """
         Add a size measurement to the sizes field at the current time stamp.
+
         A size measurement is in Bytes.
 
         :param size: size of object in Bytes (int).
-        :return:
         """
-
         # is t0 set? if not, set it
         if not self.t0:
             self.t0 = os.times()
@@ -974,18 +976,18 @@ class JobData(BaseData):
         # add a data point to the sizes dictionary
         self.sizes[time_stamp] = size
 
-    def get_size(self):
+    def get_size(self) -> int:
         """
         Determine the size (B) of the job object.
 
         :return: size (int).
         """
-
         # protect against the case where the object changes size during calculation (rare)
         try:
             self.currentsize = get_object_size(self)
         except Exception:
             pass
+
         return self.currentsize
 
 #    def collect_zombies(self, depth: int = None):
@@ -1028,12 +1030,6 @@ class JobData(BaseData):
 #                        self.zombies.remove(zombie)
 #                self.collect_zombies(depth=depth)  # recursion
 
-    import os
-    import logging
-    from time import sleep
-
-    logger = logging.getLogger(__name__)
-
     def collect_zombies(self, depth: int = None):
         """
         Collect zombie child processes.
@@ -1070,26 +1066,21 @@ class JobData(BaseData):
             if current_depth == 0:
                 break
 
-    def only_copy_to_scratch(self):  ## TO BE DEPRECATED, use `has_remoteio()` instead of
+    def only_copy_to_scratch(self) -> bool:  ## TO BE DEPRECATED, use `has_remoteio()` instead of
         """
         Determine if the payload only has copy-to-scratch input.
+
         In this case, there should be no --usePFCTurl or --directIn in the job parameters.
 
-        :return: True if only copy-to-scratch. False if at least one file should use direct access mode
+        :return: True if only copy-to-scratch. False if at least one file should use direct access mode (bool)
         """
-
-        for fspec in self.indata:
-            if fspec.status == 'remote_io':
-                return False
-
-        return True
+        return not any(fspec.status == 'remote_io' for fspec in self.indata)
+        # for fspec in self.indata:
+        #     if fspec.status == 'remote_io':
+        #         return False
 
     def reset_errors(self):  # temporary fix, make sure all queues are empty before starting new job
-        """
-
-        :return:
-        """
-
+        """Reset error codes and messages."""
         self.piloterrorcode = 0
         self.piloterrorcodes = []
         self.piloterrordiag = ""
@@ -1103,9 +1094,5 @@ class JobData(BaseData):
         self.subprocesses = []
 
     def to_json(self):
-        """
-        Convert class to dictionary.
-        """
-
-        from json import dumps
+        """Convert class to dictionary."""
         return dumps(self, default=lambda par: par.__dict__)
