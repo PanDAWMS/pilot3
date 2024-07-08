@@ -70,7 +70,7 @@ def get_job_request_file_name() -> str:
 
     :return: job request file name (str).
     """
-    return os.path.join(os.environ['PILOT_HOME'], config.Harvester.job_request_file)
+    return os.path.join(os.environ.get('PILOT_HOME'), config.Harvester.job_request_file)
 
 
 def remove_job_request_file():
@@ -95,7 +95,7 @@ def request_new_jobs(njobs: int = 1):
     """
     path = get_job_request_file_name()
     dictionary = {'nJobs': njobs}
-
+    logger.info(f'requesting {njobs} new job(s) by creating {path}')
     # write it to file
     ec = write_json(path, dictionary)
     if ec:

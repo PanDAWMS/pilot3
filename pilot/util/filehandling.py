@@ -388,7 +388,7 @@ def read_json(filename: str) -> dict:
 
 
 def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, indent: int = 4,
-               separators: tuple = (',', ': ')) -> bool:
+               separators: tuple[str, str] = (',', ': ')) -> bool:
     r"""
     Write the dictionary to a JSON file.
 

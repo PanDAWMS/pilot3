@@ -1593,7 +1593,11 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         # unless it's the first job (which is preplaced in the init dir), instruct Harvester to place another job
         # in the init dir
         logger.info('asking Harvester for another job')
-        request_new_jobs()
+        try:
+            request_new_jobs()
+        except Exception as e:
+            logger.warning(f'failed to request new jobs from Harvester: {e}')
+            return False
 
     if os.environ.get('SERVER_UPDATE', '') == SERVER_UPDATE_UPDATING:
         logger.info('still updating previous job, will not ask for a new job yet')
