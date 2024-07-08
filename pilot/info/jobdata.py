@@ -971,46 +971,87 @@ class JobData(BaseData):
             pass
         return self.currentsize
 
-    def collect_zombies(self, depth=None):
+#    def collect_zombies(self, depth: int = None):
+#        """
+#        Collect zombie child processes.
+#
+#        Depth is the max number of loops, plus 1, to avoid infinite looping even if some child processes get really
+#        wedged; depth=None means it will keep going until all child zombies have been collected.
+#
+#        :param depth: max depth (int).
+#        """
+#        sleep(1)
+#
+#        if self.zombies and depth > 1:
+#            logger.info(f"--- collectZombieJob: --- {depth}, {self.zombies}")
+#            depth -= 1
+#            for zombie in self.zombies:
+#                try:
+#                    logger.info(f"zombie collector waiting for pid {zombie}")
+#                    _id, _ = os.waitpid(zombie, os.WNOHANG)
+#                except OSError as exc:
+#                    logger.info(f"harmless exception when collecting zombies: {exc}")
+#                    self.zombies.remove(zombie)
+#                else:
+#                    if _id:  # finished
+#                        self.zombies.remove(zombie)
+#                self.collect_zombies(depth=depth)  # recursion
+#
+#        if self.zombies and not depth:
+#            # for the infinite waiting case, we have to use blocked waiting, otherwise it throws
+#            # RuntimeError: maximum recursion depth exceeded
+#            for zombie in self.zombies:
+#                try:
+#                    _id, _ = os.waitpid(zombie, 0)
+#                except OSError as exc:
+#                    logger.info(f"harmless exception when collecting zombie jobs: {exc}")
+#                    self.zombies.remove(zombie)
+#                else:
+#                    if _id:  # finished
+#                        self.zombies.remove(zombie)
+#                self.collect_zombies(depth=depth)  # recursion
+
+    import os
+    import logging
+    from time import sleep
+
+    logger = logging.getLogger(__name__)
+
+    def collect_zombies(self, depth: int = None):
         """
-        Collect zombie child processes, depth is the max number of loops, plus 1,
-        to avoid infinite looping even if some child processes really get wedged;
-        depth=None means it will keep going until all child zombies have been collected.
+        Collect zombie child processes.
+
+        Depth is the max number of loops, plus 1, to avoid infinite looping even if some child processes get really
+        wedged; depth=None means it will keep going until all child zombies have been collected.
 
         :param depth: max depth (int).
-        :return:
         """
-
         sleep(1)
 
-        if self.zombies and depth > 1:
-            logger.info(f"--- collectZombieJob: --- {depth}, {self.zombies}")
-            depth -= 1
+        current_depth = depth
+        while self.zombies and (current_depth is None or current_depth > 0):
+            if current_depth:
+                logger.info(f"--- collectZombieJob: --- {current_depth}, {self.zombies}")
+                current_depth -= 1
+
+            zombies_to_remove = []
             for zombie in self.zombies:
                 try:
                     logger.info(f"zombie collector waiting for pid {zombie}")
-                    _id, _ = os.waitpid(zombie, os.WNOHANG)
+                    _id, _ = os.waitpid(zombie, os.WNOHANG if current_depth else 0)
                 except OSError as exc:
                     logger.info(f"harmless exception when collecting zombies: {exc}")
-                    self.zombies.remove(zombie)
+                    zombies_to_remove.append(zombie)
                 else:
                     if _id:  # finished
-                        self.zombies.remove(zombie)
-                self.collect_zombies(depth=depth)  # recursion
+                        zombies_to_remove.append(zombie)
 
-        if self.zombies and not depth:
-            # for the infinite waiting case, we have to use blocked waiting, otherwise it throws
-            # RuntimeError: maximum recursion depth exceeded
-            for zombie in self.zombies:
-                try:
-                    _id, _ = os.waitpid(zombie, 0)
-                except OSError as exc:
-                    logger.info(f"harmless exception when collecting zombie jobs: {exc}")
-                    self.zombies.remove(zombie)
-                else:
-                    if _id:  # finished
-                        self.zombies.remove(zombie)
-                self.collect_zombies(depth=depth)  # recursion
+            # Remove collected zombies from the list
+            for zombie in zombies_to_remove:
+                self.zombies.remove(zombie)
+
+            if current_depth == 0:
+                break
 
     def only_copy_to_scratch(self):  ## TO BE DEPRECATED, use `has_remoteio()` instead of
         """
