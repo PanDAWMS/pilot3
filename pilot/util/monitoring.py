@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 # This module contains implementations of job monitoring tasks
 
@@ -42,12 +54,12 @@ from pilot.util.processes import (
     get_current_cpu_consumption_time,
     kill_processes,
     get_number_of_child_processes,
-    get_subprocesses,
     reap_zombies
 )
 from pilot.util.psutils import (
     is_process_running,
-    find_pid_by_command_and_ppid
+    get_pid,
+    get_subprocesses
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
@@ -93,10 +105,6 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
 
-        # verify that the process is still alive (again)
-        if not still_running(job.pid):
-            return 0, ""
-
         try:
             cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
         except Exception as error:
@@ -110,6 +118,8 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
                 job.cpuconsumptiontime = int(round(cpuconsumptiontime))
                 job.cpuconversionfactor = 1.0
                 logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+            elif _cpuconsumptiontime == -1:
+                logger.warning('could not get CPU consumption time')
             else:
                 logger.warning(f'process {job.pid} is no longer using CPU - aborting')
                 return 0, ""
@@ -370,6 +380,7 @@ def verify_looping_job(current_time, mt, job, args):
     # only perform looping job check if desired and enough time has passed since start
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__('pilot.user.%s.loopingjob_definitions' % pilot_user, globals(), locals(), [pilot_user], 0)
+
     runcheck = loopingjob_definitions.allow_loopingjob_detection()
     if not job.looping_check and runcheck:
         logger.debug('looping check not desired')
@@ -377,6 +388,7 @@ def verify_looping_job(current_time, mt, job, args):
 
     time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
     looping_verification_time = convert_to_int(config.Pilot.looping_verification_time, default=600)
+
     if time_since_start < looping_verification_time:
         logger.debug(f'no point in running looping job algorithm since time since last payload start={time_since_start} s < '
                      f'looping verification time={looping_verification_time} s')
@@ -537,12 +549,12 @@ def utility_monitor(job):  # noqa: C901
 
         if utcmd == 'MemoryMonitor':
             if len(job.utilities[utcmd]) < 4:  # only proceed if the pid has not been appended to the list already
-                pid = find_pid_by_command_and_ppid('prmon', job.pid)
+                pid = get_pid(job.pid)
                 if pid:
-                    logger.info(f'prmon command has pid {pid} (appending to cmd dictionary)')
+                    logger.info(f'memory monitor command has pid {pid} (appending to cmd dictionary)')
                     job.utilities[utcmd].append(pid)
                 else:
-                    logger.info('could not find any pid for prmon command')
+                    logger.info('could not find any pid for memory monitor command')
 
         # make sure the subprocess is still running
         if not utproc.poll() is None:

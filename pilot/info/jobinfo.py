@@ -1,11 +1,23 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
 
 
 """
@@ -21,7 +33,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class JobInfoProvider(object):
+class JobInfoProvider:
     """
         Job info provider which is used to extract settings specific for given Job
         and overwrite general configuration used by Information Service
@@ -69,16 +81,17 @@ class JobInfoProvider(object):
 
         data.update(self.job.overwrite_queuedata)  ## use job.overwrite_queuedata as a master source
 
-        logger.info('queuedata: following keys will be overwritten by Job values: %s' % data)
+        logger.info(f'queuedata: following keys will be overwritten by Job values: {data}')
 
         return {pandaqueue: data}
 
-    def resolve_storage_data(self, ddmendpoints=[], **kwargs):
+    def resolve_storage_data(self, ddmendpoints: list = None, **kwargs: dict) -> dict:
         """
             Resolve Job specific settings for storage data (including data passed via --overwriteStorageData)
             :return: dict of settings for requested DDMEndpoints with ddmendpoin as a key
         """
-
+        if ddmendpoints is None:
+            ddmendpoints = []
         data = {}
 
         ## use job.overwrite_storagedata as a master source
@@ -89,6 +102,6 @@ class JobInfoProvider(object):
             data.update((k, v) for k, v in list(master_data.items()) if k in set(ddmendpoints or master_data) & set(master_data))  # Python 3
 
         if data:
-            logger.info('storagedata: following data extracted from Job definition will be used: %s' % data)
+            logger.info(f'storagedata: following data extracted from Job definition will be used: {data}')
 
         return data

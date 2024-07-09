@@ -1,40 +1,37 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
-import unittest
+"""NOT IMPLEMENTED: Unit tests for the job report parser."""
+
 import json
+import unittest
 
 from pilot.user.atlas.common import parse_jobreport_data
 
 
 class TestUtils(unittest.TestCase):
-    """
-    Unit tests for utils functions.
-    """
-
-    def setUp(self):
-        # skip tests if running on a Mac -- Macs don't have /proc
-        #self.mac = False
-        # if os.environ.get('MACOSX') == 'true':
-        #    self.mac = True
-
-        #from pilot.info import infosys
-        # infosys.init("AGLT2_TEST-condor")
-        pass
+    """Unit tests for utils functions."""
 
     def test_failed_jobreport(self):
-        """
-        ..
-
-        :return: (assertion)
-        """
-
+        """Test failed job report."""
         report = """
         {
   "cmdLine": "'/ccs/proj/csc108/AtlasReleases/21.0.15/AtlasOffline/21.0.15/InstallArea/x86_64-slc6-gcc49-opt/share/Sim_tf.py'""" \
@@ -144,12 +141,7 @@ class TestUtils(unittest.TestCase):
         print((json.dumps(parse_jobreport_data(report_data), sort_keys=True, indent=2)))
 
     def test_successful_jobreport(self):
-        """
-        ..
-
-        :return: (assertion)
-        """
-
+        """Test successful job report."""
         report = """
 {
   "cmdLine": "'/cvmfs/atlas.cern.ch/repo/sw/software/21.0/AtlasOffline/21.0.15/InstallArea/x86_64-slc6-gcc49-opt/share/Sim_tf.py'""" \

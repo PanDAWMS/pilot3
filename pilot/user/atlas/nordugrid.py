@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 import re
 import logging
@@ -59,7 +71,7 @@ class XMLDictionary(object):
             else:
                 pass
         else:
-            logger.info("not a dictionary: %s", str(self._dictionary))
+            logger.info(f"not a dictionary: {self._dictionary}")
 
     def get_dictionary(self):
         """
@@ -98,8 +110,8 @@ def convert_to_xml(dictionary):
 
     single_file_tag = list(dictionary.keys())  # Python 2/3
     if len(single_file_tag) != 1:
-        logger.warning("unexpected format - expected single entry, got %d entries", len(single_file_tag))
-        logger.warning('dictionary = %s', str(dictionary))
+        logger.warning(f"unexpected format - expected single entry, got {len(single_file_tag)} entries")
+        logger.warning(f'dictionary = {dictionary}')
         return None
 
     file_tag = single_file_tag[0]
@@ -122,13 +134,13 @@ def convert_to_xml(dictionary):
                         entry = ElementTree.SubElement(file_element, dictionary_entry)
                         entry.text = file_dictionary[dictionary_entry]
                 else:
-                    logger.warning("unexpected format - expected a dictionary, got %s", str(file_dictionary))
+                    logger.warning(f"unexpected format - expected a dictionary, got {file_dictionary}")
                     failed = True
             else:
-                logger.warning("unexpected format - expected a length 1 dictionary, got %s", str(file_entry))
+                logger.warning(f"unexpected format - expected a length 1 dictionary, got {file_entry}")
                 failed = True
     else:
-        logger.warning("unexpected format - expected a list, got %s", str(file_list))
+        logger.warning(f"unexpected format - expected a list, got {file_list}")
         failed = True
 
     if failed:

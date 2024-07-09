@@ -1,39 +1,48 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
 """
 The implementation of data structure to host File related data description.
 
-The main reasons for such incapsulation are to
+The main reasons for such encapsulation are to
  - apply in one place all data validation actions (for attributes and values)
- - introduce internal information schema (names of attribues) to remove direct dependency to ext storage/structures
+ - introduce internal information schema (names of attributes) to remove direct dependency to ext storage/structures
 
 :author: Alexey Anisenkov
 :date: April 2018
 """
+
+import logging
 import os.path
+from typing import Any
 
 from .basedata import BaseData
 
-import logging
 logger = logging.getLogger(__name__)
 
 
 class FileSpec(BaseData):
-    """
-        High-level object to host File Specification (meta data like lfn, checksum, replica details, etc.)
-    """
+    """High-level object to host File Specification (meta data like lfn, checksum, replica details, etc.)."""
 
     ## put explicit list of all the attributes with comments for better inline-documentation by sphinx
-    ## FIX ME LATER: use proper doc format
-
-    ## incomplete list of attributes .. to be extended once becomes used
 
     lfn = ""
     guid = ""
@@ -77,21 +86,24 @@ class FileSpec(BaseData):
              bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'checkinputsize']
              }
 
-    def __init__(self, filetype='input', **data):  ## FileSpec can be split into FileSpecInput + FileSpecOuput classes in case of significant logic changes
+    def __init__(self, filetype: str = 'input', **data: dict):
         """
-            :param kwargs: input dictionary of object description
-            :param type: type of File: either input, output or log
-        """
+        Init class instance.
 
+        FileSpec can be split into FileSpecInput + FileSpecOuput classes in case of significant logic changes.
+
+        :param filetype: type of File: either input, output or log
+        :param data: input dictionary with object description (dict)
+        """
         self.filetype = filetype
         self.load(data)
 
-    def load(self, data):
+    def load(self, data: dict):
         """
-            Construct and initialize data from ext source for Input `FileSpec`
-            :param data: input dictionary of object description
-        """
+        Construct and initialize data from ext source for input `FileSpec`.
 
+        :param data: input dictionary of object description.
+        """
         # the translation map of the key attributes from external data to internal schema
         # if key is not explicitly specified then ext name will be used as is
 
@@ -104,16 +116,20 @@ class FileSpec(BaseData):
     ## custom function pattern to apply extra validation to the key values
     ##def clean__keyname(self, raw, value):
     ##  :param raw: raw value passed from ext source as input
-    ##  :param value: preliminary cleaned and casted to proper type value
+    ##  :param value: preliminary cleaned and cast to proper type value
     ##
     ##    return value
 
-    def clean__checksum(self, raw, value):
+    def clean__checksum(self, raw: Any, value: Any) -> dict:
         """
-            Validate value for the checksum key
-            Expected raw format is 'ad:value' or 'md:value'
-        """
+        Validate given value for the checksum key.
 
+        Expected raw format is 'ad:value' or 'md:value'.
+
+        :param raw: raw value passed from ext source as input (Any)
+        :param value: preliminary cleaned and cast to proper type value (Any)
+        :return: dictionary with checksum values (dict).
+        """
         if isinstance(value, dict):
             return value
 
@@ -129,12 +145,11 @@ class FileSpec(BaseData):
 
     def clean(self):
         """
-            Validate and finally clean up required data values (required object properties) if need
-            Executed once all fields have already passed field-specific validation checks
-            Could be customized by child object
-            :return: None
-        """
+        Validate and finally clean up required data values (required object properties) if needed.
 
+        Executed once all fields have already passed field-specific validation checks.
+        Could be customized by child object.
+        """
         if self.lfn.startswith("zip://"):
             self.lfn = self.lfn.replace("zip://", "")
             self.is_tar = True
@@ -142,45 +157,49 @@ class FileSpec(BaseData):
             self.surl = self.lfn
             self.lfn = os.path.basename(self.lfn)
 
-    def is_directaccess(self, ensure_replica=True, allowed_replica_schemas=None):
+    def is_directaccess(self, ensure_replica: bool = True, allowed_replica_schemas: list = None) -> bool:
         """
-            Check if given (input) file can be used for direct access mode by Job transformation script
-            :param ensure_replica: boolean, if True then check by allowed schemas of file replica turl will be considered as well
-            :return: boolean
-        """
+        Check if given (input) file can be used for direct access mode by job transformation script.
 
+        :param ensure_replica: if True then check by allowed schemas of file replica turl will be considered as well (bool)
+        :param allowed_replica_schemas: list of allowed replica schemas (list)
+        :return: True if file can be used for direct access mode (bool).
+        """
         # check by filename pattern
         filename = self.lfn.lower()
 
         is_rootfile = True
         exclude_pattern = ['.tar.gz', '.lib.tgz', '.raw.']
-        for e in exclude_pattern:
-            if e in filename or filename.startswith('raw.'):
+        for exclude in exclude_pattern:
+            if exclude in filename or filename.startswith('raw.'):
                 is_rootfile = False
                 break
 
         if not is_rootfile:
             return False
 
-        is_directaccess = False  ## default value
+        _is_directaccess = False  ## default value
         if self.accessmode == 'direct':
-            is_directaccess = True
+            _is_directaccess = True
         elif self.accessmode == 'copy':
-            is_directaccess = False
+            _is_directaccess = False
 
         if ensure_replica:
 
             allowed_replica_schemas = allowed_replica_schemas or ['root', 'dcache', 'dcap', 'file', 'https']
-            if not self.turl or not any([self.turl.startswith('%s://' % e) for e in allowed_replica_schemas]):
-                is_directaccess = False
+            if not self.turl or not any(self.turl.startswith(f'{allowed}://') for allowed in allowed_replica_schemas):
+                _is_directaccess = False
 
-        return is_directaccess
+        return _is_directaccess
 
-    def get_storage_id_and_path_convention(self):
+    def get_storage_id_and_path_convention(self) -> (str, str):
         """
         Parse storage_token to get storage_id and path_convention.
-         :param storage_token: string, expected format is '<normal storage token as string>', '<storage_id as int>', <storage_id as int/path_convention as int>
-        :returns: storage_id, path_convention
+
+        Format for storage token: expected format is '<normal storage token as string>', '<storage_id as int>',
+        <storage_id as int/path_convention as int>.
+
+        :returns: storage_id (str), path_convention (str).
         """
         storage_id = None
         path_convention = None
@@ -192,7 +211,8 @@ class FileSpec(BaseData):
                     path_convention = int(path_convention)
                 elif self.storage_token.isdigit():
                     storage_id = int(self.storage_token)
-        except Exception as ex:
-            logger.warning("Failed to parse storage_token(%s): %s" % (self.storage_token, ex))
-        logger.info('storage_id: %s, path_convention: %s' % (storage_id, path_convention))
+        except (ValueError, AttributeError, TypeError) as exc:
+            logger.warning(f"failed to parse storage_token({self.storage_token}): {exc}")
+        logger.info(f'storage_id: {storage_id}, path_convention: {path_convention}')
+
         return storage_id, path_convention

@@ -1,20 +1,36 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+
+"""Functions for executing commands."""
+
 import os
 import subprocess
 import logging
+import re
 import shlex
 import threading
 
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
-from time import sleep
 from signal import SIGTERM, SIGKILL
+from time import sleep
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
@@ -30,14 +46,14 @@ execute_lock = threading.Lock()
 
 def execute(executable: Any, **kwargs: dict) -> Any:
     """
-    Execute the command and its options in the provided executable list.
+    Execute the command with its options in the provided executable list using subprocess time-out handler.
+
     The function also determines whether the command should be executed within a container.
 
-    :param executable: command to be executed (string or list).
+    :param executable: command to be executed (str or list)
     :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
     """
-
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
     #shell = kwargs.get("shell", False)
@@ -73,6 +89,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     stderr = ''
 
     # Acquire the lock before creating the subprocess
+    process = None
     with execute_lock:
         process = subprocess.Popen(exe,
                                    bufsize=-1,
@@ -86,7 +103,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:
             return process
 
         try:
-            logger.debug(f'subprocess.communicate() will use timeout={timeout} s')
+            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # make sure that stdout buffer gets flushed - in case of time-out exceptions
@@ -106,11 +123,13 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     # (not strictly necessary when process.communicate() is used)
     try:
         # wait for the process to complete with a timeout of 60 seconds
-        process.wait(timeout=60)
+        if process:
+            process.wait(timeout=60)
     except subprocess.TimeoutExpired:
         # Handle the case where the process did not complete within the timeout
-        print("process did not complete within the timeout of 60s - terminating")
-        process.terminate()
+        if process:
+            logger.warning("process did not complete within the timeout of 60s - terminating")
+            process.terminate()
 
     # remove any added \n
     if stdout and stdout.endswith('\n'):
@@ -120,7 +139,15 @@ def execute(executable: Any, **kwargs: dict) -> Any:
 
 
 def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
+    """
+    Execute the command with its options in the provided executable list using an internal timeout handler.
 
+    The function also determines whether the command should be executed within a container.
+
+    :param executable: command to be executed (string or list)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    """
     exit_code = None
 
     def _timeout_handler():
@@ -128,8 +155,9 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
         nonlocal exit_code  # Use nonlocal to modify the outer variable
         logger.warning("subprocess execution timed out")
         exit_code = -2
-        process.terminate()  # Terminate the subprocess if it's still running
-        logger.info(f'process terminated after {timeout_seconds}s')
+        if process:
+            process.terminate()  # Terminate the subprocess if it's still running
+            logger.info(f'process terminated after {timeout_seconds}s')
 
     obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
     if not kwargs.get('mute', False):
@@ -138,48 +166,54 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
     # Create the subprocess with stdout and stderr redirection to files
-    process = subprocess.Popen(exe,
-                               stdout=stdout_file,
-                               stderr=stderr_file,
-                               cwd=kwargs.get('cwd', os.getcwd()),
-                               preexec_fn=os.setsid,
-                               encoding='utf-8',
-                               errors='replace')
+    # Acquire the lock before creating the subprocess
+    process = None
+    with execute_lock:
+        process = subprocess.Popen(exe,
+                                   stdout=stdout_file,
+                                   stderr=stderr_file,
+                                   cwd=kwargs.get('cwd', os.getcwd()),
+                                   preexec_fn=os.setsid,
+                                   encoding='utf-8',
+                                   errors='replace')
 
-    # Set up a timer for the timeout
-    timeout_timer = threading.Timer(timeout_seconds, _timeout_handler)
+        # Set up a timer for the timeout
+        timeout_timer = threading.Timer(timeout_seconds, _timeout_handler)
 
-    try:
-        # Start the timer
-        timeout_timer.start()
-
-        # wait for the process to finish
         try:
-            # wait for the process to complete with a timeout (this will likely never happen since a timer is used)
-            process.wait(timeout=timeout_seconds + 10)
-        except subprocess.TimeoutExpired:
-            # Handle the case where the process did not complete within the timeout
-            timeout_seconds = timeout_seconds + 10
-            logger.warning(f"process wait did not complete within the timeout of {timeout_seconds}s - terminating")
-            exit_code = -2
-            process.terminate()
-    except Exception as exc:
-        logger.warning(f'execution caught: {exc}')
-    finally:
-        # Cancel the timer to avoid it firing after the subprocess has completed
-        timeout_timer.cancel()
+            # Start the timer
+            timeout_timer.start()
+
+            # wait for the process to finish
+            try:
+                # wait for the process to complete with a timeout (this will likely never happen since a timer is used)
+                process.wait(timeout=timeout_seconds + 10)
+            except subprocess.TimeoutExpired:
+                # Handle the case where the process did not complete within the timeout
+                timeout_seconds = timeout_seconds + 10
+                logger.warning(f"process wait did not complete within the timeout of {timeout_seconds}s - terminating")
+                exit_code = -2
+                process.terminate()
+        except Exception as exc:
+            logger.warning(f'execution caught: {exc}')
+        finally:
+            # Cancel the timer to avoid it firing after the subprocess has completed
+            timeout_timer.cancel()
 
     if exit_code == -2:
         # the process was terminated due to a time-out
         exit_code = errors.COMMANDTIMEDOUT
     else:
         # get the exit code after a normal finish
-        exit_code = process.returncode
+        if process:
+            exit_code = process.returncode
+        else:
+            exit_code = -1
 
     return exit_code
 
 
-def get_timeout(requested_timeout):
+def get_timeout(requested_timeout: int) -> int:
     """
     Define the timeout to be used with subprocess.communicate().
 
@@ -190,19 +224,16 @@ def get_timeout(requested_timeout):
     :param requested_timeout: timeout in seconds set by execute() caller (int)
     :return: timeout in seconds (int).
     """
-
     return requested_timeout if requested_timeout else 10 * 24 * 60 * 60  # using a ridiculously large default timeout
 
 
 def execute_command(command: str) -> str:
     """
-    Executes a command using subprocess without using the shell.
+    Execute a command using subprocess without using the shell.
 
-    :param command: The command to execute.
-
-    :return: The output of the command (string).
+    :param command: The command to execute (str)
+    :return: The output of the command (str).
     """
-
     try:
         logger.info(f'executing command: {command}')
         command = shlex.split(command)
@@ -222,11 +253,10 @@ def kill_all(process: Any, stderr: str) -> str:
     """
     Kill all processes after a time-out exception in process.communication().
 
-    :param process: process object
-    :param stderr: stderr (string)
+    :param process: process object (Any)
+    :param stderr: stderr (str)
     :return: stderr (str).
     """
-
     try:
         logger.warning('killing lingering subprocess and process group')
         sleep(1)
@@ -254,12 +284,12 @@ def kill_all(process: Any, stderr: str) -> str:
 def print_executable(executable: str, obscure: str = '') -> None:
     """
     Print out the command to be executed, omitting any secrets.
+
     Any S3_SECRET_KEY=... parts will be removed.
 
-    :param executable: executable (string).
-    :param obscure: sensitive string to be obscured before dumping to log (string)
+    :param executable: executable (str)
+    :param obscure: sensitive string to be obscured before dumping to log (str).
     """
-
     executable_readable = executable
     for sub_cmd in executable_readable.split(";"):
         if 'S3_SECRET_KEY=' in sub_cmd:
@@ -269,6 +299,9 @@ def print_executable(executable: str, obscure: str = '') -> None:
     if obscure:
         executable_readable = executable_readable.replace(obscure, '********')
 
+    # also make sure there is no user token present. If so, obscure it as well
+    executable_readable = obscure_token(executable_readable)
+
     logger.info(f'executing command: {executable_readable}')
 
 
@@ -276,11 +309,10 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
     """
     Wrap the containerisation command around the executable.
 
-    :param executable: command to be wrapper (string)
-    :param kwargs: kwargs dictionary
+    :param executable: command to be wrapper (str)
+    :param kwargs: kwargs dictionary (dict)
     :return: containerised executable (list or None), diagnostics (str).
     """
-
     job = kwargs.get('job')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
@@ -312,3 +344,21 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
         logger.warning('container module could not be imported')
 
     return executable, ""
+
+
+def obscure_token(cmd: str) -> str:
+    """
+    Obscure any user token from the payload command.
+
+    :param cmd: payload command (str)
+    :return: updated command (str).
+    """
+    try:
+        match = re.search(r'-p (\S+)\ ', cmd)
+        if match:
+            cmd = cmd.replace(match.group(1), '********')
+    except (re.error, AttributeError, IndexError):
+        logger.warning('an exception was thrown while trying to obscure the user token')
+        cmd = ''
+
+    return cmd

@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 import os
 import logging
@@ -150,7 +162,7 @@ def get_metadata_from_xml(workdir, filename="metadata.xml"):
     metadata_dictionary = {}
     path = os.path.join(workdir, filename)
     if not os.path.exists(path):
-        logger.warning('file does not exist: %s', path)
+        logger.warning(f'file does not exist: {path}')
         return metadata_dictionary
 
     tree = ElementTree.parse(path)
@@ -197,7 +209,7 @@ def get_number_of_events(metadata_dictionary, filename=''):
         try:
             nevents = int(metadata_dictionary[filename].get('events'))
         except ValueError as exc:
-            logger.warning('failed to convert number of events to int: %s', exc)
+            logger.warning(f'failed to convert number of events to int: {exc}')
     else:
         logger.warning('number of events could not be extracted from metadata dictionary (based on metadata.xml)')
 
@@ -235,7 +247,7 @@ def get_guid(metadata_dictionary, filename=''):
         try:
             guid = metadata_dictionary[filename].get('guid')
         except ValueError as exc:
-            logger.warning('failed to get guid from xml: %s', exc)
+            logger.warning(f'failed to get guid from xml: {exc}')
     else:
         logger.warning('guid could not be extracted from metadata dictionary (based on metadata.xml)')
 

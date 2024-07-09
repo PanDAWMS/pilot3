@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 from __future__ import print_function  # Python 2, 2to3 complains about this
 
@@ -134,27 +146,32 @@ def run(args):
     logger.info('waiting for interrupts')
 
     thread_count = threading.activeCount()
-    while threading.activeCount() > 1:
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                # deal with the exception
-                print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
+    try:
+        while threading.activeCount() > 1:
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    # deal with the exception
+                    print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
 
-            thread.join(0.1)
+                thread.join(0.1)
 
-        abort = False
-        if thread_count != threading.activeCount():
-            # has all threads finished?
-            #abort = threads_aborted(abort_at=1)
-            abort = threads_aborted(caller='run')
-            if abort:
-                break
+            abort = False
+            if thread_count != threading.activeCount():
+                # has all threads finished?
+                #abort = threads_aborted(abort_at=1)
+                abort = threads_aborted(caller='run')
+                if abort:
+                    break
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all stager threads have been joined')
 
     logger.info(f"end of stager workflow (traces error code: {traces.pilot['error_code']})")
 

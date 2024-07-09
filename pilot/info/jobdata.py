@@ -1,11 +1,23 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -113,6 +125,7 @@ class JobData(BaseData):
     subprocesses = []              # list of PIDs for payload subprocesses
     prodproxy = ""                 # to keep track of production proxy on unified queues
     completed = False              # True when job has finished or failed, used by https::send_update()
+    lsetuptime = 0                 # payload setup time (lsetup)
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -296,7 +309,7 @@ class JobData(BaseData):
         :return:
         """
         dat = dict([item, getattr(FileSpec, item, None)] for item in access_keys)
-        msg = ', '.join(["%s=%s" % (item, value) for item, value in sorted(dat.items())])
+        msg = ', '.join([f"{item}={value}" for item, value in sorted(dat.items())])
         logger.info(f'job.infosys.queuedata is not initialized: the following access settings will be used by default: {msg}')
 
     @staticmethod
@@ -611,7 +624,7 @@ class JobData(BaseData):
         # (return list of strings not to be filtered, which will be put back in the post-filtering below)
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         try:
-            user = __import__('pilot.user.%s.jobdata' % pilot_user, globals(), locals(), [pilot_user], 0)
+            user = __import__(f'pilot.user.{pilot_user}.jobdata', globals(), locals(), [pilot_user], 0)
             exclusions, value = user.jobparams_prefiltering(value)
         except Exception as exc:
             logger.warning(f'caught exception in user code: {exc}')
@@ -648,7 +661,7 @@ class JobData(BaseData):
         except Exception as exc:
             logger.warning(f'caught exception in user code: {exc}')
 
-        logger.info('cleaned jobparams: %s' % ret)
+        logger.info(f'cleaned jobparams: {ret}')
 
         return ret
 
@@ -680,7 +693,7 @@ class JobData(BaseData):
                 else:
                     logger.info(f"extracted image from jobparams: {imagename}")
             else:
-                logger.warning("image could not be extract from %s" % jobparams)
+                logger.warning(f"image could not be extract from {jobparams}")
 
             # remove the option from the job parameters
             jobparams = re.sub(_pattern, "", jobparams)
@@ -881,7 +894,7 @@ class JobData(BaseData):
         :returns: job_option such as --inputHitsFile
         """
         job_options = self.jobparams.split(' ')
-        input_name_option = '=@%s' % input_name
+        input_name_option = f'=@{input_name}'
         for job_option in job_options:
             if input_name_option in job_option:
                 return job_option.split("=")[0]
@@ -921,7 +934,7 @@ class JobData(BaseData):
 
                 self.jobparams = self.jobparams.replace(input_name, input_name_new)
                 if job_option:
-                    self.jobparams = self.jobparams.replace('%s=' % job_option, '')
+                    self.jobparams = self.jobparams.replace(f'{job_option}=', '')
                 self.jobparams = self.jobparams.replace('--autoConfiguration=everything', '')
                 logger.info(f"jobparams after processing writeToFile: {self.jobparams}")
 

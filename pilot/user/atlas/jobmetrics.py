@@ -1,43 +1,69 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
+"""Functions for building job metrics."""
+
+import logging
 import os
 import re
-import logging
+from typing import Any
 
 from pilot.api import analytics
+from pilot.common.exception import FileHandlingFailure
+from pilot.util.config import config
 from pilot.util.jobmetrics import get_job_metrics_entry
-from pilot.util.features import MachineFeatures, JobFeatures
-from pilot.util.filehandling import find_last_line
+from pilot.util.features import (
+    MachineFeatures,
+    JobFeatures
+)
+from pilot.util.filehandling import (
+    find_last_line,
+    read_file
+)
 from pilot.util.math import float_to_rounded_string
-
 from .cpu import get_core_count
-from .common import get_db_info, get_resimevents
+from .common import (
+    get_db_info,
+    get_resimevents
+)
 from .utilities import get_memory_monitor_output_filename
 
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job, extra={}):
+def get_job_metrics_string(job: Any, extra: dict = None) -> str:
     """
     Get the job metrics string.
 
-    :param job: job object
+    :param job: job object (Any)
     :param extra: any extra information to be added (dict)
-    :return: job metrics (string).
+    :return: job metrics (str).
     """
-
+    if extra is None:
+        extra = {}
     job_metrics = ""
 
     # report core count (will also set corecount in job object)
     corecount = get_core_count(job)
-    logger.debug('job definition core count: %d', corecount)
+    logger.debug(f'job definition core count: {corecount}')
 
     #if corecount is not None and corecount != "NULL" and corecount != 'null':
     #    job_metrics += get_job_metrics_entry("coreCount", corecount)
@@ -64,14 +90,19 @@ def get_job_metrics_string(job, extra={}):
         job_metrics += get_job_metrics_entry("resimevents", job.resimevents)
 
     # get the max disk space used by the payload (at the end of a job)
-    if job.state == "finished" or job.state == "failed" or job.state == "holding":
+    if job.state in {"finished", "failed", "holding"}:
         max_space = job.get_max_workdir_size()
         zero = 0
 
         if max_space > zero:
             job_metrics += get_job_metrics_entry("workDirSize", max_space)
         else:
-            logger.info("will not add max space = %d B to job metrics", max_space)
+            logger.info(f"will not add max space = {max_space} B to job metrics")
+
+    # is there a detected rucio trace service error?
+    trace_exit_code = get_trace_exit_code(job.workdir)
+    if trace_exit_code != '0':
+        job_metrics += get_job_metrics_entry("rucioTraceError", trace_exit_code)
 
     # add job and machine feature data if available
     job_metrics = add_features(job_metrics, corecount, add=['hs06'])
@@ -95,24 +126,51 @@ def get_job_metrics_string(job, extra={}):
     return job_metrics
 
 
-def add_features(job_metrics, corecount, add=[]):
+def get_trace_exit_code(workdir: str) -> str:
     """
-    Add job and machine feature data to the job metrics if available
+    Look for any rucio trace curl problems using an env var and a file.
+
+    :param workdir: payload work directory (str)
+    :return: curl exit code (str).
+    """
+    trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
+    if trace_exit_code == '0':
+        # look for rucio_trace_error_file in case middleware container is used
+        path = os.path.join(workdir, config.Rucio.rucio_trace_error_file)
+        if os.path.exists(path):
+            try:
+                trace_exit_code = read_file(path)
+            except FileHandlingFailure as exc:
+                logger.warning(f'failed to read {path}: {exc}')
+            else:
+                logger.debug(f'read {trace_exit_code} from file {path}')
+
+    return trace_exit_code
+
+
+def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
+    """
+    Add job and machine feature data to the job metrics if available.
+
     If a non-empty add list is specified, only include the corresponding features. If empty/not specified, add all.
 
-    :param job_metrics: job metrics (string).
-    :param corecount: core count (int).
-    :param add: features to be added (list).
-    :return: updated job metrics (string).
+    :param job_metrics: job metrics (str)
+    :param corecount: core count (int)
+    :param add: features to be added (list)
+    :return: updated job metrics (str).
     """
-
+    if add is None:
+        add = []
     if job_metrics and not job_metrics.endswith(' '):
         job_metrics += ' '
 
-    def add_sub_features(job_metrics, features_dic, add=[]):
+    def add_sub_features(features_dic: dict, _add: list = None):
+        """Helper function."""
+        if _add is None:
+            _add = []
         features_str = ''
         for key in features_dic.keys():
-            if add and key not in add:
+            if _add and key not in _add:
                 continue
             value = features_dic.get(key, None)
             if value:
@@ -134,48 +192,49 @@ def add_features(job_metrics, corecount, add=[]):
             logger.warning(f'cannot process hs06 machine feature: {exc} (hs06={hs06}, total_cpu={total_cpu}, corecount={corecount})')
     features_list = [machinefeatures, jobfeatures]
     for feature_item in features_list:
-        features_str = add_sub_features(job_metrics, feature_item, add=add)
+        features_str = add_sub_features(feature_item, _add=add)
         if features_str:
             job_metrics += features_str
 
     return job_metrics
 
 
-def add_analytics_data(job_metrics, workdir, state):
+def add_analytics_data(job_metrics: str, workdir: str, state: str) -> str:
     """
     Add the memory leak+chi2 analytics data to the job metrics.
 
-    :param job_metrics: job metrics (string).
-    :param workdir: work directory (string).
-    :param state: job state (string).
-    :return: updated job metrics (string).
+    :param job_metrics: job metrics (str)
+    :param workdir: work directory (str)
+    :param state: job state (str)
+    :return: updated job metrics (str).
     """
-
     path = os.path.join(workdir, get_memory_monitor_output_filename())
     if os.path.exists(path):
         client = analytics.Analytics()
         # do not include tails on final update
-        tails = False if (state == "finished" or state == "failed" or state == "holding") else True
+        tails = not (state in {"finished", "failed", "holding"})
         data = client.get_fitted_data(path, tails=tails)
         slope = data.get("slope", "")
         chi2 = data.get("chi2", "")
+        intersect = data.get("intersect", "")
         if slope != "":
             job_metrics += get_job_metrics_entry("leak", slope)
         if chi2 != "":
             job_metrics += get_job_metrics_entry("chi2", chi2)
+        if intersect != "":
+            job_metrics += get_job_metrics_entry("intersect", intersect)
 
     return job_metrics
 
 
-def add_event_number(job_metrics, workdir):
+def add_event_number(job_metrics: str, workdir: str) -> str:
     """
-    Extract event number from file and add to job metrics if it exists
+    Extract event number from file and add to job metrics if it exists.
 
-    :param job_metrics: job metrics (string).
-    :param workdir: work directory (string).
-    :return: updated job metrics (string).
+    :param job_metrics: job metrics (str)
+    :param workdir: work directory (str)
+    :return: updated job metrics (str).
     """
-
     path = os.path.join(workdir, 'eventLoopHeartBeat.txt')
     if os.path.exists(path):
         last_line = find_last_line(path)
@@ -184,14 +243,15 @@ def add_event_number(job_metrics, workdir):
             if event_number:
                 job_metrics += get_job_metrics_entry("eventnumber", event_number)
     else:
-        logger.debug('file %s does not exist (skip for now)', path)
+        logger.debug(f'file {path} does not exist (skip for now)')
 
     return job_metrics
 
 
-def get_job_metrics(job, extra={}):
+def get_job_metrics(job: Any, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
+
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
     Example of job metrics:
@@ -199,11 +259,12 @@ def get_job_metrics(job, extra={}):
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object
+    :param job: job object (Any)
     :param extra: any extra information to be added (dict)
-    :return: job metrics (string).
+    :return: job metrics (str).
     """
-
+    if extra is None:
+        extra = {}
     # get job metrics string
     job_metrics = get_job_metrics_string(job, extra=extra)
 
@@ -211,23 +272,23 @@ def get_job_metrics(job, extra={}):
     job_metrics = job_metrics.lstrip().rstrip()
 
     if job_metrics != "":
-        logger.debug('job metrics=\"%s\"', job_metrics)
+        logger.debug(f'job metrics=\"{job_metrics}\"')
     else:
         logger.debug("no job metrics (all values are zero)")
 
     # is job_metrics within allowed size?
     if len(job_metrics) > 500:
-        logger.warning("job_metrics out of size (%d)", len(job_metrics))
+        logger.warning(f"job_metrics out of size ({len(job_metrics)})")
 
         # try to reduce the field size and remove the last entry which might be cut
         job_metrics = job_metrics[:500]
         job_metrics = " ".join(job_metrics.split(" ")[:-1])
-        logger.warning("job_metrics has been reduced to: %s", job_metrics)
+        logger.warning(f"job_metrics has been reduced to: {job_metrics}")
 
     return job_metrics
 
 
-def get_number_in_string(line, pattern=r'\ done\ processing\ event\ \#(\d+)\,'):
+def get_number_in_string(line: str, pattern: str = r'\ done\ processing\ event\ \#(\d+)\,') -> int:
     """
     Extract a number from the given string.
 
@@ -235,11 +296,10 @@ def get_number_in_string(line, pattern=r'\ done\ processing\ event\ \#(\d+)\,'):
         done processing event #20166959, run #276689 22807 events read so far  <<<===
     This function will return 20166959 as in int.
 
-    :param line: line from a file (string).
-    :param pattern: reg ex pattern (raw string).
+    :param line: line from a file (str)
+    :param pattern: reg ex pattern (raw str)
     :return: extracted number (int).
     """
-
     event_number = None
     match = re.search(pattern, line)
     if match:

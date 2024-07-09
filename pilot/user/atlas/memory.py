@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 import logging
 
@@ -39,21 +51,21 @@ def get_ucore_scale_factor(job):
     try:
         job_corecount = float(job.corecount)
     except (ValueError, TypeError) as exc:
-        logger.warning('exception caught: %s (job.corecount=%s)', exc, str(job.corecount))
+        logger.warning(f'exception caught: {exc} (job.corecount={job.corecount})')
         job_corecount = None
 
     try:
         schedconfig_corecount = float(job.infosys.queuedata.corecount)
     except (ValueError, TypeError) as exc:
-        logger.warning('exception caught: %s (job.infosys.queuedata.corecount=%s)', exc, str(job.infosys.queuedata.corecount))
+        logger.warning(f'exception caught: {exc} (job.infosys.queuedata.corecount={job.infosys.queuedata.corecount})')
         schedconfig_corecount = None
 
     if job_corecount and schedconfig_corecount:
         try:
             scale = job_corecount / schedconfig_corecount
-            logger.debug('scale: job_corecount / schedconfig_corecount=%f', scale)
+            logger.debug(f'scale: job_corecount / schedconfig_corecount={scale}')
         except (ZeroDivisionError, TypeError) as exc:
-            logger.warning('exception caught: %s (using scale factor 1)', exc)
+            logger.warning(f'exception caught: {exc} (using scale factor 1)')
             scale = 1
     else:
         logger.debug('will use scale factor 1')
@@ -94,13 +106,13 @@ def memory_usage(job):
             try:
                 maxrss_int = 2 * int(maxrss * scale) * 1024  # Convert to int and kB
             except (ValueError, TypeError) as exc:
-                logger.warning("unexpected value for maxRSS: %s", exc)
+                logger.warning(f"unexpected value for maxRSS: {exc}")
             else:
                 # Compare the maxRSS with the maxPSS from memory monitor
                 if maxrss_int > 0 and maxpss_int > 0:
                     if maxpss_int > maxrss_int:
-                        diagnostics = "job has exceeded the memory limit %d kB > %d kB (2 * queuedata.maxrss)" % \
-                                      (maxpss_int, maxrss_int)
+                        diagnostics = f"job has exceeded the memory limit {maxpss_int} kB > {maxrss_int} kB " \
+                                      f"(2 * queuedata.maxrss)"
                         logger.warning(diagnostics)
 
                         # Create a lockfile to let RunJob know that it should not restart the memory monitor after it has been killed
@@ -111,8 +123,8 @@ def memory_usage(job):
                         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
                         kill_processes(job.pid)
                     else:
-                        logger.info("max memory (maxPSS) used by the payload is within the allowed limit: "
-                                    "%d B (2 * maxRSS = %d B)", maxpss_int, maxrss_int)
+                        logger.info(f"max memory (maxPSS) used by the payload is within the allowed limit: "
+                                    f"{maxpss_int} B (2 * maxRSS = {maxrss_int} B)")
         else:
             if maxrss == 0 or maxrss == "0":
                 logger.info("queuedata.maxrss set to 0 (no memory checks will be done)")

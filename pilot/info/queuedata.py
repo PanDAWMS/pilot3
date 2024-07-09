@@ -1,11 +1,23 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 
 """
@@ -102,15 +114,16 @@ class QueueData(BaseData):
 
     def __init__(self, data):
         """
-            :param data: input dictionary of queue data settings
-        """
+        Init class instance.
 
+        :param data: input dictionary of queue data settings (dict).
+        """
         self.load(data)
 
         # DEBUG
         #import pprint
-        #logger.debug('initialize QueueData from raw:\n%s' % pprint.pformat(data))
-        logger.debug('Final parsed QueueData content:\n%s' % self)
+        #logger.debug(f'initialize QueueData from raw:\n{pprint.pformat(data)}')
+        logger.debug(f'final parsed QueueData content:\n{self}')
 
     def load(self, data):
         """
@@ -145,13 +158,8 @@ class QueueData(BaseData):
 
         if not activity:
             activity = 'default'
-        try:
-            if isinstance(activity, basestring):  # Python 2  # noqa: F821
-                activity = [activity]
-        except Exception:
-            if isinstance(activity, str):  # Python 3
-                activity = [activity]
-
+        if isinstance(activity, str):
+            activity = [activity]
         if 'default' not in activity:
             activity = activity + ['default']
 
@@ -193,13 +201,13 @@ class QueueData(BaseData):
                 found = re.findall(pattern, self.catchall)
             if found:
                 self.container_options = found[0]
-                logger.info('container_options extracted from catchall: %s' % self.container_options)
+                logger.info(f'container_options extracted from catchall: {self.container_options}')
 
         # verify container_options: add the workdir if missing
         if self.container_options:
             if "${workdir}" not in self.container_options and " --contain" in self.container_options:  ## reimplement with shlex later
                 self.container_options = self.container_options.replace(" --contain", ",${workdir} --contain")
-                logger.info("Note: added missing ${workdir} to container_options: %s" % self.container_options)
+                logger.info(f"note: added missing $workdir to container_options: {self.container_options}")
 
         pass
 

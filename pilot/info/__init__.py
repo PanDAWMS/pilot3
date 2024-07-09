@@ -1,14 +1,26 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
-Pilot Information component
+Pilot Information component.
 
 A set of low-level information providers to aggregate, prioritize (overwrite),
 hide dependency to external storages and expose (queue, site, storage, etc) details
@@ -20,31 +32,30 @@ in a unified structured way to all Pilot modules by providing high-level API
 """
 
 
+import logging
+from collections import namedtuple
+from typing import Any
+
+from pilot.common.exception import PilotException
 from .infoservice import InfoService
 from .jobinfo import JobInfoProvider  # noqa
 from .jobdata import JobData          # noqa
 from .filespec import FileSpec        # noqa
 
-from pilot.common.exception import PilotException
-from collections import namedtuple
-
-import logging
 logger = logging.getLogger(__name__)
 
 
-def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
+def set_info(args: Any):   ## should be DEPRECATED: use `infosys.init(queuename)`
     """
     Set up all necessary site information for given PandaQueue name.
+
     Resolve everything from the specified queue name (passed via `args.queue`)
     and fill extra lookup structure (Populate `args.info`).
 
-    raise PilotException in case of errors.
-
-    :param args: input (shared) arguments
-    :return: None
+    :param args: input (shared) arguments (Any)
+    :raises PilotException: in case of errors.
     """
-
-    # ## initialize info service
+    # initialize info service
     infosys.init(args.queue)
 
     args.info = namedtuple('info', ['queue', 'infoservice',
@@ -53,7 +64,7 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
                                     # 'site_info',
                                     'storages_info'])
     args.info.queue = args.queue
-    args.info.infoservice = infosys  # ## THIS is actually for tests and redundant - the pilot.info.infosys should be used
+    args.info.infoservice = infosys  # THIS is actually for tests and redundant - the pilot.info.infosys should be used
     # args.infoservice = infosys  # ??
 
     # check if queue is ACTIVE
@@ -77,11 +88,6 @@ def set_info(args):   ## should be DEPRECATED: use `infosys.init(queuename)`
     args.info.storages = [ddm for ddm, dat in list(infosys.storages_info.items()) if dat.site == infosys.queuedata.site]
 
     #args.info.sites_info = infosys.sites_info
-
-    logger.info('queue: %s' % args.info.queue)
-    #logger.info('site: %s' % args.info.site)
-    #logger.info('storages: %s' % args.info.storages)
-    #logger.info('queuedata: %s' % args.info.infoservice.queuedata)
 
 
 # global InfoService Instance without Job specific settings applied (singleton shared object)

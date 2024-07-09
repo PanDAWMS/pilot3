@@ -1,13 +1,25 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
 from __future__ import print_function  # Python 2, 2to3 complains about this
@@ -110,7 +122,14 @@ def run(args):
     """
 
     logger.info('setting up signal handling')
-    register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS], args)
+    register_signals([signal.SIGINT,
+                      signal.SIGTERM,
+                      signal.SIGQUIT,
+                      signal.SIGSEGV,
+                      signal.SIGXCPU,
+                      signal.SIGUSR1,
+                      signal.SIGBUS],
+                     args)
 
     logger.info('setting up queues')
     queues = namedtuple('queues', ['jobs', 'payloads', 'data_in', 'data_out', 'current_data_in',
@@ -181,32 +200,37 @@ def run(args):
     # the thread_count is the total number of threads, not just the ExcThreads above
     thread_count = threading.activeCount()
     abort = False
-    while threading.activeCount() > 1 or not abort:
-        # Note: this loop only includes at ExcThreads, not MainThread or Thread
-        # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
-        for thread in threads:
-            bucket = thread.get_bucket()
-            try:
-                exc = bucket.get(block=False)
-            except queue.Empty:
-                pass
-            else:
-                exc_type, exc_obj, exc_trace = exc
-                # deal with the exception
-                print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
+    try:
+        while threading.activeCount() > 1 or not abort:
+            # Note: this loop only includes at ExcThreads, not MainThread or Thread
+            # threading.activeCount() will also include MainThread and any daemon threads (will be ignored)
+            for thread in threads:
+                bucket = thread.get_bucket()
+                try:
+                    exc = bucket.get(block=False)
+                except queue.Empty:
+                    pass
+                else:
+                    exc_type, exc_obj, exc_trace = exc
+                    # deal with the exception
+                    print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
 
-            thread.join(0.1)
+                thread.join(0.1)
 
-        # have all threads finished?
-        abort = threads_aborted(caller='run')
-        if abort:
-            logger.debug('will proceed to set job_aborted')
-            args.job_aborted.set()
-            sleep(5)  # allow monitor thread to finish (should pick up job_aborted within 1 second)
-            logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
-            break
+            # have all threads finished?
+            abort = threads_aborted(caller='run')
+            if abort:
+                logger.debug('will proceed to set job_aborted')
+                args.job_aborted.set()
+                sleep(5)  # allow monitor thread to finish (should pick up job_aborted within 1 second)
+                logger.debug(f'all relevant threads have aborted (thread count={threading.activeCount()})')
+                break
 
-        sleep(1)
+            sleep(1)
+    except Exception as exc:
+        logger.warning(f"exception caught while handling threads: {exc}")
+    finally:
+        logger.info('all workflow threads have been joined')
 
     logger.info(f'end of generic workflow (traces error code: {traces.pilot["error_code"]})')
 

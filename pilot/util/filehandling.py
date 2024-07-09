@@ -1,12 +1,27 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
+"""A collection of functions related to file handling."""
+
+import fnmatch
 import hashlib
 import io
 import logging
@@ -16,7 +31,8 @@ import subprocess
 import tarfile
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping as MappingABC
+from collections.abc import Iterable as IterableABC
 from functools import partial, reduce
 from glob import glob
 from json import load, JSONDecodeError
@@ -24,7 +40,7 @@ from json import dump as dumpjson
 from mmap import mmap
 from pathlib import Path
 from shutil import copy2, rmtree
-from typing import Any
+from typing import Any, IO, Union, Mapping, Iterable
 from zipfile import ZipFile, ZIP_DEFLATED
 from zlib import adler32
 
@@ -35,27 +51,26 @@ from .math import diff_lists
 logger = logging.getLogger(__name__)
 
 
-def get_pilot_work_dir(workdir):
+def get_pilot_work_dir(workdir: str) -> str:
     """
     Return the full path to the main PanDA Pilot work directory. Called once at the beginning of the batch job.
 
-    :param workdir: The full path to where the main work directory should be created
+    :param workdir: The full path to where the main work directory should be created (str)
     :return: The name of main work directory
     """
-
     return os.path.join(workdir, f"PanDA_Pilot3_{os.getpid()}_{int(time.time())}")
 
 
-def mkdirs(workdir, chmod=0o770):
+def mkdirs(workdir: str, chmod: int = 0o770) -> None:
     """
     Create a directory.
+
     Perform a chmod if set.
 
-    :param workdir: Full path to the directory to be created
-    :param chmod: chmod code (default 0770) (octal).
+    :param workdir: Full path to the directory to be created (str)
+    :param chmod: chmod code (default 0770) (octal int)
     :raises PilotException: MKDirFailure.
     """
-
     try:
         os.makedirs(workdir)
         if chmod:
@@ -64,14 +79,13 @@ def mkdirs(workdir, chmod=0o770):
         raise MKDirFailure(exc) from exc
 
 
-def rmdirs(path):
+def rmdirs(path: str) -> bool:
     """
     Remove directory in path.
 
-    :param path: path to directory to be removed (string).
-    :return: Boolean (True if success).
+    :param path: path to directory to be removed (str)
+    :return: True if success, otherwise False (bool).
     """
-
     status = False
 
     try:
@@ -84,14 +98,14 @@ def rmdirs(path):
     return status
 
 
-def read_file(filename, mode='r'):
+def read_file(filename: str, mode: str = 'r') -> str:
     """
     Open, read and close a file.
-    :param filename: file name (string).
-    :param mode:
-    :return: file contents (string).
-    """
 
+    :param filename: file name (str)
+    :param mode: file mode (str)
+    :return: file contents (str).
+    """
     out = ""
     _file = open_file(filename, mode)
     if _file:
@@ -101,19 +115,20 @@ def read_file(filename, mode='r'):
     return out
 
 
-def write_file(path, contents, mute=True, mode='w', unique=False):
+def write_file(path: str, contents: Any, mute: bool = True, mode: str = 'w', unique: bool = False) -> bool:
     """
     Write the given contents to a file.
-    If unique=True, then if the file already exists, an index will be added (e.g. 'out.txt' -> 'out-1.txt')
-    :param path: full path for file (string).
-    :param contents: file contents (object).
-    :param mute: boolean to control stdout info message.
-    :param mode: file mode (e.g. 'w', 'r', 'a', 'wb', 'rb') (string).
-    :param unique: file must be unique (Boolean).
-    :raises PilotException: FileHandlingFailure.
-    :return: True if successful, otherwise False.
-    """
 
+    If unique=True, then if the file already exists, an index will be added (e.g. 'out.txt' -> 'out-1.txt')
+
+    :param path: full path for file (str)
+    :param contents: file contents (Any)
+    :param mute: boolean to control stdout info message (bool)
+    :param mode: file mode (e.g. 'w', 'r', 'a', 'wb', 'rb') (str)
+    :param unique: file must be unique (bool)
+    :raises PilotException: FileHandlingFailure
+    :return: True if successful, otherwise False (bool).
+    """
     status = False
 
     # add an incremental file name (add -%d if path already exists) if necessary
@@ -139,17 +154,17 @@ def write_file(path, contents, mute=True, mode='w', unique=False):
     return status
 
 
-def open_file(filename, mode):
+def open_file(filename: str, mode: str) -> IO:
     """
     Open and return a file pointer for the given mode.
+
     Note: the caller needs to close the file.
 
-    :param filename: file name (string).
-    :param mode: file mode (character).
-    :raises PilotException: FileHandlingFailure.
-    :return: file pointer.
+    :param filename: file name (str)
+    :param mode: file mode (str)
+    :raises PilotException: FileHandlingFailure
+    :return: file pointer (IO).
     """
-
     _file = None
     try:
         _file = open(filename, mode, encoding='utf-8')
@@ -159,13 +174,12 @@ def open_file(filename, mode):
     return _file
 
 
-def find_text_files():
+def find_text_files() -> list:
     """
     Find all non-binary files.
 
-    :return: list of files.
+    :return: list of files (list).
     """
-
     files = []
     # -I = ignore binary files
     cmd = r"find . -type f -exec grep -Iq . {} \; -print"
@@ -180,14 +194,13 @@ def find_text_files():
     return files
 
 
-def get_files(pattern="*.log"):
+def get_files(pattern: str = "*.log") -> list:
     """
     Find all files whose names follow the given pattern.
 
-    :param pattern: file name pattern (string).
-    :return: list of files.
+    :param pattern: file name pattern (str)
+    :return: list of files (list).
     """
-
     files = []
     cmd = f"find . -name {pattern}"
 
@@ -201,16 +214,16 @@ def get_files(pattern="*.log"):
     return files
 
 
-def tail(filename, nlines=10):
+def tail(filename: str, nlines: int = 10) -> str:
     """
     Return the last n lines of a file.
+
     Note: the function uses the posix tail function.
 
-    :param filename: name of file to do the tail on (string).
-    :param nlines: number of lines (int).
+    :param filename: name of file to do the tail on (str)
+    :param nlines: number of lines (int)
     :return: file tail (str).
     """
-
     _, stdout, _ = execute(f'tail -n {nlines} {filename}')
     # protection
     if not isinstance(stdout, str):
@@ -218,15 +231,14 @@ def tail(filename, nlines=10):
     return stdout
 
 
-def head(filename, count=20):
+def head(filename: str, count: int = 20) -> list:
     """
     Return the first several line from the given file.
 
-    :param filename: file name (string).
-    :param count: number of lines (int).
+    :param filename: file name (str)
+    :param count: number of lines (int)
     :return: head lines (list).
     """
-
     ret = None
     with open(filename, 'r', encoding='utf-8') as _file:
         lines = [_file.readline() for line in range(1, count + 1)]
@@ -235,7 +247,7 @@ def head(filename, count=20):
     return ret
 
 
-def grep(patterns, file_name):
+def grep(patterns: list, file_name: str) -> list:
     """
     Search for the patterns in the given list in a file.
 
@@ -245,11 +257,10 @@ def grep(patterns, file_name):
         CaloTrkMuIdAlg2.sysExecute()             ERROR St9bad_alloc
         AthAlgSeq.sysExecute()                   FATAL  Standard std::exception is caught
 
-    :param patterns: list of regexp patterns.
-    :param file_name: file name (string).
-    :return: list of matched lines in file.
+    :param patterns: list of regexp patterns (list)
+    :param file_name: file name (str)
+    :return: list of matched lines in file (list).
     """
-
     matched_lines = []
     _pats = []
     for pattern in patterns:
@@ -272,7 +283,7 @@ def grep(patterns, file_name):
     return matched_lines
 
 
-def convert(data):
+def convert(data: Union[str, Mapping, Iterable]) -> Union[str, dict, list]:
     """
     Convert unicode data to utf-8.
 
@@ -295,42 +306,46 @@ def convert(data):
     :param data: unicode object to be converted to utf-8
     :return: converted data to utf-8
     """
-
     if isinstance(data, str):
         ret = str(data)
-    elif isinstance(data, Mapping):
+    elif isinstance(data, MappingABC):
         ret = dict(list(map(convert, iter(list(data.items())))))
-    elif isinstance(data, Iterable):
+    elif isinstance(data, IterableABC):
         ret = type(data)(list(map(convert, data)))
     else:
         ret = data
     return ret
 
 
-def is_json(input_file):
+def is_json(input_file: str) -> bool:
     """
     Check if the file is in JSON format.
-    The function reads the first character of the file, and if it is "{" then returns True.
 
-    :param input_file: file name (string)
-    :return: Boolean.
+    This function reads the first few characters of the input file and checks if they match the JSON format.
+    It returns True if the file appears to be in JSON format based on the initial characters, and False otherwise.
+
+    :param input_file: The name of the file to be checked (str)
+    :return: True if the file appears to be in JSON format, False otherwise (bool).
     """
+    try:
+        with open(input_file, 'r', encoding='utf-8') as file:
+            first_chars = file.read(4)  # Read the first 4 characters
+            return first_chars.strip().startswith("{")
+    except FileNotFoundError:
+        logger.warning(f'no such file: {input_file}')
+        return False  # File not found
+    except Exception as exc:
+        logger.warning(f"exception caught: {exc}")
+        return False  # Return False in case of other exceptions
 
-    with open(input_file, encoding='utf-8') as unknown_file:
-        first_char = unknown_file.read(1)
-        if first_char == '{':
-            return True
-        return False
 
-
-def read_list(filename):
+def read_list(filename: str) -> list:
     """
-    Read a list from a JSON file.
+    Read the contents of a JSON file into a list.
 
-    :param filename: file name (string).
-    :return: list.
+    :param filename: file name (str)
+    :return: file content (list).
     """
-
     _list = []
 
     # open output file for reading
@@ -343,15 +358,14 @@ def read_list(filename):
     return convert(_list)
 
 
-def read_json(filename):
+def read_json(filename: str) -> dict:
     """
-    Read a dictionary with unicode to utf-8 conversion
+    Read a dictionary with unicode to utf-8 conversion.
 
-    :param filename:
+    :param filename: file name (str)
     :raises PilotException: FileHandlingFailure, ConversionFailure
-    :return: json dictionary
+    :return: json dictionary (dict).
     """
-
     dictionary = None
     _file = open_file(filename, 'r')
     if _file:
@@ -373,40 +387,41 @@ def read_json(filename):
     return dictionary
 
 
-def write_json(filename, data, sort_keys=True, indent=4, separators=(',', ': ')):
-    """
+def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, indent: int = 4,
+               separators: tuple = (',', ': ')) -> bool:
+    r"""
     Write the dictionary to a JSON file.
 
-    :param filename: file name (string).
-    :param data: object to be written to file (dictionary or list).
-    :param sort_keys: should entries be sorted? (boolean).
-    :param indent: indentation level, default 4 (int).
+    :param filename: file name (str)
+    :param data: object to be written to file (dictionary or list)
+    :param sort_keys: should entries be sorted? (boolean)
+    :param indent: indentation level, default 4 (int)
     :param separators: field separators (default (',', ': ') for dictionaries, use e.g. (',\n') for lists) (tuple)
-    :raises PilotException: FileHandlingFailure.
-    :return: status (boolean).
+    :return: status (bool).
     """
-
     status = False
 
     try:
         with open(filename, 'w', encoding='utf-8') as _fh:
             dumpjson(data, _fh, sort_keys=sort_keys, indent=indent, separators=separators)
-    except IOError as exc:
-        raise FileHandlingFailure(exc) from exc
+    except (IOError, TypeError) as exc:
+        logger.warning(f'exception caught (1) in write_json: {exc}')
+    except Exception as exc:
+        logger.warning(f'exception caught (2) in write_json: {exc}')
     else:
         status = True
 
     return status
 
 
-def touch(path):
+def touch(path: str):
     """
     Touch a file and update mtime in case the file exists.
+
     Default to use execute() if case of python problem with appending to non-existant path.
 
-    :param path: full path to file to be touched (string).
+    :param path: full path to file to be touched (str).
     """
-
     try:
         with open(path, 'a', encoding='utf-8'):
             os.utime(path, None)
@@ -414,14 +429,14 @@ def touch(path):
         execute(f'touch {path}')
 
 
-def remove_empty_directories(src_dir):
+def remove_empty_directories(src_dir: str):
     """
-    Removal of empty directories in the given src_dir tree.
-    Only empty directories will be removed.
+    Remove empty directories in the given src_dir tree.
+
+    Note: Only _empty_ directories will be removed.
 
     :param src_dir: directory to be purged of empty directories.
     """
-
     for dirpath, _, _ in os.walk(src_dir, topdown=False):
         if dirpath == src_dir:
             break
@@ -431,13 +446,13 @@ def remove_empty_directories(src_dir):
             pass
 
 
-def remove(path):
+def remove(path: str):
     """
-    Remove file.
-    :param path: path to file (string).
-    :return: 0 if successful, -1 if failed (int)
-    """
+    Remove the given file.
 
+    :param path: path to file (str)
+    :return: 0 if successful, -1 if failed (int).
+    """
     ret = -1
     try:
         os.remove(path)
@@ -450,13 +465,13 @@ def remove(path):
     return ret
 
 
-def remove_dir_tree(path):
+def remove_dir_tree(path: str) -> int:
     """
-    Remove directory tree.
-    :param path: path to directory (string).
-    :return: 0 if successful, -1 if failed (int)
-    """
+    Remove the given directory tree.
 
+    :param path: path to directory (str)
+    :return: 0 if successful, -1 if failed (int).
+    """
     try:
         rmtree(path)
     except OSError as exc:
@@ -465,16 +480,17 @@ def remove_dir_tree(path):
     return 0
 
 
-def remove_files(files, workdir=None):
+def remove_files(files: list, workdir: str = "") -> int:
     """
-    Remove all given files from workdir.
+
+    Remove all given files from the given workdir.
+
     If workdir is set, it will be used as base path.
 
-    :param files: file list
-    :param workdir: optional working directory (string)
-    :return: exit code (0 if all went well, -1 otherwise)
+    :param files: file list (list)
+    :param workdir: optional working directory (str)
+    :return: exit code (0 if all went well, -1 otherwise) (int).
     """
-
     exitcode = 0
     if not isinstance(files, list):
         logger.warning(f'files parameter not a list: {type(files)}')
@@ -489,17 +505,16 @@ def remove_files(files, workdir=None):
     return exitcode
 
 
-def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
+def tar_files(wkdir: str, excludedfiles: list, logfile_name: str, attempt: int = 0) -> int:
     """
-    Tarring of files in given directory.
+    Tar the files in the given directory.
 
-    :param wkdir: work directory (string)
+    :param wkdir: work directory (str)
     :param excludedfiles: list of files to be excluded from tar operation (list)
-    :param logfile_name: file name (string)
-    :param attempt: attempt number (integer)
-    :return: 0 if successful, 1 in case of error (int)
+    :param logfile_name: file name (str)
+    :param attempt: attempt number (int)
+    :return: 0 if successful, 1 in case of error (int).
     """
-
     to_pack = []
     pack_start = time.time()
     for path, _, files in os.walk(wkdir):
@@ -534,14 +549,14 @@ def tar_files(wkdir, excludedfiles, logfile_name, attempt=0):
     return 0
 
 
-def move(path1, path2):
+def move(path1: str, path2: str):
     """
     Move a file from path1 to path2.
 
-    :param path1: source path (string).
-    :param path2: destination path2 (string).
+    :param path1: source path (str)
+    :param path2: destination path (str).
+    :raises PilotException: FileHandlingFailure, NoSuchFile.
     """
-
     if not os.path.exists(path1):
         diagnostic = f'file copy failure: path does not exist: {path1}'
         logger.warning(diagnostic)
@@ -557,15 +572,14 @@ def move(path1, path2):
         logger.info(f"moved {path1} to {path2}")
 
 
-def copy(path1, path2):
+def copy(path1: str, path2: str):
     """
     Copy path1 to path2.
 
-    :param path1: file path (string).
-    :param path2: file path (string).
-    :raises PilotException: FileHandlingFailure, NoSuchFile
+    :param path1: file path (str)
+    :param path2: file path (str)
+    :raises PilotException: FileHandlingFailure, NoSuchFile.
     """
-
     if not os.path.exists(path1):
         diagnostics = f'file copy failure: path does not exist: {path1}'
         logger.warning(diagnostics)
@@ -580,15 +594,14 @@ def copy(path1, path2):
         logger.info(f"copied {path1} to {path2}")
 
 
-def add_to_total_size(path, total_size):
+def add_to_total_size(path: str, total_size: int):
     """
     Add the size of file in the given path to the total size of all in/output files.
 
-    :param path: path to file (string).
-    :param total_size: prior total size of all input/output files (long).
-    :return: total size of all input/output files (long).
+    :param path: path to file (str)
+    :param total_size: prior total size of all input/output files (int)
+    :return: total size of all input/output files (int).
     """
-
     if os.path.exists(path):
         # Get the file size
         fsize = get_local_file_size(path)
@@ -601,14 +614,13 @@ def add_to_total_size(path, total_size):
     return total_size
 
 
-def get_local_file_size(filename):
+def get_local_file_size(filename: str) -> int:
     """
     Get the file size of a local file.
 
-    :param filename: file name (string).
+    :param filename: file name (str)
     :return: file size (int).
     """
-
     file_size = None
 
     if os.path.exists(filename):
@@ -625,17 +637,18 @@ def get_local_file_size(filename):
 def get_guid():
     """
     Generate a GUID using the uuid library.
+
     E.g. guid = '92008FAF-BE4C-49CF-9C5C-E12BC74ACD19'
 
-    :return: a random GUID (string)
+    :return: a random GUID (str).
     """
-
     return str(uuid.uuid4()).upper()
 
 
-def get_table_from_file(filename, header=None, separator="\t", convert_to_float=True):
+def get_table_from_file(filename: str, header: str = "", separator: str = "\t", convert_to_float: bool = True) -> bool:
     """
     Extract a table of data from a txt file.
+
     E.g.
     header="Time VMEM PSS RSS Swap rchar wchar rbytes wbytes"
     or the first line in the file is
@@ -646,13 +659,12 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
     The output dictionary will have the format
     {'Time': [ .. data from first row .. ], 'VMEM': [.. data from second row], ..}
 
-    :param filename: name of input text file, full path (string).
-    :param header: header string.
-    :param separator: separator character (char).
-    :param convert_to_float: boolean, if True, all values will be converted to floats.
-    :return: dictionary.
+    :param filename: name of input text file, full path (str)
+    :param header: header string (str)
+    :param separator: separator character (str)
+    :param convert_to_float: boolean, if True, all values will be converted to floats (bool)
+    :return: dictionary (dict).
     """
-
     tabledict = {}
     keylist = []  # ordered list of dictionary key names
 
@@ -689,17 +701,17 @@ def get_table_from_file(filename, header=None, separator="\t", convert_to_float=
     return tabledict
 
 
-def _define_tabledict_keys(header, fields, separator):
+def _define_tabledict_keys(header: str, fields: str, separator: str) -> (dict, list):
     """
     Define the keys for the tabledict dictionary.
+
     Note: this function is only used by parse_table_from_file().
 
-    :param header: header string.
-    :param fields: header content string.
-    :param separator: separator character (char).
-    :return: tabledict (dictionary), keylist (ordered list with dictionary key names).
+    :param header: header (str)
+    :param fields: header content (str)
+    :param separator: separator character (str)
+    :return: tabledict (dict), keylist (ordered list with dictionary key names).
     """
-
     tabledict = {}
     keylist = []
 
@@ -727,18 +739,18 @@ def _define_tabledict_keys(header, fields, separator):
     return tabledict, keylist
 
 
-def calculate_checksum(filename, algorithm='adler32'):
+def calculate_checksum(filename: str, algorithm: str = "adler32") -> str:
     """
     Calculate the checksum value for the given file.
+
     The default algorithm is adler32. Md5 is also be supported.
     Valid algorithms are 1) adler32/adler/ad32/ad, 2) md5/md5sum/md.
 
-    :param filename: file name (string).
-    :param algorithm: optional algorithm string.
-    :raises FileHandlingFailure, NotImplementedError, Exception.
-    :return: checksum value (string).
+    :param filename: file name (str)
+    :param algorithm: optional algorithm string (str)
+    :raises FileHandlingFailure, NotImplementedError, Exception
+    :return: checksum value (str).
     """
-
     if not os.path.exists(filename):
         raise FileHandlingFailure(f'file does not exist: {filename}')
 
@@ -756,17 +768,18 @@ def calculate_checksum(filename, algorithm='adler32'):
         raise NotImplementedError()
 
 
-def calculate_adler32_checksum(filename):
+def calculate_adler32_checksum(filename: str) -> str:
     """
+    Calculate the adler32 checksum for the given file.
+
     An Adler-32 checksum is obtained by calculating two 16-bit checksums A and B and concatenating their bits
     into a 32-bit integer. A is the sum of all bytes in the stream plus one, and B is the sum of the individual values
     of A from each step.
 
-    :param filename: file name (string).
+    :param filename: file name (str)
     :raises: Exception.
-    :returns: hexadecimal string, padded to 8 values (string).
+    :returns: hexadecimal string, padded to 8 values (str).
     """
-
     # adler starting value is _not_ 0
     adler = 1
 
@@ -795,18 +808,18 @@ def calculate_adler32_checksum(filename):
         adler = adler + 2 ** 32
 
     # convert to hex
-    return "{0:08x}".format(adler)
+    return f"{adler:08x}"
 
 
-def calculate_md5_checksum(filename):
+def calculate_md5_checksum(filename: str):
     """
     Calculate the md5 checksum for the given file.
+
     The file is assumed to exist.
 
-    :param filename: file name (string).
-    :return: checksum value (string).
+    :param filename: file name (str)
+    :return: checksum value (str).
     """
-
     length = io.DEFAULT_BUFFER_SIZE
     md5 = hashlib.md5()
 
@@ -817,9 +830,10 @@ def calculate_md5_checksum(filename):
     return md5.hexdigest()
 
 
-def get_checksum_value(checksum):
+def get_checksum_value(checksum: str) -> str:
     """
-    Return the checksum value.
+    Return the actual checksum value from the full checksum string.
+
     The given checksum might either be a standard ad32 or md5 string, or a dictionary with the format
     { checksum_type: value } as defined in the `FileSpec` class. This function extracts the checksum value from this
     dictionary (or immediately returns the checksum value if the given value is a string).
@@ -827,7 +841,6 @@ def get_checksum_value(checksum):
     :param checksum: checksum object (string or dictionary).
     :return: checksum. checksum string.
     """
-
     if isinstance(checksum, str):
         return checksum
 
@@ -840,17 +853,17 @@ def get_checksum_value(checksum):
     return checksum_value
 
 
-def get_checksum_type(checksum):
+def get_checksum_type(checksum: Any) -> str:
     """
     Return the checksum type (ad32 or md5).
+
     The given checksum can be either be a standard ad32 or md5 value, or a dictionary with the format
     { checksum_type: value } as defined in the `FileSpec` class.
     In case the checksum type cannot be identified, the function returns 'unknown'.
 
-    :param checksum: checksum string or dictionary.
+    :param checksum: checksum string or dictionary (Any)
     :return: checksum type (string).
     """
-
     checksum_type = 'unknown'
     if isinstance(checksum, dict):
         for key in list(checksum.keys()):
@@ -866,16 +879,15 @@ def get_checksum_type(checksum):
     return checksum_type
 
 
-def scan_file(path, error_messages, warning_message=None):
+def scan_file(path: str, error_messages: list, warning_message: str = ""):
     """
-    Scan file for known error messages.
+    Scan the given file for known error messages.
 
-    :param path: path to file (string).
-    :param error_messages: list of error messages.
-    :param warning_message: optional warning message to printed with any of the error_messages have been found (string).
-    :return: Boolean. (note: True means the error was found)
+    :param path: path to file (str)
+    :param error_messages: list of error messages (list)
+    :param warning_message: optional warning message to be printed with any of the error_messages have been found (str)
+    :return: True if error was found, False otherwise (bool)
     """
-
     found_problem = False
 
     matched_lines = grep(error_messages, path)
@@ -889,14 +901,13 @@ def scan_file(path, error_messages, warning_message=None):
     return found_problem
 
 
-def verify_file_list(list_of_files):
+def verify_file_list(list_of_files: list) -> list:
     """
-    Make sure that the files in the given list exist, return the list of files that does exist.
+    Make sure that the files in the given list exist, return the list of files that do exist.
 
-    :param list_of_files: file list.
-    :return: list of existing files.
+    :param list_of_files: file list (list)
+    :return: list of existing files (list).
     """
-
     # remove any non-existent files from the input file list
     filtered_list = [f for f in list_of_files if os.path.exists(f)]
 
@@ -907,15 +918,15 @@ def verify_file_list(list_of_files):
     return filtered_list
 
 
-def find_latest_modified_file(list_of_files):
+def find_latest_modified_file(list_of_files: list) -> (str, int):
     """
     Find the most recently modified file among the list of given files.
+
     In case int conversion of getmtime() fails, int(time.time()) will be returned instead.
 
-    :param list_of_files: list of files with full paths.
-    :return: most recently updated file (string), modification time (int).
+    :param list_of_files: list of files with full paths (list)
+    :return: most recently updated file (str), modification time (int).
     """
-
     if not list_of_files:
         logger.warning('there were no files to check mod time for')
         return None, None
@@ -931,14 +942,14 @@ def find_latest_modified_file(list_of_files):
     return latest_file, mtime
 
 
-def list_mod_files(file_list):
+def list_mod_files(file_list: list):
     """
     List file names along with the mod times.
+
     Called before looping killer is executed.
 
-    :param file_list: list of files with full paths.
+    :param file_list: list of files with full paths (list).
     """
-
     if file_list:
         logger.info('dumping info for recently modified files prior to looping job kill')
         for _file in file_list:
@@ -949,15 +960,14 @@ def list_mod_files(file_list):
             logger.info(f'file name={_file} : mod_time={size}')
 
 
-def dump(path, cmd="cat"):
+def dump(path: str, cmd: str = "cat"):
     """
     Dump the content of the file in the given path to the log.
 
-    :param path: file path (string).
-    :param cmd: optional command (string).
-    :return: cat (string).
+    :param path: file path (str)
+    :param cmd: optional command (str)
+    :return: cat (str).
     """
-
     if os.path.exists(path) or cmd == "echo":
         _cmd = f"{cmd} {path}"
         _, stdout, stderr = execute(_cmd)
@@ -966,18 +976,17 @@ def dump(path, cmd="cat"):
         logger.info(f"path {path} does not exist")
 
 
-def remove_core_dumps(workdir, pid=None):
+def remove_core_dumps(workdir: str, pid: int = 0):
     """
-    Remove any remaining core dumps so they do not end up in the log tarball
+    Remove any remaining core dumps so they do not end up in the log tarball.
 
     A core dump from the payload process should not be deleted if in debug mode (checked by the called). Also,
     a found core dump from a non-payload process, should be removed but should result in function returning False.
 
-    :param workdir: working directory for payload (string).
-    :param pid: payload pid (integer).
-    :return: Boolean (True if a payload core dump is found)
+    :param workdir: working directory for payload (str)
+    :param pid: payload pid (int)
+    :return: True if a payload core dump is found, False otherwise (bool).
     """
-
     found = False
 
     coredumps = glob(f"{workdir}/core.*") + glob(f"{workdir}/core")
@@ -991,34 +1000,32 @@ def remove_core_dumps(workdir, pid=None):
     return found
 
 
-def get_nonexistant_path(fname_path):
+def get_nonexistant_path(fname_path: str) -> str:
     """
     Get the path to a filename which does not exist by incrementing path.
 
-    :param fname_path: file name path (string).
-    :return: file name path (string).
+    :param fname_path: file name path (str)
+    :return: file name path (str).
     """
-
     if not os.path.exists(fname_path):
         return fname_path
     filename, file_extension = os.path.splitext(fname_path)
     i = 1
-    new_fname = "{}-{}{}".format(filename, i, file_extension)
+    new_fname = f"{filename}-{i}{file_extension}"
     while os.path.exists(new_fname):
         i += 1
-        new_fname = "{}-{}{}".format(filename, i, file_extension)
+        new_fname = f"{filename}-{i}{file_extension}"
     return new_fname
 
 
-def update_extension(path='', extension=''):
+def update_extension(path: str = "", extension: str = "") -> str:
     """
     Update the file name extension to the given extension.
 
-    :param path: file path (string).
-    :param extension: new extension (string).
-    :return: file path with new extension (string).
+    :param path: file path (str)
+    :param extension: new extension (str)
+    :return: file path with new extension (str).
     """
-
     path, _ = os.path.splitext(path)
     if not extension.startswith('.'):
         extension = '.' + extension
@@ -1027,14 +1034,13 @@ def update_extension(path='', extension=''):
     return path
 
 
-def get_valid_path_from_list(paths):
+def get_valid_path_from_list(paths: list) -> str:
     """
     Return the first valid path from the given list.
 
-    :param paths: list of file paths.
-    :return: first valid path from list (string).
+    :param paths: list of file paths (list)
+    :return: first valid path from list (str).
     """
-
     valid_path = None
     for path in paths:
         if os.path.exists(path):
@@ -1044,16 +1050,16 @@ def get_valid_path_from_list(paths):
     return valid_path
 
 
-def copy_pilot_source(workdir, filename=None):
+def copy_pilot_source(workdir: str, filename: str = "") -> str:
     """
     Copy the pilot source into the work directory.
+
     If a filename is specified, only that file will be copied.
 
-    :param workdir: working directory (string).
-    :param filename: specific filename (string).
-    :return: diagnostics (string).
+    :param workdir: working directory (str)
+    :param filename: specific filename (str)
+    :return: diagnostics (str).
     """
-
     diagnostics = ""
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
 
@@ -1062,6 +1068,9 @@ def copy_pilot_source(workdir, filename=None):
 
     try:
         logger.debug(f'copy {srcdir} to {workdir}')
+        # replace with:
+        # pat = f"{filename}" if filename else f"{filename}/*"
+        # cmd = f"cp -pr {pat} {srcdir} {workdir}"
         pat = '%s' if filename else '%s/*'
         cmd = f'cp -pr {pat} %s' % (srcdir, workdir)
         exit_code, stdout, _ = execute(cmd)
@@ -1075,14 +1084,13 @@ def copy_pilot_source(workdir, filename=None):
     return diagnostics
 
 
-def create_symlink(from_path='', to_path=''):
+def create_symlink(from_path: str = "", to_path: str = ""):
     """
     Create a symlink from/to the given paths.
 
     :param from_path: from path (string).
     :param to_path: to path (string).
     """
-
     try:
         os.symlink(from_path, to_path)
     except (OSError, FileNotFoundError) as exc:
@@ -1091,18 +1099,17 @@ def create_symlink(from_path='', to_path=''):
         logger.debug(f'created symlink from {from_path} to {to_path}')
 
 
-def locate_file(pattern):
+def locate_file(pattern: str) -> str:
     """
-    Locate a file defined by the pattern.
+    Locate a file defined by the given pattern.
 
     Example:
         pattern = os.path.join(os.getcwd(), '**/core.123')
         -> /Users/Paul/Development/python/tt/core.123
 
-    :param pattern: pattern name (string).
-    :return: path (string).
+    :param pattern: pattern name (str)
+    :return: path (str).
     """
-
     path = None
     for fname in glob(pattern):
         if os.path.isfile(fname):
@@ -1111,14 +1118,13 @@ def locate_file(pattern):
     return path
 
 
-def find_last_line(filename):
+def find_last_line(filename: str) -> str:
     """
     Find the last line in a (not too large) file.
 
-    :param filename: file name, full path (string).
-    :return: last line (string).
+    :param filename: file name, full path (str)
+    :return: last line (str).
     """
-
     last_line = ""
     with open(filename) as _file:
         line = ""
@@ -1130,14 +1136,13 @@ def find_last_line(filename):
     return last_line
 
 
-def get_disk_usage(start_path='.'):
+def get_disk_usage(start_path: str = "."):
     """
     Calculate the disk usage of the given directory (including any sub-directories).
 
-    :param start_path: directory (string).
+    :param start_path: directory (str)
     :return: disk usage in bytes (int).
     """
-
     total_size = 0
     for dirpath, _, filenames in os.walk(start_path):
         for fname in filenames:
@@ -1153,15 +1158,14 @@ def get_disk_usage(start_path='.'):
     return total_size
 
 
-def extract_lines_from_file(pattern, filename):
+def extract_lines_from_file(pattern: str, filename: str) -> str:
     """
-    Extract all lines containing 'pattern' from given file.
+    Extract all lines containing the given pattern from the given file.
 
-    :param pattern: text (string).
-    :param filename: file name (string).
-    :return: text (string).
+    :param pattern: text (str)
+    :param filename: file name (str)
+    :return: text (str).
     """
-
     _lines = ''
     try:
         with open(filename, 'r') as _file:
@@ -1175,15 +1179,14 @@ def extract_lines_from_file(pattern, filename):
     return _lines
 
 
-def find_file(filename, startdir):
+def find_file(filename: str, startdir: str) -> str:
     """
-    Locate a file in a subdirectory to the given start directory.
+    Locate a file in a subdirectory of the given start directory.
 
-    :param filename: file name (string).
-    :param startdir: start directory for search (string).
-    :return: full path (string).
+    :param filename: file name (str)
+    :param startdir: start directory for search (str)
+    :return: full path (str).
     """
-
     logger.debug(f'looking for {filename} in start dir {startdir}')
     _path = None
     for path in Path(startdir).rglob(filename):
@@ -1194,15 +1197,14 @@ def find_file(filename, startdir):
     return _path
 
 
-def zip_files(archivename, files):
+def zip_files(archivename: str, files: list) -> bool:
     """
-    Zip a list of files with standard compression level.
+    Compress a list of files with the standard compression level.
 
-    :param archivename: archive name (string).
-    :param files: list of files.
-    :return: status (Boolean)
+    :param archivename: archive name (str)
+    :param files: list of files (list)
+    :return: status (bool).
     """
-
     status = False
     try:
 
@@ -1223,27 +1225,43 @@ def zip_files(archivename, files):
     return status
 
 
-def generate_test_file(filename, filesize=1024):
+def generate_test_file(filename: str, filesize: int = 1024):
     """
     Generate a binary file with the given size in Bytes.
 
-    :param filename: full path, file name (string)
-    :param filesize: file size in Bytes (int)
+    :param filename: full path, file name (str)
+    :param filesize: file size in Bytes (int).
     """
-
     with open(filename, 'wb') as fout:
         fout.write(os.urandom(filesize))  # replace 1024 with a size in kilobytes if it is not unreasonably large
 
 
 def get_directory_size(directory: str) -> float:
     """
-    Measure the size of the given directory with du -sh.
-    The function will return None in case of failure.
+    Measure the size of the given directory.
 
-    :param directory: full directory path (string).
+    :param directory: full directory path (str)
     :return: size in MB (float).
     """
 
+    size_mb = None
+    try:
+        size_mb = get_disk_usage(directory) / 1024 / 1024
+    except Exception as exc:
+        logger.warning(f'failed to get directory size: {exc}')
+
+    return size_mb
+
+
+def old_get_directory_size(directory: str) -> float:
+    """
+    Measure the size of the given directory with du -sh.
+
+    The function will return None in case of failure.
+
+    :param directory: full directory path (str)
+    :return: size in MB (float).
+    """
     size_mb = None
     command = ["du", "-sh", directory]
     output = subprocess.check_output(command)
@@ -1264,10 +1282,9 @@ def get_total_input_size(files: Any, nolib: bool = True) -> int:
     Calculate the total input file size, but do not include the lib file if present.
 
     :param files: files object (list of FileSpec)
-    :param nolib: if True, do not include the lib file in the calculation
+    :param nolib: if True, do not include the lib file in the calculation (bool)
     :return: total input file size in bytes (int).
     """
-
     if not nolib:
         total_size = reduce(lambda x, y: x + y.filesize, files, 0)
     else:
@@ -1281,13 +1298,12 @@ def get_total_input_size(files: Any, nolib: bool = True) -> int:
 
 def append_to_file(from_file: str, to_file: str) -> bool:
     """
-    Appends the contents of one file to another.
+    Append the contents of one file to another.
 
     :param from_file: The path to the source file to read from (str)
     :param to_file: The path to the target file to append to (str)
     :return: True if the operation was successful, False otherwise (bool).
     """
-
     status = False
     try:
         # 1 kB chunk size
@@ -1316,3 +1332,47 @@ def append_to_file(from_file: str, to_file: str) -> bool:
         logger.warning(f"an error occurred while processing the file: {exc}")
 
     return status
+
+
+def find_files_with_pattern(directory: str, pattern: str) -> list:
+    """
+    Find files in a directory that match a specified pattern.
+
+    :param directory: The directory to search for files (str)
+    :param pattern: The pattern to match filenames (str)
+    :return: a list of matching filenames found in the directory (list).
+    """
+    try:
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"directory '{directory}' does not exist")
+
+        # return all matching files
+        return [f for f in os.listdir(directory) if fnmatch.fnmatch(f, pattern)]
+    except (FileNotFoundError, PermissionError) as exc:
+        logger.warning(f"exception caught while finding files: {exc}")
+        return []
+
+
+def rename_xrdlog(name: str):
+    """
+    Rename xroot client logfile if it was created.
+
+    :param name: local file name (str).
+    """
+    xrd_logfile = os.environ.get('XRD_LOGFILE', None)
+    if xrd_logfile:
+        # xrootd is then expected to have produced a corresponding log file
+        pilot_home = os.environ.get('PILOT_HOME', None)
+        if pilot_home:
+            path = os.path.join(pilot_home, xrd_logfile)
+            suffix = Path(xrd_logfile).suffix  # .txt
+            stem = Path(xrd_logfile).stem  # xrdlog
+            if os.path.exists(path):
+                try:
+                    os.rename(path, f'{stem}-{name}{suffix}')
+                except (NoSuchFile, IOError) as exc:
+                    logger.warning(f'exception caught while renaming file: {exc}')
+            else:
+                logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
+        else:
+            logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')

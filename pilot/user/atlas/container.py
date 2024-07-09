@@ -1,17 +1,34 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
-# - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
 
+import fcntl
+import json
+import logging
 import os
 import pipes
 import re
-import logging
+import subprocess
+import time
+from typing import Any, Callable
 
 # for user container test: import urllib
 
@@ -21,20 +38,25 @@ from pilot.user.atlas.setup import get_asetup, get_file_system_root_path
 from pilot.user.atlas.proxy import get_and_verify_proxy, get_voms_role
 from pilot.info import InfoService, infosys
 from pilot.util.config import config
-from pilot.util.filehandling import write_file
+from pilot.util.constants import get_rucio_client_version
+from pilot.util.container import obscure_token
+from pilot.util.filehandling import (
+    grep,
+    remove,
+    write_file
+)
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def do_use_container(**kwargs):
+def do_use_container(**kwargs: Any) -> bool:
     """
     Decide whether to use a container or not.
 
-    :param kwargs: dictionary of key-word arguments.
-    :return: True if function has decided that a container should be used, False otherwise (boolean).
+    :param kwargs: dictionary of key-word arguments (Any)
+    :return: True if function has decided that a container should be used, False otherwise (bool).
     """
-
     # to force no container use: return False
     use_container = False
 
@@ -53,7 +75,7 @@ def do_use_container(**kwargs):
             container_name = queuedata.container_type.get("pilot")
             if container_name:
                 use_container = True
-                logger.debug('container_name == \'%s\' -> use_container = True', container_name)
+                logger.debug(f"container_name == \'{container_name}\' -> use_container = True")
             else:
                 logger.debug('else -> use_container = False')
     elif copytool:
@@ -66,16 +88,15 @@ def do_use_container(**kwargs):
     return use_container
 
 
-def wrapper(executable, **kwargs):
+def wrapper(executable: str, **kwargs: Any) -> Callable[..., Any]:
     """
     Wrapper function for any container specific usage.
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
-    :param executable: command to be executed (string).
-    :param kwargs: dictionary of key-word arguments.
-    :return: executable wrapped with container command (string).
+    :param executable: command to be executed (str)
+    :param kwargs: dictionary of key-word arguments (Any)
+    :return: executable wrapped with container command (Callable).
     """
-
     workdir = kwargs.get('workdir', '.')
     pilot_home = os.environ.get('PILOT_HOME', '')
     job = kwargs.get('job', None)
@@ -91,38 +112,36 @@ def wrapper(executable, **kwargs):
     return fctn(executable, workdir, job=job)
 
 
-def extract_platform_and_os(platform):
+def extract_platform_and_os(platform: str) -> str:
     """
-    Extract the platform and OS substring from platform
+    Extract the platform and OS substring from platform.
 
-    :param platform (string): E.g. "x86_64-slc6-gcc48-opt"
-    :return: extracted platform specifics (string). E.g. "x86_64-slc6". In case of failure, return the full platform
+    :param platform: platform info, e.g. "x86_64-slc6-gcc48-opt" (str)
+    :return: extracted platform specifics, e.g. "x86_64-slc6". In case of failure, return the full platform (str).
     """
-
     pattern = r"([A-Za-z0-9_-]+)-.+-.+"
     found = re.findall(re.compile(pattern), platform)
 
     if found:
         ret = found[0]
     else:
-        logger.warning("could not extract architecture and OS substring using pattern=%s from platform=%s"
-                       "(will use %s for image name)", pattern, platform, platform)
+        logger.warning(f"could not extract architecture and OS substring using pattern={pattern} from "
+                       f"platform={platform} (will use {platform} for image name)")
         ret = platform
 
     return ret
 
 
-def get_grid_image(platform):
+def get_grid_image(platform: str) -> str:
     """
-    Return the full path to the singularity/apptainer grid image
+    Return the full path to the singularity/apptainer grid image.
 
-    :param platform: E.g. "x86_64-slc6" (string).
-    :return: full path to grid image (string).
+    :param platform: E.g. "x86_64-slc6" (str)
+    :return: full path to grid image (str).
     """
-
     if not platform or platform == "":
         platform = "x86_64-slc6"
-        logger.warning("using default platform=%s (cmtconfig not set)", platform)
+        logger.warning(f"using default platform={platform} (cmtconfig not set)")
 
     arch_and_os = extract_platform_and_os(platform)
     image = arch_and_os + ".img"
@@ -133,10 +152,10 @@ def get_grid_image(platform):
     path = os.path.join(_path, image)
     if not os.path.exists(path):
         image = 'x86_64-centos7.img'
-        logger.warning('path does not exist: %s (trying with image %s instead)', path, image)
+        logger.warning(f'path does not exist: {path} (trying with image {image} instead)')
         path = os.path.join(_path, image)
         if not os.path.exists(path):
-            logger.warning('path does not exist either: %s', path)
+            logger.warning(f'path does not exist either: {path}')
             path = ""
 
     return path
@@ -164,7 +183,7 @@ def get_middleware_type():
                 if middleware == _split[0]:
                     middleware_type = _split[1]
         except IndexError as exc:
-            logger.warning("failed to parse the container name: %s, %s", container_type, exc)
+            logger.warning(f"failed to parse the container name: {container_type}, {exc}")
     else:
         # logger.warning("container middleware type not specified in queuedata")
         # no middleware type was specified, assume that middleware is present on worker node
@@ -199,7 +218,7 @@ def extract_atlas_setup(asetup, swrelease):
         cleaned_atlas_setup = asetup.replace(atlas_setup, '').replace(';;', ';')
         atlas_setup = atlas_setup.replace('source ', '')
     except AttributeError as exc:
-        logger.debug('exception caught while extracting asetup command: %s', exc)
+        logger.debug(f'exception caught while extracting asetup command: {exc}')
         atlas_setup = ''
         cleaned_atlas_setup = ''
 
@@ -233,9 +252,9 @@ def extract_full_atlas_setup(cmd, atlas_setup):
                 updated_cmds.append(subcmd)
         updated_cmd = ';'.join(updated_cmds)
     except AttributeError as exc:
-        logger.warning('exception caught while extracting full atlas setup: %s', exc)
+        logger.warning(f'exception caught while extracting full atlas setup: {exc}')
         updated_cmd = cmd
-    logger.debug('updated payload setup command: %s', updated_cmd)
+    logger.debug(f'updated payload setup command: {updated_cmd}')
 
     return extracted_asetup, updated_cmd
 
@@ -255,13 +274,13 @@ def update_alrb_setup(cmd, use_release_setup):
         _cmd = cmd.split(';')
         for subcmd in _cmd:
             if subcmd.startswith('source ${ATLAS_LOCAL_ROOT_BASE}') and use_release_setup:
-                updated_cmds.append('export ALRB_CONT_SETUPFILE="/srv/%s"' % config.Container.release_setup)
+                updated_cmds.append(f'export ALRB_CONT_SETUPFILE="/srv/{config.Container.release_setup}"')
             updated_cmds.append(subcmd)
         updated_cmd = ';'.join(updated_cmds)
     except AttributeError as exc:
-        logger.warning('exception caught while extracting full atlas setup: %s', exc)
+        logger.warning(f'exception caught while extracting full atlas setup: {exc}')
         updated_cmd = cmd
-    logger.debug('updated ALRB command: %s', updated_cmd)
+    logger.debug(f'updated ALRB command: {updated_cmd}')
 
     return updated_cmd
 
@@ -314,13 +333,13 @@ def set_platform(job, alrb_setup):
     """
 
     if job.alrbuserplatform:
-        alrb_setup += 'export thePlatform=\"%s\";' % job.alrbuserplatform
+        alrb_setup += f'export thePlatform="{job.alrbuserplatform}";'
     elif job.preprocess and job.containeroptions:
-        alrb_setup += 'export thePlatform=\"%s\";' % job.containeroptions.get('containerImage')
+        alrb_setup += f"export thePlatform=\"{job.containeroptions.get('containerImage')}\";"
     elif job.imagename:
-        alrb_setup += 'export thePlatform=\"%s\";' % job.imagename
+        alrb_setup += f'export thePlatform="{job.imagename}";'
     elif job.platform:
-        alrb_setup += 'export thePlatform=\"%s\";' % job.platform
+        alrb_setup += f'export thePlatform="{job.platform}";'
 
     return alrb_setup
 
@@ -346,7 +365,7 @@ def get_container_options(container_options):
             if '--containall' in container_options:
                 container_options = container_options.replace('--containall', '')
         if container_options:
-            opts += '-e \"%s\"' % container_options
+            opts += f'-e "{container_options}"'
     else:
         # consider using options "-c -i -p" instead of "-C". The difference is that the latter blocks all environment
         # variables by default and the former does not
@@ -355,12 +374,13 @@ def get_container_options(container_options):
             pass
             # opts += 'export ALRB_CONT_CMDOPTS=\"$ALRB_CONT_CMDOPTS -c -i -p\";'
         else:
-            opts += '-e \"-C\"'
+            #opts += '-e \"-C\"'
+            opts += '-e \"-c -i\"'
 
     return opts
 
 
-def alrb_wrapper(cmd, workdir, job=None):
+def alrb_wrapper(cmd: str, workdir: str, job: Any = None) -> str:
     """
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
@@ -424,7 +444,7 @@ def alrb_wrapper(cmd, workdir, job=None):
         # add the jobid to be used as an identifier for the payload running inside the container
         # it is used to identify the pid for the process to be tracked by the memory monitor
         if 'export PandaID' not in alrb_setup:
-            alrb_setup += "export PandaID=%s;" % job.jobid
+            alrb_setup += f"export PandaID={job.jobid};"
 
         # add TMPDIR
         cmd = "export TMPDIR=/srv;export GFORTRAN_TMPDIR=/srv;" + cmd
@@ -437,17 +457,18 @@ def alrb_wrapper(cmd, workdir, job=None):
         # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
         if job.preprocess and job.containeroptions:
             cmd = replace_last_command(cmd, job.containeroptions.get('containerExec'))
-            logger.debug('updated cmd with containerExec: %s', cmd)
 
         # write the full payload command to a script file
         container_script = config.Container.container_script
-        logger.debug('command to be written to container script file:\n\n%s:\n\n%s\n', container_script, cmd)
+        if cmd:
+            logger.info(f'command to be written to container script file:\n\n{container_script}:\n\n{cmd}\n')
+        else:
+            logger.warning('will not show container script file since the user token could not be obscured')
         try:
             write_file(os.path.join(job.workdir, container_script), cmd, mute=False)
-            os.chmod(os.path.join(job.workdir, container_script), 0o755)  # Python 2/3
-        # except (FileHandlingFailure, FileNotFoundError) as exc:  # Python 3
-        except (FileHandlingFailure, OSError) as exc:  # Python 2/3
-            logger.warning('exception caught: %s', exc)
+            os.chmod(os.path.join(job.workdir, container_script), 0o755)
+        except (FileHandlingFailure, OSError) as exc:
+            logger.warning(f'exception caught: {exc}')
             return ""
 
         # also store the command string in the job object
@@ -460,9 +481,73 @@ def alrb_wrapper(cmd, workdir, job=None):
         execargs = job.containeroptions.get('execArgs', None)
         if execargs:
             cmd += ' ' + execargs
-        logger.debug('\n\nfinal command:\n\n%s\n', cmd)
+
+        # prepend the docker login if necessary
+        # does the pandasecrets dictionary contain any docker login info?
+        pandasecrets = str(job.pandasecrets)
+        if pandasecrets and "token" in pandasecrets and \
+                has_docker_pattern(pandasecrets, pattern=r'docker://[^/]+/'):
+            # if so, add it do the container script
+            logger.info('adding sensitive docker login info')
+            cmd = add_docker_login(cmd, job.pandasecrets)
+
+        _cmd = obscure_token(cmd)  # obscure any token if present
+        logger.debug(f'\n\nfinal command:\n\n{_cmd}\n')
     else:
         logger.warning('container name not defined in CRIC')
+
+    return cmd
+
+
+def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
+    """
+    Add docker login to user command.
+
+    The pandasecrets dictionary was found to contain login information (username + token). This function
+    will add it to the payload command that will be run in the user container.
+
+    :param cmd: payload command (str)
+    :param pandasecrets: panda secrets (dict)
+    :return: updated payload command (str).
+    """
+
+    pattern = r'docker://[^/]+/'
+    tmp = json.loads(pandasecrets)
+    docker_tokens = tmp.get('DOCKER_TOKENS', None)
+    if docker_tokens:
+        try:
+            docker_token = json.loads(docker_tokens)
+            if docker_token:
+                token_dict = docker_token[0]
+                username = token_dict.get('username', None)
+                token = token_dict.get('token', None)
+                registry_path = token_dict.get('registry_path', None)
+                if username and token and registry_path:
+                    # extract the registry (e.g. docker://gitlab-registry.cern.ch/) from the path
+                    try:
+                        match = re.search(pattern, registry_path)
+                        if match:
+                            # cmd = f'docker login {match.group(0)} -u {username} -p {token}; ' + cmd
+                            cmd = f'apptainer remote login -u {username} -p {token} {match.group(0)}; ' + cmd
+                        else:
+                            logger.warning(f'failed to extract registry from {registry_path}')
+                    except re.error as regex_error:
+                        err = str(regex_error)
+                        entry = err.find('token')
+                        err = err[:entry]  # cut away any token
+                        logger.warning(f'error in regular expression: {err}')
+                else:
+                    logger.warning(
+                        'either username, token, or registry_path was not set in DOCKER_TOKENS dictionary')
+            else:
+                logger.warning('failed to convert DOCKER_TOKENS str to dict')
+        except json.JSONDecodeError as json_error:
+            err = str(json_error)
+            entry = err.find('token')
+            err = err[:entry]  # cut away any token
+            logger.warning(f'error decoding JSON data: {err}')
+    else:
+        logger.warning('failed to read DOCKER_TOKENS key from panda secrets')
 
     return cmd
 
@@ -486,11 +571,11 @@ def add_asetup(job, alrb_setup, is_cvmfs, release_setup, container_script, conta
         job.jobparams, container_path = remove_container_string(job.jobparams)
         if job.alrbuserplatform:
             if not is_cvmfs:
-                alrb_setup += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % job.alrbuserplatform
+                alrb_setup += f'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c {job.alrbuserplatform}'
         elif container_path != "":
-            alrb_setup += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % container_path
+            alrb_setup += f'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c {container_path}'
         else:
-            logger.warning('failed to extract container path from %s', job.jobparams)
+            logger.warning(f'failed to extract container path from {job.jobparams}')
             alrb_setup = ""
         if alrb_setup and not is_cvmfs:
             alrb_setup += ' -d'
@@ -502,7 +587,7 @@ def add_asetup(job, alrb_setup, is_cvmfs, release_setup, container_script, conta
                 alrb_setup += ' -d'
 
     # update the ALRB setup command
-    alrb_setup += ' -s %s' % release_setup
+    alrb_setup += f' -s {release_setup}'
     alrb_setup += ' -r /srv/' + container_script
     alrb_setup = alrb_setup.replace('  ', ' ').replace(';;', ';')
 
@@ -513,7 +598,7 @@ def add_asetup(job, alrb_setup, is_cvmfs, release_setup, container_script, conta
 
     # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
     #if job.preprocess and job.containeroptions:
-    #    logger.debug('will update cmd=%s', cmd)
+    #    logger.debug(f'will update cmd={cmd}')
     #    cmd = replace_last_command(cmd, 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c $thePlatform')
     #    logger.debug('updated cmd with containerImage')
 
@@ -575,8 +660,8 @@ def create_release_setup(cmd, atlas_setup, full_atlas_setup, release, workdir, i
     release_setup_name = '/srv/my_release_setup.sh'
 
     # extracted_asetup should be written to 'my_release_setup.sh' and cmd to 'container_script.sh'
-    content = 'echo \"INFO: sourcing %s inside the container. ' \
-              'This should not run if it is a ATLAS standalone container\"' % release_setup_name
+    content = f'echo \"INFO: sourcing {release_setup_name} inside the container. ' \
+              f'This should not run if it is a ATLAS standalone container\"'
     if is_cvmfs and release and release != 'NULL':
         content, cmd = extract_full_atlas_setup(cmd, atlas_setup)
         if not content:
@@ -592,11 +677,11 @@ def create_release_setup(cmd, atlas_setup, full_atlas_setup, release, workdir, i
     content += '\nfi'
     content += '\nreturn $retCode'
 
-    logger.debug('command to be written to release setup file:\n\n%s:\n\n%s\n', release_setup_name, content)
+    logger.debug(f'command to be written to release setup file:\n\n{release_setup_name}:\n\n{content}\n')
     try:
         write_file(os.path.join(workdir, os.path.basename(release_setup_name)), content, mute=False)
     except FileHandlingFailure as exc:
-        logger.warning('exception caught: %s', exc)
+        logger.warning(f'exception caught: {exc}')
 
     return release_setup_name, cmd.replace(';;', ';')
 
@@ -645,7 +730,7 @@ def container_wrapper(cmd, workdir, job=None):
         queuedata = infoservice.queuedata
 
     container_name = queuedata.container_type.get("pilot")  # resolve container name for user=pilot
-    logger.debug("resolved container_name from queuedata.container_type: %s", container_name)
+    logger.debug(f"resolved container_name from queuedata.container_type: {container_name}")
 
     if container_name == 'singularity' or container_name == 'apptainer':
         logger.info("singularity/apptainer has been requested")
@@ -657,7 +742,7 @@ def container_wrapper(cmd, workdir, job=None):
         else:
             options = "-B "
         options += "/cvmfs,${workdir},/home"
-        logger.debug("using options: %s", options)
+        logger.debug(f"using options: {options}")
 
         # Get the image path
         if job:
@@ -671,8 +756,6 @@ def container_wrapper(cmd, workdir, job=None):
             quote = pipes.quote(f'cd $workdir;pwd;{cmd}')
             cmd = f"export workdir={workdir}; {container_name} --verbose exec {options} {image_path} " \
                   f"/bin/bash -c {quote}"
-            #cmd = "export workdir=" + workdir + "; singularity --verbose exec " + options + " " + image_path + \
-            #      " /bin/bash -c " + pipes.quote("cd $workdir;pwd;%s" % cmd)
 
             # for testing user containers
             # singularity_options = "-B $PWD:/data --pwd / "
@@ -681,24 +764,27 @@ def container_wrapper(cmd, workdir, job=None):
         else:
             logger.warning("singularity/apptainer options found but image does not exist")
 
-        logger.info("updated command: %s", cmd)
+        logger.info(f"updated command: {cmd}")
 
     return cmd
 
 
-def create_root_container_command(workdir, cmd):
+def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
     """
+    Create the container command for root.
 
-    :param workdir:
-    :param cmd:
-    :return:
+    :param workdir: workdir (str)
+    :param cmd: command to be containerised (str)
+    :param script: script content (str)
+    :return: container command to be executed (str).
     """
-
-    command = 'cd %s;' % workdir
-    content = get_root_container_script(cmd)
+    command = f'cd {workdir};'
+    # parse the 'open_file.sh' script
+    content = get_root_container_script(cmd, script)
     script_name = 'open_file.sh'
-
+    logger.info(f'{script_name}:\n\n{content}\n\n')
     try:
+        # overwrite the 'open_file.sh' script with updated information
         status = write_file(os.path.join(workdir, script_name), content)
     except PilotException as exc:
         raise exc
@@ -707,16 +793,131 @@ def create_root_container_command(workdir, cmd):
             # generate the final container command
             x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
             if x509:
-                command += 'export X509_USER_PROXY=%s;' % x509
-            command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
+                command += f'export X509_USER_PROXY={x509};'
+            command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
             _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
             _asetup = fix_asetup(_asetup)
             command += _asetup
             command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c CentOS7'
 
-    logger.debug('container command: %s', command)
+    logger.debug(f'container command: {command}')
 
     return command
+
+
+def execute_remote_file_open(path: str, python_script_timeout: int) -> (int, str, int):  # noqa: C901
+    """
+    Execute the remote file open script.
+
+    :param path: path to container script (str)
+    :param workdir: workdir (str)
+    :param python_script_timeout: timeout (int)
+    :return: exit code (int), stdout (str), lsetup time (int).
+    """
+    lsetup_timeout = 600  # Timeout for 'lsetup' step
+    exit_code = 1
+    stdout = ""
+
+    # Start the Bash script process with non-blocking I/O
+    try:
+        process = subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
+    except OSError as e:
+        logger.warning(f"error starting subprocess: {e}")
+        return exit_code, "", 0
+
+    # Split the path at the last dot
+    filename, old_suffix = path.rsplit(".", 1)
+
+    # Create the new path with the desired suffix
+    new_path = f"{filename}.stdout"
+
+    start_time = time.time()  # Track execution start time
+    lsetup_start_time = start_time
+    lsetup_completed = False  # Flag to track completion of 'lsetup' process
+    python_completed = False  # Flag to track completion of 'python3' process
+    lsetup_completed_at = None
+
+    with open(new_path, "w", encoding='utf-8') as file:
+        while True:
+            # Check for timeout (once per second)
+            if time.time() - start_time > lsetup_timeout and not lsetup_completed:
+                logger.warning("timeout for 'lsetup' exceeded - killing script")
+                exit_code = 2  # 'lsetup' timeout
+                process.kill()
+                break
+
+            # Try to read output without blocking (might return None)
+            try:
+                output = process.stdout.readline()  # Read bytes directly
+                if output is not None:  # Check if any output is available (not None)
+                    output = output.decode().strip()
+                    if output:
+                        file.write(output + "\n")
+                        # logger.info(f'remote file open: {output}')
+
+                    # Check for LSETUP_COMPLETED message
+                    if output == "LSETUP_COMPLETED":
+                        logger.info('lsetup has completed (resetting start time)')
+                        lsetup_completed = True
+                        lsetup_completed_at = time.time()
+                        start_time = time.time()  # Reset start time for 'python3' timeout
+
+                    # Check for LSETUP_COMPLETED message
+                    if "PYTHON_COMPLETED" in output:
+                        python_completed = True
+                        match = re.search(r"\d+$", output)
+                        if match:
+                            exit_code = int(match.group())
+                            logger.info(f"python remote open command has completed with exit code {exit_code}")
+                        else:
+                            logger.info("python remote open command has completed without any exit code")
+
+                    stdout += output + "\n"
+            except BlockingIOError:
+                time.sleep(0.1)  # No output available yet, continue the loop
+                continue
+            except (OSError, ValueError):  # Catch potential errors from process.stdout
+                #        print(f"Error reading from subprocess output: {e}")
+                #        # Handle the error (e.g., log it, retry, exit)
+                #        break
+                time.sleep(0.1)
+                continue
+
+            # Timeout for python script after LSETUP_COMPLETED
+            if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
+                logger.warning(f"timeout for 'python3' subscript exceeded - killing script "
+                               f"({time.time()} - {start_time} > {python_script_timeout})")
+                exit_code = 3  # python script timeout
+                process.kill()
+                break
+
+            if python_completed:
+                logger.info('aborting since python command has finished')
+                return_code = process.poll()
+                if return_code:
+                    logger.warning(f"script execution completed with return code: {return_code}")
+                    # exit_code = return_code
+                break
+
+            # Check if script has completed normally
+            return_code = process.poll()
+            if return_code is not None:
+                pass
+            #    logger.info(f"script execution completed with return code: {return_code}")
+            #    exit_code = return_code
+            #    break
+
+            time.sleep(0.5)
+
+    # Ensure process is terminated
+    if process.poll() is None:
+        process.terminate()
+
+    # Check if 'lsetup' was completed
+    lsetup_time = int(lsetup_completed_at - lsetup_start_time) if lsetup_completed_at else 0
+
+    return exit_code, stdout, lsetup_time
 
 
 def fix_asetup(asetup):
@@ -733,7 +934,7 @@ def fix_asetup(asetup):
     return asetup
 
 
-def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
+def create_middleware_container_command(job, cmd, label='stage-in', proxy=True):
     """
     Create the container command for stage-in/out or other middleware.
 
@@ -755,7 +956,7 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     :return: container command to be executed (string).
     """
 
-    command = 'cd %s;' % job.workdir
+    command = f'cd {job.workdir};'
 
     # add bits and pieces for the containerisation
     middleware_container = get_middleware_container(label=label)
@@ -772,12 +973,11 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
     # for setup container
     container_script_name = 'container_script.sh'
     try:
-        logger.debug('command to be written to container setup file \n\n%s:\n\n%s\n', script_name, content)
+        logger.debug(f'command to be written to container setup file \n\n{script_name}:\n\n{content}\n')
         status = write_file(os.path.join(job.workdir, script_name), content)
         if status:
             content = 'echo \"Done\"'
-            logger.debug('command to be written to container command file \n\n%s:\n\n%s\n', container_script_name,
-                         content)
+            logger.debug(f'command to be written to container command file \n\n{container_script_name}:\n\n{content}\n')
             status = write_file(os.path.join(job.workdir, container_script_name), content)
     except PilotException as exc:
         raise exc
@@ -787,79 +987,82 @@ def create_middleware_container_command(job, cmd, label='stagein', proxy=True):
             if proxy:
                 x509 = os.environ.get('X509_USER_PROXY', '')
                 if x509:
-                    command += 'export X509_USER_PROXY=%s;' % x509
+                    command += f'export X509_USER_PROXY={x509};'
             if not label == 'setup':  # only for stage-in/out; for setup verification, use -s .. -r .. below
-                command += 'export ALRB_CONT_RUNPAYLOAD=\"source /srv/%s\";' % script_name
+                command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
                 if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
-                    command += 'export ALRB_CONT_UNPACKEDDIR=%s;' % os.environ.get('ALRB_CONT_UNPACKEDDIR')
+                    command += f"export ALRB_CONT_UNPACKEDDIR={os.environ.get('ALRB_CONT_UNPACKEDDIR')};"
             command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
             if label == 'setup':
                 # set the platform info
-                command += 'export thePlatform=\"%s\";' % job.platform
-            command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c %s' % middleware_container
+                command += f'export thePlatform="{job.platform}";'
+            command += f'source ${{ATLAS_LOCAL_ROOT_BASE}}/user/atlasLocalSetup.sh -c '  # noqa: F541
+            if middleware_container:
+                command += f'{middleware_container}'
+            elif label == 'stage-in' or label == 'stage-out':
+                command += 'el9 '
             if label == 'setup':
                 command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
             else:
                 command += ' ' + get_container_options(job.infosys.queuedata.container_options)
             command = command.replace('  ', ' ')
 
-    logger.debug('container command: %s', command)
+    logger.debug(f'container command: {command}')
 
     return command
 
 
-def get_root_container_script(cmd):
+def get_root_container_script(cmd: str, script: str) -> str:
     """
     Return the content of the root container script.
 
-    :param cmd: root command (string).
-    :return: script content (string).
+    :param cmd: root command (str)
+    :param script: script content (str)
+    :return: script content (str).
     """
-
-    # content = 'lsetup \'root 6.20.06-x86_64-centos7-gcc8-opt\'\npython %s\nexit $?' % cmd
-    # content = f'date\nlsetup \'root pilot\'\ndate\npython {cmd}\nexit $?'
-    content = f'date\nlsetup \'root pilot\'\ndate\nstdbuf -oL bash -c \"python {cmd}\"\nexit $?'
-    logger.debug(f'root setup script content:\n\n{content}\n\n')
-
-    return content
+    # content = f'date\nexport XRD_LOGLEVEL=Debug\nlsetup \'root pilot-default\'\ndate\nstdbuf -oL bash -c \"python3 {cmd}\"\nexit $?'
+    return script.replace('REPLACE_ME_FOR_CMD', cmd)
 
 
-def get_middleware_container_script(middleware_container, cmd, asetup=False, label=''):
+def get_middleware_container_script(middleware_container: str, cmd: str, asetup: bool = False, label: str = '') -> str:
     """
     Return the content of the middleware container script.
+
     If asetup is True, atlasLocalSetup will be added to the command.
 
-    :param middleware_container: container image (string).
-    :param cmd: isolated stage-in/out command (string).
-    :param asetup: optional True/False (boolean).
-    :return: script content (string).
+    :param middleware_container: container image (str)
+    :param cmd: isolated stage-in/out command (str)
+    :param asetup: optional True/False (bool)
+    :return: script content (str).
     """
-
-    sitename = 'export PILOT_RUCIO_SITENAME=%s; ' % os.environ.get('PILOT_RUCIO_SITENAME')
+    sitename = f"export PILOT_RUCIO_SITENAME={os.environ.get('PILOT_RUCIO_SITENAME')}; "
     if label == 'setup':
         # source $AtlasSetup/scripts/asetup.sh AtlasOffline,21.0.16,notest --platform x86_64-slc6-gcc49-opt --makeflags='$MAKEFLAGS'
         content = cmd[cmd.find('source $AtlasSetup'):]
     elif 'rucio' in middleware_container:
         content = sitename
-        content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
-        content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
-        content += "setupATLAS -3; "
-        content = 'lsetup \"python pilot-default\";python3 %s ' % cmd  # only works with python 3
+        #content += f'export ATLAS_LOCAL_ROOT_BASE={get_file_system_root_path()}/atlas.cern.ch/repo/ATLASLocalRootBase; '
+        #content += "alias setupATLAS=\'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh\'; "
+        #content += "setupATLAS -3; "
+        rucio_version = get_rucio_client_version()
+        if rucio_version:
+            content += f'export ATLAS_LOCAL_RUCIOCLIENTS_VERSION={rucio_version}; '
+        content += f'lsetup "python pilot-default";python3 {cmd} '
     else:
         content = 'export ALRB_LOCAL_PY3=YES; '
         if asetup:  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/..;source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
             _asetup = get_asetup(asetup=False)
             _asetup = fix_asetup(_asetup)
             content += _asetup
-        if label == 'stagein' or label == 'stageout':
+        if label == 'stage-in' or label == 'stage-out':
             content += sitename + 'lsetup rucio davix xrootd; '
-            content += 'python3 %s ' % cmd
+            content += f'python3 {cmd} '
         else:
             content += cmd
     if not asetup:
         content += '\nexit $?'
 
-    logger.debug('middleware container content:\n%s', content)
+    logger.debug(f'middleware container content:\n{content}')
 
     return content
 
@@ -882,8 +1085,81 @@ def get_middleware_container(label=None):
     else:
         path = config.Container.middleware_container
         if path.startswith('/') and not os.path.exists(path):
-            logger.warning('requested middleware container path does not exist: %s (switching to default value)', path)
+            logger.warning(f'requested middleware container path does not exist: {path} (switching to default value)')
             path = 'CentOS7'
-    logger.info('using image: %s for middleware container', path)
+    logger.info(f'using image: {path} for middleware container')
 
     return path
+
+
+def has_docker_pattern(line, pattern=None):
+    """
+    Does the given line contain a docker pattern?
+
+    :param line: panda secret (string)
+    :param pattern: regular expression pattern (raw string)
+    :return: True or False (bool).
+    """
+
+    found = False
+
+    if line:
+        # if no given pattern, look for a general docker registry URL
+        url_pattern = get_url_pattern() if not pattern else pattern
+        match = re.search(url_pattern, line)
+        if match:
+            logger.warning('the given line contains a docker token')
+            found = True
+
+    return found
+
+
+def get_docker_pattern() -> str:
+    """
+    Return the docker login URL pattern for secret verification.
+
+    Examples:
+     docker login <registry URL> -u <username> -p <token>
+     apptainer remote login -u <username> -p <lxplus password> <registry URL>
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        # fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
+        fr"apptainer\ remote\ login\ \-u\ \S+\ \-p\ \S+\ {get_url_pattern()};"
+    )
+
+
+def get_url_pattern() -> str:
+    """
+    Return the URL pattern for secret verification.
+
+    :return: pattern (raw string).
+    """
+
+    return (
+        r"docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
+        r"[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)"
+    )
+
+
+def verify_container_script(path):
+    """
+    If the container_script.sh contains sensitive token info, remove it before creating the log.
+
+    :param path: path to container script (string).
+    """
+
+    if os.path.exists(path):
+        url_pattern = r'docker\ login'  # docker login <registry> -u <username> -p <token>
+        lines = grep([url_pattern], path)
+        if lines:
+            has_token = has_docker_pattern(lines[0], pattern=url_pattern)
+            if has_token:
+                logger.warning(f'found sensitive token information in {path} - removing file')
+                remove(path)
+            else:
+                logger.debug(f'no sensitive information in {path}')
+        else:
+            logger.debug(f'no sensitive information in {path}')

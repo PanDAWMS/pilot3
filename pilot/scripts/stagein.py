@@ -1,15 +1,31 @@
 #do not use: #!/usr/bin/env python3
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+
+"""This script is executed by the pilot in a container to perform stage-in of input files."""
 
 import argparse
+import logging
 import os
 import re
+import sys
 
 from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
@@ -27,8 +43,6 @@ from pilot.util.filehandling import (
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
 
-import logging
-
 # error codes
 GENERAL_ERROR = 1
 NO_QUEUENAME = 2
@@ -44,13 +58,12 @@ NO_JOBDEFINITIONID = 11
 TRANSFER_ERROR = 12
 
 
-def get_args():
+def get_args() -> argparse.Namespace:
     """
     Return the args from the arg parser.
 
     :return: args (arg parser object).
     """
-
     arg_parser = argparse.ArgumentParser()
 
     arg_parser.add_argument('-d',
@@ -186,79 +199,43 @@ def get_args():
     return arg_parser.parse_args()
 
 
-def str2bool(_str):
-    """ Helper function to convert string to bool """
+# pylint: disable=useless-param-doc
+def str2bool(_str: str) -> bool:
+    """
+    Convert string to bool.
 
+    :param _str: string to be converted (str)
+    :return: boolean (bool)
+    :raise: argparse.ArgumentTypeError.
+    """
     if isinstance(_str, bool):
         return _str
-    if _str.lower() in ('yes', 'true', 't', 'y', '1'):
+    if _str.lower() in {'yes', 'true', 't', 'y', '1'}:
         return True
-    elif _str.lower() in ('no', 'false', 'f', 'n', '0'):
+    if _str.lower() in {'no', 'false', 'f', 'n', '0'}:
         return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+    raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
-def verify_args():
+# logger is set in the main function
+# pylint: disable=used-before-assignment
+def message(msg: str):
     """
-    Make sure required arguments are set, and if they are not then set them.
-    (deprecated)
+    Print message to stdout or to log.
 
-    :return: internal error code (int).
+    :param msg: message (str).
     """
-
-    ret = 0
-    if not args.workdir:
-        args.workdir = os.getcwd()
-
-    elif not args.queuename:
-        message('queue name not set, cannot initialize InfoService')
-        ret = NO_QUEUENAME
-
-    elif not args.scopes:
-        message('scopes not set')
-        ret = NO_SCOPES
-
-    elif not args.lfns:
-        message('LFNs not set')
-        ret = NO_LFNS
-
-    elif not args.eventtype:
-        message('No event type provided')
-        ret = NO_EVENTTYPE
-
-    elif not args.localsite:
-        message('No local site provided')
-        ret = NO_LOCALSITE
-
-    elif not args.remotesite:
-        message('No remote site provided')
-        ret = NO_REMOTESITE
-
-    elif not args.produserid:
-        message('No produserid provided')
-        ret = NO_PRODUSERID
-
-    elif not args.jobid:
-        message('No jobid provided')
-        ret = NO_JOBID
-
-    elif not args.taskid:
-        message('No taskid provided')
-        ret = NO_TASKID
-
-    elif not args.jobdefinitionid:
-        message('No jobdefinitionid provided')
-        ret = NO_JOBDEFINITIONID
-
-    return ret
-
-
-def message(msg):
     print(msg) if not logger else logger.info(msg)
 
 
-def str_to_int_list(_list):
+def str_to_int_list(_list: list) -> list:
+    """
+    Convert list of strings to list of integers.
+
+    :param _list: list of strings (list)
+    :return: list of integers (list).
+    """
     _new_list = []
     for val in _list:
         try:
@@ -266,16 +243,47 @@ def str_to_int_list(_list):
         except (ValueError, TypeError):
             _val = None
         _new_list.append(_val)
+
     return _new_list
 
 
-def str_to_bool_list(_list):
+def str_to_bool_list(_list: list) -> list:
+    """
+    Convert list of strings to list of booleans.
+
+    :param _list: list of strings (list)
+    :return: list of booleans (list).
+    """
     changes = {"True": True, "False": False, "None": None, "NULL": None}
+
     return [changes.get(x, x) for x in _list]
 
 
-def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, directaccesslans, directaccesswans, istars,
-                   accessmodes, storagetokens, guids):
+def get_file_lists(lfns: str, scopes: str, filesizes: str, checksums: str, allowlans: str, allowwans: str,
+                   directaccesslans: str, directaccesswans: str, istars: str, accessmodes: str,
+                   storagetokens: str, guids: str) -> dict:
+    """
+    Return a dictionary with the file lists.
+
+    Format: {'lfns': <lfn list>, 'scopes': <scope list>, 'filesizes': <filesize list>, 'checksums': <checksum list>,
+                'allowlans': <allowlan list>, 'allowwans': <allowwan list>, 'directaccesslans': <directaccesslan list>,
+                'directaccesswans': <directaccesswan list>, 'istars': <istar list>, 'accessmodes': <accessmode list>,
+                'storagetokens': <storagetoken list>, 'guids': <guid list>}
+
+    :param lfns: comma separated lfns (str)
+    :param scopes: comma separated scopes (str)
+    :param filesizes: comma separated filesizes (str)
+    :param checksums: comma separated checksums (str)
+    :param allowlans: comma separated allowlans (str)
+    :param allowwans: comma separated allowwans (str)
+    :param directaccesslans: comma separated directaccesslans (str)
+    :param directaccesswans: comma separated directaccesswans (str)
+    :param istars: comma separated istars (str)
+    :param accessmodes: comma separated accessmodes (str)
+    :param storagetokens: comma separated storagetokens (str)
+    :param guids: comma separated guids (str)
+    :return: file lists dictionary (dict).
+    """
     _lfns = []
     _scopes = []
     _filesizes = []
@@ -302,52 +310,65 @@ def get_file_lists(lfns, scopes, filesizes, checksums, allowlans, allowwans, dir
         _storagetokens = storagetokens.split(',')
         _guids = guids.split(',')
     except (NameError, TypeError, ValueError) as error:
-        message("exception caught: %s" % error)
+        message(f"exception caught: {error}")
 
     file_list_dictionary = {'lfns': _lfns, 'scopes': _scopes, 'filesizes': _filesizes, 'checksums': _checksums,
                             'allowlans': _allowlans, 'allowwans': _allowwans, 'directaccesslans': _directaccesslans,
                             'directaccesswans': _directaccesswans, 'istars': _istars, 'accessmodes': _accessmodes,
                             'storagetokens': _storagetokens, 'guids': _guids}
+
     return file_list_dictionary
 
 
 class Job:
-    """
-    A minimal implementation of the Pilot Job class with data members necessary for the trace report only.
-    """
+    """A minimal implementation of the Pilot Job class with data members necessary for the trace report only."""
 
     produserid = ""
     jobid = ""
     taskid = ""
     jobdefinitionid = ""
 
-    def __init__(self, produserid="", jobid="", taskid="", jobdefinitionid=""):
+    def __init__(self, produserid: str = "", jobid: str = "", taskid: str = "", jobdefinitionid: str = ""):
+        """
+        Initialize the Job class.
+
+        :param produserid: produserid (str)
+        :param jobid: jobid (str)
+        :param taskid: taskid (str)
+        :param jobdefinitionid: jobdefinitionid (str).
+        """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid
         self.taskid = taskid
         self.jobdefinitionid = jobdefinitionid
 
 
-def add_to_dictionary(dictionary, key, value1, value2, value3, value4):
+def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, value3: str, value4: str) -> dict:
     """
     Add key: [value1, value2, ..] to dictionary.
+
     In practice; lfn: [status, status_code, turl, DDM endpoint].
 
-    :param dictionary: dictionary to be updated.
-    :param key: lfn key to be added (string).
-    :param value1: status to be added to list belonging to key (string).
-    :param value2: status_code to be added to list belonging to key (string).
-    :param value3: turl (string).
-    :param value4: DDM endpoint (string).
-    :return: updated dictionary.
+    :param dictionary: dictionary to be updated (dict)
+    :param key: lfn key to be added (str)
+    :param value1: status to be added to list belonging to key (str)
+    :param value2: status_code to be added to list belonging to key (str)
+    :param value3: turl (str)
+    :param value4: DDM endpoint (str)
+    :return: updated dictionary (dict).
     """
-
     dictionary[key] = [value1, value2, value3, value4]
+
     return dictionary
 
 
-def extract_error_info(errc):
+def extract_error_info(errc: str) -> (int, str):
+    """
+    Extract error code and message from the error string.
 
+    :param errc: error string (str)
+    :return: error code (int), error message (str).
+    """
     error_code = 0
     error_message = ""
 
@@ -364,10 +385,6 @@ def extract_error_info(errc):
 
 
 if __name__ == '__main__':
-    """
-    Main function of the stage-in script.
-    """
-
     # get the args from the arg parser
     args = get_args()
     args.debug = True
@@ -376,16 +393,12 @@ if __name__ == '__main__':
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=config.Pilot.stageinlog)
     logger = logging.getLogger(__name__)
 
-    #ret = verify_args()
-    #if ret:
-    #    exit(ret)
-
     # get the file info
     try:
         replica_dictionary = read_json(os.path.join(args.workdir, args.replicadictionary))
     except ConversionFailure as exc:
-        message('exception caught reading json: %s' % exc)
-        exit(1)
+        message(f'exception caught reading json: {exc}')
+        sys.exit(1)
 
 #    file_list_dictionary = get_file_lists(args.lfns, args.scopes, args.filesizes, args.checksums, args.allowlans,
 #                                          args.allowwans, args.directaccesslans, args.directaccesswans, args.istars,
@@ -425,8 +438,9 @@ if __name__ == '__main__':
     else:
         client = StageInClient(infoservice, logger=logger, trace_report=trace_report, workdir=args.workdir)
         activity = 'pr'
-    kwargs = dict(workdir=args.workdir, cwd=args.workdir, usecontainer=False, use_pcache=args.usepcache, use_bulk=False,
-                  use_vp=args.usevp, input_dir=args.inputdir, catchall=args.catchall, rucio_host=args.rucio_host)
+    kwargs = {"workdir": args.workdir, "cwd": args.workdir, "usecontainer": False, "use_pcache": args.usepcache,
+              "use_bulk": False, "use_vp": args.usevp, "input_dir": args.inputdir, "catchall": args.catchall,
+              "rucio_host": args.rucio_host}
     xfiles = []
     for lfn in replica_dictionary:
         files = [{'scope': replica_dictionary[lfn]['scope'],
@@ -463,16 +477,16 @@ if __name__ == '__main__':
         for fspec in xfiles:
             add_to_dictionary(file_dictionary, fspec.lfn, fspec.status, fspec.status_code, fspec.turl, fspec.ddmendpoint)
             status = fspec.status if fspec.status else "(not transferred)"
-            message(" -- lfn=%s, ddmendpoint=%s, status_code=%s, status=%s" % (fspec.lfn, fspec.ddmendpoint, fspec.status_code, status))
+            message(f" -- lfn={fspec.lfn}, ddmendpoint={fspec.ddmendpoint}, status_code={fspec.status_code}, status={status}")
 
     # add error info, if any
     if err:
         errcode, err = extract_error_info(err)
     add_to_dictionary(file_dictionary, 'error', err, errcode, None, None)
-    _status = write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
+    write_json(os.path.join(args.workdir, config.Container.stagein_status_dictionary), file_dictionary)
     if err:
-        message("containerised file transfers failed: %s" % err)
-        exit(TRANSFER_ERROR)
+        message(f"containerised file transfers failed: {err}")
+        sys.exit(TRANSFER_ERROR)
 
     message("containerised file transfers finished")
-    exit(0)
+    sys.exit(0)

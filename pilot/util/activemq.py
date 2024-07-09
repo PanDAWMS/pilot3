@@ -1,11 +1,25 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
+
+"""Functions for using ActiveMQ."""
 
 import socket
 import json
@@ -32,50 +46,44 @@ errors = ErrorCodes()
 
 
 class Listener(connectionlistener):
-    """
-    Messaging listener.
-    """
+    """Messaging listener."""
 
     messages = []
 
     def __init__(self, broker: Any = None, queues: Any = None) -> None:
         """
-        Init function.
+        Initialize variables.
 
-        :param broker: broker
-        :param queues: queues.
+        :param broker: broker (Any)
+        :param queues: queues (Any).
         """
-
         self.__broker = broker
         self.__queues = queues
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def set_broker(self, broker: Any) -> None:
         """
-        Define broker for internal use.
+        Set the broker for internal use.
 
         :param broker: broker.
         """
-
         self.__broker = broker
 
     def on_error(self, frame: Any) -> None:
         """
-        Error handler.
+        Handle errors.
 
-        :param frame: frame.
+        :param frame: frame (Any).
         """
-
         self.logger.warning(f'received an error "{frame}"')
         # store error in messages?
 
     def on_message(self, frame: Any) -> None:
         """
-        Message handler.
+        Handle messages.
 
-        :param frame: frame.
+        :param frame: frame (Any).
         """
-
         self.logger.info(f'received a message "{frame.body}"')
         body = json.loads(frame.body)
         if body not in [_obj for _obj in list(self.__queues.mbmessages.queue)]:
@@ -89,13 +97,13 @@ class Listener(connectionlistener):
 
         :return: messages (list).
         """
-
         return self.messages
 
 
 class ActiveMQ:
     """
     ActiveMQ class.
+
     Note: the class can be used for either topic or queue messages.
     E.g. 'topic': '/queue/panda.pilot' or '/topic/panda.pilot'
     X.509 authentication using SSL not possible since key+cert cannot easily be reached from WNs.
@@ -116,12 +124,12 @@ class ActiveMQ:
 
     def __init__(self, **kwargs: dict) -> None:
         """
-        Init function.
+        Initialize variables.
+
         Note: the init function sets up all connections and starts the listener.
 
-        :param kwargs: kwargs dictionary.
+        :param kwargs: kwargs dictionary (dict).
         """
-
         self.logger = logging.getLogger(self.__class__.__name__)
         self.broker = kwargs.get('broker', '')
         self.receiver_port = kwargs.get('receiver_port', '')
@@ -147,8 +155,15 @@ class ActiveMQ:
         # prevent stomp from exposing credentials in stdout (in case pilot is running in debug mode)
         logging.getLogger('stomp').setLevel(logging.INFO)
 
-        # get the list of brokers to use
-        _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+        try:
+            # get the list of brokers to use
+            _addrinfos = socket.getaddrinfo(self.broker, 0, socket.AF_INET, 0, socket.IPPROTO_TCP)
+        except socket.herror as exc:
+            logger.warning(f'failed get address from socket: {exc}')
+            return
         self.brokers_resolved = [_ai[4][0] for _ai in _addrinfos]
 
         receive_topic = self.receive_topics[0]
@@ -194,9 +209,8 @@ class ActiveMQ:
         """
         Send a message to a topic or queue.
 
-        :param message: message (string).
+        :param message: message (str).
         """
-
         conn = random.choice(self.connections)
         self.logger.debug(f'sending to {conn} topic/queue={self.topic}')
         conn.send(destination=self.topic, body=json.dumps(message), id='atlas-pilot-messaging', ack='auto',
@@ -204,10 +218,7 @@ class ActiveMQ:
         self.logger.debug('sent message')
 
     def close_connections(self) -> None:
-        """
-        Close all open connections.
-        """
-
+        """Close all open connections."""
         for conn in self.connections:
             try:
                 conn.disconnect()
@@ -219,9 +230,9 @@ class ActiveMQ:
     def get_credentials(self) -> None:
         """
         Download username+password from the PanDA server for ActiveMQ authentication.
+
         Note: this function does not return anything, only sets private username and password.
         """
-
         res = {}
         if not self.pandaurl or self.pandaport == 0:
             self.logger.warning('PanDA server URL and/or port not set - cannot get ActiveMQ credentials')

@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
 import os
 import re
@@ -63,9 +75,10 @@ def get_dbrelease_dir():
         logger.warning("note: the DBRelease database directory is not available (will not attempt to skip DBRelease stage-in)")
     else:
         if os.path.exists(path):
-            logger.info("local DBRelease path verified: %s (will attempt to skip DBRelease stage-in)", path)
+            logger.info(f"local DBRelease path verified: {path} (will attempt to skip DBRelease stage-in)")
         else:
-            logger.warning("note: local DBRelease path does not exist: %s (will not attempt to skip DBRelease stage-in)", path)
+            logger.warning(f"note: local DBRelease path does not exist: {path} "
+                           f"(will not attempt to skip DBRelease stage-in)")
 
     return path
 
@@ -95,14 +108,14 @@ def is_dbrelease_available(version):
         # is the required DBRelease version available?
         if dir_list:
             if version in dir_list:
-                logger.info("found version %s in path %s (%d releases found)", version, path, len(dir_list))
+                logger.info(f"found version {version} in path {path} ({len(dir_list)} releases found)")
                 status = True
             else:
-                logger.warning("did not find version %s in path %s (%d releases found)", version, path, len(dir_list))
+                logger.warning(f"did not find version {version} in path {path} ({len(dir_list)} releases found)")
         else:
-            logger.warning("empty DBRelease directory list: %s", path)
+            logger.warning(f"empty DBRelease directory list: {path}")
     else:
-        logger.warning('no such DBRelease path: %s', path)
+        logger.warning(f'no such DBRelease path: {path}')
 
     return status
 
@@ -123,21 +136,21 @@ def create_setup_file(version, path):
     if _dir != "" and version != "":
         # create the python code string to be written to file
         txt = "import os\n"
-        txt += "os.environ['DBRELEASE'] = '%s'\n" % version
-        txt += "os.environ['DATAPATH'] = '%s/%s:' + os.environ['DATAPATH']\n" % (_dir, version)
-        txt += "os.environ['DBRELEASE_REQUIRED'] = '%s'\n" % version
-        txt += "os.environ['DBRELEASE_REQUESTED'] = '%s'\n" % version
-        txt += "os.environ['CORAL_DBLOOKUP_PATH'] = '%s/%s/XMLConfig'\n" % (_dir, version)
+        txt += f"os.environ['DBRELEASE'] = '{version}'\n"
+        txt += f"os.environ['DATAPATH'] = '{_dir}/{version}:' + os.environ['DATAPATH']\n"
+        txt += f"os.environ['DBRELEASE_REQUIRED'] = '{version}'\n"
+        txt += f"os.environ['DBRELEASE_REQUESTED'] = '{version}'\n"
+        txt += f"os.environ['CORAL_DBLOOKUP_PATH'] = '{_dir}/{version}/XMLConfig'\n"
 
         try:
             status = write_file(path, txt)
         except FileHandlingFailure as exc:
-            logger.warning('failed to create DBRelease setup file: %s', exc)
+            logger.warning(f'failed to create DBRelease setup file: {exc}')
         else:
-            logger.info("Created setup file with the following content:.................................\n%s", txt)
+            logger.info(f"Created setup file with the following content:.................................\n{txt}")
             logger.info("...............................................................................")
     else:
-        logger.warning('failed to create %s for DBRelease version=%s and directory=%s', path, version, _dir)
+        logger.warning(f'failed to create {path} for DBRelease version={version} and directory {_dir}')
 
     return status
 
@@ -159,37 +172,37 @@ def create_dbrelease(version, path):
     try:
         mkdirs(_path, chmod=None)
     except PilotException as exc:
-        logger.warning('failed to create directories for DBRelease: %s', exc)
+        logger.warning(f'failed to create directories for DBRelease: {exc}')
     else:
-        logger.debug('created directories: %s', _path)
+        logger.debug(f'created directories: {_path}')
 
         # create the setup file in the DBRelease directory
         version_path = os.path.join(dbrelease_path, version)
         setup_filename = "setup.py"
         _path = os.path.join(version_path, setup_filename)
         if create_setup_file(version, _path):
-            logger.info("created DBRelease setup file: %s", _path)
+            logger.info(f"created DBRelease setup file: {_path}")
 
             # now create a new DBRelease tarball
-            filename = os.path.join(path, "DBRelease-%s.tar.gz" % version)
-            logger.info("creating file: %s", filename)
+            filename = os.path.join(path, f"DBRelease-{version}.tar.gz")
+            logger.info(f"creating file: {filename}")
             try:
                 tar = tarfile.open(filename, "w:gz")
             except (IOError, OSError) as exc:
-                logger.warning("could not create DBRelease tar file: %s", exc)
+                logger.warning(f"could not create DBRelease tar file: {exc}")
             else:
                 if tar:
                     # add the setup file to the tar file
-                    tar.add("%s/DBRelease/%s/%s" % (path, version, setup_filename))
+                    tar.add(f"{path}/DBRelease/{version}/{setup_filename}")
 
                     # create the symbolic link DBRelease/current ->  12.2.1
                     try:
                         _link = os.path.join(path, "DBRelease/current")
                         os.symlink(version, _link)
                     except OSError as exc:
-                        logger.warning("failed to create symbolic link %s: %s", _link, exc)
+                        logger.warning(f"failed to create symbolic link {_link}: {exc}")
                     else:
-                        logger.warning("created symbolic link: %s", _link)
+                        logger.warning(f"created symbolic link: {_link}")
 
                         # add the symbolic link to the tar file
                         tar.add(_link)
@@ -197,17 +210,17 @@ def create_dbrelease(version, path):
                         # done with the tar archive
                         tar.close()
 
-                        logger.info("created new DBRelease tar file: %s", filename)
+                        logger.info(f"created new DBRelease tar file: {filename}")
                         status = True
                 else:
                     logger.warning("failed to open DBRelease tar file")
 
             # clean up
             if rmdirs(dbrelease_path):
-                logger.debug("cleaned up directories in path: %s", dbrelease_path)
+                logger.debug(f"cleaned up directories in path: {dbrelease_path}")
         else:
             logger.warning("failed to create DBRelease setup file")
             if rmdirs(dbrelease_path):
-                logger.debug("cleaned up directories in path: %s", dbrelease_path)
+                logger.debug(f"cleaned up directories in path: {dbrelease_path}")
 
     return status

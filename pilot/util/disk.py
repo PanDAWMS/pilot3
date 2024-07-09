@@ -1,12 +1,26 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Giampaolo Rodola, g.rodola@gmail.com, 2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, Paul.Nilsson@cern.ch, 2021-2022
+# - Paul Nilsson, Paul.Nilsson@cern.ch, 2021-23
+
+"""Functions for reporting disk usage."""
 
 import os
 from collections import namedtuple
@@ -14,7 +28,13 @@ from collections import namedtuple
 ntuple_diskusage = namedtuple('usage', 'total used free')
 
 if hasattr(os, 'statvfs'):  # POSIX
-    def disk_usage(path):
+    def disk_usage(path: str):
+        """
+        Return named tuple with disk usage.
+
+        :param path: path (str)
+        :return: total, used, free (tuple).
+        """
         stat = os.statvfs(path)
         free = stat.f_bavail * stat.f_frsize
         total = stat.f_blocks * stat.f_frsize
@@ -22,6 +42,7 @@ if hasattr(os, 'statvfs'):  # POSIX
         return ntuple_diskusage(total, used, free)
 else:
     def disk_usage(path):
+        """Return zero-tuple for disk usage on non-POSIX systems."""
         return ntuple_diskusage(0, 0, 0)
 
 disk_usage.__doc__ = """

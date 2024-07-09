@@ -1,12 +1,26 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
+
+"""Unit tests for Harvester functions."""
 
 import os
 import random
@@ -18,14 +32,15 @@ import uuid
 from pilot.api import data
 
 
-def check_env():
+def check_env() -> bool:
     """
-    Function to check whether cvmfs is available.
+    Check whether cvmfs is available.
+
     To be used to decide whether to skip some test functions.
 
-    :returns True: if unit test should run (currently broken)
+    :returns: True if cvmfs is available, otherwise False (bool).
     """
-    return False
+    return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
 @unittest.skipIf(not check_env(), "This unit test is broken")
@@ -57,8 +72,7 @@ class TestHarvesterStageIn(unittest.TestCase):
     """
 
     def setUp(self):
-        # skip tests if running through Travis -- github does not have working rucio
-        self.travis = os.environ.get('TRAVIS') == 'true'
+        """Set up test fixtures."""
 
         # setup pilot data client
 
@@ -73,12 +87,7 @@ class TestHarvesterStageIn(unittest.TestCase):
         self.data_client = data.StageInClient(acopytools='rucio')  ## use rucio everywhere
 
     def test_stagein_sync_fail_nodirectory(self):
-        '''
-        Test error message propagation.
-        '''
-        if self.travis:
-            return True
-
+        """Test error message propagation."""
         result = self.data_client.transfer(files=[{'scope': 'does_not_matter',
                                                    'name': 'does_not_matter',
                                                    'destination': '/i_do_not_exist'},
@@ -94,12 +103,7 @@ class TestHarvesterStageIn(unittest.TestCase):
             #                              'Destination directory does not exist: /neither_do_i'])
 
     def test_stagein_sync_fail_noexist(self):
-        '''
-        Test error message propagation.
-        '''
-        if self.travis:
-            return True
-
+        """Test error message propagation."""
         result = self.data_client.transfer(files=[{'scope': 'no_scope1',
                                                    'name': 'no_name1',
                                                    'destination': '/tmp'},
@@ -115,12 +119,7 @@ class TestHarvesterStageIn(unittest.TestCase):
             #                               'Data identifier \'no_scope2:no_name2\' not found'])
 
     def test_stagein_sync_fail_mix(self):
-        '''
-        Test error message propagation
-        '''
-        if self.travis:
-            return True
-
+        """Test error message propagation."""
         ## if infosys was not passed to StageInClient in constructor
         ## then it's mandatory to specify allowed `inputddms` that can be used as source for replica lookup
         tmp_dir1, tmp_dir2 = tempfile.mkdtemp(), tempfile.mkdtemp()
@@ -145,7 +144,7 @@ class TestHarvesterStageIn(unittest.TestCase):
 
         self.assertIsNotNone(result)
         for _file in result:
-            if _file['name'] in ['no_name1', 'no_name2']:
+            if _file['name'] in {'no_name1', 'no_name2'}:
                 self.assertEqual(_file['errno'], 3)
                 self.assertEqual(_file['status'], 'failed')
                 #self.assertIn(_file['errmsg'], ['Data identifier \'no_scope1:no_name1\' not found',
@@ -155,12 +154,7 @@ class TestHarvesterStageIn(unittest.TestCase):
                 self.assertEqual(_file['status'], 'done')
 
     def test_stagein_sync_simple(self):
-        '''
-        Single file going to a destination directory.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file going to a destination directory."""
         result = self.data_client.transfer(files=[{'scope': 'mc15_13TeV',
                                                    'name': 'HITS.06828093._000096.pool.root.1',
                                                    'destination': '/tmp'}])
@@ -172,12 +166,7 @@ class TestHarvesterStageIn(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stagein_sync_merged_same(self):
-        '''
-        Multiple files going to the same destination directory.
-        '''
-        if self.travis:
-            return True
-
+        """Test multiple files going to the same destination directory."""
         result = self.data_client.transfer(files=[{'scope': 'mc15_14TeV',
                                                    'name': 'HITS.10075481._000432.pool.root.1',
                                                    'destination': '/tmp'},
@@ -193,12 +182,7 @@ class TestHarvesterStageIn(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stagein_sync_merged_diff(self):
-        '''
-        Multiple files going to different destination directories.
-        '''
-        if self.travis:
-            return True
-
+        """Test multiple files going to different destination directories."""
         tmp_dir1, tmp_dir2 = tempfile.mkdtemp(), tempfile.mkdtemp()
         result = self.data_client.transfer(files=[{'scope': 'mc15_14TeV',
                                                    'name': 'HITS.10075481._000432.pool.root.1',
@@ -221,29 +205,21 @@ class TestHarvesterStageIn(unittest.TestCase):
 
 @unittest.skipIf(not check_env(), "This unit test is broken")
 class TestHarvesterStageOut(unittest.TestCase):
-    '''
+    """
     Automatic stage-out tests for Harvester.
 
         from pilot.api import data
         data_client = data.StageOutClient(site)
         result = data_client.transfer(files=[{scope, name, ...}, ...])
-    '''
+    """
 
     def setUp(self):
-        # skip tests if running through Travis -- github does not have working rucio
-
-        self.travis = os.environ.get('TRAVIS') == 'true'
-
+        """Set up test fixtures."""
         # setup pilot data client
         self.data_client = data.StageOutClient(acopytools=['rucio'])
 
     def test_stageout_fail_notfound(self):
-        '''
-        Test error message propagation.
-        '''
-        if self.travis:
-            return True
-
+        """Test error message propagation."""
         result = self.data_client.transfer(files=[{'scope': 'tests',
                                                    'file': 'i_do_not_exist',
                                                    'rse': 'CERN-PROD_SCRATCHDISK'},
@@ -255,12 +231,7 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 1)
 
     def test_stageout_file(self):
-        '''
-        Single file upload with various combinations of parameters.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file upload with various combinations of parameters."""
         tmp_fd, tmp_file1 = tempfile.mkstemp()
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
@@ -299,12 +270,7 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stageout_file_and_attach(self):
-        '''
-        Single file upload and attach to dataset.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file upload and attach to dataset."""
         tmp_fd, tmp_file1 = tempfile.mkstemp()
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
@@ -330,12 +296,7 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stageout_file_noregister(self):
-        '''
-        Single file upload without registering.
-        '''
-        if self.travis:
-            return True
-
+        """Single file upload without registering."""
         tmp_fd, tmp_file1 = tempfile.mkstemp()
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
@@ -358,22 +319,17 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stageout_dir(self):
-        '''
-        Single file upload.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file upload."""
         tmp_dir = tempfile.mkdtemp()
-        tmp_fd, tmp_file1 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file2 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file3 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
@@ -386,22 +342,17 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stageout_dir_and_attach(self):
-        '''
-        Single file upload and attach to dataset.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file upload and attach to dataset."""
         tmp_dir = tempfile.mkdtemp()
-        tmp_fd, tmp_file1 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file2 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file3 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
@@ -417,22 +368,17 @@ class TestHarvesterStageOut(unittest.TestCase):
             self.assertEqual(_file['errno'], 0)
 
     def test_stageout_dir_noregister(self):
-        '''
-        Single file upload without registering.
-        '''
-        if self.travis:
-            return True
-
+        """Test single file upload without registering."""
         tmp_dir = tempfile.mkdtemp()
-        tmp_fd, tmp_file1 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file2 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()
-        tmp_fd, tmp_file3 = tempfile.mkstemp(dir=tmp_dir)
+        tmp_fd, _ = tempfile.mkstemp(dir=tmp_dir)
         tmp_fdo = os.fdopen(tmp_fd, 'wb')
         tmp_fdo.write(str(random.randint(1, 2**2048)))
         tmp_fdo.close()

@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
 # - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
 
 import os
@@ -26,13 +38,19 @@ def interpret(job):
     """
 
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
-    message = 'payload stdout dump\n'
-    message += read_file(stdout)
-    logger.debug(message)
+    if os.path.exists(stdout):
+        message = 'payload stdout dump\n'
+        message += read_file(stdout)
+        logger.debug(message)
+    else:
+        logger.warning('payload produced no stdout')
     stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
-    message = 'payload stderr dump\n'
-    message += read_file(stderr)
-    logger.debug(message)
+    if os.path.exists(stderr):
+        message = 'payload stderr dump\n'
+        message += read_file(stderr)
+        logger.debug(message)
+    else:
+        logger.info('payload produced no stderr')
 
     return 0
 
@@ -53,7 +71,7 @@ def get_log_extracts(job, state):
     extracts = ""
     _extracts = get_pilot_log_extracts(job)
     if _extracts != "":
-        logger.warning('detected the following tail of warning/fatal messages in the pilot log:\n%s' % _extracts)
+        logger.warning(f'detected the following tail of warning/fatal messages in the pilot log:\n{_extracts}')
         if state == 'failed' or state == 'holding':
             extracts += _extracts
 
@@ -77,9 +95,9 @@ def get_pilot_log_extracts(job):
         if _tail != "":
             if extracts != "":
                 extracts += "\n"
-            extracts += "- Log from %s -\n" % config.Pilot.pilotlog
+            extracts += f"- Log from {config.Pilot.pilotlog} -\n"
             extracts += _tail
     else:
-        logger.warning('pilot log file does not exist: %s' % path)
+        logger.warning(f'pilot log file does not exist: {path}')
 
     return extracts

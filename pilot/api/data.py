@@ -1,23 +1,35 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
 
-# refactored by Alexey Anisenkov
+"""API for data transfers."""
 
 import os
 import hashlib
 import logging
 import time
 from functools import reduce
-
+from typing import Any
 try:
     import requests
 except ImportError:
@@ -44,10 +56,8 @@ from pilot.util.auxiliary import TimeoutException
 from pilot.util.tracereport import TraceReport
 
 
-class StagingClient(object):
-    """
-        Base Staging Client
-    """
+class StagingClient:
+    """Base Staging Client."""
 
     ipv = "IPv6"
     workdir = ''
@@ -70,16 +80,23 @@ class StagingClient(object):
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
-    def __init__(self, infosys_instance=None, acopytools=None, logger=None, default_copytools='rucio', trace_report=None, ipv='IPv6', workdir=''):
+    def __init__(self, infosys_instance: Any = None, acopytools: dict = None, logger: Any = None,
+                 default_copytools: str = 'rucio', trace_report: dict = None, ipv: str = 'IPv6', workdir: str = ""):
         """
-            If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys` requires initialization.
-            :param acopytools: dict of copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed.
-            :param logger: logging.Logger object to use for logging (None means no logging)
-            :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value.
-            :param ipv: internet protocol version (string).
-        """
+        Set default/init values.
 
-        super(StagingClient, self).__init__()
+        If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys`
+        requires initialization.
+
+        :param infosys_instance: infosys instance to be used for data resolution (Any)
+        :param acopytools: copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed (dict)
+        :param logger: logging.Logger object to use for logging (None means no logging) (Any)
+        :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value (str)
+        :param trace_report: trace report object (dict)
+        :param ipv: internet protocol version (str)
+        :param workdir: working directory (str).
+        """
+        super().__init__()
 
         if not logger:
             logger = logging.getLogger(__name__ + '.null')
@@ -108,89 +125,81 @@ class StagingClient(object):
         self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), ipv=self.ipv, workdir=self.workdir)
 
         if not self.acopytools:
-            msg = 'failed to initilize StagingClient: no acopytools options found, acopytools=%s' % self.acopytools
+            msg = f'failed to initilize StagingClient: no acopytools options found, acopytools={self.acopytools}'
             logger.error(msg)
             self.trace_report.update(clientState='BAD_COPYTOOL', stateReason=msg)
             self.trace_report.send()
             raise PilotException("failed to resolve acopytools settings")
         logger.info('configured copytools per activity: acopytools=%s', self.acopytools)
 
-    def allow_mvfinaldest(self, catchall):
+    def allow_mvfinaldest(self, catchall: str):
         """
-        Is there an override in catchall to allow mv to final destination?
+        Check if there is an override in catchall to allow mv to final destination.
 
-        :param catchall: catchall from queuedata (string)
-        :return: True if 'mv_final_destination' is present in catchall, otherwise False (Boolean)
+        :param catchall: catchall from queuedata (str)
+        :return: True if 'mv_final_destination' is present in catchall, otherwise False (bool).
         """
-
-        return True if catchall and 'mv_final_destination' in catchall else False
+        return catchall and 'mv_final_destination' in catchall
 
     def set_acopytools(self):
-        """
-        Set the internal acopytools.
-
-        :return:
-        """
+        """Set the internal acopytools."""
         if not self.acopytools:  # resolve from queuedata.acopytools using infosys
             self.acopytools = (self.infosys.queuedata.acopytools or {}).copy()
         if not self.acopytools:  # resolve from queuedata.copytools using infosys
-            self.acopytools = dict(default=list((self.infosys.queuedata.copytools or {}).keys()))
+            self.acopytools = {"default": list((self.infosys.queuedata.copytools or {}).keys())}
 
     @staticmethod
-    def get_default_copytools(default_copytools):
+    def get_default_copytools(default_copytools: str):
         """
-        Get the default copytools.
+        Get the default copytools as a list.
 
-        :param default_copytools:
-        :return: default copytools (string).
+        :param default_copytools: default copytools (str)
+        :return: default copytools (str).
         """
         if isinstance(default_copytools, str):
             default_copytools = [default_copytools] if default_copytools else []
+
         return default_copytools
 
     @classmethod
-    def get_preferred_replica(self, replicas, allowed_schemas):
+    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Any or None:
         """
-            Get preferred replica from the `replicas` list suitable for `allowed_schemas`
-            :return: first matched replica or None if not found
-        """
+        Get preferred replica from the `replicas` list suitable for `allowed_schemas`.
 
+        :param replicas: list of replicas (list)
+        :param allowed_schemas: list of allowed schemas (list)
+        :return: first matched replica or None if not found (Any or None).
+        """
         for replica in replicas:
             pfn = replica.get('pfn')
             for schema in allowed_schemas:
-                if pfn and (not schema or pfn.startswith('%s://' % schema)):
+                if pfn and (not schema or pfn.startswith(f'{schema}://')):
                     return replica
+        return None
 
-    def prepare_sources(self, files, activities=None):
+    def prepare_sources(self, files: list, activities: Any = None) -> None:
         """
-            Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`
-            (custom StageClient could extend the logic if need)
-            :param files: list of `FileSpec` objects to be processed
-            :param activities: string or ordered list of activities to resolve `astorages` (optional)
-            :return: None
+        Prepare sources.
+
+        Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`.
+        (custom StageClient could extend the logic if needed).
+
+        :param files: list of `FileSpec` objects to be processed (list)
+        :param activities: string or ordered list of activities to resolve `astorages` (optional) (Any)
+        :return: (None)
         """
+        return None
 
-        return
-
-    def prepare_inputddms(self, files, activities=None):
+    def prepare_inputddms(self, files: list):
         """
-            Populates filespec.inputddms for each entry from `files` list
-            :param files: list of `FileSpec` objects
-            :param activities: sting or ordered list of activities to resolve astorages (optional)
-            :return: None
+        Prepare input DDMs.
+
+        Populates filespec.inputddms for each entry from `files` list.
+
+        :param files: list of `FileSpec` objects
         """
-
-        activities = activities or 'read_lan'
-        if isinstance(activities, str):
-            activities = [activities]
-
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
-
-        storages = []
-        for a in activities:
-            storages = astorages.get(a, [])
-            if storages:
-                break
+        storages = astorages.get('read_lan', [])
 
         #activity = activities[0]
         #if not storages:  ## ignore empty astorages
@@ -203,15 +212,36 @@ class StagingClient(object):
             if not fdat.inputddms and fdat.ddmendpoint:
                 fdat.inputddms = [fdat.ddmendpoint]
 
-    @classmethod
-    def sort_replicas(self, replicas, inputddms):
+    def print_replicas(self, replicas: list, label: str = 'unsorted'):
         """
-        Sort input replicas: consider first affected replicas from inputddms
-        :param replicas: Prioritized list of replicas [(pfn, dat)]
-        :param inputddms: preferred list of ddmebdpoint
-        :return: sorted `replicas`
-        """
+        Print replicas.
 
+        :param replicas: list of replicas (Any)
+        :param label: label (str).
+        """
+        number = 1
+        maxnumber = 10
+        self.logger.info(f'{label} list of replicas: (max {maxnumber})')
+        for pfn, xdat in replicas:
+            self.logger.debug(f"{number}. "
+                              f"lfn={pfn}, "
+                              f"rse={xdat.get('ddmendpoint')}, "
+                              f"domain={xdat.get('domain')}")
+            number += 1
+            if number > maxnumber:
+                break
+
+    @classmethod
+    def sort_replicas(cls, replicas: list, inputddms: list) -> list:
+        """
+        Sort input replicas.
+
+        Consider first affected replicas from inputddms.
+
+        :param replicas: Prioritized list of replicas [(pfn, dat)] (list)
+        :param inputddms: preferred list of ddmebdpoint (list)
+        :return: sorted list of `replicas` (list).
+        """
         if not inputddms:
             return replicas
 
@@ -230,24 +260,24 @@ class StagingClient(object):
                 continue
             xreplicas.append((pfn, xdat))
 
-        return replicas
+        return xreplicas
 
-    def resolve_replicas(self, files, use_vp=False):
+    def resolve_replicas(self, files: list, use_vp: bool = False) -> list:
         """
-        Populates filespec.replicas for each entry from `files` list
+        Populate filespec.replicas for each entry from `files` list.
 
             fdat.replicas = [{'ddmendpoint':'ddmendpoint', 'pfn':'replica', 'domain':'domain value'}]
 
-        :param files: list of `FileSpec` objects.
-        :param use_vp: True for VP jobs (boolean).
-        :return: files object.
+        :param files: list of `FileSpec` objects (list)
+        :param use_vp: True for VP jobs (bool)
+        :raise: Exception in case of list_replicas() failure
+        :return: list of files (list).
         """
-
         logger = self.logger
         xfiles = []
 
         for fdat in files:
-            # skip fdat if need for further workflow (e.g. to properly handle OS ddms)
+            # skip fdat if needed (e.g. to properly handle OS ddms)
             xfiles.append(fdat)
 
         if not xfiles:  # no files for replica look-up
@@ -281,7 +311,7 @@ class StagingClient(object):
                 fdat.filesize = replica['bytes']
                 logger.warning("Filesize value for input file=%s is not defined, assigning info from Rucio replica: filesize=%s", fdat.lfn, replica['bytes'])
 
-            for ctype in ['adler32', 'md5']:
+            for ctype in ('adler32', 'md5'):
                 if fdat.checksum.get(ctype) != replica[ctype] and replica[ctype]:
                     logger.warning("Checksum value of input file=%s mismatched with info got from Rucio replica: checksum=%s, replica.checksum=%s, fdat=%s",
                                    fdat.lfn, fdat.checksum, replica[ctype], fdat)
@@ -295,20 +325,21 @@ class StagingClient(object):
                 self.trace_report.update(clientState="DONE")
 
         logger.info('Number of resolved replicas:\n' +
-                    '\n'.join(["lfn=%s: replicas=%s, is_directaccess=%s"
-                               % (f.lfn, len(f.replicas or []), f.is_directaccess(ensure_replica=False)) for f in files]))
+                    '\n'.join([f"lfn={f.lfn}: nr replicas={len(f.replicas or [])}, is_directaccess={f.is_directaccess(ensure_replica=False)}" for f in files]))
 
         return files
 
-    def list_replicas(self, xfiles, use_vp):
+    def list_replicas(self, xfiles: list, use_vp: bool) -> list:
         """
+        List Rucio replicas.
+
         Wrapper around rucio_client.list_replicas()
 
-        :param xfiles: files object.
-        :param use_vp: True for VP jobs (boolean).
+        :param xfiles: list of files objects (list)
+        :param use_vp: True for VP jobs (bool)
+        :raise: PilotException in case of list_replicas() failure
         :return: replicas (list).
         """
-
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
@@ -319,7 +350,7 @@ class StagingClient(object):
 
         query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [dict(scope=e.scope, name=e.lfn) for e in xfiles],
+            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
         }
         query.update(sort='geoip', client_location=location)
         # reset the schemas for VP jobs
@@ -336,29 +367,30 @@ class StagingClient(object):
         try:
             replicas = rucio_client.list_replicas(**query)
         except Exception as exc:
-            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED)
+            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED) from exc
 
         replicas = list(replicas)
         self.logger.debug(f"replicas received from Rucio: {replicas}")
 
         return replicas
 
-    def add_replicas(self, fdat, replica):
+    def add_replicas(self, fdat: Any, replica: Any) -> Any:
         """
         Add the replicas to the fdat structure.
 
-        :param fdat:
-        :param replica:
-        :return: updated fdat.
+        :param fdat: fdat object (Any)
+        :param replica: replica object (Any)
+        :return: updated fdat object (Any).
         """
-
         fdat.replicas = []  # reset replicas list
 
         # sort replicas by priority value
         sorted_replicas = sorted(iter(list(replica.get('pfns', {}).items())), key=lambda x: x[1]['priority'])
 
         # prefer replicas from inputddms first
+        #self.print_replicas(sorted_replicas)
         xreplicas = self.sort_replicas(sorted_replicas, fdat.inputddms)
+        self.print_replicas(xreplicas)
 
         for pfn, xdat in xreplicas:
 
@@ -380,16 +412,24 @@ class StagingClient(object):
             fdat.replicas.append(rinfo)
 
         if not fdat.replicas:
-            self.logger.warning('no replicas were selected (verify replica type, allow_lan/wan and domain values)')
+            name = replica.get('name', '[unknown lfn]')
+            self.logger.warning(
+                f'{name}: no replicas were selected (verify replica type, read_lan/wan, allow_lan/wan and domain values)'
+            )
+            self.logger.warning('e.g. check that read_lan is set for the relevant RSE in CRIC')
 
         return fdat
 
     def detect_client_location(self, use_vp: bool = False) -> dict:
         """
+        Detect the client location.
+
         Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
         addresses of the requesting client.
-        """
 
+        :param use_vp: is it a VP site? (bool)
+        :return: client location (dict).
+        """
         diagnostics = ''
         client_location = {}
 
@@ -399,9 +439,16 @@ class StagingClient(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
-        except Exception as exc:
-            diagnostics = f'failed to get socket info: {exc}'
+        except socket.gaierror as e:
+            diagnostics = f'failed to get socket info due to address-related error: {e}'
             self.logger.warning(diagnostics)
+        except socket.timeout as e:
+            diagnostics = f'failed to get socket info due to timeout: {e}'
+            self.logger.warning(diagnostics)
+        except socket.error as e:
+            diagnostics = f'failed to get socket info due to general socket error: {e}'
+            self.logger.warning(diagnostics)
+
         client_location['ip'] = ip
         site = os.environ.get('PILOT_RUCIO_SITENAME', 'unknown')
         client_location['site'] = site
@@ -425,35 +472,60 @@ class StagingClient(object):
                         client_location = response.json()
                         # put back the site
                         client_location['site'] = site
-                except Exception as exc:
-                    diagnostics = f'requests.post failed: {exc}'
+                except requests.exceptions.Timeout as exc:
+                    diagnostics = f'requests.post timed out: {exc}'
+                    self.logger.warning(diagnostics)
+                except requests.exceptions.RequestException as exc:
+                    diagnostics = f'requests.post failed with general exception: {exc}'
                     self.logger.warning(diagnostics)
 
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
-    def transfer_files(self, copytool, files, **kwargs):
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
         """
-            Apply transfer of given `files` using passed `copytool` module
-            Should be implemented by custom Staging Client
-            :param copytool: copytool module
-            :param files: list of `FileSpec` objects
-            :param kwargs: extra kwargs to be passed to copytool transfer handler
-            :raise: PilotException in case of controlled error
-        """
+        Resolve SURL.
 
+        Only needed in StageOutClient.
+
+        Get final destination SURL for file to be transferred.
+        Can be customized at the level of specific copytool.
+
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        """
         raise NotImplementedError()
 
-    def transfer(self, files, activity='default', **kwargs):  # noqa: C901
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
         """
-            Automatically stage passed files using copy tools related to given `activity`
-            :param files: list of `FileSpec` objects
-            :param activity: list of activity names used to determine appropriate copytool (prioritized list)
-            :param kwargs: extra kwargs to be passed to copytool transfer handler
-            :raise: PilotException in case of controlled error
-            :return: list of processed `FileSpec` objects
-        """
+        Transfer the files.
 
+        Apply transfer of given `files` using passed `copytool` module.
+        Should be implemented by custom Staging Client.
+
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :raise: PilotException in case of controlled error.
+        """
+        raise NotImplementedError()
+
+    def transfer(self, files: list, activity: list or str = 'default', **kwargs: dict) -> list:  # noqa: C901
+        """
+        Perform file transfer.
+
+        Automatically stage passed files using copy tools related to given `activity`.
+
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list or str)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :raise: PilotException in case of controlled error
+        :return: list of processed `FileSpec` objects (list).
+        """
         self.trace_report.update(relativeStart=time.time(), transferStart=time.time())
 
         if isinstance(activity, str):
@@ -468,10 +540,9 @@ class StagingClient(object):
                 break
 
         if not copytools:
-            raise PilotException('failed to resolve copytool by preferred activities=%s, acopytools=%s' %
-                                 (activity, self.acopytools))
+            raise PilotException(f'failed to resolve copytool by preferred activities={activity}, acopytools={self.acopytools}')
 
-        # populate inputddms if need
+        # populate inputddms if needed
         self.prepare_inputddms(files)
 
         # initialize ddm_activity name for requested files if not set
@@ -499,34 +570,34 @@ class StagingClient(object):
 
             try:
                 if name not in self.copytool_modules:
-                    raise PilotException('passed unknown copytool with name=%s .. skipped' % name,
+                    raise PilotException(f'passed unknown copytool with name={name} .. skipped',
                                          code=ErrorCodes.UNKNOWNCOPYTOOL)
 
                 module = self.copytool_modules[name]['module_name']
-                self.logger.info('trying to use copytool=%s for activity=%s', name, activity)
-                copytool = __import__('pilot.copytool.%s' % module, globals(), locals(), [module], 0)
+                self.logger.info(f'trying to use copytool={name} for activity={activity}')
+                copytool = __import__(f'pilot.copytool.{module}', globals(), locals(), [module], 0)
                 #self.trace_report.update(protocol=name)
 
             except PilotException as exc:
                 caught_errors.append(exc)
-                self.logger.debug('error: %s', exc)
+                self.logger.debug(f'error: {exc}')
                 continue
             except Exception as exc:
-                self.logger.warning('failed to import copytool module=%s, error=%s', module, exc)
+                self.logger.warning(f'failed to import copytool module={module}, error={exc}')
                 continue
 
             try:
                 result = self.transfer_files(copytool, remain_files, activity, **kwargs)
-                self.logger.debug('transfer_files() using copytool=%s completed with result=%s', copytool, str(result))
+                self.logger.debug(f'transfer_files() using copytool={copytool} completed with result={result}')
                 break
             except PilotException as exc:
-                self.logger.warning('failed to transfer_files() using copytool=%s .. skipped; error=%s', copytool, exc)
+                self.logger.warning(f'failed to transfer_files() using copytool={copytool} .. skipped; error={exc}')
                 caught_errors.append(exc)
             except TimeoutException as exc:
-                self.logger.warning('function timed out: %s', exc)
+                self.logger.warning(f'function timed out: {exc}')
                 caught_errors.append(exc)
             except Exception as exc:
-                self.logger.warning('failed to transfer files using copytool=%s .. skipped; error=%s', copytool, exc)
+                self.logger.warning(f'failed to transfer files using copytool={copytool} .. skipped; error={exc}')
                 caught_errors.append(exc)
                 import traceback
                 self.logger.error(traceback.format_exc())
@@ -539,33 +610,36 @@ class StagingClient(object):
 
         if remain_files:  # failed or incomplete transfer
             # propagate message from first error back up
-            errmsg = str(caught_errors[0]) if caught_errors else ''
+            # errmsg = str(caught_errors[0]) if caught_errors else ''
             if caught_errors and "Cannot authenticate" in str(caught_errors):
                 code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE
             elif caught_errors and "bad queue configuration" in str(caught_errors):
                 code = ErrorCodes.BADQUEUECONFIGURATION
             elif caught_errors and isinstance(caught_errors[0], PilotException):
                 code = caught_errors[0].get_error_code()
-                errmsg = caught_errors[0].get_last_error()
+                # errmsg = caught_errors[0].get_last_error()
             elif caught_errors and isinstance(caught_errors[0], TimeoutException):
                 code = ErrorCodes.STAGEINTIMEOUT if self.mode == 'stage-in' else ErrorCodes.STAGEOUTTIMEOUT  # is it stage-in/out?
-                self.logger.warning('caught time-out exception: %s', caught_errors[0])
+                self.logger.warning(f'caught time-out exception: {caught_errors[0]}')
             else:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
-            details = str(caught_errors) + ":" + 'failed to transfer files using copytools=%s' % copytools
+            details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
             self.logger.fatal(details)
             raise PilotException(details, code=code)
 
         return files
 
-    def require_protocols(self, files, copytool, activity, local_dir=''):
+    def require_protocols(self, files: list, copytool: Any, activity: list or str, local_dir: str = ''):
         """
-            Populates fspec.protocols and fspec.turl for each entry in `files` according to preferred fspec.ddm_activity
-            :param files: list of `FileSpec` objects
-            :param activity: str or ordered list of transfer activity names to resolve acopytools related data
-            :return: None
-        """
+        Require protocols.
 
+        Populates fspec.protocols and fspec.turl for each entry in `files` according to preferred fspec.ddm_activity
+
+        :param files: list of `FileSpec` objects (list)
+        :param copytool: copytool module (Any)
+        :param activity: list of activity names used to determine appropriate copytool (list or str)
+        :param local_dir: local directory (str).
+        """
         allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
         if self.infosys and self.infosys.queuedata:
@@ -586,14 +660,14 @@ class StagingClient(object):
 
             protocols = self.resolve_protocol(fspec, allowed_schemas)
             if not protocols and 'mv' not in self.infosys.queuedata.copytools:  # no protocols found
-                error = 'Failed to resolve protocol for file=%s, allowed_schemas=%s, fspec=%s' % (fspec.lfn, allowed_schemas, fspec)
-                self.logger.error("resolve_protocol: %s", error)
+                error = f'Failed to resolve protocol for file={fspec.lfn}, allowed_schemas={allowed_schemas}, fspec={fspec}'
+                self.logger.error(f"resolve_protocol: {error}")
                 raise PilotException(error, code=ErrorCodes.NOSTORAGEPROTOCOL)
 
             # take first available protocol for copytool: FIX ME LATER if need (do iterate over all allowed protocols?)
             protocol = protocols[0]
 
-            self.logger.info("Resolved protocol to be used for transfer: \'%s\': lfn=\'%s\'", protocol, fspec.lfn)
+            self.logger.info(f"Resolved protocol to be used for transfer: \'{protocol}\': lfn=\'{fspec.lfn}\'")
 
             resolve_surl = getattr(copytool, 'resolve_surl', None)
             if not callable(resolve_surl):
@@ -606,21 +680,24 @@ class StagingClient(object):
             if r.get('ddmendpoint'):
                 fspec.ddmendpoint = r['ddmendpoint']
 
-    def resolve_protocols(self, files):
+    def resolve_protocols(self, files: list) -> list:
         """
-            Populates filespec.protocols for each entry from `files` according to preferred `fspec.ddm_activity` value
-            :param files: list of `FileSpec` objects
-            fdat.protocols = [dict(endpoint, path, flavour), ..]
-            :return: `files`
-        """
+        Resolve protocols.
 
+        Populates filespec.protocols for each entry from `files` according to preferred `fspec.ddm_activity` value
+
+        fdat.protocols = [dict(endpoint, path, flavour), ..]
+
+        :param files: list of `FileSpec` objects (list)
+        :return: list of `files` object (list).
+        """
         ddmconf = self.infosys.resolve_storage_data()
 
         for fdat in files:
             ddm = ddmconf.get(fdat.ddmendpoint)
             if not ddm:
-                error = 'Failed to resolve output ddmendpoint by name=%s (from PanDA), please check configuration.' % fdat.ddmendpoint
-                self.logger.error("resolve_protocols: %s, fspec=%s", error, fdat)
+                error = f'Failed to resolve output ddmendpoint by name={fdat.ddmendpoint} (from PanDA), please check configuration.'
+                self.logger.error(f"resolve_protocols: {error}, fspec={fdat}")
                 raise PilotException(error, code=ErrorCodes.NOSTORAGE)
 
             protocols = []
@@ -634,14 +711,16 @@ class StagingClient(object):
         return files
 
     @classmethod
-    def resolve_protocol(self, fspec, allowed_schemas=None):
+    def resolve_protocol(cls, fspec: Any, allowed_schemas: Any = None) -> list:
         """
-            Resolve protocols according to allowed schema
-            :param fspec: `FileSpec` instance
-            :param allowed_schemas: list of allowed schemas or any if None
-            :return: list of dict(endpoint, path, flavour)
-        """
+        Resolve protocol.
 
+        Resolve protocol according to allowed schema
+
+        :param fspec: `FileSpec` instance (list)
+        :param allowed_schemas: list of allowed schemas or any if None (Any)
+        :return: list of dict(endpoint, path, flavour) (list).
+        """
         if not fspec.protocols:
             return []
 
@@ -650,29 +729,35 @@ class StagingClient(object):
         allowed_schemas = allowed_schemas or [None]
         for schema in allowed_schemas:
             for pdat in fspec.protocols:
-                if schema is None or pdat.get('endpoint', '').startswith("%s://" % schema):
+                if schema is None or pdat.get('endpoint', '').startswith(f"{schema}://"):
                     protocols.append(pdat)
 
         return protocols
 
 
 class StageInClient(StagingClient):
+    """Stage-in client."""
 
     mode = "stage-in"
 
-    def resolve_replica(self, fspec, primary_schemas=None, allowed_schemas=None, domain=None):
+    def resolve_replica(self, fspec: Any, primary_schemas: Any = None, allowed_schemas: Any = None, domain: Any = None) -> dict or None:
         """
-            Resolve input replica (matched by `domain` if need) first according to `primary_schemas`,
-            if not found then look up within `allowed_schemas`
-            Primary schemas ignore replica priority (used to resolve direct access replica, which could be not with top priority set)
-            :param fspec: input `FileSpec` objects
-            :param allowed_schemas: list of allowed schemas or any if None
-            :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found
-        """
+        Resolve replica.
 
+        Resolve input replica (matched by `domain` if needed) first according to `primary_schemas`,
+        if not found then look up within `allowed_schemas`.
+
+        Primary schemas ignore replica priority (used to resolve direct access replica, which could be not with top priority set).
+
+        :param fspec: input `FileSpec` objects (Any)
+        :param primary_schemas: list of primary schemas or any if None (Any)
+        :param allowed_schemas: list of allowed schemas or any if None (Any)
+        :param domain: domain value to match (Any)
+        :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found (dict or None).
+        """
         if not fspec.replicas:
             self.logger.warning('resolve_replica() received no fspec.replicas')
-            return
+            return None
 
         allowed_schemas = allowed_schemas or [None]
         primary_replica, replica = None, None
@@ -700,25 +785,41 @@ class StageInClient(StagingClient):
             schemas = 'any' if not allowed_schemas[0] else ','.join(allowed_schemas)
             pschemas = 'any' if primary_schemas and not primary_schemas[0] else ','.join(primary_schemas or [])
 
-            error = 'Failed to find replica for file=%s, domain=%s, allowed_schemas=%s, pschemas=%s, fspec=%s' % (fspec.lfn, domain, schemas, pschemas, fspec)
+            error = f'Failed to find replica for file={fspec.lfn}, domain={domain}, allowed_schemas={schemas}, pschemas={pschemas}, fspec={fspec}'
             self.logger.info("resolve_replica: %s", error)
-            return
+            return None
 
         # prefer SRM protocol for surl -- to be verified, can it be deprecated?
         rse_replicas = replicas.get(replica['ddmendpoint'], [])
         surl = self.get_preferred_replica(rse_replicas, ['srm']) or rse_replicas[0]
-        self.logger.info("[stage-in] surl (srm replica) from Rucio: pfn=%s, ddmendpoint=%s", surl['pfn'], surl['ddmendpoint'])
+        self.logger.info(f"[stage-in] surl (srm replica) from Rucio: pfn={surl['pfn']}, ddmendpoint={surl['ddmendpoint']}")
 
         return {'surl': surl['pfn'], 'ddmendpoint': replica['ddmendpoint'], 'pfn': replica['pfn'], 'domain': replica['domain']}
 
-    def get_direct_access_variables(self, job):
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
+        """
+        Resolve SURL.
+
+        Only needed in StageOutClient.
+
+        Get final destination SURL for file to be transferred.
+        Can be customized at the level of specific copytool.
+
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        """
+        raise NotImplementedError()
+
+    def get_direct_access_variables(self, job: Any) -> (bool, str):
         """
         Return the direct access settings for the PQ.
 
-        :param job: job object.
-        :return: allow_direct_access (bool), direct_access_type (string).
+        :param job: job object (Any)
+        :return: allow_direct_access (bool), direct_access_type (str).
         """
-
         allow_direct_access, direct_access_type = False, ''
         if self.infosys.queuedata:  # infosys is initialized
             allow_direct_access = self.infosys.queuedata.direct_access_lan or self.infosys.queuedata.direct_access_wan
@@ -731,25 +832,24 @@ class StageInClient(StagingClient):
 
         if job and not job.is_analysis() and job.transfertype != 'direct':  # task forbids direct access
             allow_direct_access = False
-            self.logger.info('switched off direct access mode for production job since transfertype=%s', job.transfertype)
+            self.logger.info(f'switched off direct access mode for production job since transfertype={job.transfertype}')
 
         return allow_direct_access, direct_access_type
 
-    def transfer_files(self, copytool, files, activity=None, **kwargs):  # noqa: C901
+    def transfer_files(self, copytool: Any, files: list, activity: list = None, **kwargs: dict) -> list:  # noqa: C901
         """
         Automatically stage in files using the selected copy tool module.
 
-        :param copytool: copytool module
-        :param files: list of `FileSpec` objects
-        :param kwargs: extra kwargs to be passed to copytool transfer handler
-
-        :return: list of processed `FileSpec` objects
-        :raise: PilotException in case of controlled error
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list or None)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :return: list of processed `FileSpec` objects (list)
+        :raise: PilotException in case of controlled error.
         """
-
         if getattr(copytool, 'require_replicas', False) and files:
             if files[0].replicas is None:  # look up replicas only once
-                files = self.resolve_replicas(files, use_vp=kwargs['use_vp'])
+                files = self.resolve_replicas(files, use_vp=kwargs.get('use_vp', False))
 
             allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
@@ -758,7 +858,7 @@ class StageInClient(StagingClient):
                 allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity, copytool_name) or allowed_schemas
 
             # overwrite allowed_schemas for VP jobs
-            if kwargs['use_vp']:
+            if kwargs.get('use_vp', False):
                 allowed_schemas = ['root']
                 self.logger.debug('overwrote allowed_schemas for VP job: %s', str(allowed_schemas))
 
@@ -795,7 +895,7 @@ class StageInClient(StagingClient):
                     self.logger.info("[stage-in] No WAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
                                      fspec.lfn, primary_schemas, allowed_schemas)
                 if not replica:
-                    raise ReplicasNotFound('No replica found for lfn=%s (allow_lan=%s, allow_wan=%s)' % (fspec.lfn, fspec.allow_lan, fspec.allow_wan))
+                    raise ReplicasNotFound(f'No replica found for lfn={fspec.lfn} (allow_lan={fspec.allow_lan}, allow_wan={fspec.allow_wan})')
 
                 if replica.get('pfn'):
                     fspec.turl = replica['pfn']
@@ -810,7 +910,9 @@ class StageInClient(StagingClient):
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:
-            self.require_protocols(files, copytool, activity, local_dir=kwargs['input_dir'])
+            args = kwargs.get('args')
+            input_dir = kwargs.get('input_dir') if not args else args.input_dir
+            self.require_protocols(files, copytool, activity, local_dir=input_dir)
 
         # mark direct access files with status=remote_io
         self.set_status_for_direct_access(files, kwargs.get('workdir', ''))
@@ -822,7 +924,7 @@ class StageInClient(StagingClient):
             return files
 
         if not copytool.is_valid_for_copy_in(remain_files):
-            msg = 'input is not valid for transfers using copytool=%s' % copytool
+            msg = f'input is not valid for transfers using copytool={copytool}'
             self.logger.warning(msg)
             self.logger.debug('input: %s', remain_files)
             self.trace_report.update(clientState='NO_REPLICA', stateReason=msg)
@@ -854,16 +956,15 @@ class StageInClient(StagingClient):
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
-    def set_status_for_direct_access(self, files, workdir):
+    def set_status_for_direct_access(self, files: list, workdir: str):
         """
         Update the FileSpec status with 'remote_io' for direct access mode.
-        Should be called only once since the function sends traces
 
-        :param files: list of FileSpec objects.
-        :param workdir: work directory (string).
-        :return: None
+        Should be called only once since the function sends traces.
+
+        :param files: list of FileSpec objects (list)
+        :param workdir: work directory (str).
         """
-
         for fspec in files:
             direct_lan = (fspec.domain == 'lan' and fspec.direct_access_lan and
                           fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=self.direct_localinput_allowed_schemas))
@@ -913,32 +1014,30 @@ class StageInClient(StagingClient):
                     if not os.path.exists(_workdir):
                         path = os.path.join('/srv', config.Pilot.base_trace_report)
                     if not os.path.exists(path):
-                        self.logger.debug('writing base trace report to: %s', path)
+                        self.logger.debug(f'writing base trace report to: {path}')
                         write_json(path, self.trace_report)
                 else:
                     self.trace_report.send()
 
-    def check_availablespace(self, files):
+    def check_availablespace(self, files: list):
         """
-        Verify that enough local space is available to stage in and run the job
+        Verify that enough local space is available to stage in and run the job.
 
-        :param files: list of FileSpec objects.
-        :raise: PilotException in case of not enough space or total input size too large
+        :param files: list of FileSpec objects (list)
+        :raise: PilotException in case of not enough space or total input size too large.
         """
-
         for f in files:
-            self.logger.debug('lfn=%s filesize=%d accessmode=%s', f.lfn, f.filesize, f.accessmode)
+            self.logger.debug(f'lfn={f.lfn} filesize={f.filesize} accessmode={f.accessmode}')
 
         maxinputsize = convert_mb_to_b(get_maximum_input_sizes())
         totalsize = reduce(lambda x, y: x + y.filesize, files, 0)
 
         # verify total filesize
         if maxinputsize and totalsize > maxinputsize:
-            error = "too many/too large input files (%s). total file size=%s B > maxinputsize=%s B" % \
-                    (len(files), totalsize, maxinputsize)
+            error = f"too many/too large input files ({len(files)}). total file size={totalsize} B > maxinputsize={maxinputsize} B"
             raise SizeTooLarge(error)
 
-        self.logger.info("total input file size=%s B within allowed limit=%s B (zero value means unlimited)", totalsize, maxinputsize)
+        self.logger.info(f"total input file size={totalsize} B within allowed limit={maxinputsize} B (zero value means unlimited)")
 
         # get available space
         try:
@@ -949,30 +1048,31 @@ class StageInClient(StagingClient):
         else:
             if disk_space:
                 available_space = convert_mb_to_b(disk_space)
-                self.logger.info("locally available space: %d B", available_space)
+                self.logger.info("locally available space: {available_space} B")
 
                 # are we within the limit?
                 if totalsize > available_space:
-                    error = "not enough local space for staging input files and run the job (need %d B, but only have %d B)" % \
-                            (totalsize, available_space)
+                    error = f"not enough local space for staging input files and run the job (need {totalsize} B, but only have {available_space} B)"
                     raise NoLocalSpace(error)
             else:
                 self.logger.warning('get_local_disk_space() returned None')
 
 
 class StageOutClient(StagingClient):
+    """Stage-out client."""
 
     mode = "stage-out"
 
-    def prepare_destinations(self, files, activities):
+    def prepare_destinations(self, files: list, activities: list or str) -> list:
         """
-            Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`
-            Apply Pilot-side logic to choose proper destination
-            :param files: list of FileSpec objects to be processed
-            :param activities: ordered list of activities to be used to resolve astorages
-            :return: updated fspec entries
-        """
+        Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`.
 
+        Apply Pilot-side logic to choose proper destination.
+
+        :param files: list of FileSpec objects to be processed (list)
+        :param activities: ordered list of activities to be used to resolve astorages (list or str)
+        :return: updated fspec entries (list).
+        """
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
 
@@ -984,7 +1084,6 @@ class StageOutClient(StagingClient):
                                  code=ErrorCodes.INTERNALPILOTPROBLEM, state='INTERNAL_ERROR')
 
         astorages = self.infosys.queuedata.astorages or {}
-
         storages = None
         activity = activities[0]
         for a in activities:
@@ -995,15 +1094,16 @@ class StageOutClient(StagingClient):
         if not storages:
             if 'mv' in self.infosys.queuedata.copytools:
                 return files
-            else:
-                raise PilotException("Failed to resolve destination: no associated storages defined for activity=%s (%s)"
-                                     % (activity, ','.join(activities)), code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
+
+            act = ','.join(activities)
+            raise PilotException(f"Failed to resolve destination: no associated storages defined for activity={activity} ({act})",
+                                 code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
         # take the fist choice for now, extend the logic later if need
         ddm = storages[0]
 
-        self.logger.info("[prepare_destinations][%s]: allowed (local) destinations: %s", activity, storages)
-        self.logger.info("[prepare_destinations][%s]: resolved default destination ddm=%s", activity, ddm)
+        self.logger.info(f"[prepare_destinations][{activity}]: allowed (local) destinations: {storages}")
+        self.logger.info(f"[prepare_destinations][{activity}]: resolved default destination ddm={ddm}")
 
         for e in files:
             if not e.ddmendpoint:  # no preferences => use default destination
@@ -1019,66 +1119,71 @@ class StageOutClient(StagingClient):
         return files
 
     @classmethod
-    def get_path(self, scope, lfn, prefix='rucio'):
+    def get_path(cls, scope: str, lfn: str) -> str:
         """
-            Construct a partial Rucio PFN using the scope and the LFN
+        Construct a partial Rucio PFN using the scope and the LFN.
+
+            <prefix=rucio>/<scope>/md5(<scope>:<lfn>)[0:2]/md5(<scope:lfn>)[2:4]/<lfn>
+
+        :param scope: replica scope (str)
+        :param lfn: repliva LFN (str)
+        :return: constructed path (str).
         """
-
-        # <prefix=rucio>/<scope>/md5(<scope>:<lfn>)[0:2]/md5(<scope:lfn>)[2:4]/<lfn>
-
-        s = '%s:%s' % (scope, lfn)
+        s = f'{scope}:{lfn}'
         hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
 
-        #paths = [prefix] + scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
         # exclude prefix from the path: this should be properly considered in protocol/AGIS for today
         paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], lfn]
         paths = [_f for _f in paths if _f]  # remove empty parts to avoid double /-chars
 
         return '/'.join(paths)
 
-    def resolve_surl(self, fspec, protocol, ddmconf, **kwargs):
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
         """
-            Get final destination SURL for file to be transferred
-            Can be customized at the level of specific copytool
-            :param protocol: suggested protocol
-            :param ddmconf: full ddmconf data
-            :param activity: ordered list of preferred activity names to resolve SE protocols
-            :return: dict with keys ('pfn', 'ddmendpoint')
-        """
+        Resolve SURL.
 
+        Get final destination SURL for file to be transferred.
+        Can be customized at the level of specific copytool.
+
+        :param fspec: `FileSpec` object (Any)
+        :param protocol: suggested protocol (dict)
+        :param ddmconf: full ddmconf data (dict)
+        :param kwargs: extra kwargs (dict)
+        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        """
         local_dir = kwargs.get('local_dir', '')
         if not local_dir:
             # consider only deterministic sites (output destination) - unless local input/output
             ddm = ddmconf.get(fspec.ddmendpoint)
             if not ddm:
-                raise PilotException('Failed to resolve ddmendpoint by name=%s' % fspec.ddmendpoint)
+                raise PilotException(f'Failed to resolve ddmendpoint by name={fspec.ddmendpoint}')
 
             # path = protocol.get('path', '').rstrip('/')
             # if not (ddm.is_deterministic or (path and path.endswith('/rucio'))):
             if not ddm.is_deterministic:
-                raise PilotException('resolve_surl(): Failed to construct SURL for non deterministic ddm=%s: '
-                                     'NOT IMPLEMENTED' % fspec.ddmendpoint, code=ErrorCodes.NONDETERMINISTICDDM)
+                raise PilotException(f'resolve_surl(): Failed to construct SURL for non deterministic '
+                                     f'ddm={fspec.ddmendpoint}: NOT IMPLEMENTED', code=ErrorCodes.NONDETERMINISTICDDM)
 
         surl = protocol.get('endpoint', '') + os.path.join(protocol.get('path', ''), self.get_path(fspec.scope, fspec.lfn))
+
         return {'surl': surl}
 
-    def transfer_files(self, copytool, files, activity, **kwargs):
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
         """
-            Automatically stage out files using the selected copy tool module.
+        Transfer files.
 
-            :param copytool: copytool module
-            :param files: list of `FileSpec` objects
-            :param activity: ordered list of preferred activity names to resolve SE protocols
-            :param kwargs: extra kwargs to be passed to copytool transfer handler
+        Automatically stage out files using the selected copy tool module.
 
-            :return: the output of the copytool transfer operation
-            :raise: PilotException in case of controlled error
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: ordered list of preferred activity names to resolve SE protocols (list)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :return: the output of the copytool transfer operation (list)
+        :raise: PilotException in case of controlled error.
         """
-
         # check if files exist before actual processing
-        # populate filesize if need, calc checksum
+        # populate filesize if needed, calculate checksum
         for fspec in files:
-
             if not fspec.ddmendpoint:  # ensure that output destination is properly set
                 if 'mv' not in self.infosys.queuedata.copytools:
                     msg = f'no output RSE defined for file={fspec.lfn}'
@@ -1107,7 +1212,9 @@ class StageOutClient(StagingClient):
                 try:
                     fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
                                                                                    algorithm=config.File.checksum_type)
-                except (FileHandlingFailure, NotImplementedError, Exception) as exc:
+                except (FileHandlingFailure, NotImplementedError) as exc:
+                    raise exc
+                except Exception as exc:
                     raise exc
 
         # prepare files (resolve protocol/transfer url)

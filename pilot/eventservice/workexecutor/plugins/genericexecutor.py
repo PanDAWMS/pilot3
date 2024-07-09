@@ -1,22 +1,40 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+
+"""Generic executor."""
 
 import json
+import logging
 import os
 import time
 import traceback
+from typing import Any
 
 from pilot.api.es_data import StageOutESClient
-from pilot.common.exception import PilotException, StageOutFailure
-
+from pilot.common.exception import (
+    PilotException,
+    StageOutFailure
+)
 from pilot.common.errorcodes import ErrorCodes
 from pilot.eventservice.esprocess.esprocess import ESProcess
 from pilot.info.filespec import FileSpec
@@ -25,55 +43,69 @@ from pilot.util.container import execute
 
 from .baseexecutor import BaseExecutor
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
-
-"""
-Generic Executor with one process to manage EventService
-"""
 
 
 class GenericExecutor(BaseExecutor):
-    def __init__(self, **kwargs):
-        super(GenericExecutor, self).__init__(**kwargs)
-        self.setName("GenericExecutor")
+    """Generic executor class."""
 
+    def __init__(self, **kwargs: dict):
+        """
+        Initialize generic executor.
+
+        :param kwargs: kwargs dictionary (dict).
+        """
+        super().__init__(**kwargs)
+        self.name = "GenericExecutor"
         self.__queued_out_messages = []
         self.__stageout_failures = 0
         self.__max_allowed_stageout_failures = 20
         self.__last_stageout_time = None
         self.__all_out_messages = []
-
         self.proc = None
         self.exit_code = None
 
-    def is_payload_started(self):
+    def is_payload_started(self) -> bool:
+        """
+        Check if payload is started.
+
+        :return: True if payload is started, False if not (bool).
+        """
         return self.proc.is_payload_started() if self.proc else False
 
-    def get_pid(self):
+    def get_pid(self) -> int:
+        """
+        Get the process id of the payload process.
+
+        :return: process id (int).
+        """
         return self.proc.pid if self.proc else None
 
     def get_exit_code(self):
+        """
+        Get exit code of the payload process.
+
+        :return: exit code (int).
+        """
         return self.exit_code
 
-    def update_finished_event_ranges(self, out_messagess, output_file, fsize, checksum, storage_id):
+    def update_finished_event_ranges(self, out_messages: Any, output_file: str, fsize: int, checksum: str,
+                                     storage_id: Any) -> None:
         """
-        Update finished event ranges
+        Update finished event ranges.
 
-        :param out_messages: messages from AthenaMP.
-        :param output_file: output file name.
-        :param fsize: file size.
-        :param adler32: checksum (adler32) of the file.
-        :param storage_id: the id of the storage.
+        :param out_messages: messages from AthenaMP (Any)
+        :param output_file: output file name (str)
+        :param fsize: file size (int)
+        :param checksum: checksum (adler32) of the file (str)
+        :param storage_id: the id of the storage (Any).
         """
-
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for out_msg in out_messagess:
+        for out_msg in out_messages:
             event_ranges.append({"eventRangeID": out_msg['id'], "eventStatus": 'finished'})
         event_range_status = {"zipFile": {"numEvents": len(event_ranges),
                                           "objstoreID": storage_id,
@@ -89,60 +121,59 @@ class GenericExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += len(event_ranges)
 
-    def update_failed_event_ranges(self, out_messagess):
+    def update_failed_event_ranges(self, out_messages: Any) -> None:
         """
-        Update failed event ranges
+        Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP.
+        :param out_messages: messages from AthenaMP (Any).
         """
-
-        if len(out_messagess) == 0:
+        if len(out_messages) == 0:
             return
 
         event_ranges = []
-        for message in out_messagess:
-            status = message['status'] if message['status'] in ['failed', 'fatal'] else 'failed'
+        for message in out_messages:
+            status = message['status'] if message['status'] in {'failed', 'fatal'} else 'failed'
             # ToBeFixed errorCode
             event_ranges.append({"errorCode": errors.UNKNOWNPAYLOADFAILURE, "eventRangeID": message['id'], "eventStatus": status})
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def handle_out_message(self, message):
+    def handle_out_message(self, message: dict):
         """
         Handle ES output or error messages hook function for tests.
 
-        :param message: a dict of parsed message.
-                        For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
+        Example
+            For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
-                        Fro 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
-        """
+            For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
+        :param message: a dict of parsed message (dict).
+        """
         logger.info(f"handling out message: {message}")
 
         self.__all_out_messages.append(message)
 
-        if message['status'] in ['failed', 'fatal']:
+        if message['status'] in {'failed', 'fatal'}:
             self.update_failed_event_ranges([message])
         else:
             self.__queued_out_messages.append(message)
 
-    def tarzip_output_es(self):
+    def tarzip_output_es(self) -> (Any, str):
         """
-        Tar/zip eventservice outputs.
+        Tar/zip event service outputs.
 
-        :return: out_messages, output_file
+        :return: out_messages (Any), output_file (str).
         """
-
         out_messages = []
         while len(self.__queued_out_messages) > 0:
             out_messages.append(self.__queued_out_messages.pop())
 
-        output_file = "EventService_premerge_%s.tar" % out_messages[0]['id']
+        output_file = f"EventService_premerge_{out_messages[0]['id']}.tar"
 
         ret_messages = []
         try:
             for out_msg in out_messages:
-                command = "tar -rf " + output_file + " --directory=%s %s" % (os.path.dirname(out_msg['output']), os.path.basename(out_msg['output']))
+                command = "tar -rf " + output_file + f" --directory={os.path.dirname(out_msg['output'])} {os.path.basename(out_msg['output'])}"
                 exit_code, stdout, stderr = execute(command)
                 if exit_code == 0:
                     ret_messages.append(out_msg)
@@ -165,13 +196,14 @@ class GenericExecutor(BaseExecutor):
 
         return ret_messages, output_file
 
-    def stageout_es_real(self, output_file):  # noqa: C901
+    def stageout_es_real(self, output_file: str) -> (str, Any, int, str):  # noqa: C901
         """
         Stage out event service output file.
 
-        :param output_file: output file name.
+        :param output_file: output file name (str)
+        :return: storage (str), storage_id (Any), fsize (int), checksum (str)
+        :raises StageOutFailure: when stage-out failed.
         """
-
         job = self.get_job()
         logger.info('prepare to stage-out event service files')
 
@@ -181,7 +213,7 @@ class GenericExecutor(BaseExecutor):
                      }
         file_spec = FileSpec(filetype='output', **file_data)
         xdata = [file_spec]
-        kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job)
+        kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job}
 
         try_failover = False
         activity = ['es_events', 'pw']  ## FIX ME LATER: replace `pw` with `write_lan` once AGIS is updated (acopytools)
@@ -202,7 +234,7 @@ class GenericExecutor(BaseExecutor):
         try:
             if _error:
                 pass
-        except Exception as exc:
+        except NameError as exc:
             logger.error(f'found no error object - stage-out must have failed: {exc}')
             _error = StageOutFailure("stage-out failed")
 
@@ -252,50 +284,49 @@ class GenericExecutor(BaseExecutor):
 
         return file_spec.ddmendpoint, storage_id, file_spec.filesize, file_spec.checksum
 
-    def stageout_es(self, force=False):
+    def stageout_es(self, force: bool = False):
         """
         Stage out event service outputs.
-        When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
-        """
 
+        When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
+
+        :param force: force to stage out (bool).
+        """
         job = self.get_job()
-        if len(self.__queued_out_messages):
+        if self.__queued_out_messages:
             if force or self.__last_stageout_time is None or (time.time() > self.__last_stageout_time + job.infosys.queuedata.es_stageout_gap):
 
-                out_messagess, output_file = self.tarzip_output_es()
-                logger.info(f"tar/zip event ranges: {out_messagess}, output_file: {output_file}")
+                out_messages, output_file = self.tarzip_output_es()
+                logger.info(f"tar/zip event ranges: {out_messages}, output_file: {output_file}")
 
-                if out_messagess:
+                if out_messages:
                     self.__last_stageout_time = time.time()
                     try:
                         logger.info(f"staging output file: {output_file}")
                         storage, storage_id, fsize, checksum = self.stageout_es_real(output_file)
                         logger.info(f"staged output file ({output_file}) to storage: {storage} storage_id: {storage_id}")
 
-                        self.update_finished_event_ranges(out_messagess, output_file, fsize, checksum, storage_id)
+                        self.update_finished_event_ranges(out_messages, output_file, fsize, checksum, storage_id)
                     except Exception as exc:
                         logger.error(f"failed to stage out file({output_file}): {exc}, {traceback.format_exc()}")
 
                         if force:
-                            self.update_failed_event_ranges(out_messagess)
+                            self.update_failed_event_ranges(out_messages)
                         else:
                             logger.info("failed to stage out, adding messages back to the queued messages")
-                            self.__queued_out_messages += out_messagess
+                            self.__queued_out_messages += out_messages
                             self.__stageout_failures += 1
 
     def clean(self):
-        """
-        Clean temp produced files
-        """
-
+        """Clean temp produced files."""
         for msg in self.__all_out_messages:
-            if msg['status'] in ['failed', 'fatal']:
+            if msg['status'] in {'failed', 'fatal'}:
                 pass
             elif 'output' in msg:
                 try:
                     logger.info(f"removing ES pre-merge file: {msg['output']}")
                     os.remove(msg['output'])
-                except Exception as exc:
+                except OSError as exc:
                     logger.error(f"failed to remove file({msg['output']}): {exc}")
         self.__queued_out_messages = []
         self.__stageout_failures = 0
@@ -309,13 +340,10 @@ class GenericExecutor(BaseExecutor):
 
         self.stop_communicator()
 
-    def run(self):
-        """
-        Initialize and run ESProcess.
-        """
-
+    def run(self) -> None:
+        """Initialize and run ESProcess."""
         try:
-            logger.info("starting ES GenericExecutor with thread identifier: %s" % (self.ident))
+            logger.info(f"starting ES GenericExecutor with thread identifier: {self.ident}")
             if self.is_set_payload():
                 payload = self.get_payload()
             elif self.is_retrieve_payload():

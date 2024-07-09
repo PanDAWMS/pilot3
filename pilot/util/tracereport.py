@@ -1,25 +1,40 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Alexey Anisenkov, alexey.anisenkov@cern.ch, 2017
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
 import hashlib
 import os
 import socket
 import time
 from sys import exc_info
-from json import dumps
+from json import dumps, loads
 from os import environ, getuid
 
+from pilot.common.exception import FileHandlingFailure
+from pilot.util.auxiliary import correct_none_types
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
 from pilot.util.container import execute, execute2
-from pilot.util.filehandling import append_to_file
+from pilot.util.filehandling import append_to_file, write_file
+from pilot.util.https import request2
 
 import logging
 logger = logging.getLogger(__name__)
@@ -89,16 +104,27 @@ class TraceReport(dict):
         self.update(data)
         self['timeStart'] = time.time()
 
-        hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+
+        try:
+            hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
+        except socket.herror as exc:
+            logger.warning(f'unable to detect hostname for trace report: {exc}')
+            hostname = os.environ.get('PANDA_HOSTNAME', 'unknown')
+
         try:
             self['hostname'] = socket.gethostbyaddr(hostname)[0]
-        except Exception:
-            logger.debug("unable to detect hostname for trace report")
+        except (socket.gaierror, socket.herror) as exc:
+            logger.warning(f'unable to detect hostname by address for trace report: {exc}')
+            self['hostname'] = 'unknown'
 
         try:
             self['ip'] = socket.gethostbyname(hostname)
-        except Exception:
-            logger.debug("unable to detect host IP for trace report")
+        except socket.herror as exc:
+            logger.debug(f"unable to detect host IP for trace report: {exc}")
+            self['ip'] = '0.0.0.0'
 
         if job.jobdefinitionid:
             s = 'ppilot_%s' % job.jobdefinitionid
@@ -106,7 +132,7 @@ class TraceReport(dict):
         else:
             #self['uuid'] = commands.getoutput('uuidgen -t 2> /dev/null').replace('-', '')  # all LFNs of one request have the same uuid
             cmd = 'uuidgen -t 2> /dev/null'
-            exit_code, stdout, stderr = execute(cmd)
+            exit_code, stdout, stderr = execute(cmd, timeout=10)
             self['uuid'] = stdout.replace('-', '')
 
     def get_value(self, key):
@@ -167,10 +193,33 @@ class TraceReport(dict):
         err = None
         try:
             # take care of the encoding
-            data = dumps(self).replace('"', '\\"')
+            data = dumps(self).replace('"', '\\"')  # for curl
+            data_urllib = dumps(self)  # for urllib
             # remove the ipv and workdir items since they are for internal pilot use only
             data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
             data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
+            try:
+                data_urllib = data_urllib.replace(f'\"ipv\": \"{self.ipv}\", ', '')
+                data_urllib = data_urllib.replace(f'\"workdir\": \"{self.workdir}\", ', '')
+            except Exception as e:
+                logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
+            logger.debug(f'data (type={type(data)})={data}')
+            logger.debug(f'data_urllib (type={type(data_urllib)})={data_urllib}')
+            # send the trace report using the new request2 function
+            # must convert data to a dictionary and make sure None values are kept
+            data_str_urllib = data_urllib.replace('None', '\"None\"')
+            data_str_urllib = data_str_urllib.replace('null', '\"None\"')
+            logger.debug(f'data_str_urllib={data_str_urllib}')
+            data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
+            data_dict = correct_none_types(data_dict)
+            logger.debug(f'data_dict={data_dict}')
+            ret = request2(url=url, data=data_dict, secure=False, compressed=False)
+            logger.info(f'received: {ret}')
+            if ret:
+                logger.info("tracing report sent")
+                return True
+            else:
+                logger.warning("failed to send tracing report - using old curl command")
 
             ssl_certificate = self.get_ssl_certificate()
 
@@ -196,13 +245,28 @@ class TraceReport(dict):
             # handle errors that only appear in stdout/err (curl)
             if not exit_code:
                 out, err = self.get_trace_curl_files(outname, errname, mode='r')
-                exit_code = self.assign_error(out)
-                if not exit_code:
-                    exit_code = self.assign_error(err)
-                logger.debug(f'curl exit_code from stdout/err={exit_code}')
-                self.close(out, err)
+                if out:
+                    exit_code = self.assign_error(out)
+                    if not exit_code:
+                        exit_code = self.assign_error(err)
+                    logger.debug(f'curl exit_code from stdout/err={exit_code}')
+                    self.close(out, err)
+                else:
+                    logger.warning(f'failed to open curl stdout file: {outname}')
             if not exit_code:
                 logger.info('no errors were detected from curl operation')
+            else:
+                # better to store exit code in file since env var will not be seen outside container in case middleware
+                # container is used
+                path = os.path.join(self.workdir, config.Rucio.rucio_trace_error_file)
+                try:
+                    write_file(path, str(exit_code))
+                except FileHandlingFailure as exc:
+                    logger.warning(f'failed to store curl exit code to file: {exc}')
+                else:
+                    logger.info(f'wrote rucio trace exit code {exit_code} to file {path}')
+                logger.debug(f"setting env var RUCIO_TRACE_ERROR to \'{exit_code}\' to be sent with job metrics")
+                os.environ['RUCIO_TRACE_ERROR'] = str(exit_code)
 
         except Exception:
             # if something fails, log it but ignore
@@ -253,9 +317,9 @@ class TraceReport(dict):
         :param name: name pattern (str)
         :return: stdout file name (str), stderr file name (str).
         """
-
-        workdir = self.workdir if self.workdir else os.getcwd()
-        return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        #workdir = self.workdir if self.workdir else os.getcwd()
+        #return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
+        return f'{name}.stdout', f'{name}.stderr'
 
     def get_trace_curl_files(self, outpath, errpath, mode='wb'):
         """

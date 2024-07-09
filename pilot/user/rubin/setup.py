@@ -1,11 +1,23 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2022
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
 
 import os
 import re
@@ -40,25 +52,25 @@ def get_analysis_trf(transform, workdir):
     # test if $HARVESTER_WORKDIR is set
     harvester_workdir = os.environ.get('HARVESTER_WORKDIR')
     if harvester_workdir is not None:
-        search_pattern = "%s/jobO.*.tar.gz" % harvester_workdir
-        logger.debug("search_pattern - %s" % search_pattern)
+        search_pattern = f"{harvester_workdir}/jobO.*.tar.gz"
+        logger.debug(f"search_pattern - {search_pattern}")
         jobopt_files = glob.glob(search_pattern)
         for jobopt_file in jobopt_files:
-            logger.debug("jobopt_file = %s workdir = %s" % (jobopt_file, workdir))
+            logger.debug(f"jobopt_file = {jobopt_file} workdir = {workdir}")
             try:
                 copy(jobopt_file, workdir)
-            except Exception as e:
-                logger.error("could not copy file %s to %s : %s" % (jobopt_file, workdir, e))
+            except Exception as exc:
+                logger.error(f"could not copy file {jobopt_file} to {workdir} : {exc}")
 
     if '/' in transform:
         transform_name = transform.split('/')[-1]
     else:
-        logger.warning('did not detect any / in %s (using full transform name)' % transform)
+        logger.warning(f'did not detect any / in {transform} (using full transform name)')
         transform_name = transform
 
     # is the command already available? (e.g. if already downloaded by a preprocess/main process step)
     if os.path.exists(os.path.join(workdir, transform_name)):
-        logger.info('script %s is already available - no need to download again' % transform_name)
+        logger.info(f'script {transform_name} is already available - no need to download again')
         return ec, diagnostics, transform_name
 
     original_base_url = ""
@@ -70,14 +82,14 @@ def get_analysis_trf(transform, workdir):
             break
 
     if original_base_url == "":
-        diagnostics = "invalid base URL: %s" % transform
+        diagnostics = f"invalid base URL: {transform}"
         return errors.TRFDOWNLOADFAILURE, diagnostics, ""
 
     # try to download from the required location, if not - switch to backup
     status = False
     for base_url in get_valid_base_urls(order=original_base_url):
         trf = re.sub(original_base_url, base_url, transform)
-        logger.debug("attempting to download script: %s" % trf)
+        logger.debug(f"attempting to download script: {trf}")
         status, diagnostics = download_transform(trf, transform_name, workdir)
         if status:
             break
@@ -87,11 +99,11 @@ def get_analysis_trf(transform, workdir):
 
     logger.info("successfully downloaded script")
     path = os.path.join(workdir, transform_name)
-    logger.debug("changing permission of %s to 0o755" % path)
+    logger.debug(f"changing permission of {path} to 0o755")
     try:
-        os.chmod(path, 0o755)  # Python 2/3
-    except Exception as e:
-        diagnostics = "failed to chmod %s: %s" % (transform_name, e)
+        os.chmod(path, 0o755)
+    except Exception as exc:
+        diagnostics = f"failed to chmod {transform_name}: {exc}"
         return errors.CHMODTRF, diagnostics, ""
 
     return ec, diagnostics, transform_name
@@ -137,7 +149,7 @@ def download_transform(url, transform_name, workdir):
     path = os.path.join(workdir, transform_name)
     ip_version = os.environ.get('PILOT_IP_VERSION', 'IPv6')
     command = 'curl' if ip_version == 'IPv6' else 'curl -4'
-    cmd = f'{command} -sS \"%s\" > %s' % (url, path)
+    cmd = f'{command} -sS \"{url}\" > {path}'
     trial = 1
     max_trials = 3
 
@@ -152,29 +164,29 @@ def download_transform(url, transform_name, workdir):
             status = True
         except Exception as error:
             status = False
-            diagnostics = "Failed to copy file %s to %s : %s" % (source_path, path, error)
+            diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
 
     # try to download the trf a maximum of 3 times
     while trial <= max_trials:
-        logger.info("executing command [trial %d/%d]: %s" % (trial, max_trials, cmd))
+        logger.info(f"executing command [trial {trial}/{max_trials}]: {cmd}")
 
         exit_code, stdout, stderr = execute(cmd, mute=True)
         if not stdout:
             stdout = "(None)"
         if exit_code != 0:
             # Analyze exit code / output
-            diagnostics = "curl command failed: %d, %s, %s" % (exit_code, stdout, stderr)
+            diagnostics = f"curl command failed: {exit_code}, {stdout}, {stderr}"
             logger.warning(diagnostics)
             if trial == max_trials:
-                logger.fatal('could not download transform: %s' % stdout)
+                logger.fatal(f'could not download transform: {stdout}')
                 status = False
                 break
             else:
                 logger.info("will try again after 60 s")
                 sleep(60)
         else:
-            logger.info("curl command returned: %s" % stdout)
+            logger.info(f"curl command returned: {stdout}")
             status = True
             break
         trial += 1

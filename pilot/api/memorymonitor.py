@@ -1,79 +1,86 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
-from os import getcwd
-from .services import Services
+"""API for memory monitoring."""
 
 import logging
+from os import getcwd
+
+from .services import Services
+
 logger = logging.getLogger(__name__)
 
 
 class MemoryMonitoring(Services):
-    """
-    Memory monitoring service class.
-    """
+    """Memory monitoring service class."""
 
     user = ""     # Pilot user, e.g. 'ATLAS'
     pid = 0       # Job process id
     workdir = ""  # Job work directory
     _cmd = ""     # Memory monitoring command (full path, all options)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """
         Init function.
 
-        :param kwargs:
+        :param kwargs: kwargs dictionary (dict).
         """
-
-        for key in kwargs:
-            setattr(self, key, kwargs[key])
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
         if not self.workdir:
             self.workdir = getcwd()
 
         if self.user:
-            user_utility = __import__('pilot.user.%s.utilities' % self.user, globals(), locals(), [self.user], 0)  # Python 2/3
+            user_utility = __import__(f'pilot.user.{self.user}.utilities', globals(), locals(), [self.user], 0)  # Python 2/3
             self._cmd = user_utility.get_memory_monitor_setup(self.pid, self.workdir)
 
-    def get_command(self):
+    def get_command(self) -> str:
         """
         Return the full command for the memory monitor.
 
-        :return: command string.
+        :return: command string (str).
         """
-
         return self._cmd
 
     def execute(self):
         """
         Execute the memory monitor command.
-        Return the process.
 
-        :return: process.
+        return: process (currently None).
         """
-
         return None
 
-    def get_filename(self):
+    def get_filename(self) -> str:
         """
-        ..
+        Return the filename from the memory monitor tool.
 
-        :return:
+        :return: filename (str).
         """
-
         return ""
 
     def get_results(self):
         """
-        ..
+        Return the results from the memory monitoring.
 
-        :return:
+        return: results (currently None).
         """
-
         return None

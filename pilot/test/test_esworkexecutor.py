@@ -1,29 +1,40 @@
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Wen Guan, wen.guan@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2021
+# - Wen Guan, wen.guan@cern.ch, 2017-18
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+
+"""Unit tests for the esprocess package."""
 
 import logging
+import json
 import os
 import sys
 import socket
 import time
 import traceback
+import unittest
 
 from pilot.api.es_data import StageInESClient
+from pilot.control.job import create_job
 from pilot.eventservice.communicationmanager.communicationmanager import CommunicationManager
 from pilot.eventservice.workexecutor.workexecutor import WorkExecutor
-from pilot.control.job import create_job
 from pilot.util.https import https_setup
-
-if sys.version_info < (2, 7):
-    import unittest2 as unittest
-else:
-    import unittest
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -31,24 +42,35 @@ logger = logging.getLogger(__name__)
 https_setup(None, None)
 
 
-def check_env():
+def check_env() -> bool:
     """
-    Function to check whether cvmfs is available.
+    Check whether cvmfs is available.
+
     To be used to decide whether to skip some test functions.
 
-    :returns True: if cvmfs is available. Otherwise False.
+    :returns: True if cvmfs is available, otherwise False (bool).
     """
     return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
 @unittest.skipIf(not check_env(), "No CVMFS")
 class TestESWorkExecutorGrid(unittest.TestCase):
-    """
-    Unit tests for event service Grid work executor
-    """
+    """Unit tests for event service Grid work executor."""
 
     @classmethod
     def setUpClass(cls):
+        """
+        Set up test fixtures.
+
+        :raises Exception: in case of failure.
+        """
+        # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+        # server is slow to respond
+        socket.setdefaulttimeout(10)
+        try:
+            fqdn = socket.getfqdn()
+        except socket.herror:
+            fqdn = 'localhost'
         try:
             args = {'workflow': 'eventservice_hpc',
                     'queue': 'BNL_CLOUD_MCORE',
@@ -57,7 +79,7 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                     'url': 'https://aipanda007.cern.ch',
                     'job_label': 'ptest',
                     'pilot_user': 'ATLAS',
-                    'node': socket.getfqdn(),
+                    'node': fqdn,
                     'mem': 16000,
                     'disk_space': 160000,
                     'working_group': '',
@@ -69,7 +91,7 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             communicator_manager.start()
 
             jobs = communicator_manager.get_jobs(njobs=1, args=args)
-            job = create_job(jobs[0], 'BNL_CLOUD_MCORE')
+            job = create_job(jobs[0], queuename='BNL_CLOUD_MCORE')
             job.workdir = '/tmp/test_esworkexecutor'
             job.corecount = 1
             if not os.path.exists(job.workdir):
@@ -83,42 +105,45 @@ class TestESWorkExecutorGrid(unittest.TestCase):
             job_data['node'] = 'pilot3_test'
             job_data['schedulerID'] = 'pilot3_test'
             job_data['coreCount'] = 1
-            status = communicator_manager.update_jobs(jobs=[job_data])
+            _ = communicator_manager.update_jobs(jobs=[job_data])
             job_data['state'] = 'running'
-            status = communicator_manager.update_jobs(jobs=[job_data])
+            _ = communicator_manager.update_jobs(jobs=[job_data])
             communicator_manager.stop()
 
             # download input files
             client = StageInESClient(job.infosys, logger=logger)
-            kwargs = dict(workdir=job.workdir, cwd=job.workdir, usecontainer=False, job=job)
+            kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job}
             client.prepare_sources(job.indata)
             client.transfer(job.indata, activity='pr', **kwargs)
 
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
-            user = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)  # Python 2/3
+            user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
             cmd = user.get_payload_command(job)
-            logger.info("payload execution command: %s" % cmd)
+            logger.info(f"payload execution command: {cmd}")
 
             payload = {'executable': cmd,
                        'workdir': job.workdir,
-                       'output_file': 'pilot_test_%s_stdout.txt' % job['PandaID'],
-                       'error_file': 'pilot_test_%s_stderr.txt' % job['PandaID'],
+                       'output_file': f"pilot_test_{job['PandaID']}_stdout.txt",
+                       'error_file': f"pilot_test_{job['PandaID']}_stderr.txt",
                        'job': job}
             cls._payload = payload
-        except Exception as ex:
+        except Exception as exc:
             if cls._communicator_manager:
                 cls._communicator_manager.stop()
-            raise ex
+            raise exc
 
     @classmethod
     def tearDownClass(cls):
+        """Remove test fixtures."""
         cls._communicator_manager.stop()
 
     def setup(self):
+        """Set up test fixtures."""
         self.executor = None
 
     def tearDown(self):
+        """Remove test fixtures."""
         if self._communicator_manager:
             self._communicator_manager.stop()
         if self.executor:
@@ -126,9 +151,10 @@ class TestESWorkExecutorGrid(unittest.TestCase):
 
     def test_workexecutor_generic(self):
         """
-        Make sure that no exceptions to run work executor.
-        """
+        Make sure there are no exceptions when running work executor.
 
+        :raises Exception: in case of failure.
+        """
         try:
             executor = WorkExecutor()
             self.executor = executor
@@ -149,20 +175,21 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                 time.sleep(0.1)
             exit_code = executor.get_exit_code()
             self.assertEqual(exit_code, 0)
-        except Exception as ex:
-            logger.debug("Exception: %s, %s" % (ex, traceback.format_exc()))
+        except Exception as exc:
+            logger.debug(f"Exception: {exc}, {traceback.format_exc()}")
             if self.executor:
                 self.executor.stop()
                 while self.executor.is_alive():
                     time.sleep(0.1)
-            raise ex
+            raise exc
 
     @unittest.skipIf(True, "skip it")
     def test_workexecutor_update_events(self):
         """
-        Make sure that no exceptions to run work executor.
-        """
+        Make sure there are no exceptions when running work executor.
 
+        :raises Exception: in case of failure.
+        """
         try:
             executor = WorkExecutor()
             self.executor = executor
@@ -182,13 +209,12 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                                                "fsize": 100,
                                                "pathConvention": 1000},
                                    "eventRanges": update_events}]
-            import json
             event_range_message = {'version': 1, 'eventRanges': json.dumps(event_range_status)}
             ret = executor.update_events(event_range_message)
             logger.debug(ret)
 
             executor.stop()
-        except Exception as ex:
+        except Exception as exc:
             if self.executor:
                 self.executor.stop()
-            raise ex
+            raise exc

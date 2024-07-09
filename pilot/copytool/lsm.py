@@ -1,23 +1,44 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 
-import os
+"""Local site mover copy tool."""
+
 import logging
 import errno
+import os
 from time import time
 
-from .common import get_copysetup, verify_catalog_checksum, resolve_common_transfer_errors  #, get_timeout
-from pilot.common.exception import StageInFailure, StageOutFailure, PilotException, ErrorCodes
+from pilot.common.exception import (
+    ErrorCodes,
+    PilotException
+)
 from pilot.util.container import execute
 #from pilot.util.timer import timeout
+from .common import (
+    get_copysetup,
+    verify_catalog_checksum,
+    resolve_common_transfer_errors  #, get_timeout
+)
 
 
 logger = logging.getLogger(__name__)
@@ -27,50 +48,45 @@ require_replicas = True  ## indicate if given copytool requires input replicas t
 allowed_schemas = ['srm', 'gsiftp', 'root']  # prioritized list of supported schemas for transfers by given copytool
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list)
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
-    #for f in files:
+
+
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list)
+    :return: always True (for now) (bool).
+    """
+    # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
     #        return False
-    #return True
+    return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
-    #for f in files:
-    #    if not all(key in f for key in ('name', 'source', 'destination')):
-    #        return False
-    return True
-
-
-def copy_in_old(files):
-    """
-    Tries to download the given files using lsm-get directly.
-
-    :param files: Files to download
-    :raises PilotException: StageInFailure
-    """
-
-    if not check_for_lsm(dst_in=True):
-        raise StageInFailure("No LSM tools found")
-    exit_code, stdout, stderr = move_all_files_in(files)
-    if exit_code != 0:
-        # raise failure
-        raise StageInFailure(stdout)
-
-
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using the lsm-get command.
 
-    :param files: list of `FileSpec` objects.
-    :raise: PilotException in case of controlled error.
-    :return: files `FileSpec` object.
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raises: PilotException in case of controlled error.
     """
-
-    exit_code = 0
-    stdout = ""
-    stderr = ""
-
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
     trace_report = kwargs.get('trace_report')
@@ -101,12 +117,12 @@ def copy_in(files, **kwargs):
         source = fspec.turl
         destination = os.path.join(dst, fspec.lfn)
 
-        logger.info("transferring file %s from %s to %s", fspec.lfn, source, destination)
+        logger.info(f"transferring file {fspec.lfn} from {source} to {destination}")
 
         exit_code, stdout, stderr = move(source, destination, dst_in=True, copysetup=copysetup)
 
         if exit_code != 0:
-            logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+            logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
 
             error = resolve_common_transfer_errors(stderr, is_stagein=True)
             fspec.status = 'failed'
@@ -136,14 +152,15 @@ def copy_in(files, **kwargs):
     return files
 
 
-def copy_out(files, **kwargs):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using lsm copytool.
 
-    :param files: list of `FileSpec` objects.
-    :raise: PilotException in case of controlled error.
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raises: PilotException in case of controlled error.
     """
-
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
     trace_report = kwargs.get('trace_report')
@@ -161,7 +178,7 @@ def copy_out(files, **kwargs):
         ddm = ddmconf.get(fspec.ddmendpoint)
         token = ddm.token
         if not token:
-            diagnostics = "copy_out() failed to resolve token value for ddmendpoint=%s" % (fspec.ddmendpoint)
+            diagnostics = f"copy_out() failed to resolve token value for ddmendpoint={fspec.ddmendpoint}"
             trace_report.update(clientState='STAGEOUT_ATTEMPT_FAILED',
                                 stateReason=diagnostics,
                                 timeEnd=time())
@@ -175,22 +192,19 @@ def copy_out(files, **kwargs):
 
         # checksum has been calculated in the previous step - transfer_files() in api/data
         # note: pilot is handing over checksum to the command - which will/should verify it after the transfer
-        checksum = "adler32:%s" % fspec.checksum.get('adler32')
+        checksum = f"adler32:{fspec.checksum.get('adler32')}"
 
         # define the command options
-        opts = {'--size': fspec.filesize,
-                '-t': token,
-                '--checksum': checksum,
-                '--guid': fspec.guid}
-        try:
-            opts = " ".join(["%s %s" % (k, v) for (k, v) in opts.iteritems()])  # Python 2
-        except Exception:
-            opts = " ".join(["%s %s" % (k, v) for (k, v) in list(opts.items())])  # Python 3
+        _opts = {'--size': fspec.filesize,
+                 '-t': token,
+                 '--checksum': checksum,
+                 '--guid': fspec.guid}
+        opts = " ".join([f"{k} {v}" for (k, v) in list(_opts.items())])
 
-        logger.info("transferring file %s from %s to %s", fspec.lfn, source, destination)
+        logger.info(f"transferring file {fspec.lfn} from {source} to {destination}")
 
         nretries = 1  # input parameter to function?
-        for retry in range(nretries):
+        for _ in range(nretries):
             exit_code, stdout, stderr = move(source, destination, dst_in=False, copysetup=copysetup, options=opts)
 
             if exit_code != 0:
@@ -204,9 +218,9 @@ def copy_out(files, **kwargs):
                                     timeEnd=time())
                 trace_report.send()
                 raise PilotException(error.get('error'), code=error.get('exit_code'), state=error.get('state'))
-            else:  # all successful
-                logger.info('all successful')
-                break
+
+            logger.info('all successful')
+            break
 
         fspec.status_code = 0
         fspec.status = 'transferred'
@@ -216,38 +230,20 @@ def copy_out(files, **kwargs):
     return files
 
 
-def copy_out_old(files):
+def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):
     """
-    Tries to upload the given files using lsm-put directly.
+    Move all inout files.
 
-    :param files: Files to upload
-    :raises PilotException: StageOutFailure
+    :param files: list of FileSpec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
-    if not check_for_lsm(dst_in=False):
-        raise StageOutFailure("No LSM tools found")
-
-    exit_code, stdout, stderr = move_all_files_out(files)
-    if exit_code != 0:
-        # raise failure
-        raise StageOutFailure(stdout)
-
-
-def move_all_files_in(files, nretries=1):
-    """
-    Move all files.
-
-    :param files:
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed
-    :return: exit_code, stdout, stderr
-    """
-
     exit_code = 0
     stdout = ""
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s", entry['name'], entry['source'], entry['destination'])
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         source = entry['source'] + '/' + entry['name']
         destination = os.path.join(entry['destination'], entry['name'])
@@ -255,8 +251,8 @@ def move_all_files_in(files, nretries=1):
             exit_code, stdout, stderr = move(source, destination, dst_in=True)
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -264,20 +260,20 @@ def move_all_files_in(files, nretries=1):
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files, nretries=1):
+def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):
     """
-    Move all files.
+    Move all output files.
 
-    :param files:
-    :return: exit_code, stdout, stderr
+    :param files: list of FileSPec objects (list)
+    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     exit_code = 0
     stdout = ""
     stderr = ""
 
     for entry in files:  # entry = {'name':<filename>, 'source':<dir>, 'destination':<dir>}
-        logger.info("transferring file %s from %s to %s", entry['name'], entry['source'], entry['destination'])
+        logger.info(f"transferring file {entry['name']} from {entry['source']} to {entry['destination']}")
 
         destination = entry['destination'] + '/' + entry['name']
         source = os.path.join(entry['source'], entry['name'])
@@ -285,8 +281,8 @@ def move_all_files_out(files, nretries=1):
             exit_code, stdout, stderr = move(source, destination, dst_in=False)
 
             if exit_code != 0:
-                if ((exit_code != errno.ETIMEDOUT) and (exit_code != errno.ETIME)) or (retry + 1) == nretries:
-                    logger.warning("transfer failed: exit code = %d, stdout = %s, stderr = %s", exit_code, stdout, stderr)
+                if ((exit_code not in (errno.ETIMEDOUT, errno.ETIME)) or ((retry + 1) == nretries)):
+                    logger.warning(f"transfer failed: exit code = {exit_code}, stdout = {stdout}, stderr = {stderr}")
                     return exit_code, stdout, stderr
             else:  # all successful
                 break
@@ -295,30 +291,31 @@ def move_all_files_out(files, nretries=1):
 
 
 #@timeout(seconds=10800)
-def move(source, destination, dst_in=True, copysetup="", options=None):
+def move(source: str, destination: str, dst_in: bool = True, copysetup: str = "", options: str = "") -> (int, str, str):
     """
     Use lsm-get or lsm-put to transfer the file.
 
-    :param source: path to source (string).
-    :param destination: path to destination (string).
-    :param dst_in: True for stage-in, False for stage-out (boolean).
-    :return: exit code, stdout, stderr
+    :param source: path to source (str)
+    :param destination: path to destination (str)
+    :param dst_in: True for stage-in, False for stage-out (bool)
+    :param copysetup: path to copysetup (str)
+    :param options: additional options (str)
+    :return: exit code (int), stdout (str), stderr (str).
     """
-
     # copysetup = '/osg/mwt2/app/atlas_app/atlaswn/setup.sh'
     if copysetup != "":
-        cmd = 'source %s;' % copysetup
+        cmd = f'source {copysetup};'
     else:
         cmd = ''
 
-    args = "%s %s" % (source, destination)
+    args = f"{source} {destination}"
     if options:
-        args = "%s %s" % (options, args)
+        args = f"{options} {args}"
 
     if dst_in:
-        cmd += "lsm-get %s" % args
+        cmd += f"lsm-get {args}"
     else:
-        cmd += "lsm-put %s" % args
+        cmd += f"lsm-put {args}"
 
     try:
         exit_code, stdout, stderr = execute(cmd, usecontainer=False, copytool=True)  #, timeout=get_timeout(fspec.filesize))
@@ -327,19 +324,24 @@ def move(source, destination, dst_in=True, copysetup="", options=None):
             exit_code = ErrorCodes.STAGEINFAILED
         else:
             exit_code = ErrorCodes.STAGEOUTFAILED
-        stdout = 'exception caught: e' % error
+        stdout = f'exception caught: {error}'
         stderr = ''
         logger.warning(stdout)
 
-    logger.info('exit_code=%d, stdout=%s, stderr=%s', exit_code, stdout, stderr)
+    logger.info(f'exit_code={exit_code}, stdout={stdout}, stderr={stderr}')
     return exit_code, stdout, stderr
 
 
-def check_for_lsm(dst_in=True):
-    cmd = None
+def check_for_lsm(dst_in: bool = True) -> bool:
+    """
+    Check if lsm-get / lsm-put are locally available.
+
+    :param dst_in: True for stage-in, False for stage-out (bool)
+    :return: True if command is available (bool).
+    """
     if dst_in:
         cmd = 'which lsm-get'
     else:
         cmd = 'which lsm-put'
-    exit_code, gfal_path, _ = execute(cmd)
+    exit_code, _, _ = execute(cmd)
     return exit_code == 0

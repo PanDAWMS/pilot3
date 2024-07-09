@@ -1,13 +1,27 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
 # - Mario Lassnig, mario.lassnig@cern.ch, 2020
+
+"""Commnon functions for copytools."""
 
 import logging
 import os
@@ -28,11 +42,10 @@ def get_timeout(filesize: int, add: int = 0) -> int:
     """
     Get a proper time-out limit based on the file size.
 
-    :param filesize: file size (int).
+    :param filesize: file size (int)
     :param add: optional additional time to be added [s] (int)
     :return: time-out in seconds (int).
     """
-
     timeout_max = 3 * 3600  # 3 hours
     timeout_min = 300  # self.timeout
 
@@ -44,13 +57,13 @@ def get_timeout(filesize: int, add: int = 0) -> int:
 def verify_catalog_checksum(fspec: Any, path: str) -> (str, str):
     """
     Verify that the local and remote (fspec) checksum values are the same.
+
     The function will update the fspec object.
 
-    :param fspec: FileSpec object for a given file.
-    :param path: path to local file (string).
-    :return: state (string), diagnostics (string).
+    :param fspec: FileSpec object for a given file (Any)
+    :param path: path to local file (str)
+    :return: state (str), diagnostics (str).
     """
-
     diagnostics = ""
     state = ""
 
@@ -92,10 +105,10 @@ def verify_catalog_checksum(fspec: Any, path: str) -> (str, str):
 
 def merge_destinations(files: list) -> dict:
     """
-    Converts the file-with-destination dict to a destination-with-files dict
+    Convert the file-with-destination dict to a destination-with-files dictionary.
 
     :param files: files to merge (list)
-    :return: destination-with-files dictionary.
+    :return: destination-with-files dictionary (dict).
     """
     destinations = {}
     # ensure type(files) == list
@@ -120,9 +133,9 @@ def get_copysetup(copytools: list, copytool_name: str) -> str:
     """
     Return the copysetup for the given copytool.
 
-    :param copytools: copytools list from infosys.
-    :param copytool_name: name of copytool (string).
-    :return: copysetup (string).
+    :param copytools: copytools list from infosys (list)
+    :param copytool_name: name of copytool (str)
+    :return: copysetup (str).
     """
     copysetup = ""
 
@@ -140,27 +153,27 @@ def get_copysetup(copytools: list, copytool_name: str) -> str:
 def get_error_info(rcode: int, state: str, error_msg: str) -> dict:
     """
     Return an error info dictionary specific to transfer errors.
+
     Helper function to resolve_common_transfer_errors().
 
-    :param rcode: return code (int).
-    :param state: state string used in Rucio traces.
-    :param error_msg: transfer command stdout (string).
-    :return: dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg}.
+    :param rcode: return code (int)
+    :param state: state string used in Rucio traces (str)
+    :param error_msg: transfer command stdout (str)
+    :return: dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
     """
-
     return {'rcode': rcode, 'state': state, 'error': error_msg}
 
 
 def output_line_scan(ret: dict, output: str) -> dict:
     """
     Do some reg exp on the transfer command output to search for special errors.
+
     Helper function to resolve_common_transfer_errors().
 
-    :param ret: pre-filled error info dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg}
-    :param output: transfer command stdout (string).
-    :return: updated error info dictionary.
+    :param ret: pre-filled error info dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg} (dict)
+    :param output: transfer command stdout (str)
+    :return: updated error info dictionary (dict).
     """
-
     for line in output.split('\n'):
         match = re.search(r"[Dd]etails\s*:\s*(?P<error>.*)", line)  # Python 3 (added r)
         if match:
@@ -176,11 +189,10 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
     """
     Resolve any common transfer related errors.
 
-    :param output: stdout from transfer command (string).
-    :param is_stagein: optional (boolean).
-    :return: dict {'rcode': rcode, 'state': state, 'error': error_msg}.
+    :param output: stdout from transfer command (str)
+    :param is_stagein: optional (bool)
+    :return: dict {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
     """
-
     # default to make sure dictionary exists and all fields are populated (some of which might be overwritten below)
     ret = get_error_info(ErrorCodes.STAGEINFAILED if is_stagein else ErrorCodes.STAGEOUTFAILED, 'COPY_ERROR', output)
     if not output:

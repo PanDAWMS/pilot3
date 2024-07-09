@@ -1,38 +1,60 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020
+# - Danila Oleynik, 2018-2021
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+
+"""Function library for Titan."""
 
 import re
 import json
+import logging
 import numbers
+import sys
 import traceback
 import threading
-import logging
+from typing import Any
+
 logger = logging.getLogger(__name__)
 
 
-def camel_to_snake(name):
+def camel_to_snake(name: str) -> str:
     """
-    Changes CamelCase to snake_case, used by python.
+    Change CamelCase to snake_case.
 
-    :param name: name to change
-    :return: name in snake_case
+    Used by Python.
+
+    :param name: name to change (str)
+    :return: name in snake_case (str).
     """
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
-def snake_to_camel(snake_str):
+def snake_to_camel(snake_str: str) -> str:
     """
-    Changes snake_case to firstLowCamelCase, used by server.
+    Change snake_case to firstLowCamelCase.
 
-    :param snake_str: name to change
-    :return: name in camelCase
+    Used by server.
+
+    :param snake_str: name to change (str)
+    :return: name in camelCase (str).
     """
     components = snake_str.split('_')
     # We capitalize the first letter of each component except the first one
@@ -40,16 +62,16 @@ def snake_to_camel(snake_str):
     return components[0] + "".join(x.title() for x in components[1:])
 
 
-def split(val, separator=",", min_len=0, fill_last=False):
+def split(val: str, separator: str = ",", min_len: int = 0, fill_last: bool = False) -> list:
     """
-    Splits comma separated values and parses them.
+    Split comma separated values and parse them.
 
-    :param val:         values to split
-    :param separator:   comma or whatever
-    :param min_len:     minimum needed length of array, array is filled up to this value
-    :param fill_last:   Flag stating the array filler, if min_value is greater then extracted array length.
-                        If true, array is filled with last value, else, with Nones.
-    :return: parsed array
+    :param val: values to split (str)
+    :param separator: comma or whatever (str)
+    :param min_len: minimum needed length of array, array is filled up to this value (int)
+    :param fill_last: flag stating the array filler, if min_value is greater then extracted array length.
+                        If true, array is filled with last value, else, with Nones (bool)
+    :return: parsed array (list).
     """
     if val is None:
         return [None for _ in range(min_len)]
@@ -66,9 +88,9 @@ def split(val, separator=",", min_len=0, fill_last=False):
     return v_arr
 
 
-def get_nulls(val):
+def get_nulls(val: str) -> str or None:
     """
-    Converts every "NULL" string to python's None.
+    Convert every "NULL" string to None.
 
     :param val: string or whatever
     :return: val or None if val is "NULL"
@@ -76,43 +98,46 @@ def get_nulls(val):
     return val if val != "NULL" else None
 
 
-def is_float(val):
+def is_float(val: Any) -> bool:
     """
     Test floatliness of the string value.
 
-    :param val: string or whatever
-    :return: True if the value may be converted to Float
+    :param val: string or whatever (Any)
+    :return: True if the value may be converted to Float (bool).
     """
     try:
         float(val)
-        return True
     except ValueError:
         return False
 
+    return True
 
-def is_int(val):
+
+def is_int(val: Any) -> bool:
     """
-    Test int of the string value.
+    Test if the given string is an integer.
 
-    :param val: string or whatever
-    :return: True if the value may be converted to int
+    :param val: string or whatever (Any)
+    :return: True if the value may be converted to int (bool).
     """
     try:
         int(val)
-        return True
     except ValueError:
         return False
 
+    return True
 
-def parse_value(value):
+
+def parse_value(value: Any) -> Any:
     """
-    Tries to parse value as number or None. If some of this can be done, parsed value is returned. Otherwise returns
+    Try to parse value as number or None.
+
+    If some of this can be done, parsed value is returned. Otherwise returns
     value unparsed.
 
-    :param value:
-    :return: mixed
+    :param value: value to be tested (Any)
+    :return: mixed (Any).
     """
-
     if not isinstance(value, str):
         return value
 
@@ -125,38 +150,39 @@ def parse_value(value):
     return get_nulls(value)
 
 
-def stringify_weird(arg):
+def stringify_weird(arg: Any) -> str:
     """
-    Converts None to "NULL"
+    Convert None to "NULL".
 
-    :param arg:
-    :return: arg or "NULL"
+    :param arg: value to stringify (Any)
+    :return: arg or "NULL" if arg is None (str).
     """
     if arg is None:
         return "NULL"
     if isinstance(arg, numbers.Number):
         return arg
+
     return str(arg)
 
 
-def join(arr):
+def join(arr: list) -> str:
     """
-    Joins arrays, converting contents to strings.
+    Join arrays, converting contents to strings.
 
-    :param arr:
-    :return: joined array
+    :param arr: array (list)
+    :return: joined array (str).
     """
     return ",".join(str(stringify_weird(x)) for x in arr)
 
 
-def get_input_files(description):
+def get_input_files(description: dict) -> dict:
     """
-    Extracts input files from the description.
+    Extract input files from the description.
 
-    :param description:
-    :return: file list
+    :param description: job decsription (dict)
+    :return: file dictionary (dict).
     """
-    logger.info("Extracting input files from job description")
+    logger.info("extracting input files from job description")
     files = {}
     if description['inFiles'] and description['inFiles'] != "NULL":
         in_files = split(description["inFiles"])
@@ -173,31 +199,32 @@ def get_input_files(description):
         scope = split(description.get("scopeIn"), min_len=length, fill_last=True)
         guids = split(description.get("GUID"), min_len=length, fill_last=True)
 
-        for i, f in enumerate(in_files):
-            if f is not None:
-                files[f] = {
-                    "ddm_endpoint": ddm_endpoint[i],
-                    "storage_element": destination_se[i],
-                    "dispatch_dblock": dispatch_dblock[i],
-                    "dispatch_dblock_token": dispatch_dblock_token[i],
-                    "dataset": datasets[i],
-                    "dblock": dblocks[i],
-                    "dblock_token": dblock_tokens[i],
-                    "size": size[i],
-                    "checksum": c_sum[i],
-                    'scope': scope[i],
-                    "guid": guids[i]
+        for counter, _file in enumerate(in_files):
+            if _file is not None:
+                files[_file] = {
+                    "ddm_endpoint": ddm_endpoint[counter],
+                    "storage_element": destination_se[counter],
+                    "dispatch_dblock": dispatch_dblock[counter],
+                    "dispatch_dblock_token": dispatch_dblock_token[counter],
+                    "dataset": datasets[counter],
+                    "dblock": dblocks[counter],
+                    "dblock_token": dblock_tokens[counter],
+                    "size": size[counter],
+                    "checksum": c_sum[counter],
+                    'scope': scope[counter],
+                    "guid": guids[counter]
                 }
+
     return files
 
 
-def fix_log(description, files):
+def fix_log(description: dict, files: dict) -> dict:
     """
-    Fixes log file description in output files (changes GUID and scope).
+    Fix log file description in output files (change GUID and scope).
 
-    :param description:
-    :param files: output files
-    :return: fixed output files
+    :param description: job description (dict)
+    :param files: output files (dict)
+    :return: fixed output files (dict).
     """
     logger.info("modifying log-specific values in a log file description")
     if description["logFile"] and description["logFile"] != "NULL":
@@ -209,14 +236,14 @@ def fix_log(description, files):
     return files
 
 
-def get_output_files(description):
+def get_output_files(description: dict) -> dict:
     """
-    Extracts output files from the description.
+    Extract output files from the description.
 
-    :param description:
-    :return: output files
+    :param description: job description (dict)
+    :return: output files (dict).
     """
-    logger.info("Extracting output files in description")
+    logger.info("extracting output files in description")
     files = {}
     if description['outFiles'] and description['outFiles'] != "NULL":
         out_files = split(description["outFiles"])
@@ -230,23 +257,29 @@ def get_output_files(description):
         destination_dblock_token = split(description.get("destinationDBlockToken"), min_len=length)
         scope = split(description.get("scopeOut"), min_len=length, fill_last=True)
 
-        for i, f in enumerate(out_files):
-            if f is not None:
-                files[f] = {
-                    "ddm_endpoint": ddm_endpoint[i],
-                    "storage_element": destination_se[i],
-                    "dispatch_dblock_token": dblock_token[i],
-                    "destination_dblock_token": destination_dblock_token[i],
-                    "dblock_token": dblock_tokens[i],
-                    "dataset": datasets[i],
-                    "dblock": dblocks[i],
-                    "scope": scope[i]
+        for counter, _file in enumerate(out_files):
+            if _file is not None:
+                files[_file] = {
+                    "ddm_endpoint": ddm_endpoint[counter],
+                    "storage_element": destination_se[counter],
+                    "dispatch_dblock_token": dblock_token[counter],
+                    "destination_dblock_token": destination_dblock_token[counter],
+                    "dblock_token": dblock_tokens[counter],
+                    "dataset": datasets[counter],
+                    "dblock": dblocks[counter],
+                    "scope": scope[counter]
                 }
 
     return fix_log(description, files)
 
 
-def one_or_set(array):
+def one_or_set(array: list) -> str:
+    """
+    Return the only element of array if it's the only one.
+
+    :param array: array (list)
+    :return: array[0] or array (str).
+    """
     if len(array) < 1:
         return join(array)
 
@@ -259,7 +292,9 @@ def one_or_set(array):
     return stringify_weird(zero)
 
 
-class JobDescription(object):
+class JobDescription():
+    """Job description class."""
+
     __holder = None
     __key_aliases = {
         'PandaID': 'jobid',  # it is job id, not PanDA
@@ -324,7 +359,8 @@ class JobDescription(object):
     output_files = None
 
     def __init__(self):
-        super(JobDescription, self).__init__()
+        """Job description constructor."""
+        super().__init__()
 
         self.__key_back_aliases_from_forward = self.__key_back_aliases.copy()
         self.__key_reverse_aliases = {}
@@ -332,24 +368,35 @@ class JobDescription(object):
         self.input_files = {}
         self.output_files = {}
 
-        for key in self.__key_aliases:
-            alias = self.__key_aliases[key]
+        for key, alias in self.__key_aliases.items():
             self.__key_back_aliases_from_forward[alias] = key
             self.__key_aliases_snake[camel_to_snake(key)] = alias
 
-    def get_input_file_prop(self, key):
+    def get_input_file_prop(self, key: str) -> str:
+        """
+        Get input file property.
+
+        :param key: property name (str)
+        :return: property value (str).
+        """
         corresponding_key = self.__input_file_keys[key]
         ret = []
 
-        for f in self.input_files:
-            ret.append(f if corresponding_key == '' else self.input_files[f][corresponding_key])
+        for _file in self.input_files:
+            ret.append(_file if corresponding_key == '' else self.input_files[_file][corresponding_key])
 
         if corresponding_key in self.__may_be_united:
             return one_or_set(ret)
 
         return join(ret)
 
-    def get_output_file_prop(self, key):
+    def get_output_file_prop(self, key: str) -> str:
+        """
+        Get output file property.
+
+        :param key: property name (str)
+        :return: property value (str).
+        """
         log_file = self.log_file
 
         if key == 'logGUID':
@@ -360,16 +407,21 @@ class JobDescription(object):
         corresponding_key = self.__output_file_keys[key]
         ret = []
 
-        for f in self.output_files:
-            if key != 'scopeOut' or f != log_file:
-                ret.append(f if corresponding_key == '' else self.output_files[f][corresponding_key])
+        for _file in self.output_files:
+            if key != 'scopeOut' or _file != log_file:
+                ret.append(_file if corresponding_key == '' else self.output_files[_file][corresponding_key])
 
         if corresponding_key in self.__may_be_united:
             return one_or_set(ret)
 
         return join(ret)
 
-    def load(self, new_desc):
+    def load(self, new_desc: Any):
+        """
+        Load job description.
+
+        :param new_desc: job description (Any).
+        """
         if isinstance(new_desc, str):
             new_desc = json.loads(new_desc)
 
@@ -405,7 +457,14 @@ class JobDescription(object):
 
         self.__holder = new_desc
 
-    def to_json(self, decompose=False, **kwargs):
+    def to_json(self, decompose: bool = False, **kwargs: dict) -> str:
+        """
+        Convert description to JSON.
+
+        :param decompose: flag stating if the description should be decomposed (bool)
+        :param kwargs: additional arguments for json.dumps (dict)
+        :return: JSON representation of the description (str).
+        """
         if decompose:
             prep = {}
 
@@ -429,24 +488,34 @@ class JobDescription(object):
 
         return json.dumps(prep, **kwargs)
 
-    def get_description_parameter(self, key):
+    def get_description_parameter(self, key: str) -> str:
+        """
+        Get description parameter.
+
+        :param key: parameter name (str)
+        :return: parameter value (str)
+        :raises: AttributeError if parameter not found.
+        """
         if self.__holder is not None:
             if key in self.__holder:
                 return self.__holder[key]
 
             if key in self.__input_file_keys:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.input_files[][%s] to "
-                                "access and manipulate this value.\n" % (key, self.__input_file_keys[key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.input_files[][{self.__input_file_keys[key]}] to "
+                                "access and manipulate this value.\n") + self.get_traceback())
                 return self.get_input_file_prop(key)
             if key in self.__output_file_keys:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.output_files[][%s] to"
-                                " access and manipulate this value.\n" % (key, self.__output_file_keys[key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.output_files[][{self.__output_file_keys[key]}] to "
+                                "access and manipulate this value.\n") + self.get_traceback())
                 return self.get_output_file_prop(key)
 
             snake_key = camel_to_snake(key)
             if snake_key in self.__key_aliases_snake:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.%s to access and "
-                                "manipulate this value.\n" % (key, self.__key_aliases_snake[snake_key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. "
+                                f"Better to use JobDescription.{self.__key_aliases_snake[snake_key]} to access and "
+                                "manipulate this value.\n") + self.get_traceback())
                 return stringify_weird(self.__holder[self.__key_aliases_snake[snake_key]])
 
             if key in self.__soft_key_aliases:
@@ -454,34 +523,43 @@ class JobDescription(object):
 
         raise AttributeError("Description parameter not found")
 
-    def set_description_parameter(self, key, value):
+    def set_description_parameter(self, key: str, value: Any) -> bool:
+        """
+        Set description parameter.
+
+        :param key: parameter name (str)
+        :param value: parameter value (Any)
+        :return: True if parameter was set, False otherwise (bool)
+        :raises: AttributeError if parameter is read-only.
+        """
         if self.__holder is not None:
             if key in self.__holder:
                 self.__holder[key] = value
                 return True
 
             if key in self.__input_file_keys:
-                err = "Key JobDescription.%s is read-only\n" % key
+                err = f"Key JobDescription.{key} is read-only\n"
                 if key == 'inFiles':
                     err += "Use JobDescription.input_files to manipulate input files"
                 else:
-                    err += "Use JobDescription.input_files[][%s] to set up this parameter in files description" %\
-                           self.__input_file_keys[key]
+                    err += f"Use JobDescription.input_files[][{self.__input_file_keys[key]}] to " \
+                           f"set up this parameter in files description"
                 raise AttributeError(err)
 
             if key in self.__output_file_keys:
-                err = "Key JobDescription.%s is read-only\n" % key
+                err = f"Key JobDescription.{key} is read-only\n"
                 if key == 'outFiles':
                     err += "Use JobDescription.output_files to manipulate output files"
                 else:
-                    err += "Use JobDescription.output_files[][%s] to set up this parameter in files description" %\
-                           self.__output_file_keys[key]
+                    err += f"Use JobDescription.output_files[][{self.__output_file_keys[key]}] to " \
+                           f"set up this parameter in files description"
                 raise AttributeError(err)
 
             snake_key = camel_to_snake(key)
             if snake_key in self.__key_aliases_snake:
-                logger.warning(("Old key JobDescription.%s is used. Better to use JobDescription.%s to access and"
-                                "manipulate this value.\n" % (key, self.__key_aliases_snake[snake_key])) + self.get_traceback())
+                logger.warning((f"Old key JobDescription.{key} is used. Better to use "
+                                f"JobDescription.{self.__key_aliases_snake[snake_key]} to access and "
+                                "manipulate this value.\n") + self.get_traceback())
                 self.__holder[self.__key_aliases_snake[snake_key]] = parse_value(value)
 
             if key in self.__soft_key_aliases:
@@ -489,7 +567,12 @@ class JobDescription(object):
 
         return False
 
-    def get_traceback(self):
+    def get_traceback(self) -> str:
+        """
+        Get traceback.
+
+        :return: traceback (str).
+        """
         tb = list(reversed(traceback.extract_stack()))
 
         tb_str = '\n'
@@ -497,46 +580,48 @@ class JobDescription(object):
             if ii[0] < 3:
                 continue  # we don't need inner scopes of this and subsequent calls
             i = ii[1]
-            tb_str += '{file}:{line} (in {module}): {call}\n'.format(file=i[0],
-                                                                     line=i[1],
-                                                                     module=i[2],
-                                                                     call=i[3])
+            tb_str += f'{i[0]}:{i[1]} (in {i[2]}): {i[3]}\n'
         thread = threading.currentThread()
-        return 'Traceback: (latest call first)' + tb_str + 'Thread: %s(%d)' % (thread.getName(), thread.ident)
 
-    def __getattr__(self, key):
+        return 'Traceback: (latest call first)' + tb_str + f'Thread: {thread.getName()}({thread.ident})'
+
+    def __getattr__(self, key: str) -> str:
         """
-        Reflection of description values into Job instance properties if they are not shadowed.
-        If there is no own property with corresponding name, the value of Description is used.
-        Params and return described in __getattr__ interface.
+        Return attribute value.
+
+        :param key: attribute name (str)
+        :return: attribute value (str).
         """
         try:
             return object.__getattribute__(self, key)
         except AttributeError:
             return self.get_description_parameter(key)
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value: Any) -> Any:
         """
-        Reflection of description values into Job instance properties if they are not shadowed.
-        If there is no own property with corresponding name, the value of Description is set.
-        Params and return described in __setattr__ interface.
+        Set attribute value.
+
+        :param key: attribute name (str)
+        :param value: attribute value (Any).
+        :return: attribute value (Any).
         """
         try:
             object.__getattribute__(self, key)
-            return object.__setattr__(self, key, value)
         except AttributeError:
             if not self.set_description_parameter(key, value):
                 return object.__setattr__(self, key, value)
+            return None
+
+        return object.__setattr__(self, key, value)
 
 
 if __name__ == "__main__":
-    import sys
     logging.basicConfig()
     logger.setLevel(logging.DEBUG)
 
     jd = JobDescription()
-    with open(sys.argv[1], "r") as f:
-        contents = f.read()
+    with open(sys.argv[1], "r", encoding='utf-8') as _fil:
+        contents = _fil.read()
 
     jd.load(contents)
 

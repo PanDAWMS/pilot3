@@ -1,24 +1,38 @@
 #!/usr/bin/env python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# http://www.apache.org/licenses/LICENSE-2.0
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# specific language governing permissions and limitations
+# under the License.
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
 
-from __future__ import absolute_import  # Python 2 (2to3 complains about this)
+"""Rucio copy tool."""
 
-import os
 import json
 import logging
-from time import time
+import os
 from copy import deepcopy
+from time import time
+from typing import Any
 
 from pilot.common.exception import (
     PilotException,
@@ -28,12 +42,13 @@ from pilot.util.timer import (
     timeout,
     TimedThread,
 )
+from pilot.util.config import config
+from pilot.util.filehandling import rename_xrdlog
 from .common import (
     resolve_common_transfer_errors,
     verify_catalog_checksum,
-    get_timeout,
+    get_timeout
 )
-from pilot.util.config import config
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -44,28 +59,55 @@ require_protocols = False  ## indicates if given copytool requires protocols to 
 tracing_rucio = False      ## should Rucio send the trace?
 
 
-def is_valid_for_copy_in(files):
+def is_valid_for_copy_in(files: list) -> bool:
+    """
+    Determine if this copytool is valid for input for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    if files:  # to get rid of pylint warning
+        pass
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
-def is_valid_for_copy_out(files):
+def is_valid_for_copy_out(files: list) -> bool:
+    """
+    Determine if this copytool is valid for output for the given file list.
+
+    Placeholder.
+
+    :param files: list of FileSpec objects (list).
+    :return: always True (for now) (bool).
+    """
+    if files:  # to get rid of pylint warning
+        pass
+    # for f in files:
+    #    if not all(key in f for key in ('name', 'source', 'destination')):
+    #        return False
     return True  ## FIX ME LATER
 
 
 #@timeout(seconds=10800)
-def copy_in(files, **kwargs):
+def copy_in(files: list, **kwargs: dict) -> list:
     """
-        Download given files using rucio copytool.
+    Download given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files (list)
+    :raises: PilotException in case of controlled error.
     """
-
     ignore_errors = kwargs.get('ignore_errors')
     trace_report = kwargs.get('trace_report')
     use_pcache = kwargs.get('use_pcache')
     rucio_host = kwargs.get('rucio_host', '')
+    pilot_args = kwargs.get('args')
 
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -73,6 +115,14 @@ def copy_in(files, **kwargs):
     # note, env vars might be unknown inside middleware contrainers, if so get the value already in the trace report
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', trace_report.get_value('localSite'))
     for fspec in files:
+        # check if we should abort
+        if pilot_args and pilot_args.graceful_stop and pilot_args.graceful_stop.is_set():
+            msg = f'copytool has detected graceful stop - will abort stage-in ({pilot_args.mainworkdir})'
+            logger.warning(msg)
+            raise PilotException(msg)
+        if not pilot_args:
+            logger.warning('pilot_args not set, cannot check for graceful stop')
+
         logger.info(f'rucio copytool, downloading file with scope:{fspec.scope} lfn:{fspec.lfn}')
         # update the trace report
         localsite = localsite if localsite else fspec.ddmendpoint
@@ -103,10 +153,11 @@ def copy_in(files, **kwargs):
             if not ignore_errors:
                 trace_report.send()
                 msg = f"{fspec.scope}:{fspec.lfn} from {fspec.ddmendpoint}, {error_details.get('error')}"
-                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
+                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
@@ -149,14 +200,13 @@ def copy_in(files, **kwargs):
     return files
 
 
-def get_protocol(trace_report_out):
+def get_protocol(trace_report_out: dict) -> str:
     """
     Extract the protocol used for the transfer from the dictionary returned by rucio.
 
-    :param trace_report_out: returned rucio transfer dictionary (dictionary).
-    :return: protocol (string).
+    :param trace_report_out: returned rucio transfer dictionary (dict)
+    :return: protocol (str).
     """
-
     try:
         protocol = trace_report_out[0].get('protocol')
     except Exception as error:
@@ -166,16 +216,18 @@ def get_protocol(trace_report_out):
     return protocol
 
 
-def handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=True):
+def handle_rucio_error(error_msg: str, trace_report: dict, trace_report_out: list, fspec: Any,
+                       stagein: bool = True) -> dict:
     """
+    Handle any error from Rucio.
 
-    :param error_msg:
-    :param trace_report:
-    :param trace_report_out:
-    :param fspec:
-    :return:
+    :param error_msg: error message (str)
+    :param trace_report: trace report dictionary (dict)
+    :param trace_report_out: trace report from Rucio (list)
+    :param fspec: FileSpec object (Any)
+    :param stagein: True for stage-in, False for stage-out (bool)
+    :return: error deetails dictionary, {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
     """
-
     # try to get a better error message from the traces
     error_msg_org = error_msg
     if trace_report_out:
@@ -199,15 +251,15 @@ def handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein
     return error_details
 
 
-def copy_in_bulk(files, **kwargs):
+def copy_in_bulk(files: list, **kwargs: dict) -> list:
     """
-        Download given files using rucio copytool.
+    Download given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :return: list of done files (list)
+    :raises: PilotException in case of controlled error.
     """
-
     #allow_direct_access = kwargs.get('allow_direct_access')
     ignore_errors = kwargs.get('ignore_errors')
     trace_common_fields = kwargs.get('trace_report')
@@ -232,6 +284,7 @@ def copy_in_bulk(files, **kwargs):
             trace_report = deepcopy(trace_common_fields)
             localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', None)
             diagnostics = f'none of the traces received from rucio. response from rucio: {error_msg}'
+            code = 0
             for fspec in files:
                 localsite = localsite if localsite else fspec.ddmendpoint
                 trace_report.update(localSite=localsite, remoteSite=fspec.ddmendpoint, filesize=fspec.filesize)
@@ -239,8 +292,9 @@ def copy_in_bulk(files, **kwargs):
                 trace_report.update(scope=fspec.scope, dataset=fspec.dataset)
                 trace_report.update('STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics, timeEnd=time())
                 trace_report.send()
+                code = fspec.status_code  # just get one of them for later
             logger.error(diagnostics)
-            raise PilotException(diagnostics, code=fspec.status_code, state='STAGEIN_ATTEMPT_FAILED')
+            raise PilotException(diagnostics, code=code, state='STAGEIN_ATTEMPT_FAILED') from error
 
     # VALIDATION AND TERMINATION
     files_done = []
@@ -298,40 +352,37 @@ def copy_in_bulk(files, **kwargs):
     return files_done
 
 
-def _get_trace(fspec, traces):
+def _get_trace(fspec: Any, traces: list) -> list:
     """
+    Get the trace candidates corresponding to the given file.
+
     Traces returned by Rucio are not orderred the same as input files from pilot.
     This method finds the proper trace.
 
-    :param: fspec: the file that is seeked
-    :param: traces: all traces that are received by Rucio
-
-    :return: trace_candiates that correspond to the given file
+    :param: fspec: the file that is wanted (Any)
+    :param: traces: list of all traces that are received by Rucio (list)
+    :return: trace_candidates that correspond to the given file (list).
     """
     try:
-        try:
-            trace_candidates = list(filter(lambda t: t['filename'] == fspec.lfn and t['scope'] == fspec.scope, traces))  # Python 2
-        except Exception:
-            trace_candidates = list([t for t in traces if t['filename'] == fspec.lfn and t['scope'] == fspec.scope])  # Python 3
+        trace_candidates = list(t for t in traces if t['filename'] == fspec.lfn and t['scope'] == fspec.scope)
         if trace_candidates:
             return trace_candidates
-        else:
-            logger.warning(f'file does not match to any trace received from Rucio: {fspec.lfn} {fspec.scope}')
+        logger.warning(f'file does not match to any trace received from Rucio: {fspec.lfn} {fspec.scope}')
     except Exception as error:
         logger.warning(f'traces from pilot and rucio could not be merged: {error}')
-        return []
+    return []
 
 
 #@timeout(seconds=10800)
-def copy_out(files, **kwargs):  # noqa: C901
+def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
     """
-        Upload given files using rucio copytool.
+    Upload given files using rucio copytool.
 
-        :param files: list of `FileSpec` objects
-        :param ignore_errors: boolean, if specified then transfer failures will be ignored
-        :raise: PilotException in case of controlled error
+    :param files: list of `FileSpec` objects (list)
+    :param kwargs: kwargs dictionary (dict)
+    :return: updated files list (list)
+    :raises: PilotException in case of controlled error.
     """
-
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
     logger.info(f'rucio stage-out: X509_USER_PROXY={os.environ.get("X509_USER_PROXY", "")}')
@@ -343,7 +394,7 @@ def copy_out(files, **kwargs):  # noqa: C901
 
     localsite = os.environ.get('RUCIO_LOCAL_SITE_ID', None)
     for fspec in files:
-        logger.info('rucio copytool, uploading file with scope: %s and lfn: %s' % (str(fspec.scope), str(fspec.lfn)))
+        logger.info(f'rucio copytool, uploading file with scope: {fspec.scope} and lfn: {fspec.lfn}')
         localsite = localsite if localsite else fspec.ddmendpoint
         trace_report.update(localSite=localsite, remoteSite=fspec.ddmendpoint)
         trace_report.update(scope=fspec.scope, dataset=fspec.dataset, url=fspec.surl, filesize=fspec.filesize)
@@ -355,11 +406,11 @@ def copy_out(files, **kwargs):  # noqa: C901
         if summary:
             summary_file_path = os.path.join(cwd, 'rucio_upload.json')
 
-        logger.info('the file will be uploaded to %s' % str(fspec.ddmendpoint))
+        logger.info(f'the file will be uploaded to {fspec.ddmendpoint}')
         trace_report_out = []
         transfer_timeout = get_timeout(fspec.filesize)
         ctimeout = transfer_timeout + 10  # give the API a chance to do the time-out first
-        logger.info('overall transfer timeout=%s' % ctimeout)
+        logger.info(f'overall transfer timeout={ctimeout}')
 
         error_msg = ""
         ec = 0
@@ -369,26 +420,25 @@ def copy_out(files, **kwargs):  # noqa: C901
                                                                                   rucio_host)
             #_stage_out_api(fspec, summary_file_path, trace_report, trace_report_out)
         except PilotException as error:
-            error_msg = str(error)
-            error_details = handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=False)
+            error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s to %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
-                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
+                msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
+                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         except Exception as error:
-            error_msg = str(error)
-            error_details = handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=False)
+            error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s to %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
-                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
+                msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
+                raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         else:
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
+            rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
@@ -399,12 +449,12 @@ def copy_out(files, **kwargs):  # noqa: C901
 
             if not ignore_errors:
                 trace_report.send()
-                msg = ' %s:%s from %s, %s' % (fspec.scope, fspec.lfn, fspec.ddmendpoint, error_details.get('error'))
+                msg = f" {fspec.scope}:{fspec.lfn} from {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
 
         if summary:  # resolve final pfn (turl) from the summary JSON
             if not os.path.exists(summary_file_path):
-                logger.error('Failed to resolve Rucio summary JSON, wrong path? file=%s' % summary_file_path)
+                logger.error(f'Failed to resolve Rucio summary JSON, wrong path? file={summary_file_path}')
             else:
                 with open(summary_file_path, 'rb') as f:
                     summary_json = json.load(f)
@@ -425,12 +475,11 @@ def copy_out(files, **kwargs):  # noqa: C901
                         if not ignore_errors:
                             raise PilotException("Failed to stageout: CRC mismatched",
                                                  code=fspec.status_code, state=state)
+                    elif local_checksum and checksum and local_checksum == checksum:
+                        logger.info(f'local checksum ({local_checksum}) = remote checksum ({checksum})')
                     else:
-                        if local_checksum and checksum and local_checksum == checksum:
-                            logger.info(f'local checksum ({local_checksum}) = remote checksum ({checksum})')
-                        else:
-                            logger.warning(f'checksum could not be verified: local checksum ({local_checksum}), '
-                                           f'remote checksum ({checksum})')
+                        logger.warning(f'checksum could not be verified: local checksum ({local_checksum}), '
+                                       f'remote checksum ({checksum})')
         if not fspec.status_code:
             fspec.status_code = 0
             fspec.status = 'transferred'
@@ -441,9 +490,19 @@ def copy_out(files, **kwargs):  # noqa: C901
     return files
 
 
-def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, use_pcache, rucio_host):
+def _stage_in_api(dst: str, fspec: Any, trace_report: dict, trace_report_out: list, transfer_timeout: int,
+                  use_pcache: bool, rucio_host: str) -> (int, list):
     """
     Stage-in files using the Rucio API.
+
+    :param dst: destination directory (str)
+    :param fspec: FileSpec object (Any)
+    :param trace_report: trace report (dict)
+    :param trace_report_out: list of trace reports from Rucio (list)
+    :param transfer_timeout: transfer timeout in seconds (int)
+    :param use_pcache: True if pcache should be used, False otherwise (bool)
+    :param rucio_host: Rucio host URL (str)
+    :return: exit code (int), trace report from Rucio (list).
     """
     ec = 0
 
@@ -511,17 +570,22 @@ def _stage_in_api(dst, fspec, trace_report, trace_report_out, transfer_timeout, 
     return ec, trace_report_out
 
 
-def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, rucio_host=''):
+def _stage_in_bulk(dst: str, files: list, trace_report_out: list = None, trace_common_fields: dict = None,
+                   rucio_host: str = ''):
     """
     Stage-in files in bulk using the Rucio API.
 
     :param dst: destination (string).
     :param files: list of fspec objects.
     :param trace_report_out:
-    :param trace_common_fields:
+    :param trace_common_fields: trace report (dict)
     :param rucio_host: optional rucio host (string).
-    :return:
+    :raises Exception: download_client.download_pfns exception.
     """
+    if trace_report_out is None:
+        trace_report_out = []
+    if trace_common_fields is None:
+        trace_common_fields = {}
     # init. download client
     from rucio.client import Client
     from rucio.client.downloadclient import DownloadClient
@@ -547,7 +611,7 @@ def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, 
         _file = {}
         _file['did_scope'] = fspec.scope
         _file['did_name'] = fspec.lfn
-        _file['did'] = '%s:%s' % (fspec.scope, fspec.lfn)
+        _file['did'] = f'{fspec.scope}:{fspec.lfn}'
         _file['rse'] = fspec.ddmendpoint
         _file['base_dir'] = fspec.workdir or dst
         _file['no_subdir'] = True
@@ -585,11 +649,19 @@ def _stage_in_bulk(dst, files, trace_report_out=None, trace_common_fields=None, 
         logger.debug(f'client returned {result}')
 
 
-def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, transfer_timeout, rucio_host):
+def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,
+                   transfer_timeout: int, rucio_host: str) -> (int, list):
     """
     Stage-out files using the Rucio API.
-    """
 
+    :param fspec: FileSpec object (Any)
+    :param summary_file_path: path to summary file (str)
+    :param trace_report: trace report (dict)
+    :param trace_report_out: trace report from Rucio (list)
+    :param transfer_timeout: transfer time-out in seconds (int)
+    :param rucio_host: Rucio host URL (str)
+    :return: exit code (int), trace report from Rucio (list).
+    """
     ec = 0
 
     # init. download client
@@ -636,6 +708,9 @@ def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, tra
         logger.debug(f'summary_file_path={summary_file_path}')
         logger.debug(f'trace_report_out={trace_report_out}')
         result = upload_client.upload([_file], summary_file_path=summary_file_path, traces_copy_out=trace_report_out, ignore_availability=True)
+    except UnboundLocalError:
+        logger.warning('*** rucio API upload client failed ***')
+        logger.warning('rucio still needs a bug fix of the summary in the uploadclient')
     except Exception as error:
         logger.warning('*** rucio API upload client failed ***')
         logger.warning(f'caught exception: {error}')
@@ -647,9 +722,6 @@ def _stage_out_api(fspec, summary_file_path, trace_report, trace_report_out, tra
         if not trace_report_out[0].get('stateReason'):
             raise error
         ec = -1
-    except UnboundLocalError:
-        logger.warning('*** rucio API upload client failed ***')
-        logger.warning('rucio still needs a bug fix of the summary in the uploadclient')
     else:
         logger.warning('*** rucio API upload client finished ***')
         logger.debug(f'client returned {result}')
