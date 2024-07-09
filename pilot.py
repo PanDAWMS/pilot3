@@ -253,7 +253,7 @@ def validate_resource_type(value: str) -> str:
     :raises: argparse.ArgumentTypeError if the resource type is invalid.
     """
     # Define the allowed patterns
-    allowed_patterns = ["SCORE", "MCORE", "SCORE_*", "MCORE_*"]
+    allowed_patterns = ["", "SCORE", "MCORE", "SCORE_*", "MCORE_*"]
     if value in allowed_patterns:
         return value
     # Check for pattern matching
