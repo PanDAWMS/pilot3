@@ -94,12 +94,16 @@ def request_new_jobs(njobs: int = 1):
     :raises: FileHandlingFailure if write_json() fails.
     """
     path = get_job_request_file_name()
+    if os.path.exists(path):
+        logger.warning(f'job request file already exists: {path}')
+        return
+
     dictionary = {'nJobs': njobs}
     logger.info(f'requesting {njobs} new job(s) by creating {path}')
     # write it to file
-    ec = write_json(path, dictionary)
-    if ec:
-        raise FileHandlingFailure
+    status = write_json(path, dictionary)
+    if not status:
+        raise FileHandlingFailure("Failed to request new job from Harvester")
 
 
 def kill_worker():

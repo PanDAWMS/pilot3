@@ -1710,6 +1710,12 @@ def locate_job_definition(args: Any) -> str:
     if path == "":
         logger.info('did not find any local job definition file')
 
+    # make sure there are no secondary job definition copies
+    _path = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.pandajobdata)
+    if _path != path and os.path.exists(_path):
+        logger.info(f'removing useless secondary job definition file: {_path}')
+        remove(_path)
+
     return path
 
 
@@ -2055,7 +2061,7 @@ def get_job_retrieval_delay(harvester: bool) -> int:
     :param harvester: True if Harvester is being used (determined from args.harvester), otherwise False (bool)
     :return: sleep (s) (int)
     """
-    return 1 if harvester else 60
+    return 10 if harvester else 60
 
 
 def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
@@ -2124,7 +2130,7 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
 
         if not res:
             getjob_failures += 1
-            if getjob_failures >= args.getjob_failures:
+            if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
                 args.graceful_stop.set()
                 break
@@ -2141,7 +2147,7 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
             # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
             # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
             getjob_failures += 1
-            if getjob_failures >= args.getjob_failures:
+            if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
                 args.graceful_stop.set()
                 break
@@ -2217,6 +2223,28 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
         args.job_aborted.set()
 
     logger.info('[job] retrieve thread has finished')
+
+
+def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> int:
+    """
+    Return the number of max getjob failures.
+
+    Note: the default max number of getjob failures is set to 5 in pilot.py. However, for PUSH mode, it makes more
+    sense to have a larger max attempt number since Harvester only checks for job requests once per five minutes.
+    So, if the pilot is started in PUSH mode, the max number of getjob failures is set to a higher number unless
+    args.getjob_failures is set (to a number not equal to five).
+
+    :param getjob_failures: max getjob failures (int)
+    :param harvester_submitmode: Harvester submit mode, PUSH or PULL (str)
+    :return: max getjob failures (int).
+    """
+    if harvester_submitmode.lower() == 'push':
+        if getjob_failures == 5:
+            return 12
+        else:
+            return getjob_failures
+    else:
+        return getjob_failures
 
 
 def htcondor_envvar(jobid: str):
