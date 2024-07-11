@@ -356,6 +356,18 @@ def is_final_update(job: Any, state: str, tag: str = 'sending') -> bool:
     :param tag: optional tag ('sending'/'writing') (str)
     :return: final state (bool).
     """
+    # make sure that the log transfer has been attempted
+    log_transfer = get_job_status(job, 'LOG_TRANSFER')
+    actual_state = state
+    if log_transfer in {LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED}:
+        logger.info(f'log transfer has been attempted: {log_transfer}')
+    elif not job.logdata:
+        # make sure that there should actually be a log transfer (i.e. is there a known log file defined in the job def)
+        logger.info('no logdata defined in job definition - no log transfer will be attempted')
+    else:
+        logger.info(f'log transfer has not been attempted: {log_transfer}')
+        state = 'not_ready_for_final_state'
+
     if state in {'finished', 'failed', 'holding'}:
         final = True
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_UPDATING
@@ -371,7 +383,7 @@ def is_final_update(job: Any, state: str, tag: str = 'sending') -> bool:
             verify_error_code(job)
     else:
         final = False
-        logger.info(f'job {job.jobid} has state \'{state}\' - {tag} heartbeat')
+        logger.info(f'job {job.jobid} has state \'{actual_state}\' - {tag} heartbeat')
 
     return final
 
@@ -446,7 +458,7 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
 
-        if state in {'finished', 'holding', 'failed'}:
+        if final and state in {'finished', 'holding', 'failed'}:
             logger.info(f'setting job as completed (state={state})')
             job.completed = True
 
