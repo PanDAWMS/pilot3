@@ -37,11 +37,11 @@ logger = logging.getLogger(__name__)
 
 class JobInfoProvider:
     """
-        Job info provider which is used to extract settings specific for given Job
-        and overwrite general configuration used by Information Service
+    Job info provider used to extract settings specific for a given job
+    and to overwrite the general configuration used by the Information Service.
     """
 
-    job = None  ## Job instance
+    job = None  # Job instance
 
     def __init__(self, job: Any):
         """
@@ -62,7 +62,6 @@ class JobInfoProvider:
         ## an example of return data:
         ## return ['AGIS', 'LOCAL', 'CVMFS']
         ##
-
         return None  ## Not implemented yet
 
     def resolve_queuedata(self, pandaqueue: str, **kwargs: dict) -> dict:
