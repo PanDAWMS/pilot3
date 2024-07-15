@@ -168,6 +168,7 @@ class JobData(BaseData):
     maxwalltime = 0                # maxWalltime in s
     dask_scheduler_ip = ''         # enhanced job definition for Dask jobs
     jupyter_session_ip = ''        # enhanced job definition for Dask jobs
+    minramcount = 0                # minimum number of RAM required by the payload
 
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
@@ -186,7 +187,7 @@ class JobData(BaseData):
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
                    'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
-                   'requestid', 'maxwalltime'],
+                   'requestid', 'maxwalltime', 'minramcount'],
              str: ['jobid', 'taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
                    'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
@@ -529,7 +530,8 @@ class JobData(BaseData):
             'requestid': 'reqID',
             'maxwalltime': 'maxWalltime',
             'dask_scheduler_ip': 'scheduler_ip',
-            'jupyter_session_ip': 'session_ip'
+            'jupyter_session_ip': 'session_ip',
+            'minramcount': 'minRamCount',
         } if use_kmap else {}
 
         self._load_data(data, kmap)
