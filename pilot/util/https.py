@@ -916,7 +916,7 @@ def upload_file(url: str, path: str) -> bool:
             ret = response_data.decode('utf-8')
     except urllib.error.URLError as e:
         # Handle URL errors
-        logger.warning("URL Error:", e)
+        logger.warning(f"URL Error: {e}")
         ret = e
 
     if ret == 'ok':
