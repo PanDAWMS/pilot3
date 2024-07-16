@@ -17,12 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 import logging
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import set_pilot_state
+from pilot.util.config import config
 from pilot.util.processes import kill_processes
 from .utilities import get_memory_values
 
@@ -30,13 +31,12 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def allow_memory_usage_verifications():
+def allow_memory_usage_verifications() -> bool:
     """
-    Should memory usage verifications be performed?
+    Return True if memory usage verifications should be performed.
 
-    :return: boolean.
+    :return: True for ATLAS jobs (bool).
     """
-
     return True
 
 
@@ -74,14 +74,51 @@ def get_ucore_scale_factor(job):
     return scale
 
 
-def memory_usage(job):
+def get_memkillgrace(memkillgrace: int) -> float:
+    """
+    Return a proper memkillgrace value.
+
+    Convert from percentage to integer if necessary.
+
+    :param memkillgrace: memkillgrace value (int)
+    :return: memkillgrace value (float).
+    """
+    return memkillgrace / 100 if memkillgrace > 1 else 1.0
+
+
+def get_memory_limit(resource_type: str) -> int:
+    """
+    Get the memory limit for the relevant resource type.
+
+    :param resource_type: resource type (str)
+    :return: memory limit in MB (int).
+    """
+    try:
+        memory_limits = config.Payload.memory_limits
+    except AttributeError as e:
+        logger.warning(f"memory_limits not set in config, using defaults: {e}")
+        memory_limits = {'MCORE': 1001,
+                         'MCORE_HIMEM': 2001,
+                         'MCORE_LOMEM': None,
+                         'SCORE': 1001,
+                         'SCORE_HIMEM': 2001,
+                         'SCORE_LOMEM': None}
+    memory_limit = memory_limits.get(resource_type, None)
+    if not memory_limit:
+        logger.warning(f"memory limit not set for resource type {resource_type} - using default 4001")
+        memory_limit = 4001
+
+    return memory_limit
+
+
+def memory_usage(job: object, resource_type: str) -> (int, str):
     """
     Perform memory usage verification.
 
-    :param job: job object
-    :return: exit code (int), diagnostics (string).
+    :param job: job object (object)
+    :param resource_type: resource type (str)
+    :return: exit code (int), diagnostics (str).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -96,10 +133,14 @@ def memory_usage(job):
     maxdict = summary_dictionary.get('Max', {})
     maxpss_int = maxdict.get('maxPSS', -1)
 
+    memory_limit = get_memory_limit(resource_type)
+    logger.debug(f'memory_limit for {resource_type}: {memory_limit} MB')
+
     # Only proceed if values are set
     if maxpss_int != -1:
         maxrss = job.infosys.queuedata.maxrss
-
+        memkillgrace = get_memkillgrace(job.infosys.queuedata.memkillgrace)
+        logger.debug(f'memkillgrace: {memkillgrace}')
         if maxrss:
             # correction for SCORE/4CORE/nCORE jobs on UCORE queues
             scale = get_ucore_scale_factor(job)
@@ -124,7 +165,7 @@ def memory_usage(job):
                         kill_processes(job.pid)
                     else:
                         logger.info(f"max memory (maxPSS) used by the payload is within the allowed limit: "
-                                    f"{maxpss_int} B (2 * maxRSS = {maxrss_int} B)")
+                                    f"{maxpss_int} B (2 * maxRSS = {maxrss_int} B, memkillgrace = {job.infosys.queuedata.memkillgrace}%)")
         else:
             if maxrss == 0 or maxrss == "0":
                 logger.info("queuedata.maxrss set to 0 (no memory checks will be done)")

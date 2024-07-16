@@ -132,7 +132,7 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
         set_number_used_cores(job, time_since_start)
 
         # check memory usage (optional) for jobs in running state
-        exit_code, diagnostics = verify_memory_usage(current_time, mt, job, debug=args.debug)
+        exit_code, diagnostics = verify_memory_usage(current_time, mt, job, args.resource_type, debug=args.debug)
         if exit_code != 0:
             return exit_code, diagnostics
 
@@ -273,18 +273,18 @@ def set_number_used_cores(job, walltime):
     cpu.set_core_counts(**kwargs)
 
 
-def verify_memory_usage(current_time, mt, job, debug=False):
+def verify_memory_usage(current_time, mt, job, resource_type, debug=False):
     """
     Verify the memory usage (optional).
     Note: this function relies on a stand-alone memory monitor tool that may be executed by the Pilot.
 
     :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object
-    :param job: job object
-    :param debug: True for args.debug==True (Boolean)
-    :return: exit code (int), error diagnostics (string).
+    :param mt: measured time object (Any)
+    :param job: job object (Any)
+    :param resource_type: resource type (str)
+    :param debug: True for args.debug==True (bool)
+    :return: exit code (int), error diagnostics (str).
     """
-
     #if debug:
     #    show_memory_usage()
 
@@ -299,7 +299,7 @@ def verify_memory_usage(current_time, mt, job, debug=False):
     if current_time - mt.get('ct_memory') > memory_verification_time:
         # is the used memory within the allowed limit?
         try:
-            exit_code, diagnostics = memory.memory_usage(job)
+            exit_code, diagnostics = memory.memory_usage(job, resource_type)
         except Exception as error:
             logger.warning(f'caught exception: {error}')
             exit_code = -1
