@@ -712,8 +712,9 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
         headers = {
             "Authorization": f"Bearer {pipes.quote(auth_token_content)}",
-            "Accept": "application/json",
+            "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
             "Origin": pipes.quote(auth_origin),
+            "User-Agent": _ctx.user_agent,
         }
     else:
         headers = {
