@@ -37,7 +37,7 @@ def dump_ipv6_info() -> None:
     if not is_command_available(cmd):
         _cmd = '/usr/sbin/ifconfig'
         if not is_command_available(_cmd):
-            logger.warning(f'command {cmd} is not available - this WN does not support IPv6')
+            logger.warning(f'command {cmd} is not available - this WN might not support IPv6')
             return
         cmd = _cmd
 
