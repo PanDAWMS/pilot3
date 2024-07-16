@@ -94,10 +94,11 @@ class QueueData(BaseData):
     pledgedcpu = 0  #
     es_stageout_gap = 0  ## time gap value in seconds for ES stageout
     is_cvmfs = True  # has cvmfs installed
+    memkillgrace = 100  # memory kill grace value in percentage
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
-                   'corecount', 'maxrss', 'maxtime', 'maxinputsize'],
+                   'corecount', 'maxrss', 'maxtime', 'maxinputsize', 'memkillgrace'],
              str: ['name', 'type', 'appdir', 'catchall', 'platform', 'container_options', 'container_type',
                    'resource', 'state', 'status', 'site', 'environ'],
              dict: ['copytools', 'acopytools', 'astorages', 'aprotocols', 'acopytools_schemas', 'params'],
