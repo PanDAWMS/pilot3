@@ -532,7 +532,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: Any, i
 
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data)
+        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
     logger.debug(f'type(res)={type(res)}')
@@ -675,7 +675,7 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True) -> str or dict:
+def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
     """
     Send a request using HTTPS (using urllib module).
 
@@ -683,6 +683,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
     :param data: data to send (dict)
     :param secure: use secure connection (bool)
     :param compressed: compress data (bool)
+    :param panda: True for panda server interactions (bool)
     :return: server response (str or dict).
     """
     if data is None:
@@ -692,11 +693,33 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         logger.debug('setting up unset https')
         https_setup(None, get_pilot_version())
 
-    # define additional headers
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": _ctx.user_agent,
-    }
+    # should tokens be used?
+    auth_token, auth_origin = get_local_token_info()
+    if auth_token and auth_origin and panda:
+        path = locate_token(auth_token)
+        auth_token_content = ""
+        if os.path.exists(path):
+            auth_token_content = read_file(path)
+            if not auth_token_content:
+                logger.warning(f'failed to read file {path}')
+                return ""
+        else:
+            logger.warning(f'path does not exist: {path}')
+            return ""
+        if not auth_token_content:
+            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+            return ""
+
+        headers = {
+            "Authorization": f"Bearer {pipes.quote(auth_token_content)}",
+            "Accept": "application/json",
+            "Origin": pipes.quote(auth_origin),
+        }
+    else:
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": _ctx.user_agent,
+        }
 
     logger.debug(f'headers={headers}')
     logger.info(f'data = {data}')
@@ -725,7 +748,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
     # should be
     # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
     # but it doesn't work, so use this for now even if it throws a deprecation warning
-    logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
+    # logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
     try:  # for ssl version 3.0 and python 3.10+
         # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
         ssl_context = ssl.SSLContext(protocol=None)
