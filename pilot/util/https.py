@@ -296,11 +296,12 @@ def get_local_token_info() -> (str or None, str or None):
     """
     # file name of the token
     auth_token = os.environ.get('OIDC_AUTH_TOKEN',
-                                os.environ.get('PANDA_AUTH_TOKEN', None))
+                                os.environ.get('PANDA_AUTH_TOKEN'))
     # origin of the token (panda_dev.pilot)
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN',
-                                 os.environ.get('PANDA_AUTH_ORIGIN', None))
+                                 os.environ.get('PANDA_AUTH_ORIGIN'))
 
+    logger.debug(f"auth_token={auth_token}, auth_origin={auth_origin}")
     return auth_token, auth_origin
 
 
@@ -762,7 +763,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
     auth_token, auth_origin = get_local_token_info()
     use_oidc_token = True if auth_token and auth_origin and panda else False
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
-    if not auth_token_content:
+    if not auth_token_content and use_oidc_token:
         logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
         return ""
 
