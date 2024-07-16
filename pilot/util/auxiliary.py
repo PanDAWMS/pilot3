@@ -24,6 +24,7 @@
 import logging
 import os
 import re
+import shlex
 import socket
 import sys
 
@@ -796,3 +797,15 @@ def correct_none_types(data_dict: dict) -> dict:
         if value == 'None' or value == 'null':
             data_dict[key] = None
     return data_dict
+
+
+def is_command_available(command: str):
+    """
+    Check if the given command is available on the system.
+
+    :param command: command to check (str)
+    :return: True if command is available, False otherwise (bool)
+    """
+    args = shlex.split(command)
+
+    return os.access(args[0], os.X_OK)

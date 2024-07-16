@@ -25,6 +25,7 @@ import ipaddress
 import logging
 import re
 
+from pilot.util.auxiliary import is_command_available
 from pilot.util.container import execute
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,15 @@ logger = logging.getLogger(__name__)
 
 def dump_ipv6_info() -> None:
     """Dump the IPv6 info to the log."""
-    _, stdout, stderr = execute('ifconfig', timeout=10)
+    cmd = 'ifconfig'
+    if not is_command_available(cmd):
+        _cmd = '/usr/sbin/ifconfig'
+        if not is_command_available(_cmd):
+            logger.warning(f'command {cmd} is not available - this WN does not support IPv6')
+            return
+        cmd = _cmd
+
+    _, stdout, stderr = execute(cmd, timeout=10)
     if stdout:
         ipv6 = extract_ipv6(stdout)
         if ipv6:
