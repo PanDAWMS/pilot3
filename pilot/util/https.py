@@ -675,7 +675,72 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
+def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None) -> dict:
+    """
+    Get the headers for the request.
+
+    :param use_oidc_token: True if OIDC token should be used (bool)
+    :param auth_token_content: token content (str)
+    :param auth_origin: token origin (str)
+    :return: headers (dict).
+    """
+    if use_oidc_token:
+        headers = {
+            "Authorization": f"Bearer {pipes.quote(auth_token_content)}",
+            "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
+            "Origin": pipes.quote(auth_origin),
+            "User-Agent": _ctx.user_agent,
+        }
+    else:
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": _ctx.user_agent,
+        }
+
+    return headers
+
+
+def get_ssl_context() -> Any:
+    """
+    Get the SSL context.
+
+    :return: SSL context (Any).
+    """
+    # should be
+    # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+    # but it doesn't work, so use this for now even if it throws a deprecation warning
+    # logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
+    try:  # for ssl version 3.0 and python 3.10+
+        # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context = ssl.SSLContext(protocol=None)
+    except Exception:  # for ssl version 1.0
+        ssl_context = ssl.SSLContext()
+
+    return ssl_context
+
+
+def get_auth_token_content(auth_token: str) -> str:
+    """
+    Get the content of the auth token.
+
+    :param auth_token: token name (str)
+    :return: token content (str).
+    """
+    auth_token_content = ""
+    path = locate_token(auth_token)
+    if os.path.exists(path):
+        auth_token_content = read_file(path)
+        if not auth_token_content:
+            logger.warning(f'failed to read file {path}')
+            return ""
+    else:
+        logger.warning(f'path does not exist: {path}')
+        return ""
+
+    return auth_token_content
+
+
+def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 
@@ -695,33 +760,14 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
     # should tokens be used?
     auth_token, auth_origin = get_local_token_info()
-    if auth_token and auth_origin and panda:
-        path = locate_token(auth_token)
-        auth_token_content = ""
-        if os.path.exists(path):
-            auth_token_content = read_file(path)
-            if not auth_token_content:
-                logger.warning(f'failed to read file {path}')
-                return ""
-        else:
-            logger.warning(f'path does not exist: {path}')
-            return ""
-        if not auth_token_content:
-            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
-            return ""
+    use_oidc_token = True if auth_token and auth_origin and panda else False
+    auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
+    if not auth_token_content:
+        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+        return ""
 
-        headers = {
-            "Authorization": f"Bearer {pipes.quote(auth_token_content)}",
-            "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
-            "Origin": pipes.quote(auth_origin),
-            "User-Agent": _ctx.user_agent,
-        }
-    else:
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": _ctx.user_agent,
-        }
-
+    # get the relevant headers
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
     logger.debug(f'headers={headers}')
     logger.info(f'data = {data}')
 
@@ -746,16 +792,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
     #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
     #logger.debug(f'context={context}')
 
-    # should be
-    # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
-    # but it doesn't work, so use this for now even if it throws a deprecation warning
-    # logger.info(f'ssl.OPENSSL_VERSION_INFO={ssl.OPENSSL_VERSION_INFO}')
-    try:  # for ssl version 3.0 and python 3.10+
-        # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context = ssl.SSLContext(protocol=None)
-    except Exception:  # for ssl version 1.0
-        ssl_context = ssl.SSLContext()
-
+    ssl_context = get_ssl_context()
     #ssl_context.verify_mode = ssl.CERT_REQUIRED
     ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
 
