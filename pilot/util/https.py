@@ -288,6 +288,22 @@ def update_ctx():
         _ctx.capath = certdir
 
 
+def get_local_token_info() -> (str or None, str or None):
+    """
+    Get the OIDC token locally.
+
+    :return: token (str), path to token (str).
+    """
+    # file name of the token
+    auth_token = os.environ.get('OIDC_AUTH_TOKEN',
+                                os.environ.get('PANDA_AUTH_TOKEN', None))
+    # origin of the token (panda_dev.pilot)
+    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN',
+                                 os.environ.get('PANDA_AUTH_ORIGIN', None))
+
+    return auth_token, auth_origin
+
+
 def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
     """
     Get the curl command.
@@ -298,8 +314,7 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
     :return: curl command (str or None), sensitive string to be obscured before dumping to log (str).
     """
     auth_token_content = ''
-    auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN', None))  # file name of the token
-    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN', None))  # origin of the token (panda_dev.pilot)
+    auth_token, auth_origin = get_local_token_info()
 
     command = 'curl'
     if ipv == 'IPv4':
@@ -321,6 +336,7 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
         if not auth_token_content:
             logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
             return None, ''
+
         req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
               f'--max-time {config.Pilot.http_maxtime} '\
               f'--capath {pipes.quote(_ctx.capath or "")} ' \
@@ -337,7 +353,6 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
               f'-H {pipes.quote(f"User-Agent: {_ctx.user_agent}")} ' \
               f'-H {pipes.quote("Accept: application/json") if not plain else ""} {dat}'
 
-    #logger.info('request: %s', req)
     return req, auth_token_content
 
 
