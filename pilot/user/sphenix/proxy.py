@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
 
+"""Functions related to proxy handling for sPHENIX."""
+
 # from pilot.util.container import execute
 
 import logging

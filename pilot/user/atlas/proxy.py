@@ -17,8 +17,10 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Alexander Bogdanchikov, alexander.bogdanchikov@cern.ch, 2020
+
+"""Functions related to proxy handling for ATLAS."""
 
 import os
 import logging
