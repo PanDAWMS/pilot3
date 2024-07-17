@@ -19,31 +19,43 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
-from __future__ import print_function  # Python 2, 2to3 complains about this
-
 import functools
+import logging
 import signal
 import threading
 import traceback
 import queue
 
-from time import time, sleep
-from sys import stderr
+from collections import namedtuple
 from os import getpid
 from shutil import rmtree
-
-from collections import namedtuple
+from sys import stderr
+from time import (
+    time,
+    sleep
+)
 
 from pilot.common.exception import ExcThread
-from pilot.control import job, payload, data, monitor
-from pilot.util.constants import SUCCESS, PILOT_KILL_SIGNAL, MAX_KILL_WAIT_TIME
-from pilot.util.processes import kill_processes, threads_aborted
+from pilot.util.constants import (
+    SUCCESS,
+    PILOT_KILL_SIGNAL,
+    MAX_KILL_WAIT_TIME
+)
+from pilot.control import (
+    job,
+    payload,
+    data,
+    monitor
+)
+from pilot.util.processes import (
+    kill_processes,
+    threads_aborted
+)
 from pilot.util.timing import add_to_pilot_timing
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -57,11 +69,7 @@ def interrupt(args, signum, frame):
     :param signum: signal.
     :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
     """
-
-    try:
-        sig = [v for v, k in signal.__dict__.iteritems() if k == signum][0]
-    except Exception:
-        sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
+    sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
 
     # ignore SIGUSR1 since that will be aimed at a child process
     #if str(sig) == 'SIGUSR1':

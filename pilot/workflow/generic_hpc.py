@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Danila Oleynik danila.oleynik@cern.ch, 2018
 
 import functools
@@ -28,11 +28,7 @@ import signal
 import time
 from collections import namedtuple
 from datetime import datetime
-
-try:
-    from functools import reduce  # Python 3
-except Exception:
-    pass
+from functools import reduce
 
 from pilot.common.exception import FileHandlingFailure
 from pilot.util.auxiliary import set_pilot_state
@@ -58,12 +54,7 @@ def interrupt(args, signum, frame):
     :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
     :return:
     """
-
-    try:
-        logger.info('caught signal: %s', [v for v, k in signal.__dict__.iteritems() if k == signum][0])  # Python 2
-    except Exception:
-        logger.info('caught signal: %s', [v for v, k in list(signal.__dict__.items()) if k == signum][0])  # Python 3
-
+    logger.info('caught signal: %s', [v for v, k in list(signal.__dict__.items()) if k == signum][0])
     args.graceful_stop.set()
 
 
@@ -102,11 +93,11 @@ def run(args):
             return traces
 
         # get the resource reference
-        resource = __import__('pilot.resource.%s' % args.hpc_resource, globals(), locals(), [args.hpc_resource], 0)  # Python 2/3
+        resource = __import__('pilot.resource.%s' % args.hpc_resource, globals(), locals(), [args.hpc_resource], 0)
 
         # get the user reference
         user = __import__('pilot.user.%s.common' % args.pilot_user.lower(), globals(), locals(),
-                          [args.pilot_user.lower()], 0)  # Python 2/3
+                          [args.pilot_user.lower()], 0)
 
         # get job (and rank)
         add_to_pilot_timing('0', PILOT_PRE_GETJOB, time.time(), args)
@@ -157,7 +148,7 @@ def run(args):
         t1 = os.times()
         exetime = time.time() - stime
         end_time = time.asctime(time.localtime(time.time()))
-        t = list(map(lambda x, y: x - y, t1, t0))  # Python 2/3
+        t = list(map(lambda x, y: x - y, t1, t0))
         t_tot = reduce(lambda x, y: x + y, t[2:3])
         job.endTime = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         payloadstdout.close()
@@ -192,7 +183,7 @@ def run(args):
         resource.postprocess_workdir(job_scratch_dir)
 
         # output files should not be packed with logs
-        protectedfiles = list(job.output_files.keys())  # Python 2/3
+        protectedfiles = list(job.output_files.keys())
 
         # log file not produced (yet), so should be excluded
         if job.log_file in protectedfiles:
@@ -237,7 +228,7 @@ def run(args):
 def copy_output(job, job_scratch_dir, work_dir):
     cp_start = time.time()
     try:
-        for outfile in list(job.output_files.keys()):  # Python 2/3
+        for outfile in list(job.output_files.keys()):
             if os.path.exists(outfile):
                 copy(os.path.join(job_scratch_dir, outfile), os.path.join(work_dir, outfile))
         os.chdir(work_dir)
@@ -252,7 +243,7 @@ def copy_output(job, job_scratch_dir, work_dir):
 def declare_output(job, work_report, worker_stageout_declaration):
     out_file_report = {}
     out_file_report[job.jobid] = []
-    for outfile in list(job.output_files.keys()):  # Python 2/3
+    for outfile in list(job.output_files.keys()):
         logger.debug("File {} will be checked and declared for stage out".format(outfile))
         if os.path.exists(outfile):
             file_desc = {}
@@ -262,7 +253,7 @@ def declare_output(job, work_report, worker_stageout_declaration):
                 file_desc['filetype'] = 'output'
             file_desc['path'] = os.path.abspath(outfile)
             file_desc['fsize'] = os.path.getsize(outfile)
-            if 'guid' in list(job.output_files[outfile].keys()):  # Python 2/3
+            if 'guid' in list(job.output_files[outfile].keys()):
                 file_desc['guid'] = job.output_files[outfile]['guid']
             elif work_report['outputfiles'] and work_report['outputfiles'][outfile]:
                 file_desc['guid'] = work_report['outputfiles'][outfile]['guid']

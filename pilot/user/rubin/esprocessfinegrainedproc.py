@@ -16,7 +16,8 @@
 # under the License.
 #
 # Authors:
-# - Wen Guan, wen.guan@cern.ch, 2023 - 2024
+# - Wen Guan, wen.guan@cern.ch, 2023-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024
 
 import base64
 import io
@@ -35,9 +36,13 @@ from typing import Any
 # from pilot.util.auxiliary import set_pilot_state
 from pilot.util.filehandling import read_file
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, MessageFailure, SetupFailure, RunPayloadFailure
+from pilot.common.exception import (
+    PilotException,
+    MessageFailure,
+    SetupFailure,
+    RunPayloadFailure
+)
 from pilot.util.container import execute
-
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -189,11 +194,7 @@ class ESProcessFineGrainedProc(threading.Thread):
         :param workdir:
         :return:
         """
-
-        try:
-            file_type = file  # Python 2
-        except NameError:
-            file_type = io.IOBase  # Python 3
+        file_type = io.IOBase
 
         if file_label in self.__payload:
             if isinstance(self.__payload[file_label], file_type):

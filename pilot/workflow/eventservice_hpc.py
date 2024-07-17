@@ -18,24 +18,24 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 import functools
+import logging
 import signal
 from collections import namedtuple
 from os import environ
 
-from pilot.util.constants import SUCCESS, FAILURE
+from pilot.util.constants import (
+    SUCCESS,
+    FAILURE
+)
 
-import logging
 logger = logging.getLogger(__name__)
 
 
 def interrupt(args, signum, frame):
-    try:
-        logger.info('caught signal: %s' % [v for v, k in signal.__dict__.iteritems() if k == signum][0])
-    except Exception:
-        logger.info('caught signal: %s' % [v for v, k in list(signal.__dict__.items()) if k == signum][0])
+    logger.info('caught signal: %s' % [v for v, k in list(signal.__dict__.items()) if k == signum][0])
     args.graceful_stop.set()
 
 
@@ -62,7 +62,7 @@ def run(args):
             return traces
 
         # get the resource reference
-        resource = __import__('pilot.resource.%s' % args.hpc_resource, globals(), locals(), [args.hpc_resource], 0)  # Python 2/3
+        resource = __import__('pilot.resource.%s' % args.hpc_resource, globals(), locals(), [args.hpc_resource], 0)
 
         # example usage:
         logger.info('setup for resource %s: %s' % (args.hpc_resource, str(resource.get_setup())))
