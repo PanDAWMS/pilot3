@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
 
-"""Functions related to heartbeat messages. It is especually needed for the pilot to know if it has been suspended."""
+"""Functions related to heartbeat messages. It is especially needed for the pilot to know if it has been suspended."""
 
 import logging
 import os
@@ -108,20 +108,6 @@ def read_pilot_heartbeat(path: str) -> dict:
     return dictionary
 
 
-def get_last_update(name: str = 'pilot') -> int:
-    """
-    Return the time of the last pilot or server update.
-
-    :param name: name of the heartbeat to return (str)
-    :return: time of last pilot or server update (int).
-    """
-    dictionary = read_pilot_heartbeat()
-    if dictionary:
-        return dictionary.get(f'last_{name}_update', 0)
-
-    return 0
-
-
 def time_since_suspension() -> int:
     """
     Return the time since the pilot detected a job suspension.
@@ -141,19 +127,3 @@ def time_since_suspension() -> int:
         return time_since_detection
 
     return 0
-
-
-def is_suspended(limit: int = 10 * 60) -> bool:
-    """
-    Check if the pilot was suspended.
-
-    :param limit: time limit in seconds (int)
-    :return: True if the pilot is suspended, False otherwise (bool).
-    """
-    last_pilot_update = get_last_update()
-    if last_pilot_update:
-        # check if more than ten minutes has passed
-        if int(time.time()) - last_pilot_update > limit:
-            return True
-
-    return False
