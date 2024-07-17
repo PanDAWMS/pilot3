@@ -66,7 +66,7 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     :param voms_role: role, e.g. 'atlas' (str)
     :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (str)
     :param workdir: payload work directory (str)
-    :return:  exit code (int), diagnostics (str), updated X509_USER_PROXY (str).
+    :return: exit code (int), diagnostics (str), updated X509_USER_PROXY (str).
     """
     if voms_role or proxy_type or workdir:  # to bypass pylint score 0
         pass
