@@ -98,9 +98,6 @@ class ESRunnerThreadPool(futures.ThreadPoolExecutor):
     def get_num_running_workers(self):
         return len(list(self.futures.keys()))
 
-    def has_free_workers(self):
-        return self.get_num_workers() < self.max_workers
-
     def get_num_free_workers(self):
         return self.max_workers - self.get_num_running_workers()
 
