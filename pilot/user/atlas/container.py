@@ -17,8 +17,10 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
+
+"""Functions related to containerisation for ATLAS."""
 
 import fcntl
 import json
@@ -88,13 +90,14 @@ def do_use_container(**kwargs: Any) -> bool:
     return use_container
 
 
-def wrapper(executable: str, **kwargs: Any) -> Callable[..., Any]:
+def wrapper(executable: str, **kwargs: dict) -> Callable[..., Any]:
     """
-    Wrapper function for any container specific usage.
+    Wrap given function for any container specific usage.
+
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
     :param executable: command to be executed (str)
-    :param kwargs: dictionary of key-word arguments (Any)
+    :param kwargs: dictionary of key-word arguments (dict)
     :return: executable wrapped with container command (Callable).
     """
     workdir = kwargs.get('workdir', '.')

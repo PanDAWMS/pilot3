@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
+"""Functions related to containerisation for sPHENIX."""
+
 # import logging
 # logger = logging.getLogger(__name__)
 
@@ -38,7 +40,8 @@ def do_use_container(**kwargs: dict) -> bool:
 
 def wrapper(executable: str, **kwargs: dict) -> str:
     """
-    Wrapper function for any container specific usage.
+    Wrap given function for any container specific usage.
+
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
     :param executable: command to be executed (str)
