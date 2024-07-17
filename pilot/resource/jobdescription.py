@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Danila Oleynik, 2018-2021
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """Function library for Titan."""
 
@@ -581,9 +581,9 @@ class JobDescription():
                 continue  # we don't need inner scopes of this and subsequent calls
             i = ii[1]
             tb_str += f'{i[0]}:{i[1]} (in {i[2]}): {i[3]}\n'
-        thread = threading.currentThread()
+        thread = threading.current_thread()
 
-        return 'Traceback: (latest call first)' + tb_str + f'Thread: {thread.getName()}({thread.ident})'
+        return 'Traceback: (latest call first)' + tb_str + f'Thread: {thread.name}({thread.ident})'
 
     def __getattr__(self, key: str) -> str:
         """
