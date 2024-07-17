@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
@@ -39,25 +39,25 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.info import infosys
 from pilot.util.auxiliary import (
+    convert_signal_to_exit_code,
     pilot_version_banner,
     shell_exit_code,
-    convert_signal_to_exit_code
 )
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
-    SUCCESS,
-    FAILURE,
     ERRNO_NOJOBS,
-    PILOT_START_TIME,
+    FAILURE,
     PILOT_END_TIME,
-    SERVER_UPDATE_NOT_DONE,
     PILOT_MULTIJOB_START_TIME,
+    PILOT_START_TIME,
+    SERVER_UPDATE_NOT_DONE,
+    SUCCESS,
 )
 from pilot.util.cvmfs import (
     cvmfs_diagnostics,
+    get_last_update,
     is_cvmfs_available,
-    get_last_update
 )
 from pilot.util.filehandling import (
     get_pilot_work_dir,
