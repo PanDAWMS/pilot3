@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """This script is executed by the pilot in a container to perform stage-in of input files."""
 
@@ -31,9 +31,9 @@ from pilot.api.data import StageInClient
 from pilot.api.es_data import StageInESClient
 from pilot.common.exception import ConversionFailure
 from pilot.info import (
+    infosys,
     InfoService,
     FileSpec,
-    infosys,
 )
 from pilot.util.config import config
 from pilot.util.filehandling import (
@@ -226,7 +226,10 @@ def message(msg: str):
 
     :param msg: message (str).
     """
-    print(msg) if not logger else logger.info(msg)
+    if not logger:
+        print(msg)
+    else:
+        logger.info(msg)
 
 
 def str_to_int_list(_list: list) -> list:

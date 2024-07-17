@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """This script is executed by the pilot in a container to perform stage-out of output files."""
 
@@ -26,14 +26,15 @@ import logging
 import os
 import re
 import sys
+import traceback
 
 from pilot.api.data import StageOutClient
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.info import (
+    infosys,
     InfoService,
     FileSpec,
-    infosys,
 )
 from pilot.util.config import config
 from pilot.util.filehandling import write_json
@@ -191,7 +192,10 @@ def message(msg: str):
 
     :param msg: message (str).
     """
-    print(msg) if not logger else logger.info(msg)
+    if not logger:
+        print(msg)
+    else:
+        logger.info(msg)
 
 
 def get_file_lists(_lfns: str, _scopes: str, _ddmendpoints: str, _datasets: str, _guids: str) -> tuple:
@@ -332,7 +336,6 @@ if __name__ == '__main__':  # noqa: C901
     try:
         r = client.transfer(xfiles, activity=activity, **kwargs)
     except PilotException as error:
-        import traceback
         error_msg = traceback.format_exc()
         logger.error(error_msg)
         err = errors.format_diagnostics(error.get_error_code(), error_msg)
