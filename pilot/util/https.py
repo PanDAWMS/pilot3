@@ -538,7 +538,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: Any, i
         res = request2(f'{pandaserver}/server/panda/{update_function}', data=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
-    logger.debug(f'type(res)={type(res)}')
+
     if not res:
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
