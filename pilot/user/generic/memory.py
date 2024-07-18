@@ -29,7 +29,7 @@ def allow_memory_usage_verifications() -> bool:
     return False
 
 
-def memory_usage(job: object, resource_type: str) -> (int, str):
+def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
