@@ -303,7 +303,6 @@ def get_local_token_info() -> (str or None, str or None):
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN',
                                  os.environ.get('PANDA_AUTH_ORIGIN'))
 
-    logger.debug(f"auth_token={auth_token}, auth_origin={auth_origin}")
     return auth_token, auth_origin
 
 
@@ -771,7 +770,8 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    logger.debug(f'headers={headers}')
+    _headers = headers.replace(auth_token, '(removed)')
+    logger.debug(f'headers={_headers}')
     logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
