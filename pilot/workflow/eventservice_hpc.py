@@ -26,6 +26,7 @@ import signal
 
 from collections import namedtuple
 from os import environ
+from types import FrameType
 
 from pilot.util.constants import SUCCESS, FAILURE
 
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 Traces = namedtuple("Traces", ["pilot"])
 
 
-def interrupt(args: object, signum: int, frame: object):
+def interrupt(args: object, signum: int, frame: FrameType):
     """
     Handle signals for graceful exit.
 
