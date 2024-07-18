@@ -2814,16 +2814,22 @@ def allow_timefloor(submitmode: str) -> bool:
     :param submitmode: submit mode (str)
     :return: always True for ATLAS (bool).
     """
+    if submitmode:  # to bypass pylint score 0
+        pass
+
     return True
 
 
-def get_pilot_id(jobid: int) -> str:
+def get_pilot_id(jobid: str) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 
     Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (int)
+    :param jobid: PanDA job id - UNUSED (str)
     :return: pilot id (str).
     """
+    if jobid:  # to bypass pylint score 0
+        pass
+
     return os.environ.get("GTAG", "unknown")

@@ -30,7 +30,9 @@ import pipes
 import re
 import subprocess
 import time
-from typing import Any, Callable
+
+from collections.abc import Callable
+from typing import Any
 
 # for user container test: import urllib
 

@@ -43,12 +43,14 @@ import sys
 import urllib.request
 import urllib.error
 import urllib.parse
+
+from collections.abc import Callable
 from collections import namedtuple
 from gzip import GzipFile
 from io import BytesIO
 from re import findall
 from time import sleep, time
-from typing import Callable, Any
+from typing import Any
 from urllib.parse import parse_qs
 
 from .config import config
