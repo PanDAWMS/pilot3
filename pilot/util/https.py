@@ -689,7 +689,8 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     if use_oidc_token:
         headers = {
             "Authorization": f"Bearer {pipes.quote(auth_token_content)}",
-            "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
+            "Content-Type": "application/json",
+            # "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
             "Origin": pipes.quote(auth_origin),
             "User-Agent": _ctx.user_agent,
         }
