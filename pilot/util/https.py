@@ -770,8 +770,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    _headers = headers.replace(auth_token, '(removed)')
-    logger.debug(f'headers={_headers}')
+    logger.debug(f'headers={headers}')
     logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
