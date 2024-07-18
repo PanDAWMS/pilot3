@@ -2482,7 +2482,7 @@ def get_utility_command_setup(name: str, job: Any, setup: str = None) -> str:
             logger.debug(f'updating pgrp={job.pgrp} for pid={pid}')
             try:
                 job.pgrp = os.getpgid(pid)
-            except Exception as exc:
+            except ProcessLookupError as exc:
                 logger.warning(f'os.getpgid({pid}) failed with: {exc}')
         return setup
 
