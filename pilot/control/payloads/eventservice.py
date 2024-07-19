@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 
 """Executor module for event service payloads."""
 
@@ -30,6 +30,7 @@ from typing import Any, TextIO
 from pilot.common import exception
 from pilot.control.payloads import generic
 from pilot.eventservice.workexecutor.workexecutor import WorkExecutor
+from pilot.info import JobData
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +40,27 @@ class Executor(generic.Executor):
 
     # only define the __init__ function if it actually does anything - otherwise it can be omitted since the
     # parent __init__ function will be called automatically
-    # def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    # def __init__(self, args: Any, job: JobData, out: TextIO, err: TextIO, traces: Any):
     #    """
     #    Set initial values.
     #
     #    :param args: args object (Any)
-    #    :param job: job object (Any)
+    #    :param job: job object (JobData)
     #    :param out: stdout file object (TextIO)
     #    :param err: stderr file object (TextIO)
     #    :param traces: traces object (Any).
     #    """
     #    super().__init__(args, job, out, err, traces)
 
-    def run_payload(self, job: Any, cmd: str, out: TextIO, err: TextIO) -> Any:
+    def run_payload(self, job: JobData, cmd: str, out: TextIO, err: TextIO) -> Any:
         """
         Run the payload for the given job and return the executor.
 
-        :param job: job object
-        :param cmd: (unused in ES mode)
-        :param out: stdout file object
-        :param err: stderr file object
-        :return: executor instance.
+        :param job: job object (JobData)
+        :param cmd: (unused in ES mode) command to run (str)
+        :param out: stdout file object (TextIO)
+        :param err: stderr file object (TextIO)
+        :return: executor instance (Any).
         """
         self.pre_setup(job)
 
@@ -119,18 +120,18 @@ class Executor(generic.Executor):
         This is usually the 'generic' type, which means normal event service. It can also be 'raythena' if specified
         in the Pilot options.
 
-        :return: executor type dictionary.
+        :return: executor type dictionary (dict).
         """
         # executor_type = 'hpo' if job.is_hpo else os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic')
         # return {'executor_type': executor_type}
         return {"executor_type": os.environ.get("PILOT_ES_EXECUTOR_TYPE", "generic")}
 
-    def wait_graceful(self, args: Any, proc: Any) -> int:
+    def wait_graceful(self, args: object, proc: Any) -> int:
         """
         Wait for the graceful signal bit to be set in the args object.
 
-        :param args: args object
-        :param proc: process
+        :param args: args object (object)
+        :param proc: process object (Any)
         :return: exit code (int).
         """
         t_1 = time.time()

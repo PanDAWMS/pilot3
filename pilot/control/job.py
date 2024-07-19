@@ -148,13 +148,13 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def control(queues: Any, traces: Any, args: Any):
+def control(queues: namedtuple, traces: Any, args: object):
     """
     Set up job control threads.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     targets = {'validate': validate, 'retrieve': retrieve, 'create_data_payload': create_data_payload,
                'queue_monitor': queue_monitor, 'job_monitor': job_monitor, 'fast_job_monitor': fast_job_monitor,
@@ -1139,15 +1139,15 @@ def get_latest_log_tail(files: list) -> str:
     return stdout_tail
 
 
-def validate(queues: Any, traces: Any, args: Any):
+def validate(queues: namedtuple, traces: Any, args: object):
     """
     Perform validation of job.
 
     Thread.
 
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param traces: traces object (Any)
-    :param args: args object (Any).
+    :param args: args object (object).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -1284,14 +1284,14 @@ def verify_ctypes():
         logger.debug('all child subprocesses will be parented')
 
 
-def delayed_space_check(queues: Any, traces: Any, args: Any, job: Any):
+def delayed_space_check(queues: namedtuple, traces: Any, args: object, job: object):
     """
     Run the delayed space check if necessary.
 
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param traces: traces object (Any)
-    :param args: args object (Any)
-    :param job: job object (Any).
+    :param args: args object (object)
+    :param job: job object (object).
     """
     proceed_with_local_space_check = args.harvester_submitmode.lower() == 'push' and args.update_server
     if proceed_with_local_space_check:
@@ -1344,7 +1344,7 @@ def store_jobid(jobid: int, init_dir: str):
         logger.warning(f'exception caught while trying to store job id: {error}')
 
 
-def create_data_payload(queues: Any, traces: Any, args: Any):
+def create_data_payload(queues: namedtuple, traces: Any, args: object):
     """
     Get a Job object from the "validated_jobs" queue.
 
@@ -1353,9 +1353,9 @@ def create_data_payload(queues: Any, traces: Any, args: Any):
     the thread also places the Job object in the "payloads" queue (another thread will retrieve it and wait for any
     stage-in to finish).
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -1731,12 +1731,12 @@ def locate_job_definition(args: Any) -> str:
     return path
 
 
-def get_job_definition(queues: Any, args: Any) -> dict:
+def get_job_definition(queues: namedtuple, args: object) -> dict:
     """
     Get a job definition from a source (server or pre-placed local file).
 
-    :param queues: queues object (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param queues: queues object (namedtuple)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     :return: job definition (dict).
     """
     res = {}
@@ -1873,11 +1873,11 @@ def get_message(args: Any, message_queue: Any):
         message_queue.put(message)
 
 
-def get_kwargs_for_mb(queues: Any, url: str, port: str, allow_same_user: bool, debug: bool):
+def get_kwargs_for_mb(queues: namedtuple, url: str, port: str, allow_same_user: bool, debug: bool):
     """
     Get the kwargs dictinoary for the message broker.
 
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param url: PanDA server URL (str)
     :param port: PanDA server port (str)
     :param allow_same_user: allow the same user or not (bool)
@@ -2076,7 +2076,7 @@ def get_job_retrieval_delay(harvester: bool) -> int:
     return 10 if harvester else 60
 
 
-def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
+def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Retrieve all jobs from the proper source.
 
@@ -2090,9 +2090,9 @@ def retrieve(queues: Any, traces: Any, args: Any):  # noqa: C901
 
     WARNING: this function is nearly too complex. Be careful with adding more lines as flake8 will fail it.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     :raises PilotException: if create_job fails (e.g. because queuedata could not be downloaded).
     """
     timefloor = infosys.queuedata.timefloor
@@ -2351,14 +2351,14 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     return job
 
 
-def has_job_completed(queues: Any, args: Any) -> bool:
+def has_job_completed(queues: namedtuple, args: object) -> bool:
     """
     Check if the current job has completed (finished or failed).
 
     Note: the job object was extracted from monitored_payloads queue before this function was called.
 
-    :param queues: Pilot queues object (Any)
-    :param args: Pilot arguments object (Any)
+    :param queues: Pilot queues object (namedtuple)
+    :param args: Pilot arguments object (object)
     :return: True is the payload has finished or failed, False otherwise (bool).
     """
     # check if the job has finished
@@ -2411,13 +2411,13 @@ def has_job_completed(queues: Any, args: Any) -> bool:
     return False
 
 
-def get_job_from_queue(queues: Any, state: str) -> Any:
+def get_job_from_queue(queues: namedtuple, state: str) -> object or None:
     """
     Check if the job has finished or failed and if so return it.
 
-    :param queues: Pilot queues object (Any)
+    :param queues: Pilot queues object (namedtuple)
     :param state: job state (e.g. finished/failed) (str)
-    :return: job object (Any).
+    :return: job object (object or None).
     """
     try:
         if state == "finished":
@@ -2436,11 +2436,11 @@ def get_job_from_queue(queues: Any, state: str) -> Any:
     return job
 
 
-def is_queue_empty(queues: Any, queuename: str) -> bool:
+def is_queue_empty(queues: namedtuple, queuename: str) -> bool:
     """
     Check if the given queue is empty (without pulling).
 
-    :param queues: Pilot queues object (Any)
+    :param queues: Pilot queues object (namedtuple)
     :param queuename: queue name (str)
     :return: True if queue is empty, False otherwise (bool)
     """
@@ -2459,12 +2459,12 @@ def is_queue_empty(queues: Any, queuename: str) -> bool:
     return status
 
 
-def order_log_transfer(queues: Any, job: Any):
+def order_log_transfer(queues: namedtuple, job: object):
     """
     Order a log transfer for a failed job.
 
-    :param queues: Pilot queues object (Any)
-    :param job: job object (Any).
+    :param queues: Pilot queues object (namedtuple)
+    :param job: job object (object).
     """
     # add the job object to the data_out queue to have it staged out
     job.stageout = 'log'  # only stage-out log file
@@ -2492,13 +2492,13 @@ def order_log_transfer(queues: Any, job: Any):
     logger.info('proceeding with server update')
 
 
-def wait_for_aborted_job_stageout(args: Any, queues: Any, job: Any):
+def wait_for_aborted_job_stageout(args: object, queues: namedtuple, job: object):
     """
     Wait for stage-out to finish for aborted job.
 
-    :param args: Pilot arguments object (Any)
-    :param queues: Pilot queues object (Any)
-    :param job: job object (Any).
+    :param args: Pilot arguments object (object)
+    :param queues: Pilot queues object (namedtuple)
+    :param job: job object (object).
     """
     # if the pilot received a kill signal, how much time has passed since the signal was intercepted?
     try:
@@ -2549,7 +2549,7 @@ def get_job_status(job: Any, key: str) -> str:
     return value
 
 
-def queue_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
+def queue_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Monitor queue activity.
 
@@ -2557,9 +2557,9 @@ def queue_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
 
     This function monitors queue activity, specifically if a job has finished or failed and then reports to the server.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     # scan queues until at least one queue has a job object. abort if it takes too long time
     if not scan_for_jobs(queues):
@@ -2676,14 +2676,14 @@ def pause_queue_monitor(delay: int):
     time.sleep(delay)
 
 
-def get_finished_or_failed_job(args: Any, queues: Any) -> Any:
+def get_finished_or_failed_job(args: object, queues: namedtuple) -> Any:
     """
     Check if the job has either finished or failed and if so return it.
 
     If failed, order a log transfer. If the job is in state 'failed' and abort_job is set, set job_aborted.
 
-    :param args: Pilot arguments object (Any)
-    :param queues: Pilot queues object (Any)
+    :param args: Pilot arguments object (object)
+    :param queues: Pilot queues object (namedtuple)
     :return: job object (Any).
     """
     job = get_job_from_queue(queues, "finished")
@@ -2769,15 +2769,15 @@ def fast_monitor_tasks(job: Any) -> int:
     return exit_code
 
 
-def message_listener(queues: Any, traces: Any, args: Any):
+def message_listener(queues: namedtuple, traces: Any, args: object):
     """
     Listen for messages from ActiveMQ.
 
     Thread.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     while not args.graceful_stop.is_set() and args.subscribe_to_msgsvc:
 
@@ -2821,7 +2821,7 @@ def message_listener(queues: Any, traces: Any, args: Any):
     logger.info('[job] message listener thread has finished')
 
 
-def fast_job_monitor(queues: Any, traces: Any, args: Any) -> None:
+def fast_job_monitor(queues: namedtuple, traces: Any, args: object) -> None:
     """
     Fast monitoring of job parameters.
 
@@ -2829,9 +2829,9 @@ def fast_job_monitor(queues: Any, traces: Any, args: Any) -> None:
 
     This function can be used for monitoring processes below the one minute threshold of the normal job_monitor thread.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     # peeking and current time; peeking_time gets updated if and when jobs are being monitored, update_time is only
     # used for sending the heartbeat and is updated after a server update
@@ -2887,7 +2887,7 @@ def fast_job_monitor(queues: Any, traces: Any, args: Any) -> None:
     logger.info('[job] fast job monitor thread has finished')
 
 
-def job_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
+def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Monitor job parameters.
 
@@ -2898,9 +2898,9 @@ def job_monitor(queues: Any, traces: Any, args: Any):  # noqa: C901
     looping jobs are checked once every ten minutes (default) and the heartbeat is sent once every 30 minutes. Memory
     usage is checked once a minute.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     # initialize the monitoring time object
     mt = MonitoringTime()
@@ -3204,14 +3204,14 @@ def send_heartbeat_if_time(job: Any, args: Any, update_time: float) -> int:
     return int(update_time)
 
 
-def fail_monitored_job(job: Any, exit_code: int, diagnostics: str, queues: Any, traces: Any):
+def fail_monitored_job(job: object, exit_code: int, diagnostics: str, queues: namedtuple, traces: Any):
     """
     Fail a monitored job.
 
-    :param job: job object (Any)
+    :param job: job object (object)
     :param exit_code: exit code from job_monitor_tasks (int)
     :param diagnostics: pilot error diagnostics (str)
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param traces: traces object (Any).
     """
     set_pilot_state(job=job, state="failed")

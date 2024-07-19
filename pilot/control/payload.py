@@ -30,6 +30,7 @@ import os
 import time
 import traceback
 import queue
+from collections import namedtuple
 from re import (
     findall,
     split,
@@ -46,11 +47,12 @@ from pilot.common.exception import (
     PilotException
 )
 from pilot.control.payloads import (
-    generic,
     eventservice,
-    eventservicemerge
+    eventservicemerge,
+    generic,
 )
 from pilot.control.job import send_state
+from pilot.info import JobData
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.container import execute
 from pilot.util.config import config
@@ -73,13 +75,13 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def control(queues: Any, traces: Any, args: Any):
+def control(queues: namedtuple, traces: Any, args: object):
     """
     Set up payload threads.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     targets = {'validate_pre': validate_pre, 'execute_payloads': execute_payloads, 'validate_post': validate_post,
                'failed_post': failed_post, 'run_realtimelog': run_realtimelog}
@@ -133,7 +135,7 @@ def control(queues: Any, traces: Any, args: Any):
     logger.info('[payload] control thread has finished')
 
 
-def validate_pre(queues: Any, traces: Any, args: Any):
+def validate_pre(queues: namedtuple, traces: Any, args: object):
     """
     Get a Job object from the "payloads" queue and validate it.
 
@@ -142,9 +144,9 @@ def validate_pre(queues: Any, traces: Any, args: Any):
     If the payload is successfully validated (user defined), the Job object is placed in the "validated_payloads" queue,
     otherwise it is placed in the "failed_payloads" queue.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -167,11 +169,11 @@ def validate_pre(queues: Any, traces: Any, args: Any):
     logger.info('[payload] validate_pre thread has finished')
 
 
-def _validate_payload(job: Any) -> bool:
+def _validate_payload(job: JobData) -> bool:
     """
     Perform user validation tests for the payload.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: boolean (bool).
     """
     status = True
@@ -188,12 +190,12 @@ def _validate_payload(job: Any) -> bool:
     return status
 
 
-def get_payload_executor(args: Any, job: Any, out: TextIO, err: TextIO, traces: Any) -> Any:
+def get_payload_executor(args: object, job: JobData, out: TextIO, err: TextIO, traces: Any) -> Any:
     """
     Get payload executor function for different payload.
 
-    :param args: Pilot arguments object (Any)
-    :param job: job object (Any)
+    :param args: Pilot arguments object (object)
+    :param job: job object (JobData)
     :param out: stdout file object (TextIO)
     :param err: stderr file object (TextIO)
     :param traces: traces object (Any)
@@ -209,7 +211,7 @@ def get_payload_executor(args: Any, job: Any, out: TextIO, err: TextIO, traces: 
     return payload_executor
 
 
-def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
+def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Execute queued payloads.
 
@@ -219,9 +221,9 @@ def execute_payloads(queues: Any, traces: Any, args: Any):  # noqa: C901
     is started, the thread will wait for it to finish and then check for any failures. A successfully completed job is
     placed in the "finished_payloads" queue, and a failed job will be placed in the "failed_payloads" queue.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     job = None
     while not args.graceful_stop.is_set():
@@ -392,7 +394,7 @@ def get_rtlogging() -> str:
     return rtlogging
 
 
-def get_logging_info(job: Any, args: Any) -> dict:
+def get_logging_info(job: JobData, args: object) -> dict:
     """
     Extract the logging type/protocol/url/port from catchall if present, or from args fields.
 
@@ -403,8 +405,8 @@ def get_logging_info(job: Any, args: Any) -> dict:
 
     Note: the returned dictionary can be built with either args (has priority) or catchall info.
 
-    :param job: job object (Any)
-    :param args: Pilot arguments object (Any)
+    :param job: job object (JobData)
+    :param args: Pilot arguments object (object)
     :return: info dictionary (logging_type (string), protocol (string), url (string), port (int)) (dict).
     """
     info_dic = {}
@@ -471,13 +473,13 @@ def get_logging_info(job: Any, args: Any) -> dict:
     return info_dic
 
 
-def find_log_to_tail(debug_command: str, workdir: str, args: Any, is_analysis: bool) -> str:
+def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis: bool) -> str:
     """
     Find the log file to tail in the RT logging.
 
     :param debug_command: requested debug command (str)
     :param workdir: job working directory (str)
-    :param args: Pilot arguments object (Any)
+    :param args: Pilot arguments object (object)
     :param is_analysis: True for user jobs, False otherwise (bool)
     :return: path to log file (str).
     """
@@ -512,16 +514,16 @@ def find_log_to_tail(debug_command: str, workdir: str, args: Any, is_analysis: b
     return logf
 
 
-def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
+def run_realtimelog(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Validate finished payloads.
 
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
     well but only for log stage-out (in failed_post() below).
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     info_dic = None
     while not args.graceful_stop.is_set():
@@ -607,11 +609,11 @@ def run_realtimelog(queues: Any, traces: Any, args: Any):  # noqa: C901
     logger.info('[payload] run_realtimelog thread has finished')
 
 
-def set_cpu_consumption_time(job: Any):
+def set_cpu_consumption_time(job: JobData):
     """
     Set the CPU consumption time.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     cpuconsumptiontime = get_cpu_consumption_time(job.t0)
     job.cpuconsumptiontime = int(round(cpuconsumptiontime))
@@ -620,13 +622,13 @@ def set_cpu_consumption_time(job: Any):
     logger.info(f'CPU consumption time: {cpuconsumptiontime} {job.cpuconsumptionunit} (rounded to {job.cpuconsumptiontime} {job.cpuconsumptionunit})')
 
 
-def perform_initial_payload_error_analysis(job: Any, exit_code: int):
+def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
     """
     Perform an initial analysis of the payload.
 
     Singularity/apptainer errors are caught here.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param exit_code: exit code from payload execution (int).
     """
     if exit_code != 0:
@@ -761,7 +763,7 @@ def set_error_code_from_stderr(msg: str, fatal: bool) -> int:
     return exit_code
 
 
-def validate_post(queues: Any, traces: Any, args: Any):
+def validate_post(queues: namedtuple, traces: Any, args: object):
     """
     Validate finished payloads.
 
@@ -770,9 +772,9 @@ def validate_post(queues: Any, traces: Any, args: Any):
     If payload finished correctly, add the job to the data_out queue. If it failed, add it to the data_out queue as
     well but only for log stage-out (in failed_post() below).
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -798,7 +800,7 @@ def validate_post(queues: Any, traces: Any, args: Any):
     logger.info('[payload] validate_post thread has finished')
 
 
-def failed_post(queues: Any, traces: Any, args: Any):
+def failed_post(queues: namedtuple, traces: Any, args: object):
     """
     Handle failed jobs.
 
@@ -807,9 +809,9 @@ def failed_post(queues: Any, traces: Any, args: Any):
     Get a Job object from the "failed_payloads" queue. Set the pilot state to "stageout" and the stageout field to
     "log", and add the Job object to the "data_out" queue.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any).
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)

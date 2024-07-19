@@ -17,9 +17,15 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
-from os import environ, path, getcwd
+import logging
+
+from os import (
+    environ,
+    path,
+    getcwd
+)
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import (
@@ -27,33 +33,31 @@ from pilot.common.exception import (
     StageInFailure,
     StageOutFailure,
 )
+from pilot.info import JobData
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.filehandling import (
     copy,
+    copy_pilot_source,
     read_json,
     write_json,
     write_file,
-    copy_pilot_source,
 )
 
-import logging
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def containerise_general_command(job, container_options, label='command', container_type='container'):
+def containerise_general_command(job: JobData, container_options: str, label: str = 'command', container_type: str = 'container'):
     """
     Containerise a general command by execution in a script that can be run in a container.
 
-    :param job: job object.
-    :param label: label (string).
-    :param container_options: container options from queuedata (string).
+    :param job: job object (object)
+    :param container_options: container options from queuedata (str)
+    :param label: label (str)
     :param container_type: optional 'container/bash'
     :raises PilotException: for general failures.
-    :return:
     """
-
     cwd = getcwd()
 
     if container_type == 'container':

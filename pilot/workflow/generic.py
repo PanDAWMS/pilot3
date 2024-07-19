@@ -142,7 +142,7 @@ def run(args: object) -> Traces or None:
     The function sets up the internal queues which handle the flow of jobs.
 
     :param args: pilot arguments object (object)
-    :returns: traces object (Traces namedtuple)
+    :returns: traces object (Traces namedtuple or None)
     """
     logger.info('setting up signal handling')
     register_signals([signal.SIGINT,
@@ -191,12 +191,6 @@ def run(args: object) -> Traces or None:
     logger.info('setting up tracing')
     # Initialize traces with default values
     traces = Traces(pilot={"state": SUCCESS, "nr_jobs": 0, "error_code": 0, "command": None})
-
-    #traces = namedtuple('traces', ['pilot'])
-    #traces.pilot = {'state': SUCCESS,
-    #                'nr_jobs': 0,
-    #                'error_code': 0,
-    #                'command': None}
 
     # initial sanity check defined by pilot user
     try:

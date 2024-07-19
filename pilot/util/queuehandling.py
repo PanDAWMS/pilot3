@@ -17,41 +17,64 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+import logging
 import os
+import signal
 import time
+from collections import namedtuple
+from queue import Queue
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.info import JobData
-from pilot.util.auxiliary import set_pilot_state, is_string
+from pilot.util.auxiliary import (
+    set_pilot_state,
+    is_string
+)
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def declare_failed_by_kill(job, queue, sig):
+def get_signal_name(sig_num: int) -> str:
+    """
+    Return the signal name for the given signal number.
+
+    :param sig_num: signal number (int)
+    :return: signal name (str).
+    """
+    try:
+        # Convert signal number to its enumeration equivalent and then to string
+        return signal.Signals(sig_num).name
+    except ValueError:
+        # If the signal number is not a valid signal, return None or handle as needed
+        return None
+
+
+def declare_failed_by_kill(job: object, queue: Queue, sig: int):
     """
     Declare the job failed by a kill signal and put it in a suitable failed queue.
+
     E.g. queue=queues.failed_data_in, if the kill signal was received during stage-in.
 
-    :param job: job object.
-    :param queue: queue object.
-    :param sig: signal.
-    :return:
+    :param job: job object (object)
+    :param queue: queue object (Queue)
+    :param sig: signal (int).
     """
-
     set_pilot_state(job=job, state="failed")
-    error_code = errors.get_kill_signal_error_code(sig)
+    signal_name = get_signal_name(sig)
+    if not signal_name:
+        logger.warning(f'could not find signal name for signal number {sig} - using SIGTERM')
+        signal_name = 'SIGTERM'
+    error_code = errors.get_kill_signal_error_code(signal_name)
     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code)
 
     #queue.put(job)
     put_in_queue(job, queue)
 
 
-def scan_for_jobs(queues):
+def scan_for_jobs(queues: namedtuple) -> list:
     """
     Scan queues until at least one queue has a job object. abort if it takes too long time
 
@@ -66,7 +89,7 @@ def scan_for_jobs(queues):
     while time.time() - _t0 < 30:
         for queue in queues._fields:
             # ignore queues with no job objects
-            if queue == 'completed_jobids' or queue == 'messages':
+            if queue in {'completed_jobids', 'messages'}:
                 continue
             _queue = getattr(queues, queue)
             jobs = list(_queue.queue)
@@ -76,22 +99,21 @@ def scan_for_jobs(queues):
                 break
         if found_job:
             break
-        else:
-            time.sleep(0.1)
+        time.sleep(0.1)
 
     return jobs
 
 
-def get_maxwalltime_from_job(queues, params):
+def get_maxwalltime_from_job(queues: namedtuple, params: dict) -> int or None:
     """
     Return the maxwalltime from the job object.
+
     The algorithm requires a set PANDAID environmental variable, in order to find the correct walltime.
 
-    :param queues:
-    :param params: queuedata.params (dictionary)
-    :return: job object variable
+    :param queues: queues object (namedtuple)
+    :param params: queuedata.params (dict)
+    :return: maxwalltime (int or None).
     """
-
     maxwalltime = None
     use_job_maxwalltime = False
     current_job_id = os.environ.get('PANDAID', None)
@@ -118,17 +140,17 @@ def get_maxwalltime_from_job(queues, params):
     return maxwalltime
 
 
-def get_queuedata_from_job(queues):
+def get_queuedata_from_job(queues: namedtuple) -> object or None:
     """
     Return the queuedata object from a job in the given queues object.
+
     This function is useful if queuedata is needed from a function that does not know about the job object.
     E.g. the pilot monitor does not know about the job object, but still knows
     about the queues from which a job object can be extracted and therefore the queuedata.
 
-    :param queues: queues object.
-    :return: queuedata object.
+    :param queues: queues object (namedtuple)
+    :return: queuedata (object or None).
     """
-
     queuedata = None
 
     # extract jobs from the queues
@@ -141,15 +163,13 @@ def get_queuedata_from_job(queues):
     return queuedata
 
 
-def abort_jobs_in_queues(queues, sig):
+def abort_jobs_in_queues(queues: namedtuple, sig: int):
     """
     Find all jobs in the queues and abort them.
 
-    :param queues: queues object.
-    :param sig: detected kill signal.
-    :return:
+    :param queues: queues object (namedtuple)
+    :param sig: detected kill signal (int)
     """
-
     jobs_list = []
 
     # loop over all queues and find all jobs
@@ -168,16 +188,15 @@ def abort_jobs_in_queues(queues, sig):
         declare_failed_by_kill(job, queues.failed_jobs, sig)
 
 
-def queue_report(queues, purge=False):
+def queue_report(queues: namedtuple, purge: bool = False):
     """
     Report on how many jobs are till in the various queues.
+
     This function can also empty the queues (except completed_jobids).
 
-    :param queues: queues object.
-    :param purge: clean up queues if True (Boolean).
-    :return:
+    :param queues: queues object (namedtuple)
+    :param purge: clean up queues if True (bool).
     """
-
     exceptions_list = ['completed_jobids']
     for queue in queues._fields:
         _queue = getattr(queues, queue)
@@ -191,36 +210,33 @@ def queue_report(queues, purge=False):
             logger.info(f'queue {queue} has {len(jobs)} job(s)')
 
 
-def put_in_queue(obj, queue):
+def put_in_queue(obj: object, queue: Queue):
     """
     Put the given object in the given queue.
 
-    :param obj: object.
-    :param queue: queue object.
-    :return:
+    :param obj: object to put in the queue (object)
+    :param queue: queue object (Queue).
     """
-
     # update job object size (currently not used)
     if isinstance(obj, JobData):
         obj.add_size(obj.get_size())
 
     # only put the object in the queue if it is not there already
-    if obj not in [_obj for _obj in list(queue.queue)]:
+    if obj not in list(queue.queue):
         queue.put(obj)
 
 
-def purge_queue(queue):
+def purge_queue(queue: Queue):
     """
     Empty given queue.
 
-    :param queue:
-    :return:
+    :param queue: queue object (Queue).
     """
-
     while not queue.empty():
         try:
             queue.get(False)
         except queue.Empty:
             continue
         queue.task_done()
+
     logger.debug('queue purged')

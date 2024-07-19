@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
@@ -29,6 +29,8 @@ import logging
 import threading
 import time
 import re
+
+from collections import namedtuple
 from os import environ, getuid
 from subprocess import Popen, PIPE
 from typing import Any
@@ -47,15 +49,15 @@ from pilot.util.timing import get_time_since_start
 logger = logging.getLogger(__name__)
 
 
-def control(queues: Any, traces: Any, args: Any):  # noqa: C901
+def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Monitor threads.
 
     Main control function, run from the relevant workflow module.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     t_0 = time.time()
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
@@ -299,12 +301,12 @@ def get_proper_pilot_heartbeat() -> int:
         return 60
 
 
-def run_checks(queues: Any, args: Any) -> None:
+def run_checks(queues: namedtuple, args: object) -> None:
     """
     Perform non-job related monitoring checks.
 
-    :param queues: queues object (Any)
-    :param args: Pilot arguments object (Any)
+    :param queues: queues object (namedtuple)
+    :param args: Pilot arguments object (object)
     :raises: ExceedMaxWaitTime.
     """
     # check how long time has passed since last successful heartbeat
@@ -381,7 +383,7 @@ def run_checks(queues: Any, args: Any) -> None:
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool, pod: bool) -> int:
+def get_max_running_time(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, pod: bool) -> int:
     """
     Return the maximum allowed running time for the pilot.
 
@@ -390,7 +392,7 @@ def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool,
 
     :param lifetime: optional pilot option time in seconds (int)
     :param queuedata: queuedata object (Any)
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param push: push mode (bool)
     :param pod: pod mode (bool)
     :return: max running time in seconds (int).
