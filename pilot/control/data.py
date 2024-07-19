@@ -273,7 +273,7 @@ def _stage_in(args: object, job: JobData) -> bool:
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
             containerise_middleware(job, args, job.indata, eventtype, localsite, remotesite,
-                                    job.infosys.queuedata.container_options, label=label,
+                                    label=label,
                                     container_type=job.infosys.queuedata.container_type.get("middleware"))
         except PilotException as error:
             logger.warning('stage-in containerisation threw a pilot exception: %s', error)
@@ -896,7 +896,7 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
         try:
             eventtype, localsite, remotesite = get_trace_report_variables(job, label=label)
             containerise_middleware(job, args, xdata, eventtype, localsite, remotesite,
-                                    job.infosys.queuedata.container_options, label=label,
+                                    label=label,
                                     container_type=job.infosys.queuedata.container_type.get("middleware"))
         except PilotException as error:
             logger.warning('stage-out containerisation threw a pilot exception: %s', error)

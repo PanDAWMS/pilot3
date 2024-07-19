@@ -38,29 +38,29 @@ from urllib.parse import parse_qsl
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import (
     ExcThread,
+    FileHandlingFailure,
     PilotException,
-    FileHandlingFailure
 )
 from pilot.info import (
     infosys,
-    JobData,
     InfoService,
+    JobData,
     JobInfoProvider
 )
 from pilot.util import https
 from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import (
-    get_batchsystem_jobid,
-    get_job_scheduler_id,
-    set_pilot_state,
-    get_pilot_state,
     check_for_final_server_update,
-    pilot_version_banner,
-    is_virtual_machine,
-    has_instruction_sets,
-    locate_core_file,
+    encode_globaljobid,
+    get_batchsystem_jobid,
     get_display_info,
-    encode_globaljobid
+    get_job_scheduler_id,
+    get_pilot_state,
+    has_instruction_sets,
+    is_virtual_machine,
+    locate_core_file,
+    pilot_version_banner,
+    set_pilot_state,
 )
 from pilot.util.config import config
 from pilot.util.common import (
@@ -83,65 +83,65 @@ from pilot.util.constants import (
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
-    find_text_files,
-    tail,
-    is_json,
     copy,
-    remove,
-    write_file,
     create_symlink,
+    find_text_files,
+    get_total_input_size,
+    is_json,
+    remove,
+    tail,
+    write_file,
     write_json,
-    get_total_input_size
 )
 from pilot.util.harvester import (
-    request_new_jobs,
-    remove_job_request_file,
-    parse_job_definition_file,
     is_harvester_mode,
-    get_worker_attributes_file,
-    publish_job_report,
-    publish_work_report,
     get_event_status_file,
-    publish_stageout_files
+    get_worker_attributes_file,
+    parse_job_definition_file,
+    publish_job_report,
+    publish_stageout_files,
+    publish_work_report,
+    remove_job_request_file,
+    request_new_jobs,
 )
 from pilot.util.jobmetrics import get_job_metrics
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean, float_to_rounded_string
 from pilot.util.middleware import containerise_general_command
 from pilot.util.monitoring import (
+    check_local_space,
     job_monitor_tasks,
-    check_local_space
 )
 from pilot.util.monitoringtime import MonitoringTime
 from pilot.util.processes import (
     cleanup,
-    threads_aborted,
+    kill_defunct_children,
     kill_process,
     kill_processes,
-    kill_defunct_children
+    threads_aborted,
 )
 from pilot.util.proxy import get_distinguished_name
 from pilot.util.queuehandling import (
-    scan_for_jobs,
+    purge_queue,
     put_in_queue,
     queue_report,
-    purge_queue
+    scan_for_jobs,
 )
 from pilot.util.realtimelogger import cleanup as rtcleanup
 from pilot.util.timing import (
     add_to_pilot_timing,
-    timing_report,
     get_postgetjob_time,
     get_time_since,
-    time_stamp
+    time_stamp,
+    timing_report,
 )
 from pilot.util.workernode import (
-    get_disk_space,
     collect_workernode_info,
-    get_node_name,
-    get_cpu_model,
+    get_cpu_arch,
     get_cpu_cores,
-    get_cpu_arch
+    get_cpu_model,
+    get_disk_space,
+    get_node_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -916,7 +916,7 @@ def get_general_command_stdout(job: Any):
         _containerisation = False  # set this with some logic instead - not used for now
         if _containerisation:
             try:
-                containerise_general_command(job, job.infosys.queuedata.container_options,
+                containerise_general_command(job,
                                              label='general',
                                              container_type='container')
             except PilotException as error:
