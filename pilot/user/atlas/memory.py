@@ -19,6 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+import ast
 import logging
 
 from pilot.common.errorcodes import ErrorCodes
@@ -94,7 +95,7 @@ def get_memory_limit(resource_type: str) -> int:
     :return: memory limit in MB (int).
     """
     try:
-        memory_limits = config.Payload.memory_limits
+        memory_limits = ast.literal_eval(config.Payload.memory_limits)
     except AttributeError as e:
         logger.warning(f"memory_limits not set in config, using defaults: {e}")
         memory_limits = {'MCORE': 1001,
@@ -103,7 +104,11 @@ def get_memory_limit(resource_type: str) -> int:
                          'SCORE': 1001,
                          'SCORE_HIMEM': 2001,
                          'SCORE_LOMEM': None}
-    memory_limit = memory_limits.get(resource_type, None)
+    try:
+        memory_limit = memory_limits.get(resource_type, None)
+    except AttributeError as e:
+        logger.warning(f"memory limit not set for resource type {resource_type}: {e}")
+        memory_limit = None
     if not memory_limit:
         logger.warning(f"memory limit not set for resource type {resource_type} - using default 4001")
         memory_limit = 4001

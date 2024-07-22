@@ -220,8 +220,8 @@ def kill_defunct_children(pid: int):
         if proc.isdigit():
             try:
                 cmdline = os.readlink(f"/proc/{proc}/cmdline")
-            except (FileNotFoundError, PermissionError):
-                # ignore lines that do not have cmdline
+            except OSError:
+                # ignore lines that do not have cmdline and proc 1
                 continue
             if not cmdline or cmdline.startswith("/bin/init"):
                 continue
