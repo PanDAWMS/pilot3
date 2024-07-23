@@ -106,7 +106,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             if tokendownloadchecktime:
                 if int(time.time() - last_token_check) > tokendownloadchecktime:
                     last_token_check = time.time()
-                    update_local_oidc_token_info()
+                    update_local_oidc_token_info(args.url, args.port)
 
             # abort if kill signal arrived too long time ago, ie loop is stuck
             if args.kill_time and int(time.time()) - args.kill_time > MAX_KILL_WAIT_TIME:
@@ -203,12 +203,21 @@ def get_oidc_check_time() -> int or None:
     return token_check
 
 
-def update_local_oidc_token_info():
-    """Update the local OIDC token info."""
+def update_local_oidc_token_info(url: str, port: int):
+    """
+    Update the local OIDC token info.
+
+    :param url: URL (str)
+    :param port: port number (int).
+    """
     auth_token, auth_origin = get_local_oidc_token_info()
     if auth_token and auth_origin:
         logger.debug('updating OIDC token info')
-        refresh_oidc_token(auth_token, auth_origin)
+        status = refresh_oidc_token(auth_token, auth_origin, url, port)
+        if not status:
+            logger.warning('failed to refresh OIDC token')
+        else:
+            logger.debug('OIDC token has been refreshed')
     else:
         logger.debug('no OIDC token info to update')  # will never be printed due to the earlier check in the caller
 

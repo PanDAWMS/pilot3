@@ -290,11 +290,11 @@ def update_ctx():
         _ctx.capath = certdir
 
 
-def get_local_oidc_token_info() -> (str or None, str or None):
+def get_local_oidc_token_info() -> tuple[str or None, str or None]:
     """
     Get the OIDC token locally.
 
-    :return: token (str), path to token (str).
+    :return: token (str), token origin (str).
     """
     # first check if there is a token that was downloaded by the pilot
     refreshed_auth_token = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
@@ -309,7 +309,7 @@ def get_local_oidc_token_info() -> (str or None, str or None):
     return auth_token, auth_origin
 
 
-def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
+def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
     """
     Get the curl command.
 
@@ -329,7 +329,6 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
         # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
         # -H "Authorization: Bearer <contents of PANDA_AUTH_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
         path = locate_token(auth_token)
-        auth_token_content = ""
         if os.path.exists(path):
             auth_token_content = read_file(path)
             if not auth_token_content:
@@ -363,15 +362,27 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
 
 def locate_token(auth_token: str) -> str:
     """
-    Locate the token file.
+    Locate the OIDC token file.
+
+    Primary means the original token file, not the refreshed one.
+    The primary token is needed for downloading new tokens (i.e. 'refreshed' ones).
+
+    Note that auth_token is only the file name for the primary token, but has the full path for any
+    refreshed token.
 
     :param auth_token: file name of token (str)
     :return: path to token (str).
     """
-    _primary = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
-    paths = [os.path.join(_primary, auth_token),
+    primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
+    paths = [os.path.join(primary_basedir, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
+
+    # if the refreshed token exists, prepend it to the paths list and use it first
+    _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
+    if _refreshed and os.path.exists(_refreshed):
+        paths.insert(0, _refreshed)
+
     path = ""
     for _path in paths:
         logger.debug(f'looking for {_path}')
@@ -939,15 +950,25 @@ def upload_file(url: str, path: str) -> bool:
     return status
 
 
-def download_file(url: str, _timeout: int = 20) -> str:
+def download_file(url: str, _timeout: int = 20, headers: dict = None) -> str:
     """
     Download url content.
 
+    The optional headers should in fact be used for downloading OIDC tokens.
+
     :param url: url (str)
+    :param _timeout: timeout (int)
+    :param headers: optional headers (dict)
     :return: url content (str).
     """
+    # define the request headers
+    if headers is None:
+        headers = {"User-Agent": _ctx.user_agent}
     req = urllib.request.Request(url)
-    req.add_header('User-Agent', ctx.user_agent)
+    for header in headers:
+        req.add_header(header, headers.get(header))
+
+    # download the file
     try:
         with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=_timeout) as response:
             content = response.read()
@@ -959,18 +980,43 @@ def download_file(url: str, _timeout: int = 20) -> str:
     return content
 
 
-def refresh_oidc_token(auth_token: str, auth_origin: str):
+def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -> bool:
     """
     Refresh the OIDC token.
 
     :param auth_token: token name (str)
-    :param auth_origin: token origin (str).
+    :param auth_origin: token origin (str)
+    :param url: server URL (str)
+    :param port: server port (str)
+    :return: True if success, False otherwise (bool).
     """
-    pass
-    #cmd = 'get_access_token'
-    #content = download_file(url)
-    #with open(path, "wb+") as _file:  # note: binary mode, so no encoding is needed (or, encoding=None)
-    #        if content:
-    #            _file.write(content)
-    #            logger.info(f'saved data from \"{url}\" resource into file {path}, '
-    #                        f'length={len(content) / 1024.:.1f} kB')
+    status = False
+    auth_token_content = get_auth_token_content(auth_token)
+    if not auth_token_content:
+        logger.warning(f'failed to get auth token content for {auth_token}')
+        return status
+
+    headers = get_headers(True, auth_token_content, auth_origin)
+    server_command = get_server_command(url, port, cmd='get_access_token')
+    content = download_file(server_command, headers=headers)
+    if content:
+        # define the path if it does not exist already
+        path = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
+        if path is None:
+            path = os.path.join(os.environ.get('PILOT_HOME'), 'refreshed_token')
+
+        # write the content to the file
+        try:
+            with open(path, "w", encoding='utf-8') as _file:
+                _file.write(content)
+        except IOError as exc:
+            logger.warning(f'failed to write data to file {path}: {exc}')
+        else:
+            logger.info(f'saved data from \"{url}\" resource into file {path}, '
+                        f'length={len(content) / 1024.:.1f} kB')
+            os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
+            status = True
+    else:
+        logger.warning(f'failed to download data from \"{url}\" resource')
+
+    return status
