@@ -296,8 +296,12 @@ def get_local_oidc_token_info() -> (str or None, str or None):
 
     :return: token (str), path to token (str).
     """
-    # file name of the token
-    auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN'))
+    # first check if there is a token that was downloaded by the pilot
+    refreshed_auth_token = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
+    if refreshed_auth_token and os.path.exists(refreshed_auth_token):
+        auth_token = refreshed_auth_token
+    else:  # no refreshed token, try to get the initial longlasting token
+        auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN'))
 
     # origin of the token (panda_dev.pilot, ..)
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN'))
@@ -742,7 +746,12 @@ def get_auth_token_content(auth_token: str) -> str:
     return auth_token_content
 
 
-def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:
+def request2(url: str = "",
+             data: dict = None,
+             secure: bool = True,
+             compressed: bool = True,
+             panda: bool = False,
+             refresh_token: bool = False) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 
@@ -751,6 +760,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
     :param secure: use secure connection (bool)
     :param compressed: compress data (bool)
     :param panda: True for panda server interactions (bool)
+    :param refresh_token: True if OIDC token should be refreshed (bool)
     :return: server response (str or dict).
     """
     if data is None:
@@ -947,3 +957,20 @@ def download_file(url: str, _timeout: int = 20) -> str:
         content = ""
 
     return content
+
+
+def refresh_oidc_token(auth_token: str, auth_origin: str):
+    """
+    Refresh the OIDC token.
+
+    :param auth_token: token name (str)
+    :param auth_origin: token origin (str).
+    """
+    pass
+    #cmd = 'get_access_token'
+    #content = download_file(url)
+    #with open(path, "wb+") as _file:  # note: binary mode, so no encoding is needed (or, encoding=None)
+    #        if content:
+    #            _file.write(content)
+    #            logger.info(f'saved data from \"{url}\" resource into file {path}, '
+    #                        f'length={len(content) / 1024.:.1f} kB')

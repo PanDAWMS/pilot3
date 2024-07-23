@@ -49,11 +49,14 @@ from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
 from pilot.util.heartbeat import update_pilot_heartbeat
-from pilot.util.https import get_local_oidc_token_info
+from pilot.util.https import (
+    get_local_oidc_token_info,
+    refresh_oidc_token
+)
 from pilot.util.queuehandling import (
-    get_queuedata_from_job,
+    abort_jobs_in_queues,
     get_maxwalltime_from_job,
-    abort_jobs_in_queues
+    get_queuedata_from_job,
 )
 from pilot.util.timing import get_time_since_start
 
@@ -205,9 +208,7 @@ def update_local_oidc_token_info():
     auth_token, auth_origin = get_local_oidc_token_info()
     if auth_token and auth_origin:
         logger.debug('updating OIDC token info')
-        # execute(f'oidc-token-refresh -s {auth_origin} -t {auth_token}')
-        # execute(f'oidc-token-refresh -s {auth_origin} -t {auth_token}')
-        pass
+        refresh_oidc_token(auth_token, auth_origin)
     else:
         logger.debug('no OIDC token info to update')  # will never be printed due to the earlier check in the caller
 
