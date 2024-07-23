@@ -290,18 +290,17 @@ def update_ctx():
         _ctx.capath = certdir
 
 
-def get_local_token_info() -> (str or None, str or None):
+def get_local_oidc_token_info() -> (str or None, str or None):
     """
     Get the OIDC token locally.
 
     :return: token (str), path to token (str).
     """
     # file name of the token
-    auth_token = os.environ.get('OIDC_AUTH_TOKEN',
-                                os.environ.get('PANDA_AUTH_TOKEN'))
-    # origin of the token (panda_dev.pilot)
-    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN',
-                                 os.environ.get('PANDA_AUTH_ORIGIN'))
+    auth_token = os.environ.get('OIDC_AUTH_TOKEN', os.environ.get('PANDA_AUTH_TOKEN'))
+
+    # origin of the token (panda_dev.pilot, ..)
+    auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN'))
 
     return auth_token, auth_origin
 
@@ -316,7 +315,7 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> (Any, str):
     :return: curl command (str or None), sensitive string to be obscured before dumping to log (str).
     """
     auth_token_content = ''
-    auth_token, auth_origin = get_local_token_info()
+    auth_token, auth_origin = get_local_oidc_token_info()
 
     command = 'curl'
     if ipv == 'IPv4':
@@ -762,7 +761,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         https_setup(None, get_pilot_version())
 
     # should tokens be used?
-    auth_token, auth_origin = get_local_token_info()
+    auth_token, auth_origin = get_local_oidc_token_info()
     use_oidc_token = True if auth_token and auth_origin and panda else False
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
     if not auth_token_content and use_oidc_token:
