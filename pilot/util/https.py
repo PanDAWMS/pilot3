@@ -818,8 +818,7 @@ def request2(url: str = "",
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    #logger.info(f'headers = {hide_token(headers.copy())}')
-    logger.info(f'headers = {headers.copy()}')
+    logger.info(f'headers = {hide_token(headers.copy())}')
     logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
@@ -1002,12 +1001,12 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     :param headers: optional headers (dict)
     :return: url content (str).
     """
-    logger.info(f'downloading data using URL={url}')
+    _url = hide_info(url, get_auth_token_content("panda_token_key"))
+    logger.info(f'downloading data using URL={_url}')
     # define the request headers
     if headers is None:
         headers = {"User-Agent": _ctx.user_agent}
-    #logger.debug(f"headers={hide_token(headers.copy())}")
-    logger.debug(f"headers={headers}")
+    logger.debug(f"headers = {hide_token(headers.copy())}")
 
     req = urllib.request.Request(url, headers=headers)
 
@@ -1021,6 +1020,17 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         content = ""
 
     return content
+
+
+def hide_info(txt, removeme):
+    """
+    Hide sensitive information in the given text.
+
+    :param txt: text (str)
+    :param removeme: text to remove (str)
+    :return: text with sensitive information removed (str).
+    """
+    return txt.replace(removeme, '********')
 
 
 def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -> bool:
@@ -1047,7 +1057,6 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         logger.warning(f'failed to get auth token content for {auth_token}')
         return status
 
-    logger.debug(f"auth_token_content={auth_token_content}")
     headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
     server_command = get_server_command(url, port, cmd='get_access_token')
 
