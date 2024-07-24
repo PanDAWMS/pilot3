@@ -1037,7 +1037,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         return status
 
     # the token key should be added to the auth_token
-    auth_token_content = f'{auth_token_content}{panda_token_key}'
+    auth_token_content = f'{panda_token_key}{auth_token_content}'
 
     headers = get_headers(True, auth_token_content, auth_origin)
     server_command = get_server_command(url, port, cmd='get_access_token')
