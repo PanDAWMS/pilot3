@@ -1039,7 +1039,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
     headers = get_headers(True, auth_token_content, auth_origin)
     server_command = get_server_command(url, port, cmd='get_access_token')
 
-    # the token key should be added to the URL as a parameter
+    # the client name and token key should be added to the URL as parameters
     server_command += f'?client_name=pilot_server?token_key={panda_token_key}'
 
     content = download_file(server_command, headers=headers)
