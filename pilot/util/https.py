@@ -399,6 +399,8 @@ def locate_token(auth_token: str) -> str:
     if _refreshed and os.path.exists(_refreshed):
         paths.insert(0, _refreshed)
 
+    logger.debug(f"looking for token in paths: {paths}")
+
     path = ""
     for _path in paths:
         logger.debug(f'looking for {_path}')
@@ -809,7 +811,8 @@ def request2(url: str = "",
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    logger.info(f'headers = {hide_token(headers.copy())}')
+    #logger.info(f'headers = {hide_token(headers.copy())}')
+    logger.info(f'headers = {headers.copy()}')
     logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
@@ -1061,6 +1064,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         else:
             logger.info(f'saved data from \"{url}\" resource into file {path}, '
                         f'length={len(content) / 1024.:.1f} kB')
+            logger.debug(f"token={content}")
             os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
             status = True
     else:
