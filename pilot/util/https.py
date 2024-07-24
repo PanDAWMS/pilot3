@@ -700,6 +700,7 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
 
     # randomize server name
     url = get_panda_server(url, port)
+
     return f'{url}/server/panda/{cmd}'
 
 
@@ -801,7 +802,7 @@ def request2(url: str = "",
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    logger.debug(f'headers={headers}')
+    logger.info(f'headers = {hide_token(headers.copy())}')
     logger.info(f'data = {data}')
 
     # Encode data as compressed JSON
@@ -865,6 +866,19 @@ def request2(url: str = "",
                 ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
     return ret
+
+
+def hide_token(headers: dict) -> dict:
+    """
+    Hide the token in the headers.
+
+    :param headers: Copy of headers (dict)
+    :return: headers with token hidden (dict).
+    """
+    if 'Authorization' in headers:
+        headers['Authorization'] = 'Bearer ********'
+
+    return headers
 
 
 def request3(url: str, data: dict = None) -> str:
@@ -971,9 +985,11 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     :param headers: optional headers (dict)
     :return: url content (str).
     """
+    logger.info(f'downloading data using URL={url}')
     # define the request headers
     if headers is None:
         headers = {"User-Agent": _ctx.user_agent}
+    logger.debug(f"headers={hide_token(headers.copy())}")
     req = urllib.request.Request(url)
     for header in headers:
         req.add_header(header, headers.get(header))
