@@ -996,8 +996,6 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     :param headers: optional headers (dict)
     :return: url content (str).
     """
-    #_url = hide_info(url, get_auth_token_content("panda_token_key"))
-    #logger.info(f'downloading data using URL={_url}')
     # define the request headers
     if headers is None:
         headers = {"User-Agent": _ctx.user_agent}
