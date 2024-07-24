@@ -1036,11 +1036,12 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         logger.warning(f'failed to get auth token content for {auth_token}')
         return status
 
-    # the token key should be added to the auth_token
-    auth_token_content = f'{auth_token_content}+{panda_token_key}'
-
     headers = get_headers(True, auth_token_content, auth_origin)
     server_command = get_server_command(url, port, cmd='get_access_token')
+
+    # the token key should be added to the URL as a parameter
+    server_command += f'?token_key={panda_token_key}'
+
     content = download_file(server_command, headers=headers)
     if content:
         # define the path if it does not exist already
