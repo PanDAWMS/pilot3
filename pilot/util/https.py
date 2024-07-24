@@ -27,6 +27,7 @@ try:
     import certifi
 except ImportError:
     certifi = None
+import ast
 import json
 import logging
 import os
@@ -1065,7 +1066,9 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
             with open(path, "w", encoding='utf-8') as _file:
                 if isinstance(content, bytes):
                     content = content.decode('utf-8')
-                token = content.get('userProxy')
+                # convert the string to a dictionary
+                _content = ast.literal_eval(content)
+                token = _content.get('userProxy')
                 if token:
                     _file.write(token)
                 else:
