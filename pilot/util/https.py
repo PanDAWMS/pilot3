@@ -1065,13 +1065,16 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
             with open(path, "w", encoding='utf-8') as _file:
                 if isinstance(content, bytes):
                     content = content.decode('utf-8')
-                _file.write(content)
+                token = content.get('userProxy')
+                if token:
+                    _file.write(token)
+                else:
+                    logger.warning(f'failed to find userProxy in content: {content}')
         except IOError as exc:
             logger.warning(f'failed to write data to file {path}: {exc}')
         else:
             logger.info(f'saved data from \"{url}\" resource into file {path}, '
                         f'length={len(content) / 1024.:.1f} kB')
-            logger.debug(f"token={content}")
             os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
             status = True
     else:
