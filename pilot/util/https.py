@@ -996,9 +996,8 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         headers = {"User-Agent": _ctx.user_agent}
     #logger.debug(f"headers={hide_token(headers.copy())}")
     logger.debug(f"headers={headers}")
-    req = urllib.request.Request(url)
-    for header in headers:
-        req.add_header(header, headers.get(header))
+
+    req = urllib.request.Request(url, headers=headers)
 
     # download the file
     try:
