@@ -383,15 +383,16 @@ def locate_token(auth_token: str) -> str:
     :param auth_token: file name of token (str)
     :return: path to token (str).
     """
+    # special case for the token key used for refreshing the token
+    path = os.environ.get("PANDA_AUTH_TOKEN_KEY")
+    if auth_token in path and os.path.exists(path):
+        logger.debug(f"using path to token key for refreshing the token: {path}")
+        return path
+
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(primary_basedir, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
-
-    # special case for the token key used for refreshing the token; add it to the paths list if it exists
-    path = os.environ.get("PANDA_AUTH_TOKEN_KEY")
-    if path:
-        paths.append(path)
 
     # if the refreshed token exists, prepend it to the paths list and use it first
     _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
@@ -763,7 +764,6 @@ def get_auth_token_content(auth_token: str) -> str:
     :param auth_token: token name (str)
     :return: token content (str).
     """
-    auth_token_content = ""
     path = locate_token(auth_token)
     if os.path.exists(path):
         auth_token_content = read_file(path)
