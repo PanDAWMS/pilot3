@@ -385,13 +385,11 @@ def locate_token(auth_token: str) -> str:
     :return: path to token (str).
     """
     # special case for the token key used for refreshing the token
-    logger.debug(f"auth_token={auth_token}")
     path = os.environ.get("PANDA_AUTH_TOKEN_KEY")
     if auth_token in path and os.path.exists(path):
         logger.debug(f"using path to token key for refreshing the token: {path}")
         return path
 
-    logger.debug('continuing')
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(primary_basedir, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
@@ -405,12 +403,10 @@ def locate_token(auth_token: str) -> str:
     # remove duplicates
     paths = list(set(paths))
 
-    logger.debug(f"looking for token in paths: {paths}")
-
     path = ""
     for _path in paths:
-        logger.debug(f'looking for {_path}')
         if os.path.exists(_path):
+            logger.debug(f'found {_path}')
             path = _path
             break
 
