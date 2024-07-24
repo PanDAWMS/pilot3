@@ -709,7 +709,7 @@ def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None) -> dict:
+def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None, content_type: str = "application/json") -> dict:
     """
     Get the headers for the request.
 
@@ -721,16 +721,18 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     if use_oidc_token:
         headers = {
             "Authorization": f"Bearer {shlex.quote(auth_token_content)}",
-            "Content-Type": "application/json",
             # "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
             "Origin": shlex.quote(auth_origin),
-            "User-Agent": _ctx.user_agent,
         }
     else:
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": _ctx.user_agent,
-        }
+        headers = {}
+
+    # always add the user agent
+    headers["User-Agent"] = _ctx.user_agent
+
+    # only add the content type if there is a body to send (that is of type application/json)
+    if content_type:
+        headers["Content-Type"] = content_type
 
     return headers
 
@@ -1035,7 +1037,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         logger.warning(f'failed to get auth token content for {auth_token}')
         return status
 
-    headers = get_headers(True, auth_token_content, auth_origin)
+    headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
     server_command = get_server_command(url, port, cmd='get_access_token')
 
     # the client name and token key should be added to the URL as parameters
