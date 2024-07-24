@@ -396,13 +396,13 @@ def locate_token(auth_token: str) -> str:
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
 
-    # remove duplicates
-    paths = list(set(paths))
-
     # if the refreshed token exists, prepend it to the paths list and use it first
     _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
     if _refreshed and os.path.exists(_refreshed):
         paths.insert(0, _refreshed)
+
+    # remove duplicates
+    paths = list(set(paths))
 
     logger.debug(f"looking for token in paths: {paths}")
 
@@ -1046,11 +1046,12 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         logger.warning(f'failed to get auth token content for {auth_token}')
         return status
 
+    logger.debug(f"auth_token_content={auth_token_content}")
     headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
     server_command = get_server_command(url, port, cmd='get_access_token')
 
     # the client name and token key should be added to the URL as parameters
-    server_command += f'?client_name=pilot_server?token_key={panda_token_key}'
+    server_command += f'?client_name=pilot_server&token_key={panda_token_key}'
 
     content = download_file(server_command, headers=headers)
     if content:
