@@ -388,6 +388,11 @@ def locate_token(auth_token: str) -> str:
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
 
+    # special case for the token key used for refreshing the token; add it to the paths list if it exists
+    path = os.environ.get("PANDA_AUTH_TOKEN_KEY")
+    if path:
+        paths.append(path)
+
     # if the refreshed token exists, prepend it to the paths list and use it first
     _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
     if _refreshed and os.path.exists(_refreshed):
@@ -989,7 +994,8 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     # define the request headers
     if headers is None:
         headers = {"User-Agent": _ctx.user_agent}
-    logger.debug(f"headers={hide_token(headers.copy())}")
+    #logger.debug(f"headers={hide_token(headers.copy())}")
+    logger.debug(f"headers={headers}")
     req = urllib.request.Request(url)
     for header in headers:
         req.add_header(header, headers.get(header))
@@ -1017,10 +1023,21 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
     :return: True if success, False otherwise (bool).
     """
     status = False
+
+    # first get the token key
+    panda_token_key = get_auth_token_content("panda_token_key")
+    if not panda_token_key:
+        logger.warning('failed to get panda_token_key - will not be able to download a new token')
+        return status
+
+    # now get the actual token
     auth_token_content = get_auth_token_content(auth_token)
     if not auth_token_content:
         logger.warning(f'failed to get auth token content for {auth_token}')
         return status
+
+    # the token key should be added to the auth_token
+    auth_token_content = f'{auth_token_content}{panda_token_key}'
 
     headers = get_headers(True, auth_token_content, auth_origin)
     server_command = get_server_command(url, port, cmd='get_access_token')
