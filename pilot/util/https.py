@@ -1053,6 +1053,8 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
         # write the content to the file
         try:
             with open(path, "w", encoding='utf-8') as _file:
+                if isinstance(content, bytes):
+                    content = content.decode('utf-8')
                 _file.write(content)
         except IOError as exc:
             logger.warning(f'failed to write data to file {path}: {exc}')
