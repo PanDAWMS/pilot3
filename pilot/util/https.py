@@ -384,12 +384,6 @@ def locate_token(auth_token: str) -> str:
     :param auth_token: file name of token (str)
     :return: path to token (str).
     """
-    # special case for the token key used for refreshing the token
-    path = os.environ.get("PANDA_AUTH_TOKEN_KEY")
-    if auth_token in path and os.path.exists(path):
-        logger.debug(f"using path to token key for refreshing the token: {path}")
-        return path
-
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(primary_basedir, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
@@ -1039,7 +1033,10 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
     status = False
 
     # first get the token key
-    panda_token_key = get_auth_token_content("panda_token_key")
+    token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
+    if not token_key:
+        logger.warning('PANDA_AUTH_TOKEN_KEY is not set - will not be able to download a new token')
+    panda_token_key = get_auth_token_content(token_key)
     if not panda_token_key:
         logger.warning('failed to get panda_token_key - will not be able to download a new token')
         return status
@@ -1058,31 +1055,52 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
 
     content = download_file(server_command, headers=headers)
     if content:
-        # define the path if it does not exist already
-        path = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
-        if path is None:
-            path = os.path.join(os.environ.get('PILOT_HOME'), 'refreshed_token')
-
-        # write the content to the file
-        try:
-            with open(path, "w", encoding='utf-8') as _file:
-                if isinstance(content, bytes):
-                    content = content.decode('utf-8')
-                # convert the string to a dictionary
-                _content = ast.literal_eval(content)
-                token = _content.get('userProxy')
-                if token:
-                    _file.write(token)
-                else:
-                    logger.warning(f'failed to find userProxy in content: {content}')
-        except IOError as exc:
-            logger.warning(f'failed to write data to file {path}: {exc}')
-        else:
-            logger.info(f'saved data from \"{url}\" resource into file {path}, '
-                        f'length={len(content) / 1024.:.1f} kB')
-            os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
-            status = True
+        status = handle_file_content(content)
     else:
         logger.warning(f'failed to download data from \"{url}\" resource')
+
+    return status
+
+
+def handle_file_content(content: bytes or str) -> bool:
+    """
+    Handle the content of the downloaded file.
+
+    :param content: file content (bytes or str)
+    :return: True if success, False otherwise (bool).
+    """
+    status = False
+
+    # define the path if it does not exist already
+    path = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
+    if path is None:
+        path = os.path.join(os.environ.get('PILOT_HOME'), 'refreshed_token')
+
+    if isinstance(content, bytes):
+        content = content.decode('utf-8')
+
+    # convert the string to a dictionary
+    _content = ast.literal_eval(content)
+
+    # check for errors
+    statuscode = _content.get('StatusCode', 0)
+    diagnostics = _content.get('ErrorDialog', '')
+    if statuscode != 0:
+        logger.warning(f"failed to get new token: StatusCode={statuscode}, ErrorDialog={diagnostics}")
+    else:
+        token = _content.get('userProxy')
+        if not token:
+            logger.warning(f'failed to find userProxy in content: {content}')
+        else:
+            # write the content to the file
+            try:
+                with open(path, "w", encoding='utf-8') as _file:
+                    _file.write(token)
+            except IOError as exc:
+                logger.warning(f'failed to write data to file {path}: {exc}')
+            else:
+                logger.info(f'saved token data in file {path}, length={len(content) / 1024.:.1f} kB')
+                os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
+                status = True
 
     return status
