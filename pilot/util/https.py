@@ -1045,7 +1045,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
 
     panda_token_key = get_auth_token_content(token_key, key=True)
     if panda_token_key:
-        logger.info(f'read token key: {panda_token_key}')
+        logger.info(f'read token key: {token_key}')
     else:
         logger.warning('failed to get panda_token_key - will not be able to download a new token')
         return status
