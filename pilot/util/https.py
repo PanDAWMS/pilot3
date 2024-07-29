@@ -772,7 +772,7 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
             logger.warning(f'failed to read file {path}')
             return ""
         else:
-            logger.info(f'read contents from file {path} (length = {len(auth_token_content)}')
+            logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
     else:
         logger.warning(f'path does not exist: {path}')
         return ""
