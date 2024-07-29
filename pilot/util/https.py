@@ -371,7 +371,7 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
     return req, auth_token_content
 
 
-def locate_token(auth_token: str) -> str:
+def locate_token(auth_token: str, key: bool = False) -> str:
     """
     Locate the OIDC token file.
 
@@ -382,6 +382,7 @@ def locate_token(auth_token: str) -> str:
     refreshed token.
 
     :param auth_token: file name of token (str)
+    :param key: if true, token key is used (bool)
     :return: path to token (str).
     """
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
@@ -390,9 +391,10 @@ def locate_token(auth_token: str) -> str:
              os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
 
     # if the refreshed token exists, prepend it to the paths list and use it first
-    _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
-    if _refreshed and os.path.exists(_refreshed):
-        paths.insert(0, _refreshed)
+    if not key:
+        _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
+        if _refreshed and os.path.exists(_refreshed):
+            paths.insert(0, _refreshed)
 
     # remove duplicates
     paths = list(set(paths))
@@ -755,19 +757,22 @@ def get_ssl_context() -> ssl.SSLContext:
     return ssl_context
 
 
-def get_auth_token_content(auth_token: str) -> str:
+def get_auth_token_content(auth_token: str, key: bool = False) -> str:
     """
     Get the content of the auth token.
 
     :param auth_token: token name (str)
+    :param key: if true, token key is used (bool)
     :return: token content (str).
     """
-    path = locate_token(auth_token)
+    path = locate_token(auth_token, key=key)
     if os.path.exists(path):
         auth_token_content = read_file(path)
         if not auth_token_content:
             logger.warning(f'failed to read file {path}')
             return ""
+        else:
+            logger.info(f'read contents from file {path} (length = {len(auth_token_content)}')
     else:
         logger.warning(f'path does not exist: {path}')
         return ""
@@ -1036,8 +1041,12 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
     token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
     if not token_key:
         logger.warning('PANDA_AUTH_TOKEN_KEY is not set - will not be able to download a new token')
-    panda_token_key = get_auth_token_content(token_key)
-    if not panda_token_key:
+        return False
+
+    panda_token_key = get_auth_token_content(token_key, key=True)
+    if panda_token_key:
+        logger.info(f'read token key: {panda_token_key}')
+    else:
         logger.warning('failed to get panda_token_key - will not be able to download a new token')
         return status
 
