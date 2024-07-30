@@ -881,17 +881,20 @@ def get_analysis_run_command(job: Any, trf_name: str) -> str:  # noqa: C901
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
         x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
-    if 'OIDC_AUTH_TOKEN' in os.environ:
-        cmd += 'unset OIDC_AUTH_TOKEN;'
-    if 'OIDC_AUTH_ORIGIN' in os.environ:
-        cmd += 'unset OIDC_AUTH_ORIGIN;'
-    if 'PANDA_AUTH_TOKEN' in os.environ:
-        cmd += 'unset PANDA_AUTH_TOKEN;'
-    if 'PANDA_AUTH_ORIGIN' in os.environ:
-        cmd += 'unset PANDA_AUTH_ORIGIN;'
+
+    env_vars_to_unset = [
+        'OIDC_AUTH_TOKEN',
+        'OIDC_AUTH_ORIGIN',
+        'PANDA_AUTH_TOKEN',
+        'PANDA_AUTH_ORIGIN',
+        'OIDC_REFRESHED_AUTH_TOKEN'
+    ]
+
+    for var in env_vars_to_unset:
+        if var in os.environ:
+            cmd += f'unset {var};'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
