@@ -101,7 +101,6 @@ from .utilities import (
     get_network_monitor_setup,
     post_memory_monitor_action,
     get_memory_monitor_summary_filename,
-    get_prefetcher_setup,
     get_memory_monitor_output_filename,
     get_metadata_dict_from_txt,
 )
@@ -2454,18 +2453,13 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
         # must know if payload is running in a container or not
         # (enables search for pid in ps output)
         use_container = job.usecontainer or 'runcontainer' in job.transformation
-        dump_ps = ("PRMON_DEBUG" in job.infosys.queuedata.catchall)
 
         setup, pid = get_memory_monitor_setup(
             job.pid,
-            job.pgrp,
             job.jobid,
             job.workdir,
-            job.command,
-            use_container=use_container,
-            transformation=job.transformation,
-            outdata=job.outdata,
-            dump_ps=dump_ps
+            setup=job.command,
+            use_container=use_container
         )
 
         _pattern = r"([\S]+)\ ."
@@ -2487,9 +2481,6 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
 
     if name == 'NetworkMonitor' and setup:
         return get_network_monitor_setup(setup, job)
-
-    if name == 'Prefetcher':
-        return get_prefetcher_setup(job)
 
     return ""
 

@@ -59,9 +59,11 @@ def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
     return f"memory_monitor_output.{suffix}"
 
 
-def get_memory_monitor_setup(pid: int, pgrp: int, jobid: int, workdir: str, command: str, setup: str = "",
-                             use_container: bool = True, transformation: str = "", outdata: list = None,
-                             dump_ps: bool = False) -> (str, int):
+def get_memory_monitor_setup(pid: int,
+                             jobid: str,
+                             workdir: str,
+                             setup: str = "",
+                             use_container: bool = True) -> tuple[str, int]:
     """
     Return the proper setup for the memory monitor.
 
@@ -70,23 +72,16 @@ def get_memory_monitor_setup(pid: int, pgrp: int, jobid: int, workdir: str, comm
     to use a fixed version for the setup. Currently, release 21.0.22 is used.
 
     :param pid: job process id (int)
-    :param pgrp: process group id (int)
-    :param jobid: job id (int)
+    :param jobid: job id (str)
     :param workdir: job work directory (str)
-    :param command: payload command (str)
     :param setup: optional setup in case asetup can not be used, which uses infosys (str)
     :param use_container: optional boolean (bool)
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (str)
-    :param outdata: optional list of output fspec objects (list)
-    :param dump_ps: should ps output be dumped when identifying prmon process? (bool)
     :return: job work directory (str), pid for process inside container (int).
     """
     if setup:  # to get rid of pylint warning, setup is not used for this user
         pass
-    if outdata is None:
-        outdata = []
     # try to get the pid from a pid.txt file which might be created by a container_script
-    pid = get_proper_pid(pid, pgrp, jobid, command=command, transformation=transformation, outdata=outdata, use_container=use_container, dump_ps=dump_ps)
+    pid = get_proper_pid(pid, jobid, use_container=use_container)
     if pid == -1:
         logger.warning('process id was not identified before payload finished - will not launch memory monitor')
         return "", pid
@@ -110,8 +105,7 @@ def get_memory_monitor_setup(pid: int, pgrp: int, jobid: int, workdir: str, comm
     return cmd, pid
 
 
-def get_proper_pid(pid: int, pgrp: int, jobid: int, command: str = "", transformation: str = "", outdata: str = "",
-                   use_container: bool = True, dump_ps: bool = False) -> int:
+def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
     """
     Return a pid from the proper source to be used with the memory monitor.
 
@@ -122,11 +116,7 @@ def get_proper_pid(pid: int, pgrp: int, jobid: int, command: str = "", transform
     launch the memory monitor as it is not needed any longer.
 
     :param pid: process id (int)
-    :param pgrp: process group id (int)
-    :param jobid: job id (int)
-    :param command: payload command (str)
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (str)
-    :param outdata: list of output fspec object (list)
+    :param jobid: job id (str)
     :param use_container: optional boolean (bool)
     :return: pid (int).
     """
@@ -137,18 +127,6 @@ def get_proper_pid(pid: int, pgrp: int, jobid: int, command: str = "", transform
     if not is_process_running(pid):
         return -1
 
-    #_cmd = get_trf_command(command, transformation=transformation)
-    # get ps info using group id
-    ps = get_ps_info(pgrp)
-    #if dump_ps:
-    #    logger.debug('ps:\n%s' % ps)
-    #logger.debug('ps:\n%s' % ps)
-    #logger.debug('attempting to identify pid for Singularity (v.3) runtime parent process')
-    #_pid = get_pid_for_command(ps, command="Singularity runtime parent")
-    #if _pid:
-    #    logger.debug('discovered pid=%d for process \"%s\"' % (_pid, _cmd))
-    #    return _pid
-
     i = 0
     imax = 120
     while i < imax:
@@ -156,7 +134,7 @@ def get_proper_pid(pid: int, pgrp: int, jobid: int, command: str = "", transform
         if not is_process_running(pid):
             return -1
 
-        ps = get_ps_info(pgrp)
+        ps = get_ps_info()
         logger.debug(f'ps:\n{ps}')
 
         # lookup the process id using ps aux
@@ -186,11 +164,10 @@ def get_proper_pid(pid: int, pgrp: int, jobid: int, command: str = "", transform
     return pid
 
 
-def get_ps_info(pgrp: int, whoami: str = "", options: str = "axfo pid,user,args") -> str:
+def get_ps_info(whoami: str = "", options: str = "axfo pid,user,args") -> str:
     """
     Return ps info for the given user.
 
-    :param pgrp: process group id (int)
     :param whoami: user name (str)
     :return: ps aux for given user (str).
     """
@@ -202,12 +179,12 @@ def get_ps_info(pgrp: int, whoami: str = "", options: str = "axfo pid,user,args"
     return stdout
 
 
-def get_pid_for_jobid(ps: str, jobid: int) -> int:
+def get_pid_for_jobid(ps: str, jobid: str) -> int:
     """
     Return the process id for the ps entry that contains the job id.
 
     :param ps: ps command output (str)
-    :param jobid: PanDA job id (int)
+    :param jobid: PanDA job id (str)
     :return: pid (int) or None if no such process.
     """
     pid = None
@@ -267,39 +244,6 @@ def get_pid_for_trf(ps: str, transformation: str, outdata: Any) -> int:
                 break
     else:
         logger.debug(f'pid not found in ps output for trf={transformation}')
-
-    return pid
-
-
-def get_pid_for_command(ps: str, command: str = "python pilot3/pilot.py") -> int:
-    """
-    Return the process id for the given command and user.
-
-    The function returns 0 in case pid could not be found.
-    If no command is specified, the function looks for the "python pilot3/pilot.py" command in the ps output.
-
-    :param ps: ps command output (str)
-    :param command: command string expected to be in ps output (str)
-    :return: pid (int) or None if no such process.
-    """
-    pid = None
-    found = None
-
-    for line in ps.split('\n'):
-        if command in line:
-            found = line
-            break
-    if found:
-        # extract pid
-        _pid = search(r'(\d+) ', found)
-        try:
-            pid = int(_pid.group(1))
-        except Exception as exc:
-            logger.warning(f'pid has wrong type: {exc}')
-        else:
-            logger.debug(f'extracted pid {pid} from ps output: {found}')
-    else:
-        logger.debug(f'command not found in ps output: {command}')
 
     return pid
 

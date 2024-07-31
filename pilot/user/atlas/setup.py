@@ -19,52 +19,64 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
+import glob
+import logging
 import os
 import re
-import glob
+
 from datetime import datetime
 from time import sleep
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import NoSoftwareDir
-from pilot.info import infosys
+from pilot.common.exception import (
+    FileHandlingFailure,
+    NoSoftwareDir,
+    NoSuchFile
+)
+from pilot.info import (
+    infosys,
+    JobData
+)
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
-from pilot.util.filehandling import read_file, write_file, copy, head
+from pilot.util.filehandling import (
+    copy,
+    head,
+    read_file,
+    write_file,
+)
 from pilot.util.https import download_file
 from .metadata import get_file_info_from_xml
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def get_file_system_root_path():
+def get_file_system_root_path() -> str:
     """
     Return the root path of the local file system.
+
     The function returns "/cvmfs" or "/(some path)/cvmfs" in case the expected file system root path is not
     where it usually is (e.g. on an HPC). A site can set the base path by exporting ATLAS_SW_BASE.
 
-    :return: path (string)
+    :return: path (str).
     """
-
     return os.environ.get('ATLAS_SW_BASE', '/cvmfs')
 
 
-def should_pilot_prepare_setup(noexecstrcnv, jobpars, imagename=None):
+def should_pilot_prepare_setup(noexecstrcnv: bool, jobpars: str, imagename: str = None) -> bool:
     """
     Determine whether the pilot should add the setup to the payload command or not.
+
     The pilot will not add asetup if jobPars already contain the information (i.e. it was set by the payload creator).
     If noExecStrCnv is set, then jobPars is expected to contain asetup.sh + options
     If a stand-alone container / user defined container is used, pilot should not prepare asetup.
 
-    :param noexecstrcnv: boolean.
-    :param jobpars: job parameters (string).
-    :param imagename: container image (string).
-    :return: boolean.
+    :param noexecstrcnv: noExecStrCnv value (bool)
+    :param jobpars: job parameters (str)
+    :param imagename: container image (str)
+    :return: True if the pilot should prepare the setup (bool).
     """
-
     if imagename:
         return False
 
@@ -82,15 +94,15 @@ def should_pilot_prepare_setup(noexecstrcnv, jobpars, imagename=None):
     return preparesetup
 
 
-def get_alrb_export(add_if=False):
+def get_alrb_export(add_if: bool = False) -> str:
     """
     Return the export command for the ALRB path if it exists.
+
     If the path does not exist, return empty string.
 
-    :param add_if: Boolean. True means that an if statement will be placed around the export.
-    :return: export command
+    :param add_if: True means that an if statement will be placed around the export (bool)
+    :return: export command (str).
     """
-
     path = f"{get_file_system_root_path()}/atlas.cern.ch/repo"
     cmd = f"export ATLAS_LOCAL_ROOT_BASE={path}/ATLASLocalRootBase;" if os.path.exists(path) else ""
 
@@ -101,20 +113,21 @@ def get_alrb_export(add_if=False):
     return cmd
 
 
-def get_asetup(asetup=True, alrb=False, add_if=False):
+def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) -> str:
     """
-    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE
+    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
+
     Only include the actual asetup script if asetup=True. This is not needed if the jobPars contain the payload command
     but the pilot still needs to add the exports and the atlasLocalSetup.
 
-    :param asetup: Boolean. True value means that the pilot should include the asetup command.
-    :param alrb: Boolean. True value means that the function should return special setup used with ALRB and containers.
-    :param add_if: Boolean. True means that an if statement will be placed around the export.
+    :param asetup: True value means that the pilot should include the asetup command (bool)
+    :param alrb: True value means that the function should return special setup used with ALRB and containers (bool)
+    :param add_if: True means that an if statement will be placed around the export (bool)
+    :return: source <path>/asetup.sh (str).
     :raises: NoSoftwareDir if appdir does not exist.
-    :return: source <path>/asetup.sh (string).
     """
-
     cmd = ""
+
     alrb_cmd = get_alrb_export(add_if=add_if)
     if alrb_cmd != "":
         cmd = alrb_cmd
@@ -138,21 +151,17 @@ def get_asetup(asetup=True, alrb=False, add_if=False):
             if asetup:
                 cmd = f"source {appdir}/scripts/asetup.sh"
 
-    # do not return an empty string
-    #if not cmd:
-    #    cmd = "what?"
-
     return cmd
 
 
-def get_asetup_options(release, homepackage):
+def get_asetup_options(release: str, homepackage: str) -> str:
     """
     Determine the proper asetup options.
-    :param release: ATLAS release string.
-    :param homepackage: ATLAS homePackage string.
-    :return: asetup options (string).
-    """
 
+    :param release: ATLAS release (str)
+    :param homepackage: ATLAS homePackage (str)
+    :return: asetup options (str).
+    """
     asetupopt = []
     release = re.sub('^Atlas-', '', release)
 
@@ -165,9 +174,7 @@ def get_asetup_options(release, homepackage):
                 asetupopt.append(release)
         if _homepackage != '':
             asetupopt += _homepackage.split('_')
-
     else:
-
         asetupopt += homepackage.split('/')
         if release not in homepackage and release not in asetupopt:
             asetupopt.append(release)
@@ -183,26 +190,24 @@ def get_asetup_options(release, homepackage):
     return ','.join(asetupopt)
 
 
-def is_standard_atlas_job(release):
+def is_standard_atlas_job(release: str) -> bool:
     """
-    Is it a standard ATLAS job?
+    Check if it is a standard ATLAS job.
+
     A job is a standard ATLAS job if the release string begins with 'Atlas-'.
 
-    :param release: Release value (string).
-    :return: Boolean. Returns True if standard ATLAS job.
+    :param release: release value (str)
+    :return: returns True if standard ATLAS job (bool).
     """
-
     return release.startswith('Atlas-')
 
 
-def set_inds(dataset):
+def set_inds(dataset: str):
     """
     Set the INDS environmental variable used by runAthena.
 
-    :param dataset: dataset for input files (realDatasetsIn) (string).
-    :return:
+    :param dataset: dataset for input files (realDatasetsIn) (str).
     """
-
     inds = ""
     _dataset = dataset.split(',')
     for ds in _dataset:
@@ -217,16 +222,16 @@ def set_inds(dataset):
         os.environ['INDS'] = 'unknown'
 
 
-def get_analysis_trf(transform, workdir):
+def get_analysis_trf(transform: str, workdir: str) -> tuple[int, str, str]:
     """
     Prepare to download the user analysis transform with curl.
+
     The function will verify the download location from a known list of hosts.
 
-    :param transform: full trf path (url) (string).
-    :param workdir: work directory (string).
-    :return: exit code (int), diagnostics (string), transform_name (string)
+    :param transform: full trf path (url) (str)
+    :param workdir: work directory (str)
+    :return: exit code (int), diagnostics (str), transform_name (str) (tuple).
     """
-
     ec = 0
     diagnostics = ""
 
@@ -238,7 +243,7 @@ def get_analysis_trf(transform, workdir):
         for jobopt_file in jobopt_files:
             try:
                 copy(jobopt_file, workdir)
-            except Exception as error:
+            except (FileHandlingFailure, NoSuchFile) as error:
                 logger.error(f"could not copy file {jobopt_file} to {workdir} : {error}")
 
     if '/' in transform:
@@ -287,9 +292,9 @@ def get_analysis_trf(transform, workdir):
     return ec, diagnostics, transform_name
 
 
-def download_transform(url: str, transform_name: str, workdir: str) -> (bool, str):
+def download_transform(url: str, transform_name: str, workdir: str) -> tuple[bool, str]:
     """
-    Download the transform from the given url
+    Download the transform from the given url.
 
     :param url: download URL with path to transform (str)
     :param transform_name: trf name (str)
@@ -309,10 +314,11 @@ def download_transform(url: str, transform_name: str, workdir: str) -> (bool, st
         try:
             copy(source_path, path)
             status = True
-        except Exception as error:
+        except (FileHandlingFailure, NoSuchFile) as error:
             diagnostics = f"failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
             status = False
+
         return status, diagnostics
 
     # try to download the trf a maximum of 3 times
@@ -334,9 +340,9 @@ def download_transform(url: str, transform_name: str, workdir: str) -> (bool, st
             if trial == max_trials:
                 logger.fatal(f'could not download transform: {transform_name}')
                 break
-            else:
-                logger.info("will try again after 60 s")
-                sleep(60)
+
+            logger.info("will try again after 60 s")
+            sleep(60)
         else:
             logger.info(f"transform {transform_name} downloaded")
             break
@@ -345,15 +351,15 @@ def download_transform(url: str, transform_name: str, workdir: str) -> (bool, st
     return status, diagnostics
 
 
-def download_transform_old(url, transform_name, workdir):
+def download_transform_old(url: str, transform_name: str, workdir: str) -> tuple[bool, str]:
     """
-    Download the transform from the given url
-    :param url: download URL with path to transform (string).
-    :param transform_name: trf name (string).
-    :param workdir: work directory (string).
-    :return:
-    """
+    Download the transform from the given url.
 
+    :param url: download URL with path to transform (str)
+    :param transform_name: trf name (str)
+    :param workdir: work directory (str)
+    :return: status (boolean), diagnostics (str) (tuple).
+    """
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
@@ -370,7 +376,7 @@ def download_transform_old(url, transform_name, workdir):
         try:
             copy(source_path, path)
             status = True
-        except Exception as error:
+        except (FileHandlingFailure, NoSuchFile) as error:
             status = False
             diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
@@ -390,9 +396,9 @@ def download_transform_old(url, transform_name, workdir):
                 logger.fatal(f'could not download transform: {stdout}')
                 status = False
                 break
-            else:
-                logger.info("will try again after 60 s")
-                sleep(60)
+
+            logger.info("will try again after 60 s")
+            sleep(60)
         else:
             logger.info(f"curl command returned: {stdout}")
             status = True
@@ -402,17 +408,17 @@ def download_transform_old(url, transform_name, workdir):
     return status, diagnostics
 
 
-def get_valid_base_urls(order=None):
+def get_valid_base_urls(order: str = None) -> list:
     """
     Return a list of valid base URLs from where the user analysis transform may be downloaded from.
+
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param order: order (string).
+    :param order: order (str)
     :return: valid base URLs (list).
     """
-
     valid_base_urls = []
     _valid_base_urls = ["http://www.usatlas.bnl.gov",
                         "https://www.usatlas.bnl.gov",
@@ -433,20 +439,19 @@ def get_valid_base_urls(order=None):
     return valid_base_urls
 
 
-def get_payload_environment_variables(cmd, job_id, task_id, attempt_nr, processing_type, site_name, analysis_job):
+def get_payload_environment_variables(cmd: str, job_id: str, task_id: str, attempt_nr: int, processing_type: str, site_name: str, analysis_job: bool) -> list:
     """
     Return an array with enviroment variables needed by the payload.
 
-    :param cmd: payload execution command (string).
-    :param job_id: PanDA job id (string).
-    :param task_id: PanDA task id (string).
-    :param attempt_nr: PanDA job attempt number (int).
-    :param processing_type: processing type (string).
-    :param site_name: site name (string).
-    :param analysis_job: True for user analysis jobs, False otherwise (boolean).
-    :return: list of environment variables needed by the payload.
+    :param cmd: payload execution command (str)
+    :param job_id: PanDA job id (str)
+    :param task_id: PanDA task id (str)
+    :param attempt_nr: PanDA job attempt number (int)
+    :param processing_type: processing type (str)
+    :param site_name: site name (str)
+    :param analysis_job: True for user analysis jobs, False otherwise (bool)
+    :return: environment variables needed by the payload (list).
     """
-
     variables = []
     variables.append(f'export PANDA_RESOURCE=\'{site_name}\';')
     variables.append(f'export FRONTIER_ID="[{task_id}_{job_id}]";')
@@ -480,17 +485,18 @@ def get_payload_environment_variables(cmd, job_id, task_id, attempt_nr, processi
     return variables
 
 
-def get_writetoinput_filenames(writetofile):
+def get_writetoinput_filenames(writetofile: str) -> list:
     """
     Extract the writeToFile file name(s).
+
     writeToFile='tmpin_mc16_13TeV.blah:AOD.15760866._000002.pool.root.1'
     -> return 'tmpin_mc16_13TeV.blah'
 
-    :param writetofile: string containing file name information.
-    :return: list of file names
+    :param writetofile: string containing file name information (str)
+    :return: file names (list).
     """
-
     filenames = []
+
     entries = writetofile.split('^')
     for entry in entries:
         if ':' in entry:
@@ -501,21 +507,21 @@ def get_writetoinput_filenames(writetofile):
     return filenames
 
 
-def replace_lfns_with_turls(cmd, workdir, filename, infiles, writetofile=""):
+def replace_lfns_with_turls(cmd: str, workdir: str, filename: str, infiles: list, writetofile: str = "") -> str:
     """
     Replace all LFNs with full TURLs in the payload execution command.
 
     This function is used with direct access in production jobs. Athena requires a full TURL instead of LFN.
 
-    :param cmd: payload execution command (string).
-    :param workdir: location of metadata file (string).
-    :param filename: metadata file name (string).
-    :param infiles: list of input files.
-    :param writetofile:
-    :return: updated cmd (string).
+    :param cmd: payload execution command (str)
+    :param workdir: location of metadata file (str)
+    :param filename: metadata file name (str)
+    :param infiles: input files (list)
+    :param writetofile: writeToFile file name (str)
+    :return: updated cmd (str).
     """
-
     turl_dictionary = {}  # { LFN: TURL, ..}
+
     path = os.path.join(workdir, filename)
     if os.path.exists(path):
         file_info_dictionary = get_file_info_from_xml(workdir, filename=filename)
@@ -541,9 +547,8 @@ def replace_lfns_with_turls(cmd, workdir, filename, infiles, writetofile=""):
                         if fname in turl_dictionary:
                             turl = turl_dictionary[fname]
                             new_lines.append(turl)
-                        else:
-                            if line:
-                                new_lines.append(line)
+                        elif line:
+                            new_lines.append(line)
 
                     lines = '\n'.join(new_lines)
                     if lines:
@@ -556,18 +561,19 @@ def replace_lfns_with_turls(cmd, workdir, filename, infiles, writetofile=""):
     return cmd
 
 
-def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})'):
+def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})') -> float:
     """
     Extract a more precise end of setup time from the payload stdout.
+
     File path should be verified already.
     The function will look for a date time in the beginning of the payload stdout with the given pattern.
 
-    :param path: path to payload stdout (string).
-    :param pattern: regular expression pattern (raw string).
+    :param path: path to payload stdout (str)
+    :param pattern: regular expression pattern (str)
     :return: time in seconds since epoch (float).
     """
-
     end_time = None
+
     head_list = head(path, count=50)
     time_string = find_pattern_in_list(head_list, pattern)
     if time_string:
@@ -577,50 +583,49 @@ def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2}
     return end_time
 
 
-def get_schedconfig_priority():
+def get_schedconfig_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM sources (list).
     """
-
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def get_queuedata_priority():
+def get_queuedata_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM sources (list).
     """
-
     return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
-def get_ddm_source_priority():
+def get_ddm_source_priority() -> list:
     """
     Return the prioritized list for the DDM sources.
+
     This list is used to determine which source to use for the DDM endpoints, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_storage_data().
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM sources (list).
     """
-
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def should_verify_setup(job):
+def should_verify_setup(job: JobData) -> bool:
     """
-    Should the setup command be verified?
+    Check if the setup command should be verified.
 
-    :param job: job object.
-    :return: Boolean.
+    :param job: job object (JobData)
+    :return: True if the setup command should be verified, False otherwise (bool).
     """
-
-    return True if job.swrelease and job.swrelease != 'NULL' else False
+    return job.swrelease and job.swrelease != 'NULL'

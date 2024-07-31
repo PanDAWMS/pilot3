@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 """Functions related to memory monitoring and other utilities."""
 
@@ -25,32 +25,30 @@ import logging
 import os
 import time
 from re import search
-from typing import Any
 
 # from pilot.info import infosys
-from .setup import get_asetup
+from pilot.common.exception import (
+    FileHandlingFailure,
+    NoSuchFile
+)
+from pilot.info.jobdata import JobData
 from pilot.util.container import execute
-from pilot.util.filehandling import read_json, copy, write_json, remove
+from pilot.util.filehandling import (
+    read_json,
+    copy,
+    write_json,
+    remove
+)
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import is_process_running
 from pilot.util.psutils import get_command_by_pid
 
+from .setup import get_asetup
+
 logger = logging.getLogger(__name__)
 
 
-def get_prefetcher_setup(job: Any) -> str:
-    """
-    Return the proper setup for the Prefetcher.
-
-    Prefetcher is a tool used with the Event Streaming Service.
-
-    :param job: job object (Any)
-    :return: setup string for the Prefetcher command (str).
-    """
-    return ""
-
-
-def get_network_monitor_setup(setup: str, job: Any) -> str:
+def get_network_monitor_setup(setup: str, job: JobData) -> str:
     """
     Return the proper setup for the network monitor.
 
@@ -58,59 +56,61 @@ def get_network_monitor_setup(setup: str, job: Any) -> str:
     therefore be provided. The network monitor setup is prepended to it.
 
     :param setup: payload setup string (str)
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: network monitor setup string (str).
     """
+    if setup or job:  # to bypass pylint warning
+        pass
+
     return ""
 
 
-def get_memory_monitor_summary_filename(selector=None):
+def get_memory_monitor_summary_filename(selector: bool = None) -> str:
     """
     Return the name for the memory monitor summary file.
 
-    :param selector: special conditions flag (boolean).
-    :return: File name (string).
+    :param selector: special conditions flag (bool)
+    :return: file name (str).
     """
-
     name = "memory_monitor_summary.json"
+
     if selector:
         name += '_snapshot'
 
     return name
 
 
-def get_memory_monitor_output_filename(suffix='txt'):
+def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
     """
     Return the filename of the memory monitor text output file.
 
-    :return: File name (string).
+    :param suffix: file suffix (str)
+    :return: file name (str).
     """
-
     return f"memory_monitor_output.{suffix}"
 
 
-def get_memory_monitor_setup(pid, pgrp, jobid, workdir, command, setup="", use_container=True, transformation="", outdata=None, dump_ps=False):
+def get_memory_monitor_setup(pid: int,
+                             jobid: str,
+                             workdir: str,
+                             setup: str = "",
+                             use_container: bool = True) -> tuple[str, int]:
     """
     Return the proper setup for the memory monitor.
+
     If the payload release is provided, the memory monitor can be setup with the same release. Until early 2018, the
     memory monitor was still located in the release area. After many problems with the memory monitor, it was decided
     to use a fixed version for the setup. Currently, release 21.0.22 is used.
 
-    :param pid: job process id (int).
-    :param pgrp: process group id (int).
-    :param jobid: job id (int).
-    :param workdir: job work directory (string).
-    :param command: payload command (string).
-    :param setup: optional setup in case asetup can not be used, which uses infosys (string).
-    :param use_container: optional boolean.
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (string).
-    :param outdata: optional list of output fspec objects (list).
-    :param dump_ps: should ps output be dumped when identifying prmon process? (Boolean).
-    :return: job work directory (string), pid for process inside container (int).
+    :param pid: job process id (int)
+    :param jobid: job id (str)
+    :param workdir: job work directory (str)
+    :param setup: optional setup in case asetup can not be used, which uses infosys (str)
+    :param use_container: optional boolean (bool)
+    :return: job work directory (str), pid for process inside container (int) (tuple).
     """
-
     # try to get the pid from a pid.txt file which might be created by a container_script
-    pid = get_proper_pid(pid, pgrp, jobid, command=command, transformation=transformation, outdata=outdata, use_container=use_container, dump_ps=dump_ps)
+    pid = get_proper_pid(pid, jobid, use_container=use_container)
     if pid == -1:
         logger.warning('process id was not identified before payload finished - will not launch memory monitor')
         return "", pid
@@ -121,34 +121,29 @@ def get_memory_monitor_setup(pid, pgrp, jobid, workdir, command, setup="", use_c
     if not setup.endswith(';'):
         setup += ';'
 
-    cmd = "prmon"
     interval = 60
-    options = f" --pid {pid} --filename {get_memory_monitor_output_filename()} " \
-              f"--json-summary {get_memory_monitor_summary_filename()} --interval {interval}"
-    cmd = "cd " + workdir + ";" + setup + cmd + options
+    options = f" --pid {pid} --filename {get_memory_monitor_output_filename()}" \
+              f" --json-summary {get_memory_monitor_summary_filename()} --interval {interval}"
+    cmd = "cd " + workdir + ";" + setup + "prmon" + options
 
     return cmd, pid
 
 
-def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", use_container=True, dump_ps=False):
+def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
     """
     Return a pid from the proper source to be used with the memory monitor.
+
     The given pid comes from Popen(), but in the case containers are used, the pid should instead come from a ps aux
     lookup.
     If the main process has finished before the proper pid has been identified (it will take time if the payload is
     running inside a container), then this function will abort and return -1. The called should handle this and not
     launch the memory monitor as it is not needed any longer.
 
-    :param pid: process id (int).
-    :param pgrp: process group id (int).
-    :param jobid: job id (int).
-    :param command: payload command (string).
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (string).
-    :param outdata: list of output fspec object (list).
-    :param use_container: optional boolean.
+    :param pid: process id (int)
+    :param jobid: job id (str)
+    :param use_container: optional boolean (bool)
     :return: pid (int).
     """
-
     if not use_container:
         return pid
 
@@ -163,7 +158,7 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
         if not is_process_running(pid):
             return -1
 
-        ps = get_ps_info(pgrp)
+        ps = get_ps_info()
 
         # lookup the process id using ps aux
         logger.debug(f'attempting to identify pid from job id ({jobid})')
@@ -189,32 +184,30 @@ def get_proper_pid(pid, pgrp, jobid, command="", transformation="", outdata="", 
     return pid
 
 
-def get_ps_info(pgrp, whoami=None, options='axfo pid,user,args'):
+def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
     """
     Return ps info for the given user.
 
-    :param pgrp: process group id (int).
-    :param whoami: user name (string).
-    :return: ps aux for given user (string).
+    :param whoami: username (str)
+    :param options: ps options (str)
+    :return: ps aux for given user (str).
     """
-
     if not whoami:
         whoami = os.getuid()
 
-    exit_code, stdout, stderr = execute(f"ps -u {whoami} {options}")
+    _, stdout, _ = execute(f"ps -u {whoami} {options}")
 
     return stdout
 
 
-def get_pid_for_jobid(ps, jobid):
+def get_pid_for_jobid(ps: str, jobid: str) -> int or None:
     """
     Return the process id for the ps entry that contains the job id.
 
-    :param ps: ps command output (string).
-    :param jobid: PanDA job id (int).
-    :return: pid (int) or None if no such process.
+    :param ps: ps command output (str)
+    :param jobid: PanDA job id (str).
+    :return: pid (int) or None if no such process (int or None).
     """
-
     pid = None
 
     for line in ps.split('\n'):
@@ -223,7 +216,7 @@ def get_pid_for_jobid(ps, jobid):
             _pid = search(r'(\d+) ', line)
             try:
                 pid = int(_pid.group(1))
-            except Exception as exc:
+            except (TypeError, ValueError, AttributeError) as exc:
                 logger.warning(f'pid has wrong type: {exc}')
             else:
                 logger.debug(f'extracted pid {pid} from ps output')
@@ -232,17 +225,16 @@ def get_pid_for_jobid(ps, jobid):
     return pid
 
 
-def get_pid_for_trf(ps, transformation, outdata):
+def get_pid_for_trf(ps: str, transformation: str, outdata: list) -> int or None:
     """
     Return the process id for the given command and user.
     Note: function returns 0 in case pid could not be found.
 
-    :param ps: ps command output (string).
-    :param transformation: transformation name, e.g. Sim_tf.py (String).
-    :param outdata: fspec objects (list).
-    :return: pid (int) or None if no such process.
+    :param ps: ps command output (str)
+    :param transformation: transformation name, e.g. Sim_tf.py (str)
+    :param outdata: fspec objects (list)
+    :return: pid (int) or None if no such process (int or None).
     """
-
     pid = None
     candidates = []
 
@@ -263,7 +255,7 @@ def get_pid_for_trf(ps, transformation, outdata):
                     _pid = search(r'(\d+) ', line)
                     try:
                         pid = int(_pid.group(1))
-                    except Exception as exc:
+                    except (ValueError, TypeError, AttributeError) as exc:
                         logger.warning(f'pid has wrong type: {exc}')
                     else:
                         logger.debug(f'extracted pid {pid} from ps output')
@@ -276,56 +268,23 @@ def get_pid_for_trf(ps, transformation, outdata):
     return pid
 
 
-def get_pid_for_command(ps, command="python pilot3/pilot.py"):
-    """
-    Return the process id for the given command and user.
-    The function returns 0 in case pid could not be found.
-    If no command is specified, the function looks for the "python pilot3/pilot.py" command in the ps output.
-
-    :param ps: ps command output (string).
-    :param command: command string expected to be in ps output (string).
-    :return: pid (int) or None if no such process.
-    """
-
-    pid = None
-    found = None
-
-    for line in ps.split('\n'):
-        if command in line:
-            found = line
-            break
-    if found:
-        # extract pid
-        _pid = search(r'(\d+) ', found)
-        try:
-            pid = int(_pid.group(1))
-        except Exception as exc:
-            logger.warning(f'pid has wrong type: {exc}')
-        else:
-            logger.debug(f'extracted pid {pid} from ps output: {found}')
-    else:
-        logger.debug(f'command not found in ps output: {command}')
-
-    return pid
-
-
-def get_trf_command(command, transformation=""):
+def get_trf_command(command: str, transformation: str = "") -> str:
     """
     Return the last command in the full payload command string.
+
     Note: this function returns the last command in job.command which is only set for containers.
 
-    :param command: full payload command (string).
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (string).
-    :return: trf command (string).
+    :param command: full payload command (str)
+    :param transformation: optional name of transformation, e.g. Sim_tf.py (str)
+    :return: trf command (str).
     """
-
     payload_command = ""
+
     if command:
         if not transformation:
             payload_command = command.split(';')[-2]
-        else:
-            if transformation in command:
-                payload_command = command[command.find(transformation):]
+        elif transformation in command:
+            payload_command = command[command.find(transformation):]
 
         # clean-up the command, remove '-signs and any trailing ;
         payload_command = payload_command.strip()
@@ -335,19 +294,19 @@ def get_trf_command(command, transformation=""):
     return payload_command
 
 
-def get_memory_monitor_info_path(workdir, allowtxtfile=False):
+def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> str:
     """
-    Find the proper path to the utility info file
+    Find the proper path to the utility info file.
+
     Priority order:
        1. JSON summary file from workdir
        2. JSON summary file from pilot initdir
        3. Text output file from workdir (if allowtxtfile is True)
 
-    :param workdir: relevant work directory (string).
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
-    :return: path (string).
+    :param workdir: relevant work directory (str)
+    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
+    :return: path (str).
     """
-
     pilot_initdir = os.environ.get('PILOT_HOME', '')
     path = os.path.join(workdir, get_memory_monitor_summary_filename())
     init_path = os.path.join(pilot_initdir, get_memory_monitor_summary_filename())
@@ -367,16 +326,19 @@ def get_memory_monitor_info_path(workdir, allowtxtfile=False):
     return path
 
 
-def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
+def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str = "") -> dict:  # noqa: C901
     """
     Add the utility info to the node structure if available.
 
-    :param workdir: relevant work directory (string).
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
-    :param name: name of memory monitor (string).
-    :return: node structure (dictionary).
-    """
+    Note: allowtxtfile is not used for ATLAS.
 
+    :param workdir: relevant work directory (str)
+    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
+    :param name: name of memory monitor (str)
+    :return: node structure (dict).
+    """
+    if allowtxtfile:  # bypass pylint warning
+        pass
     node = {}
 
     # Get the values from the memory monitor file (json if it exists, otherwise the preliminary txt file)
@@ -408,7 +370,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
                 node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
                 node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
-            except Exception as exc:
+            except KeyError as exc:
                 logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
@@ -430,8 +392,8 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['rateWCHAR'] = summary_dictionary['Avg']['rateWCHAR']
                 node['rateRBYTES'] = summary_dictionary['Avg']['rateRBYTES']
                 node['rateWBYTES'] = summary_dictionary['Avg']['rateWBYTES']
-            except Exception:
-                logger.warning("standard memory fields were not found in memory monitor json (or json doesn't exist yet)")
+            except KeyError as exc:
+                logger.warning(f"standard memory fields were not found in memory monitor json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from memory monitor json")
         elif version == 'prmon':
@@ -444,7 +406,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['vmem']
                 node['avgSWAP'] = summary_dictionary['Avg']['swap']
                 node['avgPSS'] = summary_dictionary['Avg']['pss']
-            except Exception as exc:
+            except KeyError as exc:
                 logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
@@ -466,14 +428,14 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['rateWCHAR'] = summary_dictionary['Avg']['wchar']
                 node['rateRBYTES'] = summary_dictionary['Avg']['read_bytes']
                 node['rateWBYTES'] = summary_dictionary['Avg']['write_bytes']
-            except Exception:
-                logger.warning("standard memory fields were not found in prmon json (or json doesn't exist yet)")
+            except KeyError as exc:
+                logger.warning(f"standard memory fields were not found in prmon json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from prmon json")
             try:
                 node['GPU'] = summary_dictionary['HW']['gpu']
-            except Exception:
-                logger.warning("GPU info not found in prmon json")
+            except KeyError as exc:
+                logger.warning(f"GPU info not found in prmon json: {exc}")
             else:
                 logger.info("GPU info extracted from prmon json")
         else:
@@ -484,21 +446,22 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
     return node
 
 
-def get_max_memory_monitor_value(value, maxvalue, totalvalue):  # noqa: C90
+def get_max_memory_monitor_value(value: int, maxvalue: int, totalvalue: int) -> tuple[int, int, int]:
     """
     Return the max and total value (used by memory monitoring).
+
     Return an error code, 1, in case of value error.
 
-    :param value: value to be tested (integer).
-    :param maxvalue: current maximum value (integer).
-    :param totalvalue: total value (integer).
-    :return: exit code, maximum and total value (tuple of integers).
+    :param value: value to be tested (int)
+    :param maxvalue: current maximum value (int)
+    :param totalvalue: total value (int)
+    :return: exit code (int), maximum (int) and total value (int) (tuple).
     """
-
     ec = 0
+
     try:
         value_int = int(value)
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         logger.warning(f"exception caught: {exc}")
         ec = 1
     else:
@@ -509,20 +472,20 @@ def get_max_memory_monitor_value(value, maxvalue, totalvalue):  # noqa: C90
     return ec, maxvalue, totalvalue
 
 
-def convert_unicode_string(unicode_string):
+def convert_unicode_string(unicode_string: str) -> str or None:
     """
     Convert a unicode string into str.
 
-    :param unicode_string:
-    :return: string.
+    :param unicode_string: unicode string (str)
+    :return: string (str or None).
     """
-
     if unicode_string is not None:
         return str(unicode_string)
+
     return None
 
 
-def get_average_summary_dictionary_prmon(path):
+def get_average_summary_dictionary_prmon(path: str) -> dict:
     """
     Loop over the memory monitor output file and create the averaged summary dictionary.
 
@@ -535,25 +498,31 @@ def get_average_summary_dictionary_prmon(path):
     later in the function. This means that any change in the format such as new columns
     will be handled automatically.
 
-    :param path: path to memory monitor txt output file (string).
-    :return: summary dictionary.
+    :param path: path to memory monitor txt output file (str)
+    :return: summary dictionary (dict).
     """
-
     summary_dictionary = {}
 
     # get the raw memory monitor output, convert to dictionary
     dictionary = convert_text_file_to_dictionary(path)
-
     if dictionary:
         # Calculate averages and store all values
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
-        def filter_value(value):
+        def filter_value(value: str or None) -> bool:
             """ Inline function used to remove any string or None values from data. """
             if isinstance(value, str) or value is None:
                 return False
-            else:
-                return True
+
+            return True
+
+        def get_last_value(value_list: list) -> int or None:
+            """ Inline function used to get the last value in a list. """
+            value = None
+            if value_list:
+                value = value_list[-1]
+
+            return value
 
         keys = ['vmem', 'pss', 'rss', 'swap']
         values = {}
@@ -585,16 +554,15 @@ def get_average_summary_dictionary_prmon(path):
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = None) -> dict or None:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
-    :param path:
-    :param storejson: store dictionary on disk if True (boolean).
-    :param jobid: job id (string).
-    :return: prmon metadata (dictionary).
+    :param path: path to memory monitor txt output file (str)
+    :param storejson: store dictionary on disk if True (bool)
+    :param jobid: job id (str)
+    :return: prmon metadata (dict).
     """
-
     # get the raw memory monitor output, convert to dictionary
     dictionary = convert_text_file_to_dictionary(path)
 
@@ -615,24 +583,24 @@ def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
     return dictionary
 
 
-def convert_text_file_to_dictionary(path):
+def convert_text_file_to_dictionary(path: str) -> dict or None:
     """
     Convert row-column text file to dictionary.
+
     User first row identifiers as dictionary keys.
     Note: file must follow the convention:
         NAME1   NAME2   ..
         value1  value2  ..
         ..      ..      ..
 
-    :param path: path to file (string).
-    :return: dictionary.
+    :param path: path to file (str)
+    :return: dictionary (dict).
     """
-
     summary_keys = []  # to keep track of content
     header_locked = False
     dictionary = {}
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = convert_unicode_string(line)
             if line != "":
@@ -659,21 +627,13 @@ def convert_text_file_to_dictionary(path):
     return dictionary
 
 
-def get_last_value(value_list):
-    value = None
-    if value_list:
-        value = value_list[-1]
-    return value
-
-
-def get_average_summary_dictionary(path):
+def get_average_summary_dictionary(path: str) -> dict:
     """
     Loop over the memory monitor output file and create the averaged summary dictionary.
 
-    :param path: path to memory monitor txt output file (string).
-    :return: summary dictionary.
+    :param path: path to memory monitor txt output file (str)
+    :return: summary dictionary (dict).
     """
-
     maxvmem = -1
     maxrss = -1
     maxpss = -1
@@ -687,15 +647,13 @@ def get_average_summary_dictionary(path):
     totalpss = 0
     totalswap = 0
     n = 0
-    summary_dictionary = {}
-
     rchar = None
     wchar = None
     rbytes = None
     wbytes = None
 
     first = True
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             # Skip the first line
             if first:
@@ -722,9 +680,9 @@ def get_average_summary_dictionary(path):
                         wchar = None
                         rbytes = None
                         wbytes = None
-                except Exception:
+                except (ValueError, TypeError, IndexError) as exc:
                     logger.warning(f"unexpected format of utility output: {line} (expected format: Time, VMEM, PSS, "
-                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])")
+                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES]): {exc}")
                 else:
                     # Convert to int
                     ec1, maxvmem, totalvmem = get_max_memory_monitor_value(vmem, maxvmem, totalvmem)
@@ -757,7 +715,7 @@ def get_average_summary_dictionary(path):
     return summary_dictionary
 
 
-def get_memory_values(workdir, name=""):
+def get_memory_values(workdir: str, name: str = "") -> dict:
     """
     Find the values in the memory monitor output file.
 
@@ -769,11 +727,10 @@ def get_memory_values(workdir, name=""):
         "Avg":{"avgVMEM":19384236,"avgPSS":5023500,"avgRSS":6501489,"avgSwap":5964997},
         "Other":{"rchar":NN,"wchar":NN,"rbytes":NN,"wbytes":NN}}
 
-    :param workdir: relevant work directory (string).
-    :param name: name of memory monitor (string).
-    :return: memory values dictionary.
+    :param workdir: relevant work directory (str)
+    :param name: name of memory monitor (str)
+    :return: memory values dictionary (dict).
     """
-
     summary_dictionary = {}
 
     # Get the path to the proper memory info file (priority ordered)
@@ -792,27 +749,27 @@ def get_memory_values(workdir, name=""):
             else:
                 summary_dictionary = get_average_summary_dictionary(path)
             logger.debug(f'summary_dictionary={str(summary_dictionary)} (trf name={name})')
+    elif path == "":
+        logger.warning("filename not set for memory monitor output")
     else:
-        if path == "":
-            logger.warning("filename not set for memory monitor output")
-        else:
-            # Normally this means that the memory output file has not been produced yet
-            pass
+        # Normally this means that the memory output file has not been produced yet
+        pass
 
     return summary_dictionary
 
 
-def post_memory_monitor_action(job: Any):
+def post_memory_monitor_action(job: JobData):
     """
     Perform post action items for memory monitor.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
     counter = 0
     maxretry = 20
+
     while counter <= maxretry:
         if os.path.exists(path1):
             break
@@ -823,13 +780,13 @@ def post_memory_monitor_action(job: Any):
 
     try:
         copy(path1, path2)
-    except Exception as exc:
+    except (FileHandlingFailure, NoSuchFile) as exc:
         logger.warning(f'failed to copy memory monitor output: {exc}')
 
 
 def precleanup():
     """
-    Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
+    Do a pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
     """
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
