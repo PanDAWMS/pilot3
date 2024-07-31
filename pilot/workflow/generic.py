@@ -95,7 +95,7 @@ def interrupt(args: object, signum: int, frame: FrameType):
         try:
             if hasattr(args, 'sourcedir'):
                 rmtree(args.sourcedir)
-        except Exception as e:
+        except (TypeError, OSError) as e:
             logger.warning(e)
         logging.shutdown()
         kill_processes(getpid())
@@ -145,6 +145,7 @@ def run(args: object) -> Traces or None:
     :returns: traces object (Traces namedtuple or None)
     """
     logger.info('setting up signal handling')
+
     register_signals([signal.SIGINT,
                       signal.SIGTERM,
                       signal.SIGQUIT,

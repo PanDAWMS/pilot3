@@ -17,43 +17,54 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
-
-from __future__ import print_function  # Python 2, 2to3 complains about this
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 import functools
+import logging
 import signal
 import threading
 import traceback
 import queue
-from os import getpid
-from time import time
-from sys import stderr
+
 from collections import namedtuple
+from os import getpid
 from shutil import rmtree
+from sys import stderr
+from time import time
+from types import FrameType
 
 from pilot.common.exception import ExcThread
-from pilot.control import job, data, monitor
-from pilot.util.constants import SUCCESS, PILOT_KILL_SIGNAL, MAX_KILL_WAIT_TIME
-from pilot.util.processes import kill_processes, threads_aborted
+from pilot.control import (
+    data,
+    job,
+    monitor
+)
+from pilot.util.constants import (
+    MAX_KILL_WAIT_TIME,
+    SUCCESS,
+    PILOT_KILL_SIGNAL,
+)
+from pilot.util.processes import (
+    kill_processes,
+    threads_aborted
+)
 from pilot.util.timing import add_to_pilot_timing
 
-import logging
 logger = logging.getLogger(__name__)
+# Define Traces namedtuple at the module level
+Traces = namedtuple("Traces", ["pilot"])
 
 
-def interrupt(args, signum, frame):
+def interrupt(args: object, signum: int, frame: FrameType):
     """
     Interrupt function on the receiving end of kill signals.
     This function is forwarded any incoming signals (SIGINT, SIGTERM, etc) and will set abort_job which instructs
     the threads to abort the job.
 
-    :param args: pilot arguments.
-    :param signum: signal.
-    :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
-    :return:
+    :param args: pilot arguments (object)
+    :param signum: signal number (int)
+    :param frame: stack/execution frame pointing to the frame that was interrupted by the signal (FrameType).
     """
-
     sig = [v for v, k in list(signal.__dict__.items()) if k == signum][0]
     args.signal_counter += 1
 
@@ -66,9 +77,11 @@ def interrupt(args, signum, frame):
     if args.kill_time and current_time - args.kill_time > max_kill_wait_time:
         logger.warning('passed maximum waiting time after first kill signal - will commit suicide - farewell')
         try:
-            rmtree(args.sourcedir)
-        except Exception as e:
+            if hasattr(args, 'sourcedir'):
+                rmtree(args.sourcedir)
+        except (TypeError, OSError) as e:
             logger.warning(e)
+
         logging.shutdown()
         kill_processes(getpid())
 
@@ -85,17 +98,17 @@ def interrupt(args, signum, frame):
     args.job_aborted.wait()
 
 
-def run(args):
+def run(args: object) -> Traces or None:
     """
     Main execution function for the stage-in workflow.
 
     The function sets up the internal queues which handle the flow of jobs.
 
-    :param args: pilot arguments.
-    :returns: traces.
+    :param args: pilot arguments object (object)
+    :return: traces object (Traces namedtuple or None).
     """
-
     logger.info('setting up signal handling')
+
     signal.signal(signal.SIGINT, functools.partial(interrupt, args))
     signal.signal(signal.SIGTERM, functools.partial(interrupt, args))
     signal.signal(signal.SIGQUIT, functools.partial(interrupt, args))
@@ -129,11 +142,8 @@ def run(args):
     queues.completed_jobids = queue.Queue()
 
     logger.info('setting up tracing')
-    traces = namedtuple('traces', ['pilot'])
-    traces.pilot = {'state': SUCCESS,
-                    'nr_jobs': 0,
-                    'error_code': 0,
-                    'command': None}
+    # Initialize traces with default values
+    traces = Traces(pilot={"state": SUCCESS, "nr_jobs": 0, "error_code": 0, "command": None})
 
     # define the threads
     targets = {'job': job.control, 'data': data.control, 'monitor': monitor.control}
@@ -141,13 +151,13 @@ def run(args):
                          name=name) for name, target in list(targets.items())]
 
     logger.info('starting threads')
-    [thread.start() for thread in threads]
+    _ = [thread.start() for thread in threads]
 
     logger.info('waiting for interrupts')
 
-    thread_count = threading.activeCount()
+    thread_count = threading.active_count()
     try:
-        while threading.activeCount() > 1:
+        while threading.active_count() > 1:
             for thread in threads:
                 bucket = thread.get_bucket()
                 try:
@@ -155,14 +165,14 @@ def run(args):
                 except queue.Empty:
                     pass
                 else:
-                    exc_type, exc_obj, exc_trace = exc
+                    _, exc_obj, _ = exc
                     # deal with the exception
-                    print('received exception from bucket queue in generic workflow: %s' % exc_obj, file=stderr)
+                    print(f'received exception from bucket queue in generic workflow: {exc_obj}', file=stderr)
 
                 thread.join(0.1)
 
             abort = False
-            if thread_count != threading.activeCount():
+            if thread_count != threading.active_count():
                 # has all threads finished?
                 #abort = threads_aborted(abort_at=1)
                 abort = threads_aborted(caller='run')
