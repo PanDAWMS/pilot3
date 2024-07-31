@@ -809,3 +809,15 @@ def is_command_available(command: str):
     args = shlex.split(command)
 
     return os.access(args[0], os.X_OK)
+
+
+def is_kubernetes_resource() -> bool:
+    """
+    Determine if the pilot is running on a Kubernetes resource.
+
+    :return: True if running on Kubernetes, False otherwise (bool)
+    """
+    if os.environ.get('K8S_JOB_ID'):
+        return True
+    else:
+        return False
