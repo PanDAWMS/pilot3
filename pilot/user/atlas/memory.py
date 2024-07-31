@@ -23,9 +23,11 @@ import ast
 import logging
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.info.jobdata import JobData
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.config import config
 from pilot.util.processes import kill_processes
+
 from .utilities import get_memory_values
 
 logger = logging.getLogger(__name__)
@@ -41,14 +43,13 @@ def allow_memory_usage_verifications() -> bool:
     return True
 
 
-def get_ucore_scale_factor(job):
+def get_ucore_scale_factor(job: JobData) -> int:
     """
-    Get the correction/scale factor for SCORE/4CORE/nCORE jobs on UCORE queues/
+    Get the correction/scale factor for SCORE/4CORE/nCORE jobs on UCORE queues.
 
-    :param job: job object.
+    :param job: job object (JobData)
     :return: scale factor (int).
     """
-
     try:
         job_corecount = float(job.corecount)
     except (ValueError, TypeError) as exc:
@@ -116,13 +117,13 @@ def get_memory_limit(resource_type: str) -> int:
     return memory_limit
 
 
-def memory_usage(job: object, resource_type: str) -> (int, str):
+def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
-    :param job: job object (object)
+    :param job: job object (JobData)
     :param resource_type: resource type (str)
-    :return: exit code (int), diagnostics (str).
+    :return: exit code (int), diagnostics (str) (tuple).
     """
     exit_code = 0
     diagnostics = ""
@@ -171,10 +172,9 @@ def memory_usage(job: object, resource_type: str) -> (int, str):
                     else:
                         logger.info(f"max memory (maxPSS) used by the payload is within the allowed limit: "
                                     f"{maxpss_int} B (2 * maxRSS = {maxrss_int} B, memkillgrace = {job.infosys.queuedata.memkillgrace}%)")
+        elif maxrss in {0, "0"}:
+            logger.info("queuedata.maxrss set to 0 (no memory checks will be done)")
         else:
-            if maxrss == 0 or maxrss == "0":
-                logger.info("queuedata.maxrss set to 0 (no memory checks will be done)")
-            else:
-                logger.warning("queuedata.maxrss is not set")
+            logger.warning("queuedata.maxrss is not set")
 
     return exit_code, diagnostics

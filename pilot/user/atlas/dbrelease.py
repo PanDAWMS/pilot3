@@ -17,25 +17,32 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
+import logging
 import os
 import re
 import tarfile
-import logging
 
-from pilot.common.exception import FileHandlingFailure, PilotException
-from pilot.util.filehandling import write_file, mkdirs, rmdirs
+from pilot.common.exception import (
+    FileHandlingFailure,
+    PilotException
+)
+from pilot.util.filehandling import (
+    write_file,
+    mkdirs,
+    rmdirs
+)
 
 logger = logging.getLogger(__name__)
 
 
-def extract_version(name):
+def extract_version(name: str) -> str:
     """
     Try to extract the version from the DBRelease string.
 
-    :param name: DBRelease (string).
-    :return: version (string).
+    :param name: DBRelease (str)
+    :return: version (str).
     """
     version = ""
 
@@ -52,45 +59,41 @@ def extract_version(name):
     return version
 
 
-def get_dbrelease_version(jobpars):
+def get_dbrelease_version(jobpars: str) -> str:
     """
     Get the DBRelease version from the job parameters.
 
-    :param jobpars: job parameters (string).
-    :return: DBRelease version (string).
+    :param jobpars: job parameters (str)
+    :return: DBRelease version (str).
     """
-
     return extract_version(jobpars)
 
 
-def get_dbrelease_dir():
+def get_dbrelease_dir() -> str:
     """
     Return the proper DBRelease directory
 
-    :return: path to DBRelease (string).
+    :return: path to DBRelease (str).
     """
-
     path = os.path.join(os.environ.get('VO_ATLAS_SW_DIR', 'OSG_APP'), 'database/DBRelease')
     if path == "" or path.startswith('OSG_APP'):
         logger.warning("note: the DBRelease database directory is not available (will not attempt to skip DBRelease stage-in)")
+    elif os.path.exists(path):
+        logger.info(f"local DBRelease path verified: {path} (will attempt to skip DBRelease stage-in)")
     else:
-        if os.path.exists(path):
-            logger.info(f"local DBRelease path verified: {path} (will attempt to skip DBRelease stage-in)")
-        else:
-            logger.warning(f"note: local DBRelease path does not exist: {path} "
-                           f"(will not attempt to skip DBRelease stage-in)")
+        logger.warning(f"note: local DBRelease path does not exist: {path} "
+                       f"(will not attempt to skip DBRelease stage-in)")
 
     return path
 
 
-def is_dbrelease_available(version):
+def is_dbrelease_available(version: str) -> bool:
     """
     Check whether a given DBRelease file is already available.
 
-    :param version: DBRelease version (string).
-    :return: Boolean (True is DBRelease is locally available).
+    :param version: DBRelease version (str)
+    :return: True is DBRelease is locally available, False otherwise (bool).
     """
-
     status = False
 
     # do not proceed if
@@ -120,15 +123,14 @@ def is_dbrelease_available(version):
     return status
 
 
-def create_setup_file(version, path):
+def create_setup_file(version: str, path: str) -> bool:
     """
     Create the DBRelease setup file.
 
-    :param version: DBRelease version (string).
-    :param path: path to local DBReleases (string).
-    :return: Boolean (True if DBRelease setup file was successfully created).
+    :param version: DBRelease version (str)
+    :param path: path to local DBReleases (str)
+    :return: True if DBRelease setup file was successfully created, False otherwise (bool).
     """
-
     status = False
 
     # get the DBRelease directory
@@ -155,15 +157,14 @@ def create_setup_file(version, path):
     return status
 
 
-def create_dbrelease(version, path):
+def create_dbrelease(version: str, path: str) -> bool:
     """
     Create the DBRelease file only containing a setup file.
 
-    :param version: DBRelease version (string).
-    :param path: path to DBRelease (string).
-    :return: Boolean (True is DBRelease file was successfully created).
+    :param version: DBRelease version (str)
+    :param path: path to DBRelease (str)
+    :return: True is DBRelease file was successfully created, False otherwise (bool).
     """
-
     status = False
 
     # create the DBRelease and version directories
@@ -187,11 +188,7 @@ def create_dbrelease(version, path):
             filename = os.path.join(path, f"DBRelease-{version}.tar.gz")
             logger.info(f"creating file: {filename}")
             try:
-                tar = tarfile.open(filename, "w:gz")
-            except (IOError, OSError) as exc:
-                logger.warning(f"could not create DBRelease tar file: {exc}")
-            else:
-                if tar:
+                with tarfile.open(filename, "w:gz") as tar:
                     # add the setup file to the tar file
                     tar.add(f"{path}/DBRelease/{version}/{setup_filename}")
 
@@ -207,13 +204,10 @@ def create_dbrelease(version, path):
                         # add the symbolic link to the tar file
                         tar.add(_link)
 
-                        # done with the tar archive
-                        tar.close()
-
                         logger.info(f"created new DBRelease tar file: {filename}")
                         status = True
-                else:
-                    logger.warning("failed to open DBRelease tar file")
+            except OSError as exc:
+                logger.warning(f"could not create DBRelease tar file: {exc}")
 
             # clean up
             if rmdirs(dbrelease_path):
