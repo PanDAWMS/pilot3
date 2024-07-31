@@ -61,6 +61,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
 from pilot.info.jobdata import JobData
 
+from .auxiliary import is_kubernetes_resource
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
@@ -676,6 +677,14 @@ def add_error_codes(data: dict, job: JobData):
         data['pilotErrorDiag'] = pilot_error_diags[0]
     else:
         data['pilotErrorDiag'] = pilot_error_diag
+
+    # special case for SIGTERM failures on Kubernetes resources
+    if data.get('pilotErrorCode') == errors.SIGTERM:
+        if is_kubernetes_resource():
+            logger.warning('resetting SIGTERM error to PREEMPTION for Kubernetes resource')
+            data['pilotErrorCode'] = errors.PREEMPTION
+            data['pilotErrorDiag'] = errors.get_error_code(errors.PREEMPTION)
+
     data['transExitCode'] = job.transexitcode
     data['exeErrorCode'] = job.exeerrorcode
     data['exeErrorDiag'] = job.exeerrordiag
