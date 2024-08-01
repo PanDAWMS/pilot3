@@ -83,24 +83,16 @@ def do_use_container(**kwargs: dict) -> bool:
         # for user jobs, TRF option --containerImage must have been used, ie imagename must be set
         if job.imagename and job.imagename != 'NULL':
             use_container = True
-            logger.debug('job.imagename set -> use_container = True')
         elif not (job.platform or job.alrbuserplatform):
             use_container = False
-            logger.debug('not (job.platform or job.alrbuserplatform) -> use_container = False')
         else:
             queuedata = job.infosys.queuedata
             container_name = queuedata.container_type.get("pilot")
             if container_name:
                 use_container = True
-                logger.debug(f"container_name == \'{container_name}\' -> use_container = True")
-            else:
-                logger.debug('else -> use_container = False')
     elif copytool:
         # override for copytools - use a container for stage-in/out
         use_container = True
-        logger.debug('copytool -> use_container = False')
-    else:
-        logger.debug('not job -> use_container = False')
 
     return use_container
 
@@ -223,7 +215,6 @@ def extract_atlas_setup(asetup: str, swrelease: str) -> tuple[str, str]:
     :param swrelease: ATLAS release (str).
     :return: extracted asetup command (str), cleaned up full asetup command without asetup.sh (str) (tuple).
     """
-    logger.debug(f'swrelease={swrelease}')
     if not swrelease:
         return '', ''
 
@@ -256,8 +247,6 @@ def extract_full_atlas_setup(cmd: str, atlas_setup: str) -> tuple[str, str]:
     updated_cmds = []
     extracted_asetup = ""
 
-    logger.debug(f'cmd={cmd}, atlas_setup={atlas_setup}')
-
     if not atlas_setup:
         return extracted_asetup, cmd
 
@@ -272,7 +261,6 @@ def extract_full_atlas_setup(cmd: str, atlas_setup: str) -> tuple[str, str]:
     except AttributeError as exc:
         logger.warning(f'exception caught while extracting full atlas setup: {exc}')
         updated_cmd = cmd
-    logger.debug(f'updated payload setup command: {updated_cmd}')
 
     return extracted_asetup, updated_cmd
 
@@ -298,7 +286,6 @@ def update_alrb_setup(cmd: str, use_release_setup: str) -> str:
     except AttributeError as exc:
         logger.warning(f'exception caught while extracting full atlas setup: {exc}')
         updated_cmd = cmd
-    logger.debug(f'updated ALRB command: {updated_cmd}')
 
     return updated_cmd
 
@@ -321,7 +308,6 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
 
     #x509 = os.environ.get('X509_USER_PROXY', '')
     x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
-    logger.debug(f'using X509_USER_PROXY={x509}')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
         cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
@@ -747,8 +733,6 @@ def container_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         queuedata = infoservice.queuedata
 
     container_name = queuedata.container_type.get("pilot")  # resolve container name for user=pilot
-    logger.debug(f"resolved container_name from queuedata.container_type: {container_name}")
-
     if container_name in {'singularity', 'apptainer'}:
         logger.info("singularity/apptainer has been requested")
 
@@ -836,8 +820,8 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
 
     # Start the Bash script process with non-blocking I/O
     try:
-        with subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0) as process:
-            fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
+        process = subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
     except OSError as e:
         logger.warning(f"error starting subprocess: {e}")
         return exit_code, "", 0

@@ -516,7 +516,6 @@ def get_payload_command(job: JobData) -> str:
         diagnostics = ""
 
         try:
-            logger.debug('executing open_remote_files()')
             exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
             logger.warning(f'caught std exception: {exc}')
@@ -531,7 +530,7 @@ def get_payload_command(job: JobData) -> str:
                 logger.warning(f'base trace report does not exist ({path}) - '
                                f'input file traces should already have been sent')
             else:
-                process_remote_file_traces(path, job, not_opened_turls)
+                process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
 
             # fail the job if the remote files could not be verified
             if exitcode != 0:
