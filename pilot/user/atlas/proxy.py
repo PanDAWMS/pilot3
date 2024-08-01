@@ -110,18 +110,9 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
     else:
         envsetup = ''
 
-    # first try to use arcproxy since voms-proxy-info is not working properly on SL6
-    #  (memory issues on queues with limited memory)
-
     exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
-    if exit_code in (0, -1):
-        return exit_code, diagnostics
-    if exit_code == -1:
-        pass  # go to next test
-    else:
-        return 0, diagnostics
 
-    return 0, diagnostics
+    return exit_code, diagnostics
 
 
 def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
@@ -140,14 +131,6 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
 
     if test:
         return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
-        #return errors.NOVOMSPROXY, 'dummy test'
-
-    try:
-        logger.debug(f'proxy_id={proxy_id}')
-        logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
-        logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
-    except Exception as exc:
-        logger.debug(f'exc={exc}')
 
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
@@ -178,8 +161,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
     #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
     #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
     cmd = f"{envsetup}arcproxy -i subject"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-    logger.info(f'subject={stdout}')
+    _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
 
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
@@ -199,11 +181,6 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     logger.warning('cannot store validity ends from arcproxy in cache')
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-
-                #if proxy_id in verify_arcproxy.cache:
-                #    logger.debug('getting validity ends from arcproxy cache')
-                #else:
-                #    logger.debug('using validity ends from arcproxy (cache not available)')
                 endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
                 for proxyname, validity in list(zip(proxies, endtimes)):
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
@@ -214,14 +191,6 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
-                return exit_code, diagnostics
-            if exit_code == -1:  # skip to next proxy test
-                return exit_code, diagnostics
-            if exit_code == errors.NOVOMSPROXY:
-                return exit_code, diagnostics
-
-            logger.info("will try voms-proxy-info instead")
-            exit_code = -1
     else:
         logger.warning('command execution failed')
 
@@ -330,7 +299,7 @@ def verify_gridproxy(envsetup: str, limit: int) -> tuple[int, str]:
 
 def interpret_proxy_info(proxy_ec: int or Any, stdout: str, stderr: str, limit: int) -> tuple[int, str, int or None, int or None]:
     """
-    Interpret the output from arcproxy or voms-proxy-info.
+    Interpret the output from arcproxy.
 
     :param proxy_ec: exit code from proxy command (int)
     :param stdout: stdout from proxy command (str)
@@ -351,12 +320,13 @@ def interpret_proxy_info(proxy_ec: int or Any, stdout: str, stderr: str, limit: 
             logger.warning(f"skipping voms proxy check: {stdout}")
         # test for command errors
         elif "arcproxy: error while loading shared libraries" in stderr:
-            exitcode = -1
-            logger.warning('skipping arcproxy test')
+            diagnostics = stderr
+            logger.warning(diagnostics)
+            exitcode = errors.ARCPROXYLIBFAILURE
         elif "arcproxy:" in stdout:
             diagnostics = f"arcproxy failed: {stdout}"
             logger.warning(diagnostics)
-            exitcode = errors.GENERALERROR
+            exitcode = errors.ARCPROXYFAILURE
         else:
             # Analyze exit code / output
             diagnostics = f"voms proxy certificate check failure: {proxy_ec}, {stdout}"

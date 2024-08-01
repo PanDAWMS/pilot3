@@ -180,6 +180,8 @@ class ErrorCodes:
     CVMFSISNOTALIVE = 1377
     LSETUPTIMEDOUT = 1378
     PREEMPTION = 1379
+    ARCPROXYFAILURE = 1380
+    ARCPROXYLIBFAILURE = 1381
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -322,6 +324,8 @@ class ErrorCodes:
         CVMFSISNOTALIVE: "CVMFS is not responding",
         LSETUPTIMEDOUT: "Lsetup command timed out during remote file open",
         PREEMPTION: "Job was preempted",
+        ARCPROXYFAILURE: "General arcproxy failure",
+        ARCPROXYLIBFAILURE: "Arcproxy failure while loading shared libraries",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
