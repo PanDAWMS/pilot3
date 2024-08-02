@@ -1558,6 +1558,8 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         exit_code, diagnostics = userproxy.verify_proxy(test=False)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
+        if exit_code == errors.ARCPROXYLIBFAILURE:
+            logger.warning("currently ignoring arcproxy library failure")
         if exit_code in {errors.NOPROXY, errors.NOVOMSPROXY, errors.CERTIFICATEHASEXPIRED}:
             logger.warning(diagnostics)
             return False
@@ -1577,25 +1579,13 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
 
     maximum_getjob_requests = 60 if harvester else max_getjob_requests  # 1 s apart (if harvester)
     if getjob_requests > int(maximum_getjob_requests):
-        logger.warning(f'reached maximum number of getjob requests ({maximum_getjob_requests}) -- will abort pilot')
-        # use singleton:
-        # instruct the pilot to wrap up quickly
-        os.environ['PILOT_WRAP_UP'] = 'QUICKLY'
-        return False
+        return wrap_up_quickly(f'reached maximum number of getjob requests ({maximum_getjob_requests}) -- will abort pilot')
 
     if timefloor == 0 and jobnumber > 0:
-        logger.warning("since timefloor is set to 0, pilot was only allowed to run one job")
-        # use singleton:
-        # instruct the pilot to wrap up quickly
-        os.environ['PILOT_WRAP_UP'] = 'QUICKLY'
-        return False
+        return wrap_up_quickly("since timefloor is set to 0, pilot was only allowed to run one job")
 
     if (currenttime - starttime > timefloor) and jobnumber > 0:
-        logger.warning(f"the pilot has run out of time (timefloor={timefloor} has been passed)")
-        # use singleton:
-        # instruct the pilot to wrap up quickly
-        os.environ['PILOT_WRAP_UP'] = 'QUICKLY'
-        return False
+        return wrap_up_quickly(f"the pilot has run out of time (timefloor={timefloor} has been passed)")
 
     # timefloor not relevant for the first job
     if jobnumber > 0:
@@ -1605,10 +1595,8 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         # unless it's the first job (which is preplaced in the init dir), instruct Harvester to place another job
         # in the init dir
         logger.info('asking Harvester for another job')
-        try:
-            request_new_jobs()
-        except Exception as e:
-            logger.warning(f'failed to request new jobs from Harvester: {e}')
+        status = request_new_jobs()
+        if not status:
             return False
 
     if os.environ.get('SERVER_UPDATE', '') == SERVER_UPDATE_UPDATING:
@@ -1617,6 +1605,20 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
 
     os.environ['SERVER_UPDATE'] = SERVER_UPDATE_NOT_DONE
     return True
+
+
+def wrap_up_quickly(message: str) -> bool:
+    """
+    Wrap up quickly.
+
+    Helper function to reduce complexity of proceed_with_getjob().
+
+    :param message: message to log (str)
+    :return: False.
+    """
+    logger.warning(message)
+    os.environ['PILOT_WRAP_UP'] = 'QUICKLY'
+    return False
 
 
 def get_job_definition_from_file(path: str, harvester: bool, pod: bool) -> dict:
@@ -3165,7 +3167,10 @@ def download_new_proxy(role: str = 'production', proxy_type: str = '', workdir: 
     ec, _, new_x509 = user.get_and_verify_proxy(x509, voms_role=voms_role, proxy_type=proxy_type, workdir=workdir)
     if ec != 0:  # do not return non-zero exit code if only download fails
         logger.warning('failed to download/verify new proxy')
-        exit_code = errors.CERTIFICATEHASEXPIRED if ec == errors.CERTIFICATEHASEXPIRED else errors.NOVOMSPROXY
+        if ec == errors.ARCPROXYLIBFAILURE:
+            logger.warning("currently ignoring arcproxy library failure")
+        else:
+            exit_code = errors.CERTIFICATEHASEXPIRED if ec == errors.CERTIFICATEHASEXPIRED else errors.NOVOMSPROXY
     elif new_x509 and new_x509 != x509 and 'unified' in new_x509 and os.path.exists(new_x509):
         os.environ['X509_UNIFIED_DISPATCH'] = new_x509
         logger.debug(f'set X509_UNIFIED_DISPATCH to {new_x509}')
