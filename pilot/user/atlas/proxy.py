@@ -110,9 +110,7 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
     else:
         envsetup = ''
 
-    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
-
-    return exit_code, diagnostics
+    return verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)  # exit_code, diagnostics
 
 
 def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
@@ -191,6 +189,10 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
+            if exit_code == errors.ARCPROXYLIBFAILURE:
+                logger.warning("currenly ignoring arcproxy library failure")
+                exit_code = 0
+                diagnostics = ""
     else:
         logger.warning('command execution failed')
 
