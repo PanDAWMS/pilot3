@@ -221,7 +221,7 @@ class StagingClient:
         """
         number = 1
         maxnumber = 10
-        self.logger.info(f'{label} list of replicas: (max {maxnumber})')
+        self.logger.debug(f'{label} list of replicas: (max {maxnumber})')
         for pfn, xdat in replicas:
             self.logger.debug(f"{number}. "
                               f"lfn={pfn}, "
