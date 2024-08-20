@@ -799,7 +799,7 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
         _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         _asetup = fix_asetup(_asetup)
         command += _asetup
-        command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c CentOS7'
+        command += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c el9'
 
     logger.debug(f'container command: {command}')
 
