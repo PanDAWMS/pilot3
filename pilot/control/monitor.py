@@ -51,7 +51,7 @@ from pilot.util.features import MachineFeatures
 from pilot.util.heartbeat import update_pilot_heartbeat
 from pilot.util.https import (
     get_local_oidc_token_info,
-    refresh_oidc_token
+    update_local_oidc_token_info
 )
 from pilot.util.queuehandling import (
     abort_jobs_in_queues,
@@ -201,25 +201,6 @@ def get_oidc_check_time() -> int or None:
         token_check = None
 
     return token_check
-
-
-def update_local_oidc_token_info(url: str, port: int):
-    """
-    Update the local OIDC token info.
-
-    :param url: URL (str)
-    :param port: port number (int).
-    """
-    auth_token, auth_origin = get_local_oidc_token_info()
-    if auth_token and auth_origin:
-        logger.debug('updating OIDC token info')
-        status = refresh_oidc_token(auth_token, auth_origin, url, port)
-        if not status:
-            logger.warning('failed to refresh OIDC token')
-        else:
-            logger.debug('OIDC token has been refreshed')
-    else:
-        logger.debug('no OIDC token info to update')  # will never be printed due to the earlier check in the caller
 
 
 def run_shutdowntime_minute_check(time_since_start: int) -> bool:

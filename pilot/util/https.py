@@ -67,6 +67,7 @@ from .constants import get_pilot_version
 from .container import execute
 from .filehandling import (
     read_file,
+    rename,
     write_file,
 )
 
@@ -494,14 +495,14 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: str, job: JobData = None, ipv: str = 'IPv6') -> dict:
+def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6') -> dict:
     """
     Send the update to the server using the given function and data.
 
     :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (str)
     :param data: data (dict)
     :param url: server url (str)
-    :param port: server port (str)
+    :param port: server port (int)
     :param job: job object (JobData)
     :param ipv: internet protocol version, IPv4 or IPv6 (str)
     :return: server response (dict).
@@ -596,14 +597,14 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     return res
 
 
-def get_panda_server(url: str, port: str, update_server: bool = True) -> str:
+def get_panda_server(url: str, port: int, update_server: bool = True) -> str:
     """
     Get the URL for the PanDA server.
 
     The URL will be randomized if the server can be contacted (otherwise fixed).
 
     :param url: URL string, if set in pilot option (port not included) (str)
-    :param port: port number, if set in pilot option (str)
+    :param port: port number, if set in pilot option (int)
     :param update_server: True if the server can be contacted, False otherwise (bool)
     :return: full URL (either from pilot options or from config file) (str).
     """
@@ -690,12 +691,12 @@ def add_error_codes(data: dict, job: JobData):
     data['exeErrorDiag'] = job.exeerrordiag
 
 
-def get_server_command(url: str, port: str, cmd: str = 'getJob') -> str:
+def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
     """
     Prepare the getJob server command.
 
     :param url: PanDA server URL (str)
-    :param port: PanDA server port (str)
+    :param port: PanDA server port (int)
     :param cmd: command (str)
     :return: full server command (str).
     """
@@ -1034,14 +1035,14 @@ def hide_info(txt, removeme):
     return txt.replace(removeme, '********')
 
 
-def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -> bool:
+def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
     """
     Refresh the OIDC token.
 
     :param auth_token: token name (str)
     :param auth_origin: token origin (str)
     :param url: server URL (str)
-    :param port: server port (str)
+    :param port: server port (int)
     :return: True if success, False otherwise (bool).
     """
     status = False
@@ -1073,18 +1074,21 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: str) -
 
     content = download_file(server_command, headers=headers)
     if content:
-        status = handle_file_content(content)
+        status = handle_file_content(content, auth_token)
     else:
         logger.warning(f'failed to download data from \"{url}\" resource')
 
     return status
 
 
-def handle_file_content(content: bytes or str) -> bool:
+def handle_file_content(content: bytes or str, auth_token: str) -> bool:
     """
     Handle the content of the downloaded file.
 
+    The original token is overwritten with the new token.
+
     :param content: file content (bytes or str)
+    :param auth_token: token name (str)
     :return: True if success, False otherwise (bool).
     """
     status = False
@@ -1092,7 +1096,7 @@ def handle_file_content(content: bytes or str) -> bool:
     # define the path if it does not exist already
     path = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
     if path is None:
-        path = os.path.join(os.environ.get('PILOT_HOME'), 'refreshed_token')
+        path = os.path.join(os.environ.get('PILOT_HOME'), 'tmp_refreshed_token')
 
     if isinstance(content, bytes):
         content = content.decode('utf-8')
@@ -1117,8 +1121,31 @@ def handle_file_content(content: bytes or str) -> bool:
             except IOError as exc:
                 logger.warning(f'failed to write data to file {path}: {exc}')
             else:
-                logger.info(f'saved token data in file {path}, length={len(content) / 1024.:.1f} kB')
-                os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = path
-                status = True
+                # proceed with renaming the refreshed token to that of the original one (i.e. overwrite)
+                status = rename(path, auth_token)
+                if status:
+                    logger.info(f'saved token data in file {path}, length={len(content) / 1024.:.1f} kB')
+                    os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = auth_token
+                else:
+                    logger.warning(f'failed to rename {path} to {auth_token}')
 
     return status
+
+
+def update_local_oidc_token_info(url: str, port: int):
+    """
+    Update the local OIDC token info.
+
+    :param url: URL (str)
+    :param port: port number (int).
+    """
+    auth_token, auth_origin = get_local_oidc_token_info()
+    if auth_token and auth_origin:
+        logger.debug('updating OIDC token info')
+        status = refresh_oidc_token(auth_token, auth_origin, url, port)
+        if not status:
+            logger.warning('failed to refresh OIDC token')
+        else:
+            logger.debug('OIDC token has been refreshed')
+    else:
+        logger.debug('no OIDC token info to update')

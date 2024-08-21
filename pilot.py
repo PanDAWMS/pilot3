@@ -72,6 +72,7 @@ from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
+    update_local_oidc_token_info
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
@@ -115,6 +116,9 @@ def main() -> int:
     if args.use_https:
         https_setup(args, get_pilot_version())
     args.amq = None
+
+    # update the OIDC token if necessary
+    update_local_oidc_token_info(args.url, args.port)
 
     # let the server know that the worker has started
     if args.update_server:
