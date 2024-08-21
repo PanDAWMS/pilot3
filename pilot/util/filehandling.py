@@ -1376,3 +1376,23 @@ def rename_xrdlog(name: str):
                 logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
         else:
             logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
+
+
+def rename(from_name: str, to_name: str) -> bool:
+    """
+    Rename a file from one name to another.
+
+    :param from_name: The original name of the file (str)
+    :param to_name: The new name of the file (str)
+    :return: True if the operation was successful, False otherwise (bool).
+    """
+    status = False
+    try:
+        os.rename(from_name, to_name)
+        status = True
+    except FileNotFoundError as exc:
+        logger.warning(f"file not found: {exc}")
+    except IOError as exc:
+        logger.warning(f"an error occurred while processing the file: {exc}")
+
+    return status
