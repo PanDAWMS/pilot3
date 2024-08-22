@@ -28,8 +28,11 @@ from datetime import datetime
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
-from pilot.util.filehandling import copy, head
-
+from pilot.util.filehandling import (
+    copy,
+    head,
+    read_base_urls
+)
 import logging
 logger = logging.getLogger(__name__)
 
@@ -130,6 +133,12 @@ def get_valid_base_urls(order: str = None) -> list:
     for base_url in base_urls:
         valid_base_urls.append(f"http://{base_url}")
         valid_base_urls.append(f"https://{base_url}")
+
+    # add further URLs in case baseurls.txt file exist (URLs specified with option --baseurls)
+    urls = read_base_urls()
+    if urls:
+        for url in urls:
+            valid_base_urls.append(url)
 
     if order:
         valid_base_urls = [order] + [url for url in valid_base_urls if url != order]

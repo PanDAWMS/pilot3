@@ -62,6 +62,7 @@ from pilot.util.cvmfs import (
 from pilot.util.filehandling import (
     get_pilot_work_dir,
     mkdirs,
+    store_base_urls
 )
 from pilot.util.harvester import (
     is_harvester_mode,
@@ -364,14 +365,19 @@ def get_args() -> Any:
         required=False,  # From v 2.2.1 the site name is internally set
         help="OBSOLETE: site name (e.g., AGLT2_TEST)",
     )
-
-    # graciously stop pilot process after hard limit
     arg_parser.add_argument(
         "-j",
         "--joblabel",
         dest="job_label",
         default="ptest",
         help="Job prod/source label (default: ptest)",
+    )
+    arg_parser.add_argument(
+        "-g",
+        "--baseurls",
+        dest="baseurls",
+        default="",
+        help="Comma separated list of base URLs for validation of trf download",
     )
 
     # pilot version tag; PR or RC
@@ -945,6 +951,10 @@ if __name__ == "__main__":
     # store T0 time stamp
     add_to_pilot_timing("0", PILOT_START_TIME, time.time(), args)
     add_to_pilot_timing("1", PILOT_MULTIJOB_START_TIME, time.time(), args)
+
+    # store base URLs in a file if set
+    if args.baseurls:
+        store_base_urls(args.baseurls)
 
     # if requested by the wrapper via a pilot option, create the main pilot workdir and cd into it
     args.sourcedir = getcwd()  # get_pilot_source_dir()
