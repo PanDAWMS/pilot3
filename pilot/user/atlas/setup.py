@@ -419,22 +419,21 @@ def get_valid_base_urls(order: str = None) -> list:
     :param order: order (str)
     :return: valid base URLs (list).
     """
+    base_urls = [
+        "www.usatlas.bnl.gov",
+        "pandaserver.cern.ch",
+        "atlpan.web.cern.ch/atlpan",
+        "classis01.roma1.infn.it",
+        "atlas-install.roma1.infn.it"
+    ]
+
     valid_base_urls = []
-    _valid_base_urls = ["http://www.usatlas.bnl.gov",
-                        "https://www.usatlas.bnl.gov",
-                        "http://pandaserver.cern.ch",
-                        "http://atlpan.web.cern.ch/atlpan",
-                        "https://atlpan.web.cern.ch/atlpan",
-                        "http://classis01.roma1.infn.it",
-                        "http://atlas-install.roma1.infn.it"]
+    for base_url in base_urls:
+        valid_base_urls.append(f"http://{base_url}")
+        valid_base_urls.append(f"https://{base_url}")
 
     if order:
-        valid_base_urls.append(order)
-        for url in _valid_base_urls:
-            if url != order:
-                valid_base_urls.append(url)
-    else:
-        valid_base_urls = _valid_base_urls
+        valid_base_urls = [order] + [url for url in valid_base_urls if url != order]
 
     return valid_base_urls
 

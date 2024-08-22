@@ -109,28 +109,30 @@ def get_analysis_trf(transform, workdir):
     return ec, diagnostics, transform_name
 
 
-def get_valid_base_urls(order=None):
+def get_valid_base_urls(order: str = None) -> list:
     """
     Return a list of valid base URLs from where the user analysis transform may be downloaded from.
+
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param order: order (string).
+    :param order: order (str)
     :return: valid base URLs (list).
     """
+    base_urls = [
+        "storage.googleapis.com/drp-us-central1-containers",
+        "pandaserver-doma.cern.ch",
+        "pandaserver.cern.ch"
+    ]
 
     valid_base_urls = []
-    _valid_base_urls = ["https://storage.googleapis.com/drp-us-central1-containers",
-                        "http://pandaserver-doma.cern.ch:25080/trf/user"]
+    for base_url in base_urls:
+        valid_base_urls.append(f"http://{base_url}")
+        valid_base_urls.append(f"https://{base_url}")
 
     if order:
-        valid_base_urls.append(order)
-        for url in _valid_base_urls:
-            if url != order:
-                valid_base_urls.append(url)
-    else:
-        valid_base_urls = _valid_base_urls
+        valid_base_urls = [order] + [url for url in valid_base_urls if url != order]
 
     return valid_base_urls
 
