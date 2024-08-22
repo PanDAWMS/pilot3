@@ -164,8 +164,8 @@ def main() -> int:
     )
     logger.debug(f'PILOT_RUCIO_SITENAME={os.environ.get("PILOT_RUCIO_SITENAME")}')
 
-    # os.environ['RUCIO_ACCOUNT'] = 'atlpilo2'
-    # logger.warning(f"enforcing RUCIO_ACCOUNT={os.environ.get('RUCIO_ACCOUNT')}")
+    #os.environ['RUCIO_ACCOUNT'] = 'atlpilo1'
+    #logger.warning(f"enforcing RUCIO_ACCOUNT={os.environ.get('RUCIO_ACCOUNT')}")
 
     # store the site name as set with a pilot option
     environ[

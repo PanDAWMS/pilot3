@@ -481,6 +481,11 @@ def get_payload_environment_variables(cmd: str, job_id: str, task_id: str, attem
     else:
         variables.append(f'export RUCIO_APPID=\'{processing_type}\';')
     variables.append(f"export RUCIO_ACCOUNT='{os.environ.get('RUCIO_ACCOUNT', 'pilot')}';")
+    #if analysis_job:
+    #    variables.append(f"export RUCIO_ACCOUNT=atlpilo2;")
+    #    logger.warning(f"enforcing RUCIO_ACCOUNT=atlpilo2 in payload")
+    #else:
+    #    variables.append(f"export RUCIO_ACCOUNT='{os.environ.get('RUCIO_ACCOUNT', 'pilot')}';")
 
     return variables
 
