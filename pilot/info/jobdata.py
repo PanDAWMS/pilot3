@@ -146,37 +146,37 @@ class JobData(BaseData):
     usecontainer = False           # boolean, True if a container is to be used for the payload
 
     # from job definition
-    attemptnr = 0                  # job attempt number
-    destinationdblock = ""         ## to be moved to FileSpec (job.outdata)
-    datasetin = ""                 ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-    debug = False                  # debug mode, when True, pilot will send debug info back to the server
-    debug_command = ''             # debug command (can be defined on the task side)
-    produserid = ""                # the user DN (added to trace report)
-    jobdefinitionid = ""           # the job definition id (added to trace report)
-    infilesguids = ""              #
-    indata = []                    # list of `FileSpec` objects for input files (aggregated inFiles, ddmEndPointIn, scopeIn, filesizeIn, etc)
-    outdata = []                   # list of `FileSpec` objects for output files
-    logdata = []                   # list of `FileSpec` objects for log file(s)
+    attemptnr = 0                        # job attempt number
+    destinationdblock = ""          ## to be moved to FileSpec (job.outdata)
+    datasetin = ""                        ## TO BE DEPRECATED: moved to FileSpec (job.indata)
+    debug = False                       # debug mode, when True, pilot will send debug info back to the server
+    debug_command = ''            # debug command (can be defined on the task side)
+    produserid = ""                     # the user DN (added to trace report)
+    jobdefinitionid = ""               # the job definition id (added to trace report)
+    infilesguids = ""                    # guids for input files
+    indata = []                             # list of `FileSpec` objects for input files (aggregated inFiles, ddmEndPointIn, scopeIn, filesizeIn, etc)
+    outdata = []                          # list of `FileSpec` objects for output files
+    logdata = []                          # list of `FileSpec` objects for log file(s)
     # preprocess = {u'args': u'preprocess', u'command': u'echo'}
     # postprocess = {u'args': u'postprocess', u'command': u'echo'}
-    preprocess = {}                # preprocess dictionary with command to execute before payload, {'command': '..', 'args': '..'}
-    postprocess = {}               # postprocess dictionary with command to execute after payload, {'command': '..', 'args': '..'}
-    coprocess = {}                 # coprocess dictionary with command to execute during payload, {'command': '..', 'args': '..'}
+    preprocess = {}                    # preprocess dictionary with command to execute before payload, {'command': '..', 'args': '..'}
+    postprocess = {}                  # postprocess dictionary with command to execute after payload, {'command': '..', 'args': '..'}
+    coprocess = {}                     # coprocess dictionary with command to execute during payload, {'command': '..', 'args': '..'}
     # coprocess = {u'args': u'coprocess', u'command': u'echo'}
     containeroptions = {}          #
-    use_vp = False                 # True for VP jobs
-    maxwalltime = 0                # maxWalltime in s
-    dask_scheduler_ip = ''         # enhanced job definition for Dask jobs
+    use_vp = False                    # True for VP jobs
+    maxwalltime = 0                 # maxWalltime in s
+    dask_scheduler_ip = ''        # enhanced job definition for Dask jobs
     jupyter_session_ip = ''        # enhanced job definition for Dask jobs
     minramcount = 0                # minimum number of RAM required by the payload
-
+    altstageout = None            # alternative stage-out method, on, off, force
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
-    homepackage = ""               #
-    jobsetid = ""                  # job set id
-    noexecstrcnv = None            # server instruction to the pilot if it should take payload setup from job parameters
-    swrelease = ""                 # software release string
-    writetofile = ""               #
+    homepackage = ""              # home package for TRF
+    jobsetid = ""                        # job set id
+    noexecstrcnv = None        # server instruction to the pilot if it should take payload setup from job parameters
+    swrelease = ""                    # software release string
+    writetofile = ""                    #
 
     # cmtconfig encoded info
     alrbuserplatform = ""          # ALRB_USER_PLATFORM encoded in platform/cmtconfig value
@@ -195,7 +195,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
-                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip'],
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
@@ -532,6 +532,7 @@ class JobData(BaseData):
             'dask_scheduler_ip': 'scheduler_ip',
             'jupyter_session_ip': 'session_ip',
             'minramcount': 'minRamCount',
+            'altstageout': 'altStageOut'
         } if use_kmap else {}
 
         self._load_data(data, kmap)
