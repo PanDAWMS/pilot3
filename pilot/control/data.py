@@ -909,7 +909,7 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             # create the trace report
             trace_report = create_trace_report(job, label=label)
 
-            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir)
+            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir, altstageout=job.altstageout)
             kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job,
                       'output_dir': args.output_dir, 'catchall': job.infosys.queuedata.catchall,
                       'rucio_host': args.rucio_host}  #, mode='stage-out')
