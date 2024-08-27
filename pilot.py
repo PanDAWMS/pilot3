@@ -952,10 +952,6 @@ if __name__ == "__main__":
     add_to_pilot_timing("0", PILOT_START_TIME, time.time(), args)
     add_to_pilot_timing("1", PILOT_MULTIJOB_START_TIME, time.time(), args)
 
-    # store base URLs in a file if set
-    if args.baseurls:
-        store_base_urls(args.baseurls)
-
     # if requested by the wrapper via a pilot option, create the main pilot workdir and cd into it
     args.sourcedir = getcwd()  # get_pilot_source_dir()
 
@@ -972,6 +968,10 @@ if __name__ == "__main__":
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()
+
+    # store base URLs in a file if set
+    if args.baseurls:
+        store_base_urls(args.baseurls)
 
     # execute main function
     trace = main()

@@ -1446,7 +1446,7 @@ def read_base_urls() -> list:
         with open(path, "r", encoding="utf-8") as f:
             # read the base URLs from the file
             # the URL list is a comma separated string on a single line
-            _baseurls = f.read().strip
+            _baseurls = f.read().strip()
             # convert the string to a list
             baseurls = _baseurls.split(",")
     except IOError as exc:
