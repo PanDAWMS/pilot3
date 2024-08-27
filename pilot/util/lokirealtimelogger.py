@@ -29,13 +29,15 @@ import os
 import queue
 import threading
 import time
+from typing import Any
 import requests
+
 
 logger = logging.getLogger(__name__)
 
 
 class PilotLokiLoggerFormatter:
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> dict:
         """
         Logging format function to convert the logging record to a dict format.
 
@@ -87,13 +89,13 @@ class PilotLokiLoggerHandler(logging.Handler):
 
     def __init__(
         self,
-        url,
-        label_keys=None,
-        timeout=10,
-        compressed=True,
-        name='pilot',
-        formatter=PilotLokiLoggerFormatter(),
-        verbose=False
+        url: str,
+        label_keys: list = None,
+        timeout: int = 10,
+        compressed: bool = True,
+        name: str = 'pilot',
+        formatter: Any = PilotLokiLoggerFormatter(),
+        verbose: bool = False
     ):
         """
         Default Loki logging handler init function.
@@ -125,7 +127,7 @@ class PilotLokiLoggerHandler(logging.Handler):
         self._thread = threading.Thread(target=self._runner, daemon=True)
         self._thread.start()
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord):
         """
         Override the logging.hander emit function to handle logging messages.
 
@@ -134,7 +136,7 @@ class PilotLokiLoggerHandler(logging.Handler):
         msg = self.formatter.format(record)
         self.queue.put(msg)
 
-    def _sleep(self, timeout=10):
+    def _sleep(self, timeout: int = 10):
         """
         A sleep function which can be interrupted.
 
@@ -153,11 +155,11 @@ class PilotLokiLoggerHandler(logging.Handler):
         self._graceful_stop.set()
         self._flush()
 
-    def _send(self, data):
+    def _send(self, data: str):
         """
         Send the data to the Loki service.
 
-        :param data (dict): The stream data.
+        :param data (str): The stream data is string of a dictionary.
                      The format is a dict {"streams": [{"stream": {"label1": "value1"},
                                                         "values": [{"timestamp", "message"},
                                                                    {"timestamp", "message"}
@@ -186,7 +188,7 @@ class PilotLokiLoggerHandler(logging.Handler):
             if response:
                 response.close()
 
-    def format_stream_messages(self, msgs):
+    def format_stream_messages(self, msgs: list) -> str:
         """
         Format stream messages.
 
@@ -265,7 +267,7 @@ class PilotLokiLoggerHandler(logging.Handler):
             self._sleep(self.timeout)
 
 
-def setup_loki_handler(name):
+def setup_loki_handler(name: str) -> logging.Handler:
     """
     Setup the Loki logger handler.
 
