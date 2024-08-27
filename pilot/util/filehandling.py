@@ -1438,6 +1438,10 @@ def read_base_urls() -> list:
     baseurls = []
     filename = get_baseurls_filename()
     path = os.path.join(os.environ.get("PILOT_HOME"), filename)
+    if not os.path.exists(path):
+        logger.info(f"base URLs file {path} does not exist (will use static list for TRF download)")
+        return baseurls
+
     try:
         with open(path, "r", encoding="utf-8") as f:
             # read the base URLs from the file
