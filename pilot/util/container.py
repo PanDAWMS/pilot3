@@ -26,6 +26,7 @@ import subprocess
 import logging
 import re
 import shlex
+import signal
 import threading
 
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
@@ -314,6 +315,7 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
     :return: containerised executable (list or None), diagnostics (str).
     """
     job = kwargs.get('job')
+    logger.debug(f'containerising executable called for exe={executable}')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
@@ -362,3 +364,96 @@ def obscure_token(cmd: str) -> str:
         cmd = ''
 
     return cmd
+
+
+def execute_command_with_timeout2(command, timeout=30):
+    """Executes a command with a timeout.
+
+    Args:
+        command: The command to execute as a list of strings.
+        timeout: The maximum execution time in seconds.
+
+    Returns:
+        A tuple containing the return code of the command and the output.
+    """
+
+    # convert to list if necessary
+    _command = shlex.split(command) if isinstance(command, str) else command
+    process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def timeout_handler(signum, frame):
+        logger.warning(f"command timed out after {timeout} seconds (cmd={command})")
+        process.send_signal(signal.SIGTERM)
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout)
+
+    try:
+        output, _ = process.communicate()
+        return_code = process.returncode
+    except KeyboardInterrupt:
+        logger.warning("command interrupted")
+        process.send_signal(signal.SIGTERM)
+        return -1, None
+    finally:
+        signal.alarm(0)  # Disable the alarm to prevent unexpected behavior
+
+    return return_code, output.decode()
+
+
+def execute_command_with_timeout(command, timeout=30):
+    """Executes a command with a timeout.
+
+    Args:
+        command: The command to execute as a list of strings.
+        timeout: The maximum execution time in seconds.
+
+    Returns:
+        A tuple containing the return code of the command and the output.
+    """
+
+    result = [None, None]  # Store the result (return code, output)
+    # convert to list if necessary
+    _command = shlex.split(command) if isinstance(command, str) else command
+
+    def _execute_command():
+        logger.info(f"executing command: {command}")
+        process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        def timeout_handler(signum, frame):
+            logger.warning(f"command timed out after {timeout} seconds.")
+            process.send_signal(signal.SIGTERM)
+
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout)
+        logger.debug('setup signal')
+
+        try:
+            output, errors = process.communicate()
+            return_code = process.returncode
+            result[0] = return_code
+            result[1] = output.decode()
+        except KeyboardInterrupt:
+            logger.warning("Command interrupted.")
+            process.send_signal(signal.SIGTERM)
+            result[0] = -1
+        except Exception as e:
+            logger.warning(f"An exception occurred while executing the command: {e}")
+        finally:
+            logger.debug(f"gdb debug command finished with exit code: {return_code}, output: {result[1]}")
+            signal.alarm(0)  # Disable the alarm to prevent unexpected behavior
+
+    # Create a thread to execute the command
+    thread = threading.Thread(target=_execute_command)
+    thread.start()
+    logger.debug('thread started')
+
+    # Wait for the thread to finish or time out
+    thread.join(timeout)
+    logger.debug('thread joined')
+
+    if thread.is_alive():
+        logger.info(f"Command timed out after {timeout} seconds.")
+        thread.join()  # Wait for the thread to finish
+
+    return result[0], result[1]

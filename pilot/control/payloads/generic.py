@@ -809,7 +809,8 @@ class Executor:
         # should the setup be verified? (user defined)
         verify_setup = self.should_verify_setup()
         if verify_setup:
-            logger.debug(f"extracted setup to be verified:\n\n{self.__job.setup}")
+            logger.info(f"extracted setup to be verified:\n\n{self.__job.setup}")
+            logger.warning('setup verification will lead to some repeated messages next, before the payload is executed')
             try:
                 _cmd = self.__job.setup
                 stdout_filename = os.path.join(self.__job.workdir, "setup.stdout")
@@ -1102,7 +1103,6 @@ class Executor:
             # Handle errors, such as process not found
             logger.warning(f"Error sending signal to/waiting for process {pid}: {exc}")
             return None
-
 
 #        try:
 #            # Send SIGUSR1 signal to the process

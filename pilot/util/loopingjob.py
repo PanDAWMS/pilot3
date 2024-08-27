@@ -34,7 +34,11 @@ from pilot.util.auxiliary import (
     locate_core_file
 )
 from pilot.util.config import config
-from pilot.util.container import execute  #, execute_command
+from pilot.util.container import (
+    execute,
+    execute_command_with_timeout,
+    #, execute_command
+)
 from pilot.util.filehandling import (
     remove_files,
     find_latest_modified_file,
@@ -106,6 +110,7 @@ def looping_job(job: Any, montime: Any) -> (int, str):
             currenttime = int(time.time())
             hours, minutes, seconds = convert_seconds_to_hours_minutes_seconds(currenttime - time_last_touched)
             logger.info(f'files were last touched {hours}h {minutes}m {seconds}s ago (current time: {currenttime})')
+
             if currenttime - time_last_touched > looping_limit:
                 try:
                     # which were the considered files?
@@ -144,7 +149,8 @@ def create_core_dump(job: Any):
         logger.info(f'the payload process ({job.pid}) has the following children: {pids}')
         pid = pids[-1]
     cmd = f'gdb --pid {pid} -ex \'generate-core-file\' -ex quit'
-    exit_code, stdout, stderr = execute(cmd)
+    exit_code, stdout = execute_command_with_timeout(cmd, timeout=10)
+    # exit_code, stdout, stderr = execute(cmd)
     #exit_code = execute_command(cmd)
     if exit_code == 0:
         path = locate_core_file(pid=pid)
@@ -156,7 +162,8 @@ def create_core_dump(job: Any):
             else:
                 logger.debug('copied core dump to workdir')
     else:
-        logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}, stdout={stdout}, stderr={stderr}')
+        # logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}, stdout={stdout}, stderr={stderr}')
+        logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}, stdout={stdout}')
 
     try:
         zombies = find_zombies(os.getpid())
