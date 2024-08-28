@@ -390,7 +390,8 @@ def locate_token(auth_token: str, key: bool = False) -> str:
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(primary_basedir, auth_token),
              os.path.join(os.environ.get('PILOT_SOURCE_DIR', ''), auth_token),
-             os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token)]
+             os.path.join(os.environ.get('PILOT_WORK_DIR', ''), auth_token),
+             os.path.join(os.environ.get('HOME', ''), auth_token)]
 
     # if the refreshed token exists, prepend it to the paths list and use it first
     if not key:
