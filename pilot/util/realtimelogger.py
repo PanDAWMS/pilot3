@@ -45,7 +45,7 @@ except ImportError:
     pass
 
 try:
-    from loki_logger_handler.loki_logger_handler import LokiLoggerHandler
+    from pilot.util.lokirealtimelogger import setup_loki_handler
 except ImportError:
     pass
 
@@ -195,7 +195,8 @@ class RealTimeLogger(logging.Logger):
                 database_path='logstash_test.db'
             )
         elif logtype == 'loki':
-            _handler = self.setup_loki_handler()
+            logger.info("setting up loki handler")
+            _handler = setup_loki_handler(name)
         else:
             logger.warning(f'unknown logtype: {logtype}')
             _handler = None
@@ -206,40 +207,6 @@ class RealTimeLogger(logging.Logger):
         else:
             RealTimeLogger.glogger = None
             del self
-
-    def setup_loki_handler(self):
-        """Setup the Loki logger handler."""
-        loki_labels = {'application': 'PanDA_Pilot', 'envirnment': 'Production'}
-        try:
-            labels = os.environ.get('LOKI_LABELS', {})
-            if labels:
-                labels = json.loads(labels)
-                loki_labels = labels
-        except Exception as ex:
-            logger.warning(f'failed to load LOKI_LABELS from environment: {ex}')
-
-        loki_labelkeys = ['application', 'environment']
-        try:
-            labelkeys = os.environ.get('LOKI_LABELKEYS', {})
-            if labelkeys:
-                labelkeys = json.loads(labelkeys)
-                loki_labelkeys = labelkeys
-        except Exception as ex:
-            logger.warning(f'failed to load LOKI_LABELKEYS from environment: {ex}')
-
-        try:
-            loki_period = int(os.environ.get('LOKI_PERIOD', 30))
-        except Exception as ex:
-            logger.warning(f'failed to load LOKI_PERIOD from environment: {ex}')
-            loki_period = 30
-
-        _handler = LokiLoggerHandler(
-            url=os.environ["LOKI_URL"],
-            labels=loki_labels,
-            labelKeys=loki_labelkeys,
-            timeout=loki_period
-        )
-        return _handler
 
     def cleanup(self):
         """Clean-up."""
