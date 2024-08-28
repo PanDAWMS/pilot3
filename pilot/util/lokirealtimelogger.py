@@ -30,7 +30,12 @@ import queue
 import threading
 import time
 from typing import Any
-import requests
+
+try:
+    import requests
+except ImportError:
+    logging.warning("Failed to import requests")
+    requests = None
 
 
 logger = logging.getLogger(__name__)
@@ -123,7 +128,10 @@ class PilotLokiLoggerHandler(logging.Handler):
         self.default_keys = {"namespace": "usdf-panda", "app": name, "env": "production"}
         self.queue = queue.Queue()
         self._graceful_stop = threading.Event()
-        self.session = requests.Session()
+        if requests:
+            self.session = requests.Session()
+        else:
+            self.session = None
         self._thread = threading.Thread(target=self._runner, daemon=True)
         self._thread.start()
 
@@ -176,9 +184,13 @@ class PilotLokiLoggerHandler(logging.Handler):
 
             if self.verbose:
                 logger.warning(f"url: {self.url}, headers: {headers}, data: {data}")
-            response = self.session.post(self.url, data=data, headers=headers)
-            if response.status_code != self._success_response_code:
-                err = f"Failed to send logs: {response.status_code}, {response.text}"
+            if self.session:
+                response = self.session.post(self.url, data=data, headers=headers)
+                if response.status_code != self._success_response_code:
+                    err = f"Failed to send logs: {response.status_code}, {response.text}"
+                    raise Exception(err)
+            else:
+                err = "requests.Session is not initialized. Maybe requests is not imported"
                 raise Exception(err)
         except Exception as e:
             logger.warning(f"Error while sending logs: {e}")
