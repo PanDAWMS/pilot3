@@ -24,6 +24,7 @@
 import os
 import subprocess
 import logging
+import queue
 import re
 import shlex
 import signal
@@ -401,59 +402,41 @@ def execute_command_with_timeout2(command, timeout=30):
     return return_code, output.decode()
 
 
-def execute_command_with_timeout(command, timeout=30):
+def execute_command_with_timeout(command, timeout_seconds=30):
     """Executes a command with a timeout.
 
     Args:
         command: The command to execute as a list of strings.
-        timeout: The maximum execution time in seconds.
+        timeout_seconds: The maximum execution time in seconds.
 
     Returns:
         A tuple containing the return code of the command and the output.
     """
-
-    result = [None, None]  # Store the result (return code, output)
-    # convert to list if necessary
-    _command = shlex.split(command) if isinstance(command, str) else command
+    result_queue = queue.Queue()
 
     def _execute_command():
-        logger.info(f"executing command: {command}")
-        process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        def timeout_handler(signum, frame):
-            logger.warning(f"command timed out after {timeout} seconds.")
-            process.send_signal(signal.SIGTERM)
-
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout)
-        logger.debug('setup signal')
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         try:
-            output, errors = process.communicate()
+            output, errors = process.communicate(timeout=timeout_seconds)
             return_code = process.returncode
-            result[0] = return_code
-            result[1] = output.decode()
+            result_queue.put((return_code, output.decode()))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            result_queue.put((-1, "Command timed out"))
         except KeyboardInterrupt:
-            logger.warning("Command interrupted.")
-            process.send_signal(signal.SIGTERM)
-            result[0] = -1
-        except Exception as e:
-            logger.warning(f"An exception occurred while executing the command: {e}")
-        finally:
-            logger.debug(f"gdb debug command finished with exit code: {return_code}, output: {result[1]}")
-            signal.alarm(0)  # Disable the alarm to prevent unexpected behavior
+            process.kill()
+            result_queue.put((-1, "Command interrupted"))
 
     # Create a thread to execute the command
     thread = threading.Thread(target=_execute_command)
     thread.start()
-    logger.debug('thread started')
 
     # Wait for the thread to finish or time out
-    thread.join(timeout)
-    logger.debug('thread joined')
-
-    if thread.is_alive():
-        logger.info(f"Command timed out after {timeout} seconds.")
+    try:
+        return_code, output = result_queue.get(timeout=timeout_seconds)
+    except queue.Empty:
         thread.join()  # Wait for the thread to finish
+        return_code, output = result_queue.get()
 
-    return result[0], result[1]
+    return return_code, output
