@@ -402,12 +402,12 @@ def execute_command_with_timeout2(command, timeout=30):
     return return_code, output.decode()
 
 
-def execute_command_with_timeout(command, timeout_seconds=30):
+def execute_command_with_timeout(command, timeout=30):
     """Executes a command with a timeout.
 
     Args:
         command: The command to execute as a list of strings.
-        timeout_seconds: The maximum execution time in seconds.
+        timeout: The maximum execution time in seconds.
 
     Returns:
         A tuple containing the return code of the command and the output.
@@ -415,10 +415,11 @@ def execute_command_with_timeout(command, timeout_seconds=30):
     result_queue = queue.Queue()
 
     def _execute_command():
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _command = shlex.split(command) if isinstance(command, str) else command
+        process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         try:
-            output, errors = process.communicate(timeout=timeout_seconds)
+            output, errors = process.communicate(timeout=timeout)
             return_code = process.returncode
             result_queue.put((return_code, output.decode()))
         except subprocess.TimeoutExpired:
@@ -434,7 +435,7 @@ def execute_command_with_timeout(command, timeout_seconds=30):
 
     # Wait for the thread to finish or time out
     try:
-        return_code, output = result_queue.get(timeout=timeout_seconds)
+        return_code, output = result_queue.get(timeout=timeout)
     except queue.Empty:
         thread.join()  # Wait for the thread to finish
         return_code, output = result_queue.get()
