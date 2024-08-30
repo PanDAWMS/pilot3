@@ -411,7 +411,7 @@ def get_logging_info(job: JobData, args: object) -> dict:
     """
     info_dic = {}
 
-    if not job.realtimelogging:
+    if not job.realtimelogging and "loggingfile" not in job.infosys.queuedata.catchall:
         logger.info("job.realtimelogging is not enabled")
         return {}
 
@@ -460,7 +460,7 @@ def get_logging_info(job: JobData, args: object) -> dict:
             return {}
 
         # find the log file to tail
-        path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis())
+        path = find_log_to_tail(job.debug_command, job.workdir, args, job.is_analysis(), job.infosys.queuedata.catchall)
         logger.info(f'using {path} for real-time logging')
         info_dic['logfiles'] = [path]
 
@@ -473,7 +473,7 @@ def get_logging_info(job: JobData, args: object) -> dict:
     return info_dic
 
 
-def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis: bool) -> str:
+def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis: bool, catchall: str) -> str:
     """
     Find the log file to tail in the RT logging.
 
@@ -481,6 +481,7 @@ def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis
     :param workdir: job working directory (str)
     :param args: Pilot arguments object (object)
     :param is_analysis: True for user jobs, False otherwise (bool)
+    :param catchall: catchall field from queuedata (str)
     :return: path to log file (str).
     """
     path = ""
@@ -503,13 +504,17 @@ def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis
                 break
             counter += 10
 
+    if not path and "rtloggingfile" in catchall:
+        # extract the path from the catchall "..,loggingfile=path,.."
+        _path = findall(r'loggingfile=([^,]+)', catchall)
+        if _path:
+            path = _path[0]
+            logger.debug(f'found path in catchall: {path}')
+
     # fallback to known log file if no other file could be found
     logf = path if path else config.Payload.payloadstdout
-    if not path:
-        if filename:
-            logger.warning(f'file {filename} was not found for {maxwait} s, using default')
-        else:
-            logger.info(f'using {logf} for real-time logging')
+    if not path and filename:
+        logger.warning(f'file {filename} was not found for {maxwait} s, using default')
 
     return logf
 
