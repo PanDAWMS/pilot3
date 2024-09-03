@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -2178,6 +2178,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             except PilotException as error:
                 raise error
 
+            # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
+            if "loggingfile" in job.infosys.queuedata.catchall:
+                set_debug_mode(job.jobid, args.url, args.port)
+
             logger.info('resetting any existing errors')
             job.reset_errors()
 
@@ -2237,6 +2241,27 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         args.job_aborted.set()
 
     logger.info('[job] retrieve thread has finished')
+
+
+def set_debug_mode(jobid: int, url: str, port: int):
+    """
+    Inform the server that the given job should be in debug mode.
+
+    Note, this is decided by queuedata.catchall.
+
+    :param jobid: job id (int)
+    :param url: server url (str)
+    :param port: server port (int).
+    """
+    # worker node structure to be sent to the server
+    data = {}
+    data["pandaID"] = jobid
+    data["modeOn"] = True
+
+    # attempt to send the info to the server
+    res = https.send_update("setDebugMode", data, url, port)
+    if not res:
+        logger.warning('could not inform server to set job in debug mode')
 
 
 def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> int:

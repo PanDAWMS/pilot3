@@ -857,7 +857,7 @@ def send_worker_status(
     port: str,
     logger: Any,
     internet_protocol_version: str,
-) -> None:
+):
     """
     Send worker info to the server to let it know that the worker has started.
 
