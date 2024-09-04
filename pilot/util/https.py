@@ -319,6 +319,10 @@ def get_local_oidc_token_info() -> tuple[str or None, str or None]:
     # origin of the token (panda_dev.pilot, ..)
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN'))
 
+    logger.debug(f'auth_token={auth_token}, auth_origin={auth_origin}')
+    logger.debug(f'OIDC_AUTH_TOKEN={os.environ.get("OIDC_AUTH_TOKEN")}, OIDC_AUTH_ORIGIN={os.environ.get("OIDC_AUTH_ORIGIN")}')
+    logger.debug(f'PANDA_AUTH_TOKEN={os.environ.get("PANDA_AUTH_TOKEN")}, PANDA_AUTH_ORIGIN={os.environ.get("PANDA_AUTH_ORIGIN")}')
+
     return auth_token, auth_origin
 
 
