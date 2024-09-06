@@ -122,7 +122,7 @@ def main() -> int:
     update_local_oidc_token_info(args.url, args.port)
 
     # let the server know that the worker has started
-    if args.update_server:
+    if args.update_server and args.workerpilotstatusupdate:
         send_worker_status(
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
@@ -192,7 +192,7 @@ def main() -> int:
         exitcode = None
 
     # let the server know that the worker has finished
-    if args.update_server:
+    if args.update_server and args.workerpilotstatusupdate:
         send_worker_status(
             "finished",
             args.queue,
@@ -398,6 +398,15 @@ def get_args() -> Any:
         action="store_false",
         default=True,
         help="Disable server updates",
+    )
+
+    arg_parser.add_argument(
+        "-k",
+        "--noworkerpilotstatusupdate",
+        dest="workerpilotstatusupdate",
+        action="store_false",
+        default=True,
+        help="Disable updates to updateWorkerPilotStatus",
     )
 
     arg_parser.add_argument(
