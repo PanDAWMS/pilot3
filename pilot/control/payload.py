@@ -504,7 +504,7 @@ def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis
                 break
             counter += 10
 
-    if not path and "rtloggingfile" in catchall:
+    if not path and "loggingfile" in catchall:
         # extract the path from the catchall "..,loggingfile=path,.."
         _path = findall(r'loggingfile=([^,]+)', catchall)
         if _path:
