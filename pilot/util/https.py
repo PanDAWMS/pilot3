@@ -319,10 +319,6 @@ def get_local_oidc_token_info() -> tuple[str or None, str or None]:
     # origin of the token (panda_dev.pilot, ..)
     auth_origin = os.environ.get('OIDC_AUTH_ORIGIN', os.environ.get('PANDA_AUTH_ORIGIN'))
 
-    logger.debug(f'auth_token={auth_token}, auth_origin={auth_origin}')
-    logger.debug(f'OIDC_AUTH_TOKEN={os.environ.get("OIDC_AUTH_TOKEN")}, OIDC_AUTH_ORIGIN={os.environ.get("OIDC_AUTH_ORIGIN")}')
-    logger.debug(f'PANDA_AUTH_TOKEN={os.environ.get("PANDA_AUTH_TOKEN")}, PANDA_AUTH_ORIGIN={os.environ.get("PANDA_AUTH_ORIGIN")}')
-
     return auth_token, auth_origin
 
 
@@ -814,7 +810,6 @@ def request2(url: str = "",
         data = {}
     # https might not have been set up if running in a [middleware] container
     if not _ctx.cacert:
-        logger.debug('setting up unset https')
         https_setup(None, get_pilot_version())
 
     # should tokens be used?
@@ -876,13 +871,11 @@ def request2(url: str = "",
     else:
         if secure and isinstance(ret, str):
             if ret.startswith('{') and ret.endswith('}'):
-                logger.debug('loading string into dictionary')
                 try:
                     ret = json.loads(ret)
                 except json.JSONDecodeError as e:
                     logger.warning(f'failed to parse response: {e}')
             else:
-                logger.debug('parsing string into dictionary')
                 # For panda server interactions, the response should be in dictionary format
                 # Parse the query string into a dictionary
                 query_dict = parse_qs(ret)
