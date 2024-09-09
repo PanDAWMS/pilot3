@@ -2457,7 +2457,6 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
             job.pid,
             job.jobid,
             job.workdir,
-            setup=job.command,
             use_container=use_container
         )
 
