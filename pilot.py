@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
@@ -39,29 +39,30 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.info import infosys
 from pilot.util.auxiliary import (
+    convert_signal_to_exit_code,
     pilot_version_banner,
     shell_exit_code,
-    convert_signal_to_exit_code
 )
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
-    SUCCESS,
-    FAILURE,
     ERRNO_NOJOBS,
-    PILOT_START_TIME,
+    FAILURE,
     PILOT_END_TIME,
-    SERVER_UPDATE_NOT_DONE,
     PILOT_MULTIJOB_START_TIME,
+    PILOT_START_TIME,
+    SERVER_UPDATE_NOT_DONE,
+    SUCCESS,
 )
 from pilot.util.cvmfs import (
     cvmfs_diagnostics,
+    get_last_update,
     is_cvmfs_available,
-    get_last_update
 )
 from pilot.util.filehandling import (
     get_pilot_work_dir,
     mkdirs,
+    store_base_urls
 )
 from pilot.util.harvester import (
     is_harvester_mode,
@@ -72,6 +73,7 @@ from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
+    update_local_oidc_token_info
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
@@ -116,8 +118,11 @@ def main() -> int:
         https_setup(args, get_pilot_version())
     args.amq = None
 
+    # update the OIDC token if necessary
+    update_local_oidc_token_info(args.url, args.port)
+
     # let the server know that the worker has started
-    if args.update_server:
+    if args.update_server and args.workerpilotstatusupdate:
         send_worker_status(
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
@@ -160,6 +165,9 @@ def main() -> int:
     )
     logger.debug(f'PILOT_RUCIO_SITENAME={os.environ.get("PILOT_RUCIO_SITENAME")}')
 
+    #os.environ['RUCIO_ACCOUNT'] = 'atlpilo1'
+    #logger.warning(f"enforcing RUCIO_ACCOUNT={os.environ.get('RUCIO_ACCOUNT')}")
+
     # store the site name as set with a pilot option
     environ[
         "PILOT_SITENAME"
@@ -171,6 +179,8 @@ def main() -> int:
         f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
     )
 
+    # check if real-time logging is requested for this queue
+    #rtloggingtype
     # update the pilot heartbeat file
     update_pilot_heartbeat(time.time())
 
@@ -182,7 +192,7 @@ def main() -> int:
         exitcode = None
 
     # let the server know that the worker has finished
-    if args.update_server:
+    if args.update_server and args.workerpilotstatusupdate:
         send_worker_status(
             "finished",
             args.queue,
@@ -357,14 +367,19 @@ def get_args() -> Any:
         required=False,  # From v 2.2.1 the site name is internally set
         help="OBSOLETE: site name (e.g., AGLT2_TEST)",
     )
-
-    # graciously stop pilot process after hard limit
     arg_parser.add_argument(
         "-j",
         "--joblabel",
         dest="job_label",
         default="ptest",
         help="Job prod/source label (default: ptest)",
+    )
+    arg_parser.add_argument(
+        "-g",
+        "--baseurls",
+        dest="baseurls",
+        default="",
+        help="Comma separated list of base URLs for validation of trf download",
     )
 
     # pilot version tag; PR or RC
@@ -383,6 +398,15 @@ def get_args() -> Any:
         action="store_false",
         default=True,
         help="Disable server updates",
+    )
+
+    arg_parser.add_argument(
+        "-k",
+        "--noworkerpilotstatusupdate",
+        dest="workerpilotstatusupdate",
+        action="store_false",
+        default=True,
+        help="Disable updates to updateWorkerPilotStatus",
     )
 
     arg_parser.add_argument(
@@ -842,7 +866,7 @@ def send_worker_status(
     port: str,
     logger: Any,
     internet_protocol_version: str,
-) -> None:
+):
     """
     Send worker info to the server to let it know that the worker has started.
 
@@ -955,6 +979,10 @@ if __name__ == "__main__":
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()
+
+    # store base URLs in a file if set
+    if args.baseurls:
+        store_base_urls(args.baseurls)
 
     # execute main function
     trace = main()

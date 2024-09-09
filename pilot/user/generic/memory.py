@@ -17,26 +17,28 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 
-def allow_memory_usage_verifications():
+def allow_memory_usage_verifications() -> bool:
     """
-    Should memory usage verifications be performed?
+    Return True if memory usage verifications should be performed.
 
-    :return: boolean.
+    :return: False for generic jobs (bool).
     """
-
     return False
 
 
-def memory_usage(job):
+def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
-    :param job: job object
-    :return: exit code (int), diagnostics (string).
+    :param job: job object (object)
+    :param resource_type: resource type (str)
+    :return: exit code (int), diagnostics (str).
     """
+    if job or resource_type:  # to bypass pylint score 0
+        pass
 
     exit_code = 0
     diagnostics = ""

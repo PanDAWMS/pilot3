@@ -17,27 +17,29 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
-
-from typing import Any
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 
 def allow_memory_usage_verifications() -> bool:
     """
-    Should memory usage verifications be performed?
+    Return True if memory usage verifications should be performed.
 
-    :return: False (bool).
+    :return: False for sphenix jobs (bool).
     """
     return False
 
 
-def memory_usage(job: Any) -> (int, str):
+def memory_usage(job: object, resource_type: str) -> (int, str):
     """
     Perform memory usage verification.
 
-    :param job: job object (Any)
+    :param job: job object (object)
+    :param resource_type: resource type (str)
     :return: exit code (int), diagnostics (str).
     """
+    if job or resource_type:  # to bypass pylint score 0
+        pass
+
     exit_code = 0
     diagnostics = ""
 

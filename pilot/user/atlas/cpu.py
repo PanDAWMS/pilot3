@@ -17,46 +17,45 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """ CPU related functionality."""
 
 import logging
 import os
-from typing import Any
 
 # from .utilities import get_memory_values
 #from pilot.util.container import execute
+from pilot.info.jobdata import JobData
 from pilot.util.math import float_to_rounded_string
 from .utilities import get_memory_values
 
 logger = logging.getLogger(__name__)
 
 
-def get_core_count(job: Any) -> int:
+def get_core_count(job: JobData) -> int:
     """
     Return the core count from ATHENA_PROC_NUMBER.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: core count (int).
     """
     if "HPC_HPC" in job.infosys.queuedata.catchall:
         if job.corecount is None:
             job.corecount = 0
-    else:
-        if job.corecount:
-            # Always use the ATHENA_PROC_NUMBER first, if set
-            if 'ATHENA_PROC_NUMBER' in os.environ:
-                try:
-                    job.corecount = int(os.environ.get('ATHENA_PROC_NUMBER'))
-                except (ValueError, TypeError) as exc:
-                    logger.warning(f"ATHENA_PROC_NUMBER is not properly set: {exc} "
-                                   f"(will use existing job.corecount value)")
-        else:
+    elif job.corecount:
+        # Always use the ATHENA_PROC_NUMBER first, if set
+        if 'ATHENA_PROC_NUMBER' in os.environ:
             try:
                 job.corecount = int(os.environ.get('ATHENA_PROC_NUMBER'))
-            except Exception:
-                logger.warning("environment variable ATHENA_PROC_NUMBER is not set. corecount is not set")
+            except (ValueError, TypeError) as exc:
+                logger.warning(f"ATHENA_PROC_NUMBER is not properly set: {exc} "
+                               f"(will use existing job.corecount value)")
+    else:
+        try:
+            job.corecount = int(os.environ.get('ATHENA_PROC_NUMBER'))
+        except (ValueError, TypeError):
+            logger.warning("environment variable ATHENA_PROC_NUMBER is not set. corecount is not set")
 
     return job.corecount
 

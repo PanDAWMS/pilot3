@@ -138,6 +138,8 @@ class BaseData:
 
         if isinstance(raw, str):
             raw = raw.strip()
+            if raw.upper() == "NULL":  # Handle "NULL" as a special case
+                return defval
 
         try:
             return ktype(raw)

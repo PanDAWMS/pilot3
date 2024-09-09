@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Danila Oleynik danila.oleynik@cern.ch, 2018
 
 """Functions for Titan."""
@@ -185,7 +185,7 @@ def set_scratch_workdir(job: Any, work_dir: str, args: dict) -> str:
         except IOError as exc:
             logger.error(f"i/o error({exc.errno}): {exc.strerror}")
             logger.error(f"copy to scratch failed, execution terminated': \n {sys.exc_info()[1]} ")
-            raise FileHandlingFailure("Copy to RAM disk failed")
+            raise FileHandlingFailure("Copy to RAM disk failed") from exc
         finally:
             add_to_pilot_timing(job.jobid, PILOT_POST_STAGEIN, time.time(), args)
     else:
@@ -225,9 +225,9 @@ def process_jobreport(payload_report_file: str, job_scratch_path: str, job_commu
 
         write_json(dst_file, job_report)
 
-    except IOError:
+    except IOError as exc:
         logger.error(f"job report copy failed, execution terminated':  \n {sys.exc_info()[1]} ")
-        raise FileHandlingFailure("job report copy from RAM failed")
+        raise FileHandlingFailure("job report copy from RAM failed") from exc
 
 
 def postprocess_workdir(workdir: str):
@@ -241,8 +241,8 @@ def postprocess_workdir(workdir: str):
     try:
         if os.path.exists(pseudo_dir):
             remove(os.path.join(workdir, pseudo_dir))
-    except IOError:
-        raise FileHandlingFailure("Post processing of working directory failed")
+    except IOError as exc:
+        raise FileHandlingFailure("Post processing of working directory failed") from exc
 
 
 def command_fix(command: str, job_scratch_dir: str) -> str:
@@ -254,13 +254,13 @@ def command_fix(command: str, job_scratch_dir: str) -> str:
     :return: updated/fixed payload command (str).
     """
     subs_a = command.split()
-    for i in range(len(subs_a)):
+    for i, sub in enumerate(subs_a):
         if i > 0:
-            if '(' in subs_a[i] and not subs_a[i][0] == '"':
-                subs_a[i] = '"' + subs_a[i] + '"'
-            if subs_a[i].startswith("--inputEVNTFile"):
-                filename = subs_a[i].split("=")[1]
-                subs_a[i] = subs_a[i].replace(filename, os.path.join(job_scratch_dir, filename))
+            if '(' in sub and not sub[0] == '"':
+                subs_a[i] = '"' + sub + '"'
+            if sub.startswith("--inputEVNTFile"):
+                filename = sub.split("=")[1]
+                subs_a[i] = sub.replace(filename, os.path.join(job_scratch_dir, filename))
 
     fixed_command = ' '.join(subs_a)
     fixed_command = fixed_command.strip()

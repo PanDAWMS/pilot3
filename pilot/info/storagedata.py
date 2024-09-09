@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
 The implementation of data structure to host storage data description.
@@ -31,20 +31,21 @@ The main reasons for such incapsulation are to
 :contact: anisyonk@cern.ch
 :date: January 2018
 """
+import logging
 import traceback
 from os import environ
+from typing import Any
 
 from pilot.util import https
 from pilot.util.config import config
 from .basedata import BaseData
 
-import logging
 logger = logging.getLogger(__name__)
 
 
 class StorageData(BaseData):
     """
-        High-level object to host Storage details (available protocols, etc.)
+    High-level object to host Storage details (available protocols, etc.)
     """
 
     ## put explicit list of all the attributes with comments for better inline-documentation by sphinx
@@ -74,11 +75,12 @@ class StorageData(BaseData):
              bool: ['is_deterministic']
              }
 
-    def __init__(self, data):
+    def __init__(self, data: dict):
         """
-            :param data: input dictionary of storage description by DDMEndpoint name as key
-        """
+        Initialize StorageData object with input data.
 
+        :param data: input dictionary of storage description by DDMEndpoint name as key (dict).
+        """
         self.load(data)
 
         # DEBUG
@@ -86,12 +88,12 @@ class StorageData(BaseData):
         # logger.debug(f'initialize StorageData from raw:\n{pprint.pformat(data)}')
         # logger.debug(f'final parsed StorageData content:\n{self}')
 
-    def load(self, data):
+    def load(self, data: dict):
         """
-            Construct and initialize data from ext source
-            :param data: input dictionary of storage description by DDMEndpoint name as key
-        """
+        Construct and initialize data from ext source.
 
+        :param data: input dictionary of storage description by DDMEndpoint name as key (dict).
+        """
         # the translation map of the queue data attributes from external data to internal schema
         # first defined ext field name will be used
         # if key is not explicitly specified then ext name will be used as is
@@ -113,41 +115,41 @@ class StorageData(BaseData):
     ##    return value
 
     # to be improved: move it to some data loader
-    def get_security_key(self, secret_key, access_key):
+    def get_security_key(self, secret_key: str, access_key: str) -> dict:
         """
-            Get security key pair from panda
-            :param secret_key: secrect key name as string
-            :param access_key: access key name as string
-            :return: setup as a string
+        Get security key pair from panda.
+
+        :param secret_key: secret key name (str)
+        :param access_key: access key name (str)
+        :return: dictionary with public and private keys (dict).
         """
         try:
             data = {'privateKeyName': secret_key, 'publicKeyName': access_key}
-            logger.info(f"Getting key pair: {data}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
+            logger.info(f"requesting key pair from {url}: {data}")
             res = https.request(f'{url}/server/panda/getKeyPair', data=data)
             if res and res['StatusCode'] == 0:
                 return {"publicKey": res["publicKey"], "privateKey": res["privateKey"]}
-            else:
-                logger.info(f"Got key pair returns wrong value: {res}")
+            logger.info(f"key pair returned wrong value: {res}")
         except Exception as exc:
-            logger.error(f"Failed to get key pair({access_key},{secret_key}): {exc}, {traceback.format_exc()}")
+            logger.error(f"failed to get key pair ({access_key},{secret_key}): {exc}, {traceback.format_exc()}")
         return {}
 
-    def get_special_setup(self, protocol_id=None):
+    def get_special_setup(self, protocol_id: Any = None):
         """
-        Construct special setup for ddms such as objectstore
-        :param protocol_id: protocol id.
-        :return: setup as a string
-        """
+        Construct special setup for ddms such as objectstores.
 
-        logger.info(f"get special setup for protocol id({protocol_id})")
+        :param protocol_id: protocol id (Any)
+        :return: special setup string (str).
+        """
+        logger.debug(f"get special setup for protocol id ({protocol_id})")
         if protocol_id in self.special_setup and self.special_setup[protocol_id]:
             return self.special_setup[protocol_id]
 
-        if protocol_id is None or str(protocol_id) not in list(self.rprotocols.keys()):  # Python 2/3
+        if protocol_id is None or str(protocol_id) not in self.rprotocols:
             return None
 
-        if self.type in ['OS_ES', 'OS_LOGS']:
+        if self.type in {'OS_ES', 'OS_LOGS'}:
             self.special_setup[protocol_id] = None
 
             settings = self.rprotocols.get(str(protocol_id), {}).get('settings', {})

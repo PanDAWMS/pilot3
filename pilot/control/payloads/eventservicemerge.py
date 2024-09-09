@@ -18,15 +18,15 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """Executor module for event service merge payloads."""
 
 import logging
 import os
-from typing import Any  # , TextIO
 
 from pilot.control.payloads import generic
+from pilot.info import JobData
 from pilot.util.container import execute
 
 logger = logging.getLogger(__name__)
@@ -37,12 +37,12 @@ class Executor(generic.Executor):
 
     # only define the __init__ function if it actually does anything - otherwise it can be omitted since the
     # parent __init__ function will be called automatically
-    # def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    # def __init__(self, args: Any, job: JobData, out: TextIO, err: TextIO, traces: Any):
     #    """
     #    Set initial values.
     #
     #    :param args: args object (Any)
-    #    :param job: job object (Any)
+    #    :param job: job object (JobData)
     #    :param out: stdout file object (TextIO)
     #    :param err: stderr file object (TextIO)
     #    :param traces: traces object (Any).
@@ -62,13 +62,13 @@ class Executor(generic.Executor):
         exit_code, stdout, stderr = execute(command)
         logger.info(f"exit_code: {exit_code}, stdout: {stdout}, stderr: {stderr}\n")
 
-    def utility_before_payload(self, job: Any):
+    def utility_before_payload(self, job: JobData):
         """
         Run utility functions before payload.
 
         Note: this function updates job.jobparams (process_writetofile() call)
 
-        :param job: job object.
+        :param job: job object (JobData).
         """
         logger.info("untar input tar files for eventservicemerge job")
         for fspec in job.indata:

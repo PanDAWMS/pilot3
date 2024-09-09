@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 """Script for remote file open verification."""
 
@@ -36,12 +36,10 @@ from typing import Any
 import ROOT
 
 from pilot.util.config import config
-from pilot.util.filehandling import (
-    write_json,
-)
+from pilot.util.filehandling import write_json
 from pilot.util.loggingsupport import (
-    flush_handler,
     establish_logging,
+    flush_handler,
 )
 from pilot.util.processes import kill_processes
 
@@ -114,10 +112,10 @@ def get_file_lists(turls_string: str) -> dict:
     """
     _turls = []
 
-    try:
+    if isinstance(turls_string, str):
         _turls = turls_string.split(',')
-    except Exception as _error:
-        message(f"exception caught: {_error}")
+    else:
+        message(f"unexpected type for turls_string: {type(turls_string).__name__}")
 
     return {'turls': _turls}
 
@@ -141,8 +139,8 @@ def try_open_file(turl_str: str, _queues: namedtuple):
         # message(f"internal TFile.Open() time-out set to {_timeout} ms")
         message(f'opening {turl_str}')
         in_file = ROOT.TFile.Open(turl_str)
-    except Exception as exc:
-        message(f'caught exception: {exc}')
+    except Exception as e:
+        message(f'caught exception: {e}')
     else:
         if in_file and in_file.IsOpen():
             in_file.Close()
@@ -226,7 +224,7 @@ if __name__ == '__main__':  # noqa: C901
 
     try:
         logname = config.Pilot.remotefileverification_log
-    except Exception as error:
+    except AttributeError as error:
         print(f"caught exception: {error} (skipping remote file open verification)")
         sys.exit(1)
     else:
@@ -267,21 +265,15 @@ if __name__ == '__main__':  # noqa: C901
             except queue.Empty:
                 message("reached time-out")
                 break
-            except Exception as error:
-                message(f"caught exception: {error}")
 
             thread = spawn_file_open_thread(queues, turls)
             if thread:
                 threads.append(thread)
 
         # wait until all threads have finished
-        try:
-            for thread in threads:
-                thread.join()
-        except Exception as exc:
-            logger.warning(f"exception caught while handling threads: {exc}")
-        finally:
-            logger.info('all remote file open threads have been joined')
+        for thread in threads:
+            thread.join()
+        logger.info('all remote file open threads have been joined')
 
         opened_turls = list(queues.opened.queue)
         opened_turls.sort()

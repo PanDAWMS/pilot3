@@ -17,10 +17,10 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Executor module for generic payloads."""
@@ -35,24 +35,31 @@ from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
+from pilot.info import JobData
 from pilot.util.auxiliary import set_pilot_state  # , show_memory_usage
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
+    UTILITY_AFTER_PAYLOAD_FINISHED,
+    UTILITY_AFTER_PAYLOAD_STARTED,
     UTILITY_BEFORE_PAYLOAD,
     UTILITY_WITH_PAYLOAD,
-    UTILITY_AFTER_PAYLOAD_STARTED,
-    UTILITY_AFTER_PAYLOAD_FINISHED,
-    PILOT_PRE_SETUP,
-    PILOT_POST_SETUP,
-    PILOT_PRE_PAYLOAD,
     PILOT_POST_PAYLOAD,
-    UTILITY_AFTER_PAYLOAD_STARTED2,
+    PILOT_POST_SETUP,
+    PILOT_PRE_SETUP,
+    PILOT_PRE_PAYLOAD,
     UTILITY_AFTER_PAYLOAD_FINISHED2,
+    UTILITY_AFTER_PAYLOAD_STARTED2,
 )
-from pilot.util.filehandling import write_file, read_file
+from pilot.util.filehandling import (
+    write_file,
+    read_file
+)
 from pilot.util.processes import kill_processes
-from pilot.util.timing import add_to_pilot_timing, get_time_measurement
+from pilot.util.timing import (
+    add_to_pilot_timing,
+    get_time_measurement
+)
 from pilot.common.exception import PilotException
 
 logger = logging.getLogger(__name__)
@@ -62,12 +69,12 @@ errors = ErrorCodes()
 class Executor:
     """Executor class for generic payloads."""
 
-    def __init__(self, args: Any, job: Any, out: TextIO, err: TextIO, traces: Any):
+    def __init__(self, args: object, job: JobData, out: TextIO, err: TextIO, traces: Any):
         """
         Set initial values.
 
-        :param args: args object (Any)
-        :param job: job object (Any)
+        :param args: args object (object)
+        :param job: job object (JobData)
         :param out: stdout file object (TextIO)
         :param err: stderr file object (TextIO)
         :param traces: traces object (Any).
@@ -85,19 +92,19 @@ class Executor:
     #        self.__postprocess_stdout_name = ''
     #        self.__postprocess_stderr_name = ''
 
-    def get_job(self):
+    def get_job(self) -> object:
         """
         Get the job object.
 
-        :return: job object.
+        :return: job object (object).
         """
         return self.__job
 
-    def pre_setup(self, job: Any):
+    def pre_setup(self, job: JobData):
         """
         Run pre setup functions.
 
-        :param job: job object (Any).
+        :param job: job object (JobData).
         """
         # write time stamps to pilot timing file
         update_time = time.time()
@@ -105,12 +112,12 @@ class Executor:
         logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, update_time, self.__args)
 
-    def post_setup(self, job: Any, update_time: bool = None):
+    def post_setup(self, job: JobData, update_time: bool = None):
         """
         Run post run functions.
 
-        :param job: job object
-        :param update_time: should time stamps be written to timing file? (bool)
+        :param job: job object (JobData)
+        :param update_time: should time stamps be written to timing file? (bool).
         """
         # write time stamps to pilot timing file
         if not update_time:
@@ -159,7 +166,7 @@ class Executor:
                 )
                 self.post_setup(self.__job, update_time=end_setup_time)
 
-    def utility_before_payload(self, job: Any) -> str:
+    def utility_before_payload(self, job: JobData) -> str:
         """
         Prepare commands/utilities to run before payload.
 
@@ -168,7 +175,7 @@ class Executor:
 
         REFACTOR
 
-        :param job: job object
+        :param job: job object (JobData)
         :return: utility command (str).
         """
         cmd = ""
@@ -192,13 +199,13 @@ class Executor:
 
         return cmd
 
-    def utility_with_payload(self, job: Any) -> str:
+    def utility_with_payload(self, job: JobData) -> str:
         """
         Run functions alongside payload.
 
         REFACTOR
 
-        :param job: job object.
+        :param job: job object (JobData)
         :return: utility command (str).
         """
         cmd = ""
@@ -249,11 +256,11 @@ class Executor:
 
         return cmd
 
-    def utility_after_payload_started(self, job: Any):
+    def utility_after_payload_started(self, job: JobData):
         """
         Run utility functions after payload started.
 
-        :param job: job object (Any).
+        :param job: job object (JobData).
         """
         # get the payload command from the user specific code
         pilot_user = os.environ.get("PILOT_USER", "generic").lower()
@@ -322,13 +329,13 @@ class Executor:
                 # else:
                 #    logger.info(f'could not extract any pid from ps for cmd={cmd}')
 
-    def utility_after_payload_started_new(self, job: Any) -> str:
+    def utility_after_payload_started_new(self, job: JobData) -> str:
         """
         Run utility functions after payload started.
 
         REFACTOR
 
-        :param job: job object
+        :param job: job object (JobData)
         :return: utility command (str).
         """
         cmd = ""
@@ -364,7 +371,7 @@ class Executor:
     #                # also store the full command in case it needs to be restarted later (by the job_monitor() thread)
     #                job.utilities[cmd_dictionary.get('command')] = [proc, 1, utilitycommand]
 
-    def utility_after_payload_finished(self, job: Any, order: str) -> (str, str, bool):
+    def utility_after_payload_finished(self, job: JobData, order: str) -> (str, str, bool):
         """
         Prepare commands/utilities to run after payload has finished.
 
@@ -372,7 +379,7 @@ class Executor:
 
         The order constant can be UTILITY_AFTER_PAYLOAD_FINISHED, UTILITY_AFTER_PAYLOAD_FINISHED2
 
-        :param job: job object
+        :param job: job object (JobData)
         :param order: string constant used for utility selection (str)
         :return: command (str), label (str), ignore failure (bool).
         """
@@ -398,12 +405,12 @@ class Executor:
         )
         return cmd, label, ignore_failure
 
-    def execute_utility_command(self, cmd: str, job: Any, label: str) -> int:
+    def execute_utility_command(self, cmd: str, job: JobData, label: str) -> int:
         """
         Execute a utility command (e.g. pre/postprocess commands; label=preprocess etc).
 
         :param cmd: full command to be executed (str)
-        :param job: job object
+        :param job: job object (JobData)
         :param label: command label (str)
         :return: exit code (int).
         """
@@ -471,13 +478,13 @@ class Executor:
         else:
             logger.debug(f"wrote {name}")
 
-    def pre_payload(self, job: Any):
+    def pre_payload(self, job: JobData):
         """
         Run functions before payload.
 
         E.g. write time stamps to timing file.
 
-        :param job: job object.
+        :param job: job object (JobData).
         """
         # write time stamps to pilot timing file
         update_time = time.time()
@@ -485,13 +492,13 @@ class Executor:
         logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
 
-    def post_payload(self, job: Any):
+    def post_payload(self, job: JobData):
         """
         Run functions after payload.
 
         E.g. write time stamps to timing file.
 
-        :param job: job object.
+        :param job: job object (JobData).
         """
         # write time stamps to pilot timing file
         update_time = time.time()
@@ -546,17 +553,17 @@ class Executor:
 
         return proc
 
-    def run_payload(self, job: Any, cmd: str, out: Any, err: Any) -> Any:
+    def run_payload(self, job: JobData, cmd: str, out: Any, err: Any) -> Any:
         """
         Set up and execute the main payload process.
 
         REFACTOR using run_command()
 
-        :param job: job object (Any)
+        :param job: job object (JobData)
         :param cmd: command (str)
-        :param out: (currently not used; deprecated)
-        :param err: (currently not used; deprecated)
-        :return: proc (subprocess returned by Popen()).
+        :param out: (currently not used; deprecated) stdout file object (Any)
+        :param err: (currently not used; deprecated) stderr file object (Any)
+        :return: proc (subprocess returned by Popen()) (Any).
         """
         # main payload process steps
 
@@ -639,11 +646,11 @@ class Executor:
 
         return setup
 
-    def wait_graceful(self, args: Any, proc: Any) -> int:
+    def wait_graceful(self, args: object, proc: Any) -> int:
         """
         Wait for payload process to finish.
 
-        :param args: pilot arguments object (Any)
+        :param args: pilot arguments object (object)
         :param proc: subprocess object (Any)
         :return: exit code (int).
         """
@@ -684,11 +691,11 @@ class Executor:
 
         return exit_code
 
-    def get_payload_command(self, job: Any) -> str:
+    def get_payload_command(self, job: JobData) -> str:
         """
         Return the payload command string.
 
-        :param job: job object (Any)
+        :param job: job object (JobData)
         :return: command (str).
         """
         cmd = ""
@@ -712,11 +719,11 @@ class Executor:
 
         return cmd
 
-    def run_preprocess(self, job: Any):
+    def run_preprocess(self, job: JobData):
         """
         Run any preprocess payloads.
 
-        :param job: job object (Any)
+        :param job: job object (JobData)
         :return: exit code (int)
         :raises: Exception.
         """
@@ -764,7 +771,7 @@ class Executor:
 
         return exit_code
 
-    def should_verify_setup(self):
+    def should_verify_setup(self) -> bool:
         """
         Determine if the setup command should be verified.
 
@@ -774,9 +781,10 @@ class Executor:
         user = __import__(
             f"pilot.user.{pilot_user}.setup", globals(), locals(), [pilot_user], 0
         )
+
         return user.should_verify_setup(self.__job)
 
-    def run(self) -> (int, str):  # noqa: C901
+    def run(self) -> tuple[int, str]:  # noqa: C901
         """
         Run all payload processes (including pre- and post-processes, and utilities).
 
@@ -801,7 +809,8 @@ class Executor:
         # should the setup be verified? (user defined)
         verify_setup = self.should_verify_setup()
         if verify_setup:
-            logger.debug(f"extracted setup to be verified:\n\n{self.__job.setup}")
+            logger.info(f"extracted setup to be verified:\n\n{self.__job.setup}")
+            logger.warning('setup verification will lead to some repeated messages next, before the payload is executed')
             try:
                 _cmd = self.__job.setup
                 stdout_filename = os.path.join(self.__job.workdir, "setup.stdout")
@@ -1094,7 +1103,6 @@ class Executor:
             # Handle errors, such as process not found
             logger.warning(f"Error sending signal to/waiting for process {pid}: {exc}")
             return None
-
 
 #        try:
 #            # Send SIGUSR1 signal to the process

@@ -18,50 +18,70 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
 
-"""Functions for monitoring of threads."""
+"""Functions for monitoring of pilot and threads."""
 
 import logging
 import threading
 import time
 import re
+
+from collections import namedtuple
 from os import environ, getuid
-from subprocess import Popen, PIPE
+from subprocess import (
+    Popen,
+    PIPE
+)
 from typing import Any
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
-from pilot.util.auxiliary import check_for_final_server_update, set_pilot_state
+from pilot.util.auxiliary import (
+    check_for_final_server_update,
+    set_pilot_state
+)
 from pilot.util.common import is_pilot_check
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
 from pilot.util.heartbeat import update_pilot_heartbeat
-from pilot.util.queuehandling import get_queuedata_from_job, get_maxwalltime_from_job, abort_jobs_in_queues
+from pilot.util.https import (
+    get_local_oidc_token_info,
+    update_local_oidc_token_info
+)
+from pilot.util.queuehandling import (
+    abort_jobs_in_queues,
+    get_maxwalltime_from_job,
+    get_queuedata_from_job,
+)
 from pilot.util.timing import get_time_since_start
 
 logger = logging.getLogger(__name__)
 
 
-def control(queues: Any, traces: Any, args: Any):  # noqa: C901
+def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Monitor threads.
 
     Main control function, run from the relevant workflow module.
 
-    :param queues: internal queues for job handling (Any)
+    :param queues: internal queues for job handling (namedtuple)
     :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
     """
     t_0 = time.time()
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
     traces.pilot['lifetime_max'] = t_0
 
     threadchecktime = int(config.Pilot.thread_check)
+    # if OIDC tokens are used, define the time interval for checking the token
+    # otherwise the following variable is None
+    tokendownloadchecktime = get_oidc_check_time()
+    last_token_check = t_0
 
     # for CPU usage debugging
     # cpuchecktime = int(config.Pilot.cpu_check)
@@ -72,7 +92,7 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
     push = args.harvester and args.harvester_submitmode.lower() == 'push'
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
-        niter = 0
+        n_iterations = 0
 
         max_running_time_old = 0
         while not args.graceful_stop.is_set():
@@ -81,6 +101,12 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
                 logger.warning('aborting monitor loop since graceful_stop has been set (timing out remaining threads)')
                 run_checks(queues, args)
                 break
+
+            # check if the OIDC token needs to be refreshed
+            if tokendownloadchecktime:
+                if int(time.time() - last_token_check) > tokendownloadchecktime:
+                    last_token_check = time.time()
+                    update_local_oidc_token_info(args.url, args.port)
 
             # abort if kill signal arrived too long time ago, ie loop is stuck
             if args.kill_time and int(time.time()) - args.kill_time > MAX_KILL_WAIT_TIME:
@@ -110,7 +136,7 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
                 break
-            if niter % 60 == 0:
+            if n_iterations % 60 == 0:
                 logger.info(f'{time_since_start}s have passed since pilot start')
 
             # every minute run the following check
@@ -149,13 +175,32 @@ def control(queues: Any, traces: Any, args: Any):  # noqa: C901
                             logger.fatal(f'thread \'{thread.name}\' is not alive')
                             # args.graceful_stop.set()
 
-            niter += 1
+            n_iterations += 1
 
     except Exception as error:
         print((f"monitor: exception caught: {error}"))
         raise PilotException(error) from error
 
     logger.info('[monitor] control thread has ended')
+
+
+def get_oidc_check_time() -> int or None:
+    """
+    Return the time interval for checking the OIDC token.
+
+    :return: time interval for checking the OIDC token (int or None).
+    """
+    auth_token, auth_origin = get_local_oidc_token_info()
+    use_oidc_token = True if auth_token and auth_origin else False
+    if use_oidc_token:
+        try:
+            token_check = int(config.Token.download_check)
+        except (AttributeError, ValueError):
+            token_check = None
+    else:
+        token_check = None
+
+    return token_check
 
 
 def run_shutdowntime_minute_check(time_since_start: int) -> bool:
@@ -299,12 +344,12 @@ def get_proper_pilot_heartbeat() -> int:
         return 60
 
 
-def run_checks(queues: Any, args: Any) -> None:
+def run_checks(queues: namedtuple, args: object) -> None:
     """
     Perform non-job related monitoring checks.
 
-    :param queues: queues object (Any)
-    :param args: Pilot arguments object (Any)
+    :param queues: queues object (namedtuple)
+    :param args: Pilot arguments object (object)
     :raises: ExceedMaxWaitTime.
     """
     # check how long time has passed since last successful heartbeat
@@ -381,7 +426,7 @@ def run_checks(queues: Any, args: Any) -> None:
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool, pod: bool) -> int:
+def get_max_running_time(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, pod: bool) -> int:
     """
     Return the maximum allowed running time for the pilot.
 
@@ -390,7 +435,7 @@ def get_max_running_time(lifetime: int, queuedata: Any, queues: Any, push: bool,
 
     :param lifetime: optional pilot option time in seconds (int)
     :param queuedata: queuedata object (Any)
-    :param queues: queues object (Any)
+    :param queues: queues object (namedtuple)
     :param push: push mode (bool)
     :param pod: pod mode (bool)
     :return: max running time in seconds (int).
