@@ -17,45 +17,47 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Alexander Bogdanchikov, alexander.bogdanchikov@cern.ch, 2020
 
-import os
+"""Functions related to proxy handling for ATLAS."""
+
 import logging
+import os
 import re
+
 from time import time
+from typing import Any
 
 # from pilot.user.atlas.setup import get_file_system_root_path
-from pilot.util.container import execute
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.container import execute
 from pilot.util.proxy import get_proxy
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def get_voms_role(role='production'):
+def get_voms_role(role: str = 'production') -> str:
     """
     Return the proper voms role.
 
-    :param role: proxy role, 'production' or 'user' (string).
-    :return: voms role (string).
+    :param role: proxy role, 'production' or 'user' (str)
+    :return: voms role (str).
     """
-
     return 'atlas:/atlas/Role=production' if role == 'production' else 'atlas'
 
 
-def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
+def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', workdir: str = '') -> tuple[int, str, str]:
     """
     Download a payload proxy from the server and verify it.
 
-    :param x509: X509_USER_PROXY (string).
-    :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (string).
-    :param proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank) (string).
-    :param workdir: payload work directory (string).
-    :return:  exit code (int), diagnostics (string), updated x509 (string).
+    :param x509: X509_USER_PROXY (str)
+    :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (str)
+    :param proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank) (str)
+    :param workdir: payload work directory (str)
+    :return:  exit code (int), diagnostics (str), updated x509 (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -85,7 +87,7 @@ def get_and_verify_proxy(x509, voms_role='', proxy_type='', workdir=''):
     return exit_code, diagnostics, x509
 
 
-def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False) -> (int, str):
+def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:
     """
     Check for a valid voms/grid proxy longer than N hours.
 
@@ -95,7 +97,7 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False) -> (int, s
     :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (bool)
     :param proxy_id: proxy id (str)
     :param test: free Boolean test parameter (bool)
-    :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str).
+    :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str) (tuple).
     """
     if limit is None:
         limit = 1
@@ -108,28 +110,18 @@ def verify_proxy(limit=None, x509=None, proxy_id="pilot", test=False) -> (int, s
     else:
         envsetup = ''
 
-    # first try to use arcproxy since voms-proxy-info is not working properly on SL6
-    #  (memory issues on queues with limited memory)
-
-    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
-    if exit_code != 0 and exit_code != -1:
-        return exit_code, diagnostics
-    elif exit_code == -1:
-        pass  # go to next test
-    else:
-        return 0, diagnostics
-
-    return 0, diagnostics
+    return verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)  # exit_code, diagnostics
 
 
-def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C901
+def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
     """
     Verify the proxy using arcproxy.
 
-    :param envsetup: general setup string for proxy commands (string).
-    :param limit: time limit in hours (int).
-    :param  proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (string)
-    :return: exit code (int), error diagnostics (string).
+    :param envsetup: general setup string for proxy commands (str)
+    :param limit: time limit in hours (int)
+    :param proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (str or None)
+    :param test: free Boolean test parameter (bool)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
     exit_code = 0
     diagnostics = ""
@@ -137,14 +129,6 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
 
     if test:
         return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
-        #return errors.NOVOMSPROXY, 'dummy test'
-
-    try:
-        logger.debug(f'proxy_id={proxy_id}')
-        logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
-        logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
-    except Exception as exc:
-        logger.debug(f'exc={exc}')
 
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
@@ -175,8 +159,7 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
     #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
     #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
     cmd = f"{envsetup}arcproxy -i subject"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-    logger.info(f'subject={stdout}')
+    _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
 
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
@@ -196,11 +179,6 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
                     logger.warning('cannot store validity ends from arcproxy in cache')
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-
-                #if proxy_id in verify_arcproxy.cache:
-                #    logger.debug('getting validity ends from arcproxy cache')
-                #else:
-                #    logger.debug('using validity ends from arcproxy (cache not available)')
                 endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
                 for proxyname, validity in list(zip(proxies, endtimes)):
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
@@ -211,29 +189,25 @@ def verify_arcproxy(envsetup, limit, proxy_id="pilot", test=False):  # noqa: C90
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
-                return exit_code, diagnostics
-            elif exit_code == -1:  # skip to next proxy test
-                return exit_code, diagnostics
-            elif exit_code == errors.NOVOMSPROXY:
-                return exit_code, diagnostics
-            else:
-                logger.info("will try voms-proxy-info instead")
-                exit_code = -1
+            if exit_code == errors.ARCPROXYLIBFAILURE:
+                logger.warning("currenly ignoring arcproxy library failure")
+                exit_code = 0
+                diagnostics = ""
     else:
         logger.warning('command execution failed')
 
     return exit_code, diagnostics
 
 
-def check_time_left(proxyname, validity, limit):
+def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str]:
     """
+    Check the time left for the proxy.
 
-    :param proxyname: cert or proxy (string).
-    :param validity:
-    :param limit: time limit in hours (int).
-    return exit code (int), diagnostics (string).
+    :param proxyname: cert or proxy (str)
+    :param validity: validity time (int)
+    :param limit: time limit in hours (int)
+    return exit code (int), diagnostics (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ''
     tnow = int(time() + 0.5)  # round to seconds
@@ -255,15 +229,14 @@ def check_time_left(proxyname, validity, limit):
     return exit_code, diagnostics
 
 
-def verify_vomsproxy(envsetup, limit):
+def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:
     """
     Verify proxy using voms-proxy-info command.
 
-    :param envsetup: general setup string for proxy commands (string).
-    :param limit: time limit in hours (int).
-    :return: exit code (int), error diagnostics (string).
+    :param envsetup: general setup string for proxy commands (str)
+    :param limit: time limit in hours (int)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -275,7 +248,7 @@ def verify_vomsproxy(envsetup, limit):
             if "command not found" in stdout:
                 logger.info("skipping voms proxy check since command is not available")
             else:
-                exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
+                exit_code, diagnostics, _, _ = interpret_proxy_info(_exit_code, stdout, stderr, limit)
                 if exit_code == 0:
                     logger.info("voms proxy verified using voms-proxy-info")
                     return 0, diagnostics
@@ -287,13 +260,13 @@ def verify_vomsproxy(envsetup, limit):
     return exit_code, diagnostics
 
 
-def verify_gridproxy(envsetup: str, limit: int) -> (int, str):
+def verify_gridproxy(envsetup: str, limit: int) -> tuple[int, str]:
     """
     Verify proxy using grid-proxy-info command.
 
     :param envsetup: general setup string for proxy commands (str)
     :param limit: time limit in hours (int)
-    :return: exit code (int), error diagnostics (str).
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
     ec = 0
     diagnostics = ""
@@ -308,7 +281,7 @@ def verify_gridproxy(envsetup: str, limit: int) -> (int, str):
         cmd = f"{envsetup}grid-proxy-info -exists -valid 24:00"
 
     logger.info(f'executing command: {cmd}')
-    exit_code, stdout, stderr = execute(cmd, shell=True)
+    exit_code, stdout, _ = execute(cmd, shell=True)
     if stdout is not None:
         if exit_code != 0:
             if stdout.find("command not found") > 0:
@@ -326,15 +299,15 @@ def verify_gridproxy(envsetup: str, limit: int) -> (int, str):
     return ec, diagnostics
 
 
-def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int, str, int, int):
+def interpret_proxy_info(proxy_ec: int or Any, stdout: str, stderr: str, limit: int) -> tuple[int, str, int or None, int or None]:
     """
-    Interpret the output from arcproxy or voms-proxy-info.
+    Interpret the output from arcproxy.
 
-    :param _ec: exit code from proxy command (int).
-    :param stdout: stdout from proxy command (string).
-    :param stderr: stderr from proxy command (string).
-    :param limit: time limit in hours (int).
-    :return: exit code (int), diagnostics (str). validity end cert (int), validity end in seconds if detected, None if not detected (int).
+    :param proxy_ec: exit code from proxy command (int)
+    :param stdout: stdout from proxy command (str)
+    :param stderr: stderr from proxy command (str)
+    :param limit: time limit in hours (int)
+    :return: exit code (int or Any), diagnostics (str). validity end cert (int), validity end in seconds if detected, None if not detected (int) (tuple).
     """
     exitcode = 0
     diagnostics = ""
@@ -344,20 +317,21 @@ def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int
     logger.debug(f'stdout = {stdout}')
     logger.debug(f'stderr = {stderr}')
 
-    if _ec != 0:
+    if proxy_ec != 0:
         if "Unable to verify signature! Server certificate possibly not installed" in stdout:
             logger.warning(f"skipping voms proxy check: {stdout}")
         # test for command errors
         elif "arcproxy: error while loading shared libraries" in stderr:
-            exitcode = -1
-            logger.warning('skipping arcproxy test')
+            diagnostics = stderr
+            logger.warning(diagnostics)
+            exitcode = errors.ARCPROXYLIBFAILURE
         elif "arcproxy:" in stdout:
             diagnostics = f"arcproxy failed: {stdout}"
             logger.warning(diagnostics)
-            exitcode = errors.GENERALERROR
+            exitcode = errors.ARCPROXYFAILURE
         else:
             # Analyze exit code / output
-            diagnostics = f"voms proxy certificate check failure: {_ec}, {stdout}"
+            diagnostics = f"voms proxy certificate check failure: {proxy_ec}, {stdout}"
             logger.warning(diagnostics)
             exitcode = errors.NOVOMSPROXY
     else:
@@ -366,11 +340,12 @@ def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int
             validity_end_cert, validity_end, stdout = extract_time_left(stdout)
             if validity_end:
                 return exitcode, diagnostics, validity_end_cert, validity_end
-            else:
-                diagnostics = f"arcproxy failed: {stdout}"
-                logger.warning(diagnostics)
-                exitcode = errors.GENERALERROR
-                return exitcode, diagnostics, validity_end_cert, validity_end
+
+            diagnostics = f"arcproxy failed: {stdout}"
+            logger.warning(diagnostics)
+            exitcode = errors.GENERALERROR
+
+            return exitcode, diagnostics, validity_end_cert, validity_end
 
         # test for command errors
         if "arcproxy:" in stdout:
@@ -381,7 +356,7 @@ def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int
             # on EMI-3 the time output is different (HH:MM:SS as compared to SS on EMI-2)
             if ":" in stdout:
                 ftr = [3600, 60, 1]
-                stdout = sum([a * b for a, b in zip(ftr, list(map(int, stdout.split(':'))))])
+                stdout = sum(a * b for a, b in zip(ftr, [int(x) for x in stdout.split(':')]))
             try:
                 validity = int(stdout)
                 if validity >= limit * 3600:
@@ -398,13 +373,14 @@ def interpret_proxy_info(_ec: int, stdout: str, stderr: str, limit: int) -> (int
     return exitcode, diagnostics, validity_end_cert, validity_end
 
 
-def extract_time_left(stdout: str) -> (int, int, str):
+def extract_time_left(stdout: str) -> tuple[int or None, int or None, str]:
     """
     Extract the time left for the cert and proxy from the proxy command.
+
     Some processing on the stdout is done.
 
     :param stdout: stdout (str)
-    :return: validity_end_cert, validity_end, stdout (int, int, str)
+    :return: validity_end_cert, validity_end, stdout (tuple[int or None, int or None, str]).
     """
     validity_end_cert = None
     validity_end = None
@@ -413,7 +389,7 @@ def extract_time_left(stdout: str) -> (int, int, str):
     if stdout[-1] == '\n':
         stdout = stdout[:-1]
     stdout_split = stdout.split('\n')
-    # give up if there not four entries
+    # give up if there are not four entries
     if len(stdout_split) != 4:
         print(f'cannot extract validity_end from: {stdout}')
         return None, None, stdout
@@ -440,14 +416,14 @@ def extract_time_left(stdout: str) -> (int, int, str):
     return validity_end_cert, validity_end, stdout
 
 
-def extract_time_left_old(stdout: str) -> (int, str):
+def extract_time_left_old(stdout: str) -> tuple[int, str]:
     """
     Extract the time left from the proxy command.
 
     Some processing on the stdout is done.
 
     :param stdout: stdout (str)
-    :return: validity_end, stdout (int, str).
+    :return: validity_end, stdout (tuple[int, str]).
     """
     validity_end = None
 

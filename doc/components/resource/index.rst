@@ -7,7 +7,7 @@
     http://www.apache.org/licenses/LICENSE-2.0
 
     Authors:
-     - Paul Nilsson, paul.nilsson@cern.ch, 2018-2019
+     - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 resource components
 ===================
@@ -19,5 +19,4 @@ resource components
     bnl
     generic
     nersc
-    summit
     titan

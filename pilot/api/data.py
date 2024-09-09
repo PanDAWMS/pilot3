@@ -80,8 +80,15 @@ class StagingClient:
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
-    def __init__(self, infosys_instance: Any = None, acopytools: dict = None, logger: Any = None,
-                 default_copytools: str = 'rucio', trace_report: dict = None, ipv: str = 'IPv6', workdir: str = ""):
+    def __init__(self,
+                 infosys_instance: Any = None,
+                 acopytools: dict = None,
+                 logger: Any = None,
+                 default_copytools: str = 'rucio',
+                 trace_report: dict = None,
+                 ipv: str = 'IPv6',
+                 workdir: str = "",
+                 altstageout: str = None):
         """
         Set default/init values.
 
@@ -106,6 +113,7 @@ class StagingClient:
         self.infosys = infosys_instance or infosys
         self.ipv = ipv
         self.workdir = workdir
+        self.altstageout = altstageout
 
         if isinstance(acopytools, str):
             acopytools = {'default': [acopytools]} if acopytools else {}
@@ -221,7 +229,7 @@ class StagingClient:
         """
         number = 1
         maxnumber = 10
-        self.logger.info(f'{label} list of replicas: (max {maxnumber})')
+        self.logger.debug(f'{label} list of replicas: (max {maxnumber})')
         for pfn, xdat in replicas:
             self.logger.debug(f"{number}. "
                               f"lfn={pfn}, "

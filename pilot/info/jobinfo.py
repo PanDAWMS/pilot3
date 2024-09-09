@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 
 """
@@ -29,41 +29,47 @@ with details fetched directly from Job instance
 :date: January 2018
 """
 
+from typing import Any
+
 import logging
 logger = logging.getLogger(__name__)
 
 
 class JobInfoProvider:
     """
-        Job info provider which is used to extract settings specific for given Job
-        and overwrite general configuration used by Information Service
+    Job info provider used to extract settings specific for a given job
+    and to overwrite the general configuration used by the Information Service.
     """
 
-    job = None  ## Job instance
+    job = None  # Job instance
 
-    def __init__(self, job):
+    def __init__(self, job: Any):
+        """
+        Initialize JobInfoProvider with Job instance.
+
+        :param job: Job object (Any).
+        """
         self.job = job
 
-    def resolve_schedconf_sources(self):
+    def resolve_schedconf_sources(self) -> None:
         """
-            Resolve Job specific prioritized list of source names to be used for SchedConfig data load
-            :return: prioritized list of source names
-        """
+        Resolve Job specific prioritized list of source names to be used for SchedConfig data load
 
+        :return: prioritized list of source names (None if not implemented yet)
+        """
         ## FIX ME LATER
         ## quick stub implementation: extract later from jobParams, e.g. from overwriteAGISData..
         ## an example of return data:
         ## return ['AGIS', 'LOCAL', 'CVMFS']
         ##
-
         return None  ## Not implemented yet
 
-    def resolve_queuedata(self, pandaqueue, **kwargs):
+    def resolve_queuedata(self, pandaqueue: str, **kwargs: dict) -> dict:
         """
-            Resolve Job specific settings for queue data (overwriteQueueData)
-            :return: dict of settings for given PandaQueue as a key
-        """
+        Resolve Job specific settings for queue data (overwriteQueueData)
 
+        :return: Dictionary of settings for given PandaQueue as a key (dict).
+        """
         # use following keys from job definition
         # keys format: [(inputkey, outputkey), inputkey2]
         # outputkey is the name of external source attribute
@@ -80,15 +86,15 @@ class JobInfoProvider:
                 data[okey] = val
 
         data.update(self.job.overwrite_queuedata)  ## use job.overwrite_queuedata as a master source
-
         logger.info(f'queuedata: following keys will be overwritten by Job values: {data}')
 
         return {pandaqueue: data}
 
     def resolve_storage_data(self, ddmendpoints: list = None, **kwargs: dict) -> dict:
         """
-            Resolve Job specific settings for storage data (including data passed via --overwriteStorageData)
-            :return: dict of settings for requested DDMEndpoints with ddmendpoin as a key
+        Resolve Job specific settings for storage data (including data passed via --overwriteStorageData)
+
+        :return: dict of settings for requested DDMEndpoints with ddmendpoin as a key
         """
         if ddmendpoints is None:
             ddmendpoints = []
@@ -96,10 +102,7 @@ class JobInfoProvider:
 
         ## use job.overwrite_storagedata as a master source
         master_data = self.job.overwrite_storagedata or {}
-        try:
-            data.update((k, v) for k, v in master_data.iteritems() if k in set(ddmendpoints or master_data) & set(master_data))  # Python 2
-        except Exception:
-            data.update((k, v) for k, v in list(master_data.items()) if k in set(ddmendpoints or master_data) & set(master_data))  # Python 3
+        data.update((k, v) for k, v in list(master_data.items()) if k in set(ddmendpoints or master_data) & set(master_data))
 
         if data:
             logger.info(f'storagedata: following data extracted from Job definition will be used: {data}')

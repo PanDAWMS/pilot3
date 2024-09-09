@@ -45,6 +45,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from zlib import adler32
 
 from pilot.common.exception import ConversionFailure, FileHandlingFailure, MKDirFailure, NoSuchFile
+from pilot.util.config import config
 from .container import execute
 from .math import diff_lists
 
@@ -388,7 +389,7 @@ def read_json(filename: str) -> dict:
 
 
 def write_json(filename: str, data: Union[dict, list], sort_keys: bool = True, indent: int = 4,
-               separators: tuple = (',', ': ')) -> bool:
+               separators: tuple[str, str] = (',', ': ')) -> bool:
     r"""
     Write the dictionary to a JSON file.
 
@@ -1376,3 +1377,81 @@ def rename_xrdlog(name: str):
                 logger.warning(f'did not find the expected {xrd_logfile} in {pilot_home}')
         else:
             logger.warning(f'cannot look for {xrd_logfile} since PILOT_HOME was not set')
+
+
+def rename(from_name: str, to_name: str) -> bool:
+    """
+    Rename a file from one name to another.
+
+    :param from_name: The original name of the file (str)
+    :param to_name: The new name of the file (str)
+    :return: True if the operation was successful, False otherwise (bool).
+    """
+    status = False
+    try:
+        os.rename(from_name, to_name)
+        status = True
+    except FileNotFoundError as exc:
+        logger.warning(f"file not found: {exc}")
+    except IOError as exc:
+        logger.warning(f"an error occurred while processing the file: {exc}")
+
+    return status
+
+
+def get_baseurls_filename() -> str:
+    """
+    Get the base URLs filename.
+
+    :return: base URLs filename (str).
+    """
+    try:
+        return config.Payload.baseurls
+    except AttributeError:
+        return "baseurls.txt"
+
+
+def store_base_urls(baseurls: str):
+    """
+    Store the base URLs for trf verification to a file, if args.baseurls is set.
+
+    :param baseurls: base URLs (str).
+    """
+    if baseurls:
+        filename = get_baseurls_filename()
+        path = os.path.join(os.environ.get("PILOT_HOME"), filename)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(baseurls)
+        except IOError as exc:
+            logger.warning(f"failed to write base URLs to file: {exc}")
+        else:
+            logger.info(f"wrote base URLs to {path}")
+
+
+def read_base_urls() -> list:
+    """
+    Read the base URLs from the baseurls file.
+
+    :return: list of base URLs (list).
+    """
+    baseurls = []
+    filename = get_baseurls_filename()
+    path = os.path.join(os.environ.get("PILOT_HOME"), filename)
+    if not os.path.exists(path):
+        logger.info(f"base URLs file {path} does not exist (will use static list for TRF download)")
+        return baseurls
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            # read the base URLs from the file
+            # the URL list is a comma separated string on a single line
+            _baseurls = f.read().strip()
+            # convert the string to a list
+            baseurls = _baseurls.split(",")
+    except IOError as exc:
+        logger.warning(f"failed to read base URLs from file: {exc}")
+    else:
+        logger.info(f"read base URLs from {path}")
+
+    return baseurls

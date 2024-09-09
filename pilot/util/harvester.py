@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 """Functions for interactiving with Harvester."""
 
@@ -27,7 +27,6 @@ import os.path
 import socket
 from typing import Any
 
-from pilot.common.exception import FileHandlingFailure
 from pilot.util.config import config
 from pilot.util.filehandling import write_json, touch, remove, read_json, get_checksum_value
 from pilot.util.timing import time_stamp
@@ -70,7 +69,7 @@ def get_job_request_file_name() -> str:
 
     :return: job request file name (str).
     """
-    return os.path.join(os.environ['PILOT_HOME'], config.Harvester.job_request_file)
+    return os.path.join(os.environ.get('PILOT_HOME'), config.Harvester.job_request_file)
 
 
 def remove_job_request_file():
@@ -83,7 +82,7 @@ def remove_job_request_file():
         logger.debug('there is no job request file')
 
 
-def request_new_jobs(njobs: int = 1):
+def request_new_jobs(njobs: int = 1) -> bool:
     """
     Inform Harvester that the pilot is ready to process new jobs by creating a job request file.
 
@@ -91,15 +90,22 @@ def request_new_jobs(njobs: int = 1):
 
     :param njobs: Number of jobs. Default is 1 since on grids and clouds the pilot does not know how many jobs it can
     process before it runs out of time (int)
-    :raises: FileHandlingFailure if write_json() fails.
+    :return: True if the job request file was successfully created, False otherwise (bool).
     """
     path = get_job_request_file_name()
-    dictionary = {'nJobs': njobs}
+    if os.path.exists(path):
+        logger.warning(f'job request file already exists: {path}')
+        return True
 
+    dictionary = {'nJobs': njobs}
+    logger.info(f'requesting {njobs} new job(s) by creating {path}')
     # write it to file
-    ec = write_json(path, dictionary)
-    if ec:
-        raise FileHandlingFailure
+    status = write_json(path, dictionary)
+    if not status:
+        logger.warning("failed to request new job from Harvester")
+        return False
+
+    return True
 
 
 def kill_worker():

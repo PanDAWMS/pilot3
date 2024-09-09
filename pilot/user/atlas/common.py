@@ -47,6 +47,7 @@ from pilot.common.exception import (
     FileHandlingFailure
 )
 from pilot.info.filespec import FileSpec
+from pilot.info.jobdata import JobData
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
@@ -100,7 +101,6 @@ from .utilities import (
     get_network_monitor_setup,
     post_memory_monitor_action,
     get_memory_monitor_summary_filename,
-    get_prefetcher_setup,
     get_memory_monitor_output_filename,
     get_metadata_dict_from_txt,
 )
@@ -132,13 +132,13 @@ def sanity_check() -> int:
     return 0
 
 
-def validate(job: Any) -> bool:
+def validate(job: JobData) -> bool:
     """
     Perform user specific payload/job validation.
 
     This function will produce a local DBRelease file if necessary (old releases).
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: True if validation is successful, False otherwise (bool).
     """
     status = True
@@ -180,14 +180,14 @@ def validate(job: Any) -> bool:
     return status
 
 
-def open_remote_files(indata: list, workdir: str, nthreads: int) -> (int, str, list, int):  # noqa: C901
+def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, str, list, int]:  # noqa: C901
     """
     Verify that direct i/o files can be opened.
 
     :param indata: list of FileSpec (list)
     :param workdir: working directory (str)
     :param nthreads: number of concurrent file open threads (int)
-    :return: exit code (int), diagnostics (str), not opened files (list), lsetup time (int).
+    :return: exit code (int), diagnostics (str), not opened files (list), lsetup time (int) (tuple).
     :raises PilotException: in case of pilot error.
     """
     exitcode = 0
@@ -329,14 +329,14 @@ def get_timeout_for_remoteio(indata: list) -> int:
     return len(remote_io) * 30 + 900
 
 
-def parse_remotefileverification_dictionary(workdir: str) -> (int, str, list):
+def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, list]:
     """
     Verify that all files could be remotely opened.
 
     Note: currently ignoring if remote file dictionary doesn't exist.
 
     :param workdir: work directory needed for opening remote file dictionary (str)
-    :return: exit code (int), diagnostics (str), not opened files (list).
+    :return: exit code (int), diagnostics (str), not opened files (list) (tuple).
     """
     exitcode = 0
     diagnostics = ""
@@ -409,7 +409,7 @@ def extract_turls(indata: list) -> str:
     )
 
 
-def process_remote_file_traces(path: str, job: Any, not_opened_turls: list):
+def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list):
     """
     Report traces for remote files.
 
@@ -417,7 +417,7 @@ def process_remote_file_traces(path: str, job: Any, not_opened_turls: list):
     and updates it per file before reporting it to the Rucio server.
 
     :param path: path to base trace report (str)
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param not_opened_turls: list of turls that could not be opened (list)
     """
     try:
@@ -487,12 +487,12 @@ def get_nthreads(catchall: str) -> int:
     return _nthreads if _nthreads else 1
 
 
-def get_payload_command(job: Any) -> str:
+def get_payload_command(job: JobData) -> str:
     """
     Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
 
-    :param job: job object (Any)
-    :return: command (string).
+    :param job: job object (JobData)
+    :return: command (str).
     :raises TrfDownloadFailure: in case of download failure.
     """
     # Should the pilot do the setup or does jobPars already contain the information?
@@ -516,7 +516,6 @@ def get_payload_command(job: Any) -> str:
         diagnostics = ""
 
         try:
-            logger.debug('executing open_remote_files()')
             exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
             logger.warning(f'caught std exception: {exc}')
@@ -531,7 +530,7 @@ def get_payload_command(job: Any) -> str:
                 logger.warning(f'base trace report does not exist ({path}) - '
                                f'input file traces should already have been sent')
             else:
-                process_remote_file_traces(path, job, not_opened_turls)
+                process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
 
             # fail the job if the remote files could not be verified
             if exitcode != 0:
@@ -623,9 +622,7 @@ def prepend_env_vars(environ: str, cmd: str) -> str:
     :return: updated payload command (str).
     """
     exports = get_exports(environ)
-    exports_to_add = ''
-    for _cmd in exports:
-        exports_to_add += _cmd
+    exports_to_add = ''.join(exports)
 
     # add the UTC time zone
     exports_to_add += "export TZ=\'UTC\'; "
@@ -658,8 +655,7 @@ def get_exports(from_string: str) -> list:
     key_values = get_key_values(from_string)
     logger.debug(f'extracted key-values: {key_values}')
     if key_values:
-        for number in range(len(key_values)):
-            raw_val = key_values[number]
+        for _, raw_val in enumerate(key_values):
             _key = raw_val[0]
             _value = raw_val[1]
             key_value = ''
@@ -672,12 +668,12 @@ def get_exports(from_string: str) -> list:
     return exports
 
 
-def get_normal_payload_command(cmd: str, job: Any, preparesetup: bool, userjob: bool) -> str:
+def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool) -> str:
     """
     Return the payload command for a normal production/analysis job.
 
     :param cmd: any preliminary command setup (str)
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param userjob: True for user analysis jobs, False otherwise (bool)
     :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
     :return: normal payload command (str).
@@ -723,12 +719,12 @@ def get_normal_payload_command(cmd: str, job: Any, preparesetup: bool, userjob: 
     return cmd
 
 
-def get_generic_payload_command(cmd: str, job: Any, preparesetup: bool, userjob: bool) -> str:
+def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool) -> str:
     """
     Return the payload command for a generic job.
 
     :param cmd: any preliminary command setup (str)
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
     :param userjob: True for user analysis jobs, False otherwise (bool)
     :return: generic job command (str).
@@ -866,14 +862,14 @@ def add_makeflags(job_core_count: int, cmd: str) -> str:
     return cmd
 
 
-def get_analysis_run_command(job: Any, trf_name: str) -> str:  # noqa: C901
+def get_analysis_run_command(job: JobData, trf_name: str) -> str:  # noqa: C901
     """
     Return the proper run command for the user job.
 
     Example output:
     export X509_USER_PROXY=<..>;./runAthena <job parameters> --usePFCTurl --directIn
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param trf_name: name of the transform that will run the job (str)
     :return: command (str).
     """
@@ -881,17 +877,20 @@ def get_analysis_run_command(job: Any, trf_name: str) -> str:  # noqa: C901
 
     # add the user proxy
     if 'X509_USER_PROXY' in os.environ and not job.imagename:
-        logger.debug(f'X509_UNIFIED_DISPATCH={os.environ.get("X509_UNIFIED_DISPATCH")}')
         x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
         cmd += f'export X509_USER_PROXY={x509};'
-    if 'OIDC_AUTH_TOKEN' in os.environ:
-        cmd += 'unset OIDC_AUTH_TOKEN;'
-    if 'OIDC_AUTH_ORIGIN' in os.environ:
-        cmd += 'unset OIDC_AUTH_ORIGIN;'
-    if 'PANDA_AUTH_TOKEN' in os.environ:
-        cmd += 'unset PANDA_AUTH_TOKEN;'
-    if 'PANDA_AUTH_ORIGIN' in os.environ:
-        cmd += 'unset PANDA_AUTH_ORIGIN;'
+
+    env_vars_to_unset = [
+        'OIDC_AUTH_TOKEN',
+        'OIDC_AUTH_ORIGIN',
+        'PANDA_AUTH_TOKEN',
+        'PANDA_AUTH_ORIGIN',
+        'OIDC_REFRESHED_AUTH_TOKEN'
+    ]
+
+    for var in env_vars_to_unset:
+        if var in os.environ:
+            cmd += f'unset {var};'
 
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
@@ -1008,11 +1007,11 @@ def get_guids_from_jobparams(jobparams: str, infiles: list, infilesguids: list) 
     return guidlist
 
 
-def test_job_data(job: Any):
+def test_job_data(job: JobData):
     """
     Test function to verify that the job object contains the expected data.
 
-    :param job: job object (Any)
+    :param job: job object (JobData).
     """
     # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
     # output files and add them to the output file list
@@ -1066,7 +1065,7 @@ def test_job_data(job: Any):
         logger.debug('no regex found in outdata file list')
 
 
-def update_job_data(job: Any):
+def update_job_data(job: JobData):
     """
     Update the job object.
 
@@ -1075,7 +1074,7 @@ def update_job_data(job: Any):
     In the case of ATLAS, information is extracted from the metadata field and
     added to other job object fields.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     ## comment from Alexey:
     ## it would be better to reallocate this logic (as well as parse
@@ -1131,14 +1130,14 @@ def update_job_data(job: Any):
         validate_output_data(job)
 
 
-def validate_output_data(job: Any):
+def validate_output_data(job: JobData):
     """
     Validate output data.
 
     Set any missing GUIDs and make sure the output file names follow the ATLAS naming convention - if not, set the
     error code.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     ## validate output data (to be moved into the JobData)
     ## warning: do no execute this code unless guid lookup in job report
@@ -1190,11 +1189,11 @@ def naming_convention_pattern() -> str:
     return fr"^[A-Za-z0-9][A-Za-z0-9.\-_]{{1,{max_filename_size}}}$"
 
 
-def get_stageout_label(job: Any):
+def get_stageout_label(job: JobData):
     """
     Get a proper stage-out label.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: "all"/"log" depending on stage-out type (str).
     """
     stageout = "all"
@@ -1214,11 +1213,11 @@ def get_stageout_label(job: Any):
     return stageout
 
 
-def update_output_for_hpo(job: Any):
+def update_output_for_hpo(job: JobData):
     """
     Update the output (outdata) for HPO jobs.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     try:
         new_outdata = discover_new_outdata(job)
@@ -1230,12 +1229,12 @@ def update_output_for_hpo(job: Any):
             job.outdata = new_outdata
 
 
-def discover_new_outdata(job: Any):
+def discover_new_outdata(job: JobData) -> list:
     """
     Discover new outdata created by HPO job.
 
-    :param job: job object (Any)
-    :return: new_outdata (list of FileSpec objects).
+    :param job: job object (JobData)
+    :return: new_outdata (list of FileSpec objects) (list).
     """
     new_outdata = []
 
@@ -1243,7 +1242,7 @@ def discover_new_outdata(job: Any):
         new_output = discover_new_output(outdata_file.lfn, job.workdir)
         if new_output:
             # create new FileSpec objects out of the new output
-            for outfile in new_output:
+            for outfile, file_info in new_output.items():
                 # note: guid will be taken from job report
                 # after this function has been called
                 files = [{
@@ -1253,8 +1252,8 @@ def discover_new_outdata(job: Any):
                     'dataset': outdata_file.dataset,
                     'ddmendpoint': outdata_file.ddmendpoint,
                     'ddmendpoint_alt': None,
-                    'filesize': new_output[outfile]['filesize'],
-                    'checksum': new_output[outfile]['checksum'],
+                    'filesize': file_info['filesize'],
+                    'checksum': file_info['checksum'],
                     'guid': ''
                 }]
 
@@ -1301,7 +1300,7 @@ def discover_new_output(name_pattern: str, workdir: str) -> dict:
     return new_output
 
 
-def extract_output_file_guids(job: Any) -> None:
+def extract_output_file_guids(job: JobData):
     """
     Extract output file info from the job report and make sure all guids are assigned.
 
@@ -1310,8 +1309,7 @@ def extract_output_file_guids(job: Any) -> None:
     this function might not be called if metadata info is not found prior
     to the call.
 
-    :param job: job object (Any)
-    :return: None.
+    :param job: job object (JobData).
     """
     # make sure there is a defined output file list in the job report -
     # unless it is allowed by task parameter allowNoOutput
@@ -1369,10 +1367,8 @@ def extract_output_file_guids(job: Any) -> None:
         # will overwrite output file list: extra=%s' % extra)
         #job.outdata = extra
 
-    return
 
-
-def verify_output_files(job: Any) -> bool:
+def verify_output_files(job: JobData) -> bool:
     """
     Verify that the output files from the job definition are listed in the job report.
 
@@ -1385,7 +1381,7 @@ def verify_output_files(job: Any) -> bool:
     there with zero events. Then if allownooutput is not set - fail the job.
     If it is set, then do not store the output, and finish ok.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: True if output files were validated correctly, False otherwise (bool).
     """
     failed = False
@@ -1441,7 +1437,7 @@ def verify_output_files(job: Any) -> bool:
     return status
 
 
-def verify_extracted_output_files(output: list, lfns_jobdef: list, job: Any) -> (bool, int):
+def verify_extracted_output_files(output: list, lfns_jobdef: list, job: JobData) -> tuple[bool, int]:
     """
     Make sure all output files extracted from the job report are listed.
 
@@ -1449,8 +1445,8 @@ def verify_extracted_output_files(output: list, lfns_jobdef: list, job: Any) -> 
 
     :param output: list of FileSpecs (list)
     :param lfns_jobdef: list of lfns strings from job definition (list)
-    :param job: job object (Any)
-    :return: True if successful, False if failed (bool), number of events (int).
+    :param job: job object (JobData)
+    :return: True if successful, False if failed (bool), number of events (int) (tuple).
     """
     failed = False
     nevents = 0
@@ -1518,12 +1514,12 @@ def verify_extracted_output_files(output: list, lfns_jobdef: list, job: Any) -> 
     return status, nevents
 
 
-def remove_from_stageout(lfn: str, job: Any):
+def remove_from_stageout(lfn: str, job: JobData):
     """
     Remove the given lfn from the stage-out list.
 
     :param lfn: local file name (str)
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     outdata = []
     for fspec in job.outdata:
@@ -1534,11 +1530,11 @@ def remove_from_stageout(lfn: str, job: Any):
     job.outdata = outdata
 
 
-def remove_no_output_files(job: Any):
+def remove_no_output_files(job: JobData):
     """
     Remove files from output file list if they are listed in allowNoOutput and do not exist.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     # first identify the files to keep
     _outfiles = []
@@ -1604,7 +1600,6 @@ class DictQuery(dict):
         :param path: path to the value (str)
         :param dst_dict: destination dictionary (dict)
         :param dst_key: destination key (str)
-        :return: None.
         """
         keys = path.split("/")
         if len(keys) == 0:
@@ -1619,8 +1614,6 @@ class DictQuery(dict):
 
         if last_key in me_:
             dst_dict[dst_key] = me_[last_key]
-
-        return
 
 
 def parse_jobreport_data(job_report: dict) -> dict:  # noqa: C901
@@ -1738,7 +1731,7 @@ def get_resimevents(jobreport_dictionary: dict) -> int or None:
     return resimevents
 
 
-def get_db_info(jobreport_dictionary) -> (int, int):
+def get_db_info(jobreport_dictionary: dict) -> tuple[int, int]:
     """
     Extract and add up the DB info from the job report.
 
@@ -1748,7 +1741,7 @@ def get_db_info(jobreport_dictionary) -> (int, int):
     been done already by the transform and stored in dbDataTotal and dbTimeTotal.
 
     :param jobreport_dictionary: job report dictionary (dict)
-    :return: db_time (int), db_data (int).
+    :return: db_time (int), db_data (int) (tuple).
     """
     db_time = 0
     db_data = 0
@@ -1797,7 +1790,7 @@ def get_db_info_str(db_time: int, db_data: int) -> (str, str):
     return db_time_s, db_data_s
 
 
-def get_cpu_times(jobreport_dictionary: dict) -> (str, int, float):
+def get_cpu_times(jobreport_dictionary: dict) -> tuple[str, int, float]:
     """
     Extract and add up the total CPU times from the job report.
 
@@ -1806,7 +1799,7 @@ def get_cpu_times(jobreport_dictionary: dict) -> (str, int, float):
     Note: this function is used with Event Service jobs
 
     :param jobreport_dictionary: job report dictionary (dict)
-    :return: cpu_conversion_unit (str), total_cpu_time (int), conversion_factor (output consistent with set_time_consumed()) (float).
+    :return: cpu_conversion_unit (str), total_cpu_time (int), conversion_factor (output consistent with set_time_consumed()) (float) (tuple).
     """
     total_cpu_time = 0
 
@@ -1826,14 +1819,14 @@ def get_cpu_times(jobreport_dictionary: dict) -> (str, int, float):
     return cpu_conversion_unit, total_cpu_time, conversion_factor
 
 
-def get_exit_info(jobreport_dictionary: dict) -> (int, str):
+def get_exit_info(jobreport_dictionary: dict) -> tuple[int, str]:
     """
     Return the exit code (exitCode) and exit message (exitMsg).
 
     E.g. (0, 'OK').
 
     :param jobreport_dictionary:
-    :return: exit_code (int), exit_message (str).
+    :return: exit_code (int), exit_message (str) (tuple).
     """
     return jobreport_dictionary.get('exitCode'), jobreport_dictionary.get('exitMsg')
 
@@ -2096,7 +2089,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
 
     :param workdir: working directory (str)
     :param outputfiles: list of protected output files (list)
-    :param errors: list of Pilot assigned error codes (list)
+    :param piloterrors: list of Pilot assigned error codes (list)
     :param debugmode: True if debug mode has been switched on (bool).
     """
     if outputfiles is None:
@@ -2180,7 +2173,7 @@ def download_command(process: dict, workdir: str) -> dict:
     return process
 
 
-def get_utility_commands(order: int = None, job: Any = None) -> dict or None:
+def get_utility_commands(order: int = None, job: JobData = None) -> dict or None:
     """
     Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
@@ -2204,9 +2197,9 @@ def get_utility_commands(order: int = None, job: Any = None) -> dict or None:
 
     FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>, 'ignore_failure': <Boolean>}
 
-    :param order: optional sorting order (see pilot.util.constants).
-    :param job: optional job object.
-    :return: dictionary of utilities to be executed in parallel with the payload.
+    :param order: optional sorting order (see pilot.util.constants) (int)
+    :param job: optional job object (JobData)
+    :return: dictionary of utilities to be executed in parallel with the payload (dict or None).
     """
     if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
         return get_precopostprocess_command(job.preprocess, job.workdir, 'preprocess')
@@ -2391,6 +2384,8 @@ def xcache_activation_command(workdir: str = '', jobid: str = '') -> dict:
     :param jobid: PanDA job id to guarantee that xcache process is unique (int)
     :return: xcache command (str).
     """
+    if workdir:  # to bypass pylint warning
+        pass
     # a successful startup will set ALRB_XCACHE_PROXY and ALRB_XCACHE_PROXY_REMOTE
     # so any file access with root://...  should be replaced with one of
     # the above (depending on whether you are on the same machine or not)
@@ -2421,6 +2416,8 @@ def xcache_deactivation_command(workdir: str = '', jobid: str = '') -> dict:
     :param jobid: unused job id - do not remove (str)
     :return: xcache command (dict).
     """
+    if jobid:  # to bypass pylint warning
+        pass
     path = os.environ.get('ALRB_XCACHE_LOG', None)
     if path and os.path.exists(path):
         logger.debug(f'copying xcache messages log file ({path}) to work dir ({workdir})')
@@ -2440,14 +2437,14 @@ def xcache_deactivation_command(workdir: str = '', jobid: str = '') -> dict:
     return {'command': command, 'args': '-p $ALRB_XCACHE_MYPROCESS'}
 
 
-def get_utility_command_setup(name: str, job: Any, setup: str = None) -> str:
+def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str:
     """
     Return the proper setup for the given utility command.
 
     If a payload setup is specified, then the utility command string should be prepended to it.
 
     :param name: name of utility (str)
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param setup: optional payload setup string (str)
     :return: utility command setup (str).
     """
@@ -2455,18 +2452,12 @@ def get_utility_command_setup(name: str, job: Any, setup: str = None) -> str:
         # must know if payload is running in a container or not
         # (enables search for pid in ps output)
         use_container = job.usecontainer or 'runcontainer' in job.transformation
-        dump_ps = ("PRMON_DEBUG" in job.infosys.queuedata.catchall)
 
         setup, pid = get_memory_monitor_setup(
             job.pid,
-            job.pgrp,
             job.jobid,
             job.workdir,
-            job.command,
-            use_container=use_container,
-            transformation=job.transformation,
-            outdata=job.outdata,
-            dump_ps=dump_ps
+            use_container=use_container
         )
 
         _pattern = r"([\S]+)\ ."
@@ -2482,15 +2473,12 @@ def get_utility_command_setup(name: str, job: Any, setup: str = None) -> str:
             logger.debug(f'updating pgrp={job.pgrp} for pid={pid}')
             try:
                 job.pgrp = os.getpgid(pid)
-            except Exception as exc:
+            except ProcessLookupError as exc:
                 logger.warning(f'os.getpgid({pid}) failed with: {exc}')
         return setup
 
     if name == 'NetworkMonitor' and setup:
         return get_network_monitor_setup(setup, job)
-
-    if name == 'Prefetcher':
-        return get_prefetcher_setup(job)
 
     return ""
 
@@ -2514,12 +2502,12 @@ def get_utility_command_execution_order(name: str) -> int:
     return UTILITY_AFTER_PAYLOAD_STARTED
 
 
-def post_utility_command_action(name: str, job: Any):
+def post_utility_command_action(name: str, job: JobData):
     """
     Perform post action for given utility command.
 
     :param name: name of utility command (str)
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     if name == 'NetworkMonitor':
         pass
@@ -2549,12 +2537,12 @@ def get_utility_command_output_filename(name: str, selector: bool = None) -> str
     return get_memory_monitor_summary_filename(selector=selector) if name == 'MemoryMonitor' else ""
 
 
-def verify_lfn_length(outdata: list) -> (int, str):
+def verify_lfn_length(outdata: list) -> tuple[int, str]:
     """
     Make sure that the LFNs are all within the allowed length.
 
     :param outdata: list of FileSpec objects (list)
-    :return: error code (int), diagnostics (str).
+    :return: error code (int), diagnostics (str) (tuple).
     """
     exitcode = 0
     diagnostics = ""
@@ -2604,7 +2592,7 @@ def verify_ncores(corecount: int):
                     f"(ATHENA_PROC_NUMBER will not be overwritten)")
 
 
-def verify_job(job: Any) -> bool:
+def verify_job(job: JobData) -> bool:
     """
     Verify job parameters for specific errors.
 
@@ -2612,7 +2600,7 @@ def verify_job(job: Any) -> bool:
       in case of problem, the function should set the corresponding pilot error code using:
       job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code())
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: True if verified, False otherwise (bool).
     """
     status = False
@@ -2632,11 +2620,11 @@ def verify_job(job: Any) -> bool:
     return status
 
 
-def update_stagein(job: Any):
+def update_stagein(job: JobData):
     """
     Skip DBRelease files during stage-in.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     for fspec in job.indata:
         if 'DBRelease' in fspec.lfn:
@@ -2667,13 +2655,13 @@ def should_update_logstash(frequency: int = 10) -> bool:
     return randint(0, frequency - 1) == 0
 
 
-def update_server(job: Any) -> None:
+def update_server(job: JobData) -> None:
     """
     Perform any user specific server actions.
 
     E.g. this can be used to send special information to a logstash.
 
-    :param job: job object (Any).
+    :param job: job object (JobData).
     """
     # attempt to read memory_monitor_output.txt and convert it to json
     if not should_update_logstash():
@@ -2721,11 +2709,11 @@ def update_server(job: Any) -> None:
     return
 
 
-def preprocess_debug_command(job: Any):
+def preprocess_debug_command(job: JobData):
     """
     Pre-process the debug command in debug mode.
 
-    :param job: Job object (Any).
+    :param job: Job object (JobData).
     """
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
@@ -2814,16 +2802,22 @@ def allow_timefloor(submitmode: str) -> bool:
     :param submitmode: submit mode (str)
     :return: always True for ATLAS (bool).
     """
+    if submitmode:  # to bypass pylint score 0
+        pass
+
     return True
 
 
-def get_pilot_id(jobid: int) -> str:
+def get_pilot_id(jobid: str) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 
     Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (int)
+    :param jobid: PanDA job id - UNUSED (str)
     :return: pilot id (str).
     """
+    if jobid:  # to bypass pylint score 0
+        pass
+
     return os.environ.get("GTAG", "unknown")

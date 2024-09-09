@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
 # Note: leave this module for now - the code might be useful for reuse
 
@@ -26,7 +26,6 @@
 import time
 import queue
 import logging
-from typing import Any
 
 from pilot.common.exception import ExcThread
 from pilot.util.processes import threads_aborted
@@ -34,13 +33,13 @@ from pilot.util.processes import threads_aborted
 logger = logging.getLogger(__name__)
 
 
-def run(args: Any):
+def run(args: object):
     """
     Set up all interceptor threads.
 
     Main execution function for the interceptor communication layer.
 
-    :param args: pilot arguments (Any)
+    :param args: pilot arguments (object)
     """
     targets = {'receive': receive, 'send': send}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'args': args},
@@ -78,11 +77,11 @@ def run(args: Any):
     logger.debug('[interceptor] run thread has finished')
 
 
-def receive(args: Any):
+def receive(args: object):
     """
     Look for interceptor messages.
 
-    :param args: Pilot args object (Any).
+    :param args: Pilot args object (object).
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -97,7 +96,7 @@ def receive(args: Any):
     logger.debug('[interceptor] receive thread has finished')
 
 
-def send(args: Any):
+def send(args: object):
     """
     Send message to interceptor.
 
@@ -117,15 +116,13 @@ def send(args: Any):
 
 
 # implement if necessary
-# def interceptor(queues: Any, traces: Any, args: Any):
+# def interceptor(queues: namedtuple, traces: Any, args: object):
 #    """
 #
-#    :param queues: internal queues for job handling.
-#    :param traces: tuple containing internal pilot states.
-#    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
-#    :return:
+#    :param queues: internal queues for job handling (namedtuple)
+#    :param traces: tuple containing internal pilot states (tupl)
+#    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object).
 #    """
-#
 #    # overall loop counter (ignoring the fact that more than one job may be running)
 #    counter = 0
 #    while not args.graceful_stop.is_set():

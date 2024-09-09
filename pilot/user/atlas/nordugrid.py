@@ -17,9 +17,8 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
-import re
 import logging
 from xml.dom import minidom
 from xml.etree import ElementTree
@@ -27,7 +26,7 @@ from xml.etree import ElementTree
 logger = logging.getLogger(__name__)
 
 
-class XMLDictionary(object):
+class XMLDictionary:
     """
     This is a helper class that is used to create the dictionary which is converted to the special XML files for
     Nordugrid pilots.
@@ -48,21 +47,24 @@ class XMLDictionary(object):
 
     _dictionary = None
 
-    def __init__(self, rootname="outfiles"):
+    def __init__(self, rootname: str = "outfiles"):
         """
-        Standard init function.
-        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles').
+        Initialize the dictionary with the root key.
+
+        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles') (str).
         """
         self._dictionary = {}
         self._dictionary[rootname] = []
 
-    def add_to_list(self, dictionary, rootname="outfiles", itemname="file"):
+    def add_to_list(self, dictionary: dict, rootname: str = "outfiles", itemname: str = "file"):
         """
-        Add dictionary to itemname key. See example in class header.
-        :param dictionary: dictionary to add to itemname key.
-        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles').
-        :param itemname: name of the item key. In the Nordugrid XML it should be called 'file'.
-        :return:
+        Add dictionary to itemname key.
+
+        See example in class header.
+
+        :param dictionary: dictionary to add to itemname key (dict)
+        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles') (str)
+        :param itemname: name of the item key. In the Nordugrid XML it should be called 'file' (str).
         """
         if isinstance(self._dictionary, dict):
             if isinstance(self._dictionary[rootname], list):
@@ -73,16 +75,18 @@ class XMLDictionary(object):
         else:
             logger.info(f"not a dictionary: {self._dictionary}")
 
-    def get_dictionary(self):
+    def get_dictionary(self) -> dict:
         """
         Return the dictionary to be converted to XML.
+
         It should be populated with the dictionary added to it in add_to_list().
-        :return: dictionary
+
+        :return: dictionary (dict).
         """
         return self._dictionary
 
 
-def convert_to_xml(dictionary):
+def convert_to_xml(dictionary: dict) -> str:
     """
     Convert a dictionary to XML.
     The dictionary is expected to follow the Nordugrid format. See the XMLDictionary helper class.
@@ -103,15 +107,15 @@ def convert_to_xml(dictionary):
     </outfiles>
 
     :param dictionary: dictionary created with XMLDictionary.
-    :return: xml (pretty printed for python >= 2.7 - for older python, use the convert_to_prettyprint() function).
+    :return: pretty printed xml (str).
     """
-
     failed = False
 
-    single_file_tag = list(dictionary.keys())  # Python 2/3
+    single_file_tag = list(dictionary.keys())
     if len(single_file_tag) != 1:
         logger.warning(f"unexpected format - expected single entry, got {len(single_file_tag)} entries")
         logger.warning(f'dictionary = {dictionary}')
+
         return None
 
     file_tag = single_file_tag[0]
@@ -148,14 +152,3 @@ def convert_to_xml(dictionary):
 
     # generate pretty print
     return minidom.parseString(ElementTree.tostring(root)).toprettyxml(indent="   ")
-
-
-def convert_to_prettyprint(xmlstr):
-    """
-    Convert XML to pretty print for older python versions (< 2.7).
-    :param xmlstr: input XML string
-    :return: XML string (pretty printed)
-    """
-
-    text_re = re.compile(r'>\n\s+([^<>\s].*?)\n\s+</', re.DOTALL)  # Python 3 (added r)
-    return text_re.sub(r'>\g<1></', xmlstr)  # Python 3 (added r)

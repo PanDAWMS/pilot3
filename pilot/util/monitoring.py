@@ -17,10 +17,11 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
-# This module contains implementations of job monitoring tasks
+""" This module contains implementations of job monitoring tasks. """
 
+import logging
 import os
 import time
 import subprocess
@@ -46,6 +47,7 @@ from pilot.util.math import (
     convert_mb_to_b,
     human2bytes
 )
+from pilot.util.monitoringtime import MonitoringTime
 from pilot.util.parameters import (
     convert_to_int,
     get_maximum_input_sizes
@@ -66,26 +68,23 @@ from pilot.util.workernode import (
     get_local_disk_space,
     check_hz
 )
-from pilot.info import infosys
+from pilot.info import infosys, JobData
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def job_monitor_tasks(job, mt, args):  # noqa: C901
+def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[int, str]:  # noqa: C901
     """
     Perform the tasks for the job monitoring.
     The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
     minute).
 
-    :param job: job object.
-    :param mt: `MonitoringTime` object.
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+    :param job: job object (JobData)
+    :param mt: monitoring time object to keep track of time measurements (MonitoringTime)
+    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
     :return: exit code (int), diagnostics (string).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -132,7 +131,7 @@ def job_monitor_tasks(job, mt, args):  # noqa: C901
         set_number_used_cores(job, time_since_start)
 
         # check memory usage (optional) for jobs in running state
-        exit_code, diagnostics = verify_memory_usage(current_time, mt, job, debug=args.debug)
+        exit_code, diagnostics = verify_memory_usage(current_time, mt, job, args.resource_type, debug=args.debug)
         if exit_code != 0:
             return exit_code, diagnostics
 
@@ -273,21 +272,20 @@ def set_number_used_cores(job, walltime):
     cpu.set_core_counts(**kwargs)
 
 
-def verify_memory_usage(current_time, mt, job, debug=False):
+def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, resource_type: str, debug: bool = False):
     """
     Verify the memory usage (optional).
     Note: this function relies on a stand-alone memory monitor tool that may be executed by the Pilot.
 
     :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object
-    :param job: job object
-    :param debug: True for args.debug==True (Boolean)
-    :return: exit code (int), error diagnostics (string).
+    :param mt: measured time object (MonitoringTime)
+    :param job: job object (object)
+    :param resource_type: resource type (str)
+    :param debug: True for args.debug==True (bool)
+    :return: exit code (int), error diagnostics (str).
     """
-
     #if debug:
     #    show_memory_usage()
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)
 
@@ -299,7 +297,7 @@ def verify_memory_usage(current_time, mt, job, debug=False):
     if current_time - mt.get('ct_memory') > memory_verification_time:
         # is the used memory within the allowed limit?
         try:
-            exit_code, diagnostics = memory.memory_usage(job)
+            exit_code, diagnostics = memory.memory_usage(job, resource_type)
         except Exception as error:
             logger.warning(f'caught exception: {error}')
             exit_code = -1
