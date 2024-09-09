@@ -27,8 +27,8 @@ from os import environ
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
 VERSION = '8'   # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '1'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '66'     # build number should be reset to '1' for every new development cycle
+REVISION = '2'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '1'     # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1
