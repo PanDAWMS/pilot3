@@ -216,3 +216,10 @@ class FileSpec(BaseData):
         logger.info(f'storage_id: {storage_id}, path_convention: {path_convention}')
 
         return storage_id, path_convention
+
+    def require_transfer(self) -> bool:
+        """
+        Check if File needs to be transferred (in error state or never has been started)
+        """
+
+        return self.status not in ['remote_io', 'transferred', 'no_transfer']
