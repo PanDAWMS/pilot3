@@ -2365,7 +2365,7 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     job = JobData(dispatcher_response)
     jobinfosys = InfoService()
     jobinfosys.init(queuename, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
-    job.init(infosys)
+    job.init(jobinfosys)
 
     logger.info(f'received job: {job.jobid} (sleep until the job has finished)')
 
