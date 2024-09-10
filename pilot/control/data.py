@@ -924,14 +924,16 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             # check if alt stageout can be applied (all remain files must have alt storage declared ddmendpoint_alt)
             has_altstorage = all(entry.ddmendpoint_alt and entry.ddmendpoint != entry.ddmendpoint_alt for entry in remain_files)
 
-            logger.info('alt stage-out settings[%s]: is_unified=%s, altstageout=%s, remain_files=%s, has_altstorage=%s',
+            logger.info('alt stage-out settings: %s, is_unified=%s, altstageout=%s, remain_files=%s, has_altstorage=%s',
                         activity, is_unified, altstageout, len(remain_files), has_altstorage)
 
             if altstageout and remain_files and has_altstorage:  # apply alternative stageout for failed transfers
                 for entry in remain_files:
                     entry.ddmendpoint = entry.ddmendpoint_alt
                     entry.ddmendpoint_alt = None
+                    entry.is_altstaged = True
 
+                logger.info('alt stage-out will be applied for remain=%s files (previously failed)', len(remain_files))
                 client.transfer(xdata, activity, **kwargs)
 
         except PilotException as error:
@@ -1072,12 +1074,18 @@ def generate_fileinfo(job: JobData) -> dict:
     """
     fileinfo = {}
     checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
-    for iofile in job.outdata + job.logdata:
-        if iofile.status in {'transferred'}:
-            fileinfo[iofile.lfn] = {'guid': iofile.guid,
-                                    'fsize': iofile.filesize,
-                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
-                                    'surl': iofile.turl}
+    for entry in job.outdata + job.logdata:
+        if entry.status in {'transferred'}:
+            dat = {
+                'guid': entry.guid,
+                'fsize': entry.filesize,
+                f'{checksum_type}': entry.checksum.get(config.File.checksum_type),
+                'surl': entry.turl
+            }
+            if entry.is_altstaged:
+                dat['ddmendpoint'] = entry.ddmendpoint
+
+            fileinfo[entry.lfn] = dat
 
     return fileinfo
 
