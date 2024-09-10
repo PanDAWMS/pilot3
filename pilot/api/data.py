@@ -633,7 +633,8 @@ class StagingClient:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
             details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
             self.logger.fatal(details)
-            raise PilotException(details, code=code)
+            if raise_exception:
+                raise PilotException(details, code=code)
 
         return files
 
