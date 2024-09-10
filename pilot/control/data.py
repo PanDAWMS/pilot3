@@ -925,7 +925,7 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             has_altstorage = all(entry.ddmendpoint_alt and entry.ddmendpoint != entry.ddmendpoint_alt for entry in remain_files)
 
             logger.info('alt stage-out settings[%s]: is_unified=%s, altstageout=%s, remain_files=%s, has_altstorage=%s',
-                        activity, is_unified, len(remain_files), has_altstorage)
+                        activity, is_unified, altstageout, len(remain_files), has_altstorage)
 
             if altstageout and remain_files and has_altstorage:  # apply alternative stageout for failed transfers
                 for entry in remain_files:
