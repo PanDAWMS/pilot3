@@ -96,6 +96,8 @@ class QueueData(BaseData):
     is_cvmfs = True  # has cvmfs installed
     memkillgrace = 100  # memory kill grace value in percentage
 
+    altstageout = None  # allow altstageout: force (True) or disable (False) or no preferences (None)
+
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
                    'corecount', 'maxrss', 'maxtime', 'maxinputsize', 'memkillgrace'],
@@ -171,6 +173,16 @@ class QueueData(BaseData):
 
         return adat.get(copytool) or []
 
+    def allow_altstageout(self):
+        """
+        Resolve if alternative stageout should be forced (True) or disabled (False); None value means no preferences defined.
+        :return: boolean or None
+        """
+
+        val = self.params.get('allow_altstageout', None)
+        if val is not None:  # cast to bool
+            return bool(val)
+
     def clean(self):
         """Validate and finally clean up required data values (required object properties) if needed."""
         # validate es_stageout_gap value
@@ -196,6 +208,9 @@ class QueueData(BaseData):
             if "${workdir}" not in self.container_options and " --contain" in self.container_options:  ## reimplement with shlex later
                 self.container_options = self.container_options.replace(" --contain", ",${workdir} --contain")
                 logger.info(f"note: added missing $workdir to container_options: {self.container_options}")
+
+        # set altstageout settings
+        self.altstageout = self.allow_altstageout()
 
     ## custom function pattern to apply extra validation to the key values
     ##def clean__keyname(self, raw, value):
