@@ -41,7 +41,10 @@ from pilot.util.filehandling import (
 )
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import is_process_running
-from pilot.util.psutils import get_command_by_pid
+from pilot.util.psutils import (
+    get_command_by_pid,
+    find_process_by_jobid
+)
 
 from .setup import get_asetup
 
@@ -158,11 +161,9 @@ def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
         if not is_process_running(pid):
             return -1
 
-        ps = get_ps_info()
-
-        # lookup the process id using ps aux
+        # lookup the process id using ps command or psutils
         logger.debug(f'attempting to identify pid from job id ({jobid})')
-        _pid = get_pid_for_jobid(ps, jobid)
+        _pid = get_pid_for_jobid(jobid)
         if _pid:
             logger.debug(f'discovered pid={_pid} for job id {jobid}')
             cmd = get_command_by_pid(_pid)
@@ -188,6 +189,8 @@ def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
     """
     Return ps info for the given user.
 
+    Note: this is a fallback solution in case the pid cannot be found in the psutils lookup.
+
     :param whoami: username (str)
     :param options: ps options (str)
     :return: ps aux for given user (str).
@@ -200,16 +203,19 @@ def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
     return stdout
 
 
-def get_pid_for_jobid(ps: str, jobid: str) -> int or None:
+def get_pid_for_jobid(jobid: str) -> int or None:
     """
     Return the process id for the ps entry that contains the job id.
 
-    :param ps: ps command output (str)
     :param jobid: PanDA job id (str).
     :return: pid (int) or None if no such process (int or None).
     """
-    pid = None
+    pid = find_process_by_jobid(jobid)
+    if pid:
+        return pid
 
+    # fallback to ps command
+    ps = get_ps_info()
     for line in ps.split('\n'):
         if jobid in line and 'xrootd' not in line:
             # extract pid
