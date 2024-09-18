@@ -285,11 +285,13 @@ def _stage_in(args: object, job: JobData) -> bool:
             logger.info('stage-in will not be done in a container')
 
             client, activity = get_stagein_client(job, args, label)
+            logger.info(f'activity={activity}')
             use_pcache = job.infosys.queuedata.use_pcache
-
+            logger.debug(f'use_pcache={use_pcache}')
             # get the proper input file destination (normally job.workdir unless stager workflow)
             jobworkdir = job.workdir  # there is a distinction for mv copy tool on ND vs non-ATLAS
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
+            logger.debug(f'workdir={workdir}')
             kwargs = {'workdir': workdir,
                       'cwd': job.workdir,
                       'usecontainer': False,
@@ -301,7 +303,9 @@ def _stage_in(args: object, job: JobData) -> bool:
                       'rucio_host': args.rucio_host,
                       'jobworkdir': jobworkdir,
                       'args': args}
+            logger.debug(f'kwargs={kwargs}')
             client.prepare_sources(job.indata)
+            logger.info('prepared sources - will now transfer files')
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
             error_msg = traceback.format_exc()
