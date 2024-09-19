@@ -376,13 +376,21 @@ def extract_error_info(error: str) -> (int, str):
     return error_code, diagnostics
 
 
-def get_rtlogging() -> str:
+def get_rtlogging(catchall: str) -> str:
     """
-    Return the proper rtlogging value from the experiment specific plug-in or the config file.
+    Return the proper rtlogging value from PQ.catchall, the experiment specific plug-in or the config file.
 
+    :param catchall: catchall field from queuedata (str)
     :return: rtlogging (str).
     """
+    if catchall:
+        _rtlogging = findall(r'logging=([^,]+)', catchall)
+        if _rtlogging and ";" in _rtlogging[0]:
+            logger.info(f"found rtlogging in catchall: {_rtlogging[0]}")
+            return _rtlogging[0]
+
     rtlogging = None
+
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     try:
         user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
@@ -419,7 +427,13 @@ def get_logging_info(job: JobData, args: object) -> dict:
     info_dic['logname'] = args.realtime_logname if args.realtime_logname else "pilot-log"
     logserver = args.realtime_logging_server if args.realtime_logging_server else ""
 
-    info = findall(r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)', get_rtlogging())
+    try:
+        catchall = job.infosys.queuedata.catchall
+    except Exception as exc:
+        logger.warning(f'exception caught: {exc}')
+        catchall = ""
+
+    info = findall(r'(\S+)\;(\S+)\:\/\/(\S+)\:(\d+)', get_rtlogging(catchall))
     if not logserver and not info:
         logger.warning(f"not enough info available for activating real-time logging (info='{info}', logserver='{logserver}')")
         return {}
