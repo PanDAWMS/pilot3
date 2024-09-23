@@ -646,7 +646,7 @@ def get_panda_server(url: str, port: int, update_server: bool = True) -> str:
     if default in pandaserver:
         try:
             rnd = random.choice([socket.getfqdn(vv) for vv in set([v[-1][0] for v in socket.getaddrinfo(default, 25443, socket.AF_INET)])])
-        except socket.herror as exc:
+        except (socket.herror, socket.gaierror) as exc:
             logger.warning(f'failed to get address from socket: {exc} - will use default server ({pandaserver})')
         else:
             pandaserver = pandaserver.replace(default, rnd)
