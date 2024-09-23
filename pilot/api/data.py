@@ -87,8 +87,7 @@ class StagingClient:
                  default_copytools: str = 'rucio',
                  trace_report: dict = None,
                  ipv: str = 'IPv6',
-                 workdir: str = "",
-                 altstageout: str = None):
+                 workdir: str = ""):
         """
         Set default/init values.
 
@@ -113,7 +112,6 @@ class StagingClient:
         self.infosys = infosys_instance or infosys
         self.ipv = ipv
         self.workdir = workdir
-        self.altstageout = altstageout
 
         if isinstance(acopytools, str):
             acopytools = {'default': [acopytools]} if acopytools else {}
@@ -522,7 +520,7 @@ class StagingClient:
         """
         raise NotImplementedError()
 
-    def transfer(self, files: list, activity: list or str = 'default', **kwargs: dict) -> list:  # noqa: C901
+    def transfer(self, files: list, activity: list or str = 'default', raise_exception: bool = True, **kwargs: dict) -> list:  # noqa: C901
         """
         Perform file transfer.
 
@@ -530,8 +528,9 @@ class StagingClient:
 
         :param files: list of `FileSpec` objects (list)
         :param activity: list of activity names used to determine appropriate copytool (list or str)
+        :param raise_exception: boolean flag used to ignore transfer errors
         :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :raise: PilotException in case of controlled error
+        :raise: PilotException in case of controlled error if `raise_exception` is `True`
         :return: list of processed `FileSpec` objects (list).
         """
         self.trace_report.update(relativeStart=time.time(), transferStart=time.time())
@@ -548,7 +547,8 @@ class StagingClient:
                 break
 
         if not copytools:
-            raise PilotException(f'failed to resolve copytool by preferred activities={activity}, acopytools={self.acopytools}')
+            raise PilotException(f'failed to resolve copytool by preferred activities={activity}, acopytools={self.acopytools}',
+                                 code=ErrorCodes.UNKNOWNCOPYTOOL)
 
         # populate inputddms if needed
         self.prepare_inputddms(files)
@@ -633,7 +633,8 @@ class StagingClient:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
             details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
             self.logger.fatal(details)
-            raise PilotException(details, code=code)
+            if raise_exception:
+                raise PilotException(details, code=code)
 
         return files
 
@@ -1109,20 +1110,28 @@ class StageOutClient(StagingClient):
 
         # take the fist choice for now, extend the logic later if need
         ddm = storages[0]
+        ddm_alt = storages[1] if len(storages) > 1 else None
 
         self.logger.info(f"[prepare_destinations][{activity}]: allowed (local) destinations: {storages}")
-        self.logger.info(f"[prepare_destinations][{activity}]: resolved default destination ddm={ddm}")
+        self.logger.info(f"[prepare_destinations][{activity}]: resolved default destination: ddm={ddm}, ddm_alt={ddm_alt}")
 
         for e in files:
             if not e.ddmendpoint:  # no preferences => use default destination
                 self.logger.info("[prepare_destinations][%s]: fspec.ddmendpoint is not set for lfn=%s"
-                                 " .. will use default ddm=%s as (local) destination", activity, e.lfn, ddm)
+                                 " .. will use default ddm=%s as (local) destination; ddm_alt=%s", activity, e.lfn, ddm, ddm_alt)
                 e.ddmendpoint = ddm
+                e.ddmendpoint_alt = ddm_alt
             elif e.ddmendpoint not in storages:  # fspec.ddmendpoint is not in associated storages => assume it as final (non local) alternative destination
                 self.logger.info("[prepare_destinations][%s]: Requested fspec.ddmendpoint=%s is not in the list of allowed (local) destinations"
                                  " .. will consider default ddm=%s for transfer and tag %s as alt. location", activity, e.ddmendpoint, ddm, e.ddmendpoint)
+                e.ddmendpoint_alt = e.ddmendpoint  # verify me
                 e.ddmendpoint = ddm
-                e.ddmendpoint_alt = e.ddmendpoint  # consider me later
+            else:  # set corresponding ddmendpoint_alt if exist (next entry in available storages list)
+                cur = storages.index(e.ddmendpoint)
+                ddm_next = storages[cur + 1] if (cur + 1) < len(storages) else storages[0]  # cycle storages, take the first elem when reach end
+                e.ddmendpoint_alt = ddm_next if e.ddmendpoint != ddm_next else None
+                self.logger.info("[prepare_destinations][%s]: set ddmendpoint_alt=%s for fspec.ddmendpoint=%s",
+                                 activity, e.ddmendpoint_alt, e.ddmendpoint)
 
         return files
 
