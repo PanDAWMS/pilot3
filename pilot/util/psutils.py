@@ -286,9 +286,7 @@ def find_process_by_jobid(jobid: int) -> int or None:
         except psutil.NoSuchProcess:
             continue
 
-        logger.debug(f'cmd_line={cmd_line}')
         for arg in cmd_line:
-            logger.debug(f'arg={arg}')
             if str(jobid) in arg and 'xrootd' not in arg:
                 return proc.pid
 
