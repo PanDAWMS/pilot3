@@ -858,7 +858,7 @@ def request2(url: str = "",
     # Send the request securely
     try:
         logger.debug('sending data to server')
-        with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
             # Handle the response here
             logger.debug(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
