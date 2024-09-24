@@ -77,6 +77,7 @@ class FileSpec(BaseData):
     is_tar = False     # whether it's a tar file or not
     ddm_activity = None  # DDM activity names (e.g. [read_lan, read_wan]) which should be used to resolve appropriate protocols from StorageData.arprotocols
     checkinputsize = True
+    is_altstaged = None  # indicates if file was transferred using alternative method (altstageout)
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['filesize', 'mtime', 'status_code'],
@@ -216,3 +217,10 @@ class FileSpec(BaseData):
         logger.info(f'storage_id: {storage_id}, path_convention: {path_convention}')
 
         return storage_id, path_convention
+
+    def require_transfer(self) -> bool:
+        """
+        Check if File needs to be transferred (in error state or never has been started)
+        """
+
+        return self.status not in ['remote_io', 'transferred', 'no_transfer']

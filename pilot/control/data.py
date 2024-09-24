@@ -285,11 +285,13 @@ def _stage_in(args: object, job: JobData) -> bool:
             logger.info('stage-in will not be done in a container')
 
             client, activity = get_stagein_client(job, args, label)
+            logger.info(f'activity={activity}')
             use_pcache = job.infosys.queuedata.use_pcache
-
+            logger.debug(f'use_pcache={use_pcache}')
             # get the proper input file destination (normally job.workdir unless stager workflow)
             jobworkdir = job.workdir  # there is a distinction for mv copy tool on ND vs non-ATLAS
             workdir = get_proper_input_destination(job.workdir, args.input_destination_dir)
+            logger.debug(f'workdir={workdir}')
             kwargs = {'workdir': workdir,
                       'cwd': job.workdir,
                       'usecontainer': False,
@@ -301,7 +303,9 @@ def _stage_in(args: object, job: JobData) -> bool:
                       'rucio_host': args.rucio_host,
                       'jobworkdir': jobworkdir,
                       'args': args}
+            logger.debug(f'kwargs={kwargs}')
             client.prepare_sources(job.indata)
+            logger.info('prepared sources - will now transfer files')
             client.transfer(job.indata, activity=activity, **kwargs)
         except PilotException as error:
             error_msg = traceback.format_exc()
@@ -909,14 +913,33 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             # create the trace report
             trace_report = create_trace_report(job, label=label)
 
-            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir, altstageout=job.altstageout)
+            client = StageOutClient(job.infosys, logger=logger, trace_report=trace_report, ipv=ipv, workdir=job.workdir)
             kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job,
                       'output_dir': args.output_dir, 'catchall': job.infosys.queuedata.catchall,
                       'rucio_host': args.rucio_host}  #, mode='stage-out')
+            is_unified = job.infosys.queuedata.type == 'unified'
             # prod analy unification: use destination preferences from PanDA server for unified queues
-            if job.infosys.queuedata.type != 'unified':
+            if not is_unified:
                 client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
-            client.transfer(xdata, activity, **kwargs)
+
+            altstageout = not is_unified and job.allow_altstageout()  # do not use alt stage-out for unified queues
+            client.transfer(xdata, activity, raise_exception=not altstageout, **kwargs)
+            remain_files = [entry for entry in xdata if entry.require_transfer()]
+            # check if alt stageout can be applied (all remain files must have alt storage declared ddmendpoint_alt)
+            has_altstorage = all(entry.ddmendpoint_alt and entry.ddmendpoint != entry.ddmendpoint_alt for entry in remain_files)
+
+            logger.info('alt stage-out settings: %s, is_unified=%s, altstageout=%s, remain_files=%s, has_altstorage=%s',
+                        activity, is_unified, altstageout, len(remain_files), has_altstorage)
+
+            if altstageout and remain_files and has_altstorage:  # apply alternative stageout for failed transfers
+                for entry in remain_files:
+                    entry.ddmendpoint = entry.ddmendpoint_alt
+                    entry.ddmendpoint_alt = None
+                    entry.is_altstaged = True
+
+                logger.info('alt stage-out will be applied for remain=%s files (previously failed)', len(remain_files))
+                client.transfer(xdata, activity, **kwargs)
+
         except PilotException as error:
             error_msg = traceback.format_exc()
             logger.error(error_msg)
@@ -936,14 +959,10 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
         logger.info(f'switched back proxy on unified dispatch queue: X509_USER_PROXY={x509_org} (reset X509_UNIFIED_DISPATCH)')
 
     logger.info('summary of transferred files:')
-    for iofile in xdata:
-        if not iofile.status:
-            status = "(not transferred)"
-        else:
-            status = iofile.status
-        logger.info(" -- lfn=%s, status_code=%s, status=%s", iofile.lfn, iofile.status_code, status)
+    for entry in xdata:
+        logger.info(" -- lfn=%s, status_code=%s, status=%s", entry.lfn, entry.status_code, entry.status or "(not transferred)")
 
-    remain_files = [iofile for iofile in xdata if iofile.status not in ['transferred']]
+    remain_files = [entry for entry in xdata if entry.status not in ['transferred']]
 
     return not remain_files
 
@@ -1059,12 +1078,18 @@ def generate_fileinfo(job: JobData) -> dict:
     """
     fileinfo = {}
     checksum_type = config.File.checksum_type if config.File.checksum_type == 'adler32' else 'md5sum'
-    for iofile in job.outdata + job.logdata:
-        if iofile.status in {'transferred'}:
-            fileinfo[iofile.lfn] = {'guid': iofile.guid,
-                                    'fsize': iofile.filesize,
-                                    f'{checksum_type}': iofile.checksum.get(config.File.checksum_type),
-                                    'surl': iofile.turl}
+    for entry in job.outdata + job.logdata:
+        if entry.status in {'transferred'}:
+            dat = {
+                'guid': entry.guid,
+                'fsize': entry.filesize,
+                f'{checksum_type}': entry.checksum.get(config.File.checksum_type),
+                'surl': entry.turl
+            }
+            if entry.is_altstaged:
+                dat['ddmendpoint'] = entry.ddmendpoint
+
+            fileinfo[entry.lfn] = dat
 
     return fileinfo
 

@@ -169,7 +169,7 @@ class JobData(BaseData):
     dask_scheduler_ip = ''        # enhanced job definition for Dask jobs
     jupyter_session_ip = ''        # enhanced job definition for Dask jobs
     minramcount = 0                # minimum number of RAM required by the payload
-    altstageout = None            # alternative stage-out method, on, off, force
+    altstageout = None            # alternative stage-out method: boolean, on (True), off (False)
     # home package string with additional payload release information; does not need to be added to
     # the conversion function since it's already lower case
     homepackage = ""              # home package for TRF
@@ -575,6 +575,26 @@ class JobData(BaseData):
         """
         return any(fspec.status == 'remote_io' for fspec in self.indata)
 
+    def allow_altstageout(self):
+        """
+        Resolve if alternative stageout is allowed for given job taking into account `queuedata` settings as well.
+        `queuedata` specific settings overwrites job preferences for altstageout.
+
+        :return: boolean.
+        """
+
+        # consider first the queue specific settings (if any)
+        if self.infosys and self.infosys.queuedata:
+            qval = self.infosys.queuedata.altstageout
+            if qval is not None:
+                return qval
+        else:
+            logger.info('job.infosys.queuedata is not initialized: PandaQueue specific settings for altstageout will not be considered')
+
+        # apply additional job specific checks here if need
+
+        return bool(self.altstageout)
+
     def clean(self):
         """
         Validate and finally clean up required data values (object properties) if needed.
@@ -627,6 +647,19 @@ class JobData(BaseData):
             v = v.split('@')[0]  # cmtconfig value
 
         return v
+
+    def clean__altstageout(self, raw: Any, value: str) -> Any:
+        """
+        Verify and validate value for the altstageout key.
+
+        :param raw: raw value (Any)
+        :param value: parsed value (str)
+        :return: cleaned value (bool or None).
+        """
+        if value == 'on':
+            return True
+        if value == 'off':
+            return False
 
     def clean__jobparams(self, raw: Any, value: str) -> str:
         """

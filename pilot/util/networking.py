@@ -35,7 +35,7 @@ def dump_ipv6_info() -> None:
     """Dump the IPv6 info to the log."""
     cmd = 'ifconfig'
     if not is_command_available(cmd):
-        _cmd = '/usr/sbin/ifconfig'
+        _cmd = '/usr/sbin/ifconfig -a'
         if not is_command_available(_cmd):
             logger.warning(f'command {cmd} is not available - this WN might not support IPv6')
             return
@@ -43,13 +43,33 @@ def dump_ipv6_info() -> None:
 
     _, stdout, stderr = execute(cmd, timeout=10)
     if stdout:
-        ipv6 = extract_ipv6(stdout)
+        ipv6 = extract_ipv6_addresses(stdout)
         if ipv6:
             logger.info(f'IPv6 addresses: {ipv6}')
         else:
-            logger.warning('no IPv6 addresses found - this WN does not support IPv6')
+            logger.warning('no IPv6 addresses were found')
     else:
         logger.warning(f'failed to run ifconfig: {stderr}')
+
+
+def extract_ipv6_addresses(ifconfig_output: str) -> list:
+    """Extracts IPv6 addresses from ifconfig output.
+
+    Args:
+        ifconfig_output: The output of the ifconfig command.
+
+    Returns:
+        A list of IPv6 addresses.
+    """
+
+    ipv6_addresses = []
+    for line in ifconfig_output.splitlines():
+        line = line.strip().replace("\t", " ").replace("\r", "").replace("\n", "")
+        match = re.search(r"inet6 (.*?)\s", line)
+        if match and match.group(1) != "::1":  # skip loopback address
+            ipv6_addresses.append(match.group(1))
+
+    return ipv6_addresses
 
 
 def extract_ipv6(ifconfig: str) -> str:

@@ -121,7 +121,7 @@ class RealTimeLogger(logging.Logger):
         if workdir:  # bypass pylint warning - keep workdir for possible future development
             pass
         if not info_dic:
-            logger.warning('info dictionary not set - add \'logging=type:protocol://host:port\' to PQ.catchall)')
+            logger.warning('info dictionary not set - add \'logging=type;protocol://host:port\' to PQ.catchall)')
             RealTimeLogger.glogger = None
             return
 

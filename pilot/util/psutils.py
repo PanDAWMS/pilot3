@@ -267,3 +267,27 @@ def get_command_by_pid(pid: int) -> str or None:
     except psutil.NoSuchProcess:
         logger.warning(f"process with PID {pid} not found")
         return None
+
+
+def find_process_by_jobid(jobid: int) -> int or None:
+    """
+    Find the process ID of a process whose command arguments contain the given job ID.
+
+    :param jobid: the job ID to search for (int)
+    :return: the process ID of the matching process, or None if no match is found (int or None).
+    """
+    if not _is_psutil_available:
+        logger.warning('find_process_by_jobid(): psutil not available - aborting')
+        return None
+
+    for proc in psutil.process_iter():
+        try:
+            cmd_line = proc.cmdline()
+        except psutil.NoSuchProcess:
+            continue
+
+        for arg in cmd_line:
+            if str(jobid) in arg and 'xrootd' not in arg:
+                return proc.pid
+
+    return None
