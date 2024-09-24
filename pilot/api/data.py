@@ -131,7 +131,7 @@ class StagingClient:
         self.trace_report = trace_report if trace_report else TraceReport(pq=os.environ.get('PILOT_SITENAME', ''), ipv=self.ipv, workdir=self.workdir)
 
         if not self.acopytools:
-            msg = f'failed to initilize StagingClient: no acopytools options found, acopytools={self.acopytools}'
+            msg = f'failed to initialize StagingClient: no acopytools options found, acopytools={self.acopytools}'
             logger.error(msg)
             self.trace_report.update(clientState='BAD_COPYTOOL', stateReason=msg)
             self.trace_report.send()
