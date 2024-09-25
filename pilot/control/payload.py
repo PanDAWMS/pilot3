@@ -444,7 +444,7 @@ def get_logging_info(job: JobData, args: object) -> dict:
             logger.info("correct logserver formal: logging_type;protocol://hostname:port")
             return {}
 
-        regex = r"logserver='(?P<logging_type>[^;]+);(?P<protocol>[^:]+)://(?P<hostname>[^:]+):(?P<port>\d+)'"
+        regex = r"logserver=(?P<logging_type>[^;]+);(?P<protocol>[^:]+)://(?P<hostname>[^:]+):(?P<port>\d+)"
         match = search(regex, logserver)
         if match:
             logging_type = match.group('logging_type')
