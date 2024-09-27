@@ -31,6 +31,7 @@ import signal
 import threading
 
 from os import environ, getcwd, getpgid, kill  #, setpgrp, getpgid  #setsid
+from queue import Queue
 from signal import SIGTERM, SIGKILL
 from time import sleep
 from typing import Any, TextIO
@@ -46,18 +47,32 @@ errors = ErrorCodes()
 execute_lock = threading.Lock()
 
 
-def execute(executable: Any, **kwargs: dict) -> Any:
+def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
+    """
+    Executes the command with its options in the provided executable list using subprocess time-out handler.
+
+    The function also determines whether the command should be executed within a container.
+
+    :param executable: command to be executed (str or list)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    """
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
-    obscure = kwargs.get('obscure', '')
+    #shell = kwargs.get("shell", False)
+    obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
 
+    # convert executable to string if it is a list
     if isinstance(executable, list):
         executable = ' '.join(executable)
 
+    # switch off pilot controlled containers for user defined containers
     if job and job.imagename != "" and "runcontainer" in executable:
         usecontainer = False
         job.usecontainer = usecontainer
 
+    # Import user specific code if necessary (in case the command should be executed in a container)
+    # Note: the container.wrapper() function must at least be declared
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
@@ -66,18 +81,17 @@ def execute(executable: Any, **kwargs: dict) -> Any:
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
 
+    # always use a timeout to prevent stdout buffer problem in nodes with lots of cores
     timeout = get_timeout(kwargs.get('timeout', None))
+
     exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
 
+    # try: intercept exception such as OSError -> report e.g. error.RESOURCEUNAVAILABLE: "Resource temporarily unavailable"
     exit_code = 0
     stdout = ''
     stderr = ''
 
-    def read_output(pipe, file):
-        for line in iter(pipe.readline, ''):
-            file.write(line)
-        pipe.close()
-
+    # Acquire the lock before creating the subprocess
     process = None
     with execute_lock:
         process = subprocess.Popen(exe,
@@ -85,64 +99,82 @@ def execute(executable: Any, **kwargs: dict) -> Any:
                                    stdout=kwargs.get('stdout', subprocess.PIPE),
                                    stderr=kwargs.get('stderr', subprocess.PIPE),
                                    cwd=kwargs.get('cwd', getcwd()),
-                                   preexec_fn=os.setsid,
+                                   preexec_fn=os.setsid,    # setpgrp
                                    encoding='utf-8',
                                    errors='replace')
         if kwargs.get('returnproc', False):
             return process
 
-        stdout_file = kwargs.get('stdout', subprocess.PIPE)
-        stderr_file = kwargs.get('stderr', subprocess.PIPE)
+    # Create threads to read stdout and stderr asynchronously
+    stdout_queue = Queue()
+    stderr_queue = Queue()
 
-        stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_file))
-        stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_file))
+    def read_output(stream, queue):
+        while True:
+            try:
+                line = stream.readline()
+            except AttributeError:
+                # Handle the case where stream is None
+                break
 
-        stdout_thread.start()
-        stderr_thread.start()
+            if not line:
+                break
 
-        try:
-            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-            logger.warning(stderr)
-            exit_code = errors.COMMANDTIMEDOUT
-            stderr = kill_all(process, stderr)
-        except Exception as exc:
-            logger.warning(f'exception caused when executing command: {executable}: {exc}')
-            exit_code = errors.UNKNOWNEXCEPTION
-            stderr = kill_all(process, str(exc))
-        else:
-            exit_code = process.poll()
+            queue.put(line)
 
-        stdout_thread.join()
-        stderr_thread.join()
+    stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_queue))
+    stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_queue))
 
-        if stdout_file != subprocess.PIPE:
-            stdout_file.flush()
-            stdout_file.seek(0)
-            stdout = stdout_file.read()
-
-        if stderr_file != subprocess.PIPE:
-            stderr_file.flush()
-            stderr_file.seek(0)
-            stderr = stderr_file.read()
+    stdout_thread.start()
+    stderr_thread.start()
 
     try:
+        logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        # flush_handler(name="stream_handler")
+        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+        logger.warning(stderr)
+        exit_code = errors.COMMANDTIMEDOUT
+        stderr = kill_all(process, stderr)
+    except Exception as exc:
+        logger.warning(f'exception caused when executing command: {executable}: {exc}')
+        exit_code = errors.UNKNOWNEXCEPTION
+        stderr = kill_all(process, str(exc))
+    else:
+        exit_code = process.poll()
+
+    # Wait for the threads to finish reading
+    stdout_thread.join()
+    stderr_thread.join()
+
+    # Read the remaining output from the queues
+    while not stdout_queue.empty():
+        stdout += stdout_queue.get()
+    while not stderr_queue.empty():
+        stderr += stderr_queue.get()
+
+    # wait for the process to finish
+    # (not strictly necessary when process.communicate() is used)
+    try:
+        # wait for the process to complete with a timeout of 60 seconds
         if process:
             process.wait(timeout=60)
     except subprocess.TimeoutExpired:
+        # Handle the case where the process did not complete within the timeout
         if process:
             logger.warning("process did not complete within the timeout of 60s - terminating")
             process.terminate()
 
+    # remove any added \n
     if stdout and stdout.endswith('\n'):
         stdout = stdout[:-1]
 
     return exit_code, stdout, stderr
 
 
-def execute_old2(executable: Any, **kwargs: dict) -> Any:
+def execute_old2(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
     obscure = kwargs.get('obscure', '')
