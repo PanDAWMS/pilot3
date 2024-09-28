@@ -938,6 +938,7 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
                     entry.is_altstaged = True
 
                 logger.info('alt stage-out will be applied for remain=%s files (previously failed)', len(remain_files))
+                job.piloterrordiags.append(f'Alternative stage-out for {remain_files}')
                 client.transfer(xdata, activity, **kwargs)
 
         except PilotException as error:
