@@ -938,7 +938,8 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
                     entry.is_altstaged = True
 
                 logger.info('alt stage-out will be applied for remain=%s files (previously failed)', len(remain_files))
-                job.piloterrordiags.append(f'Alternative stage-out for {remain_files}')
+                f = [entry.lfn for entry in remain_files]
+                job.piloterrordiags.append(f'Alternative stage-out for {f}')
                 client.transfer(xdata, activity, **kwargs)
 
         except PilotException as error:
@@ -1088,7 +1089,7 @@ def generate_fileinfo(job: JobData) -> dict:
                 'surl': entry.turl
             }
             if entry.is_altstaged:
-                dat['ddmendpoint'] = entry.ddmendpoint
+                dat['endpoint'] = entry.ddmendpoint
 
             fileinfo[entry.lfn] = dat
 
