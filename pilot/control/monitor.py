@@ -103,7 +103,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 break
 
             # check if the OIDC token needs to be refreshed
-            if tokendownloadchecktime:
+            if tokendownloadchecktime and 'NO_TOKEN_RENEWAL' not in queuedata.catchall:
                 if int(time.time() - last_token_check) > tokendownloadchecktime:
                     last_token_check = time.time()
                     update_local_oidc_token_info(args.url, args.port)
