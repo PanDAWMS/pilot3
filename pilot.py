@@ -118,9 +118,6 @@ def main() -> int:
         https_setup(args, get_pilot_version())
     args.amq = None
 
-    # update the OIDC token if necessary
-    update_local_oidc_token_info(args.url, args.port)
-
     # let the server know that the worker has started
     if args.update_server and args.workerpilotstatusupdate:
         send_worker_status(
@@ -148,6 +145,10 @@ def main() -> int:
     except PilotException as error:
         logger.fatal(error)
         return error.get_error_code()
+
+    # update the OIDC token if necessary (after queuedata has been downloaded, since PQ.catchall can contain instruction to prevent token renewal)
+    if 'NO_TOKEN_RENEWAL' in infosys.queuedata.catchall:
+        update_local_oidc_token_info(args.url, args.port)
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
