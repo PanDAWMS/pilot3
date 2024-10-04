@@ -103,10 +103,14 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 break
 
             # check if the OIDC token needs to be refreshed
-            if tokendownloadchecktime and 'NO_TOKEN_RENEWAL' not in queuedata.catchall:
+            if tokendownloadchecktime:
                 if int(time.time() - last_token_check) > tokendownloadchecktime:
                     last_token_check = time.time()
                     update_local_oidc_token_info(args.url, args.port)
+                    #if 'no_token_renewal' in queuedata.catchall:
+                    #    logger.info("OIDC token will not be renewed by the pilot")
+                    #else:
+                    #    update_local_oidc_token_info(args.url, args.port)
 
             # abort if kill signal arrived too long time ago, ie loop is stuck
             if args.kill_time and int(time.time()) - args.kill_time > MAX_KILL_WAIT_TIME:

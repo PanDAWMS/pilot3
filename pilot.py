@@ -147,7 +147,9 @@ def main() -> int:
         return error.get_error_code()
 
     # update the OIDC token if necessary (after queuedata has been downloaded, since PQ.catchall can contain instruction to prevent token renewal)
-    if 'NO_TOKEN_RENEWAL' in infosys.queuedata.catchall:
+    if 'no_token_renewal' in infosys.queuedata.catchall and args.version_tag == "RC":
+        logger.info("OIDC token will not be renewed by the pilot")
+    else:
         update_local_oidc_token_info(args.url, args.port)
 
     # handle special CRIC variables via params
