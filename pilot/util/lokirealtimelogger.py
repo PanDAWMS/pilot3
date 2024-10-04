@@ -51,22 +51,18 @@ class PilotLokiLoggerFormatter:
 
         formatted = {
             "timestamp": record.created,
-            # "process": record.process,
-            # "thread": record.thread,
+            "process": record.process,
+            "thread": record.thread,
             "function": record.funcName,
             "module": record.module,
             "name": record.name,
             "level": record.levelname,
         }
 
-        """
-        # Not send all information, some loki services have limitations on number of labels.
-
         record_keys = set(record.__dict__.keys())
         for key in record_keys:
             if key not in formatted and key not in ['msg']:
                 formatted[key] = getattr(record, key)
-        """
 
         message = record.msg
         try:
