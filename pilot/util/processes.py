@@ -654,7 +654,7 @@ def cleanup(job: JobData, args: object):
     logger.info("collected zombie processes")
 
     if job.pid:
-        logger.info(f"will  attempt to kill all subprocesses of pid={job.pid}")
+        logger.info(f"will attempt to kill all subprocesses of pid={job.pid}")
         kill_processes(job.pid)
     else:
         logger.warning('cannot kill any subprocesses since job.pid is not set')
