@@ -858,7 +858,7 @@ def request2(url: str = "",
     # Send the request securely
     try:
         logger.debug('sending data to server')
-        with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
             # Handle the response here
             logger.debug(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
@@ -870,13 +870,14 @@ def request2(url: str = "",
         ret = ""
     else:
         if secure and isinstance(ret, str):
-            if ret.startswith('{') and ret.endswith('}'):
+            if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
+                ret = {'StatusCode': '0'}
+            elif ret.startswith('{') and ret.endswith('}'):
                 try:
                     ret = json.loads(ret)
                 except json.JSONDecodeError as e:
                     logger.warning(f'failed to parse response: {e}')
-            else:
-                # For panda server interactions, the response should be in dictionary format
+            else:  # response="StatusCode=_some number_"
                 # Parse the query string into a dictionary
                 query_dict = parse_qs(ret)
 

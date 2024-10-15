@@ -58,6 +58,44 @@ def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
     :param pid: parent process id (int)
     :param ps_cache: ps command output (str).
     """
+    visited = set()
+    stack = [pid]
+
+    while stack:
+        current_pid = stack.pop()
+        if current_pid in visited:
+            continue
+        visited.add(current_pid)
+        cpids.append(current_pid)
+        lines = grep_str([str(current_pid)], ps_cache)
+
+        if lines and lines != ['']:
+            for line in lines:
+                try:
+                    thispid, thisppid = [int(x) for x in line.split()[:2]]
+                except Exception as error:
+                    logger.warning(f'exception caught: {error}')
+                else:
+                    if thisppid == current_pid:
+                        stack.append(thispid)
+
+
+def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = ""):
+    """
+    Find all processes that belong to the same group using the given ps command output.
+
+    Recursively search for the children processes belonging to pid and return their pid's.
+    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
+    the pids of the children AND the parent.
+
+    ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
+
+    The cpids input parameter list gets updated in the function.
+
+    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int)
+    :param pid: parent process id (int)
+    :param ps_cache: ps command output (str).
+    """
     if pid:
         cpids.append(pid)
         lines = grep_str([str(pid)], ps_cache)
@@ -616,7 +654,7 @@ def cleanup(job: JobData, args: object):
     logger.info("collected zombie processes")
 
     if job.pid:
-        logger.info(f"will  attempt to kill all subprocesses of pid={job.pid}")
+        logger.info(f"will attempt to kill all subprocesses of pid={job.pid}")
         kill_processes(job.pid)
     else:
         logger.warning('cannot kill any subprocesses since job.pid is not set')

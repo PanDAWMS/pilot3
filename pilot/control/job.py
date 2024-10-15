@@ -3226,7 +3226,8 @@ def send_heartbeat_if_time(job: Any, args: Any, update_time: float) -> int:
         # job.completed will anyway be checked in https::send_update()
         if job.serverstate not in {'finished', 'failed'}:
             logger.info(f'will send heartbeat for job in \'{job.state}\' state')
-            send_state(job, args, job.state)
+            logger.info("note: will only send \'running\' state to server to prevent sending any final state too early")
+            send_state(job, args, "running")
             update_time = time.time()
     else:
         logger.debug('will not send any job update')
