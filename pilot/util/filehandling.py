@@ -263,6 +263,32 @@ def grep(patterns: list, file_name: str) -> list:
     :return: list of matched lines in file (list).
     """
     matched_lines = []
+    compiled_patterns = [re.compile(pattern) for pattern in patterns]
+
+    with open(file_name, 'r', encoding='utf-8') as _file:
+        matched_lines = [
+            line for line in _file
+            if any(compiled_pattern.search(line) for compiled_pattern in compiled_patterns)
+        ]
+
+    return matched_lines
+
+
+def grep_old(patterns: list, file_name: str) -> list:
+    """
+    Search for the patterns in the given list in a file.
+
+    Example:
+      grep(["St9bad_alloc", "FATAL"], "athena_stdout.txt")
+      -> [list containing the lines below]
+        CaloTrkMuIdAlg2.sysExecute()             ERROR St9bad_alloc
+        AthAlgSeq.sysExecute()                   FATAL  Standard std::exception is caught
+
+    :param patterns: list of regexp patterns (list)
+    :param file_name: file name (str)
+    :return: list of matched lines in file (list).
+    """
+    matched_lines = []
     _pats = []
     for pattern in patterns:
         _pats.append(re.compile(pattern))
