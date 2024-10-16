@@ -444,7 +444,7 @@ def get_memory_usage(pid: int) -> (int, str, str):
     return execute(f'ps aux -q {pid}', timeout=60)
 
 
-def extract_memory_usage_value(output: str) -> int:
+def extract_memory_usage_value(output: str) -> str:
     """
     Extract the memory usage value from the ps output (in kB).
 
@@ -482,34 +482,15 @@ def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str
     return txt
 
 
-def has_instruction_set(instruction_set: str) -> bool:
-    """
-    Determine whether a given CPU instruction set is available.
-
-    The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
-
-    :param instruction_set: instruction set (e.g. AVX2) (str)
-    :return: True if given instruction set is available, False otherwise (bool).
-    """
-    status = False
-    cmd = fr"grep -o \'{instruction_set.lower()}[^ ]*\|{instruction_set.upper()}[^ ]*\' /proc/cpuinfo"
-    exit_code, stdout, stderr = execute(cmd)
-    if not exit_code and not stderr:
-        if instruction_set.lower() in stdout.split() or instruction_set.upper() in stdout.split():
-            status = True
-
-    return status
-
-
-def has_instruction_sets(instruction_sets: str) -> bool:
+def has_instruction_sets(instruction_sets: list) -> str:
     """
     Determine whether a given list of CPU instruction sets is available.
 
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
     Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
 
-    :param instruction_sets: instruction set (e.g. AVX2) (str)
-    :return: True if given instruction set is available, False otherwise (bool).
+    :param instruction_sets: instruction set (e.g. AVX2) (list)
+    :return: string of pipe-separated instruction sets (str).
     """
     ret = ""
     pattern = ""
@@ -709,8 +690,8 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
         else:
             try:
                 host = socket.gethostname()
-            except socket.herror as exc:
-                logger.warning(f'failed to get host name: {exc}')
+            except socket.herror as e:
+                logger.warning(f'failed to get host name: {e}')
                 host = 'localhost'
         return host.split('.')[0]
 
