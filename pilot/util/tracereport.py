@@ -18,21 +18,25 @@
 # Authors:
 # - Alexey Anisenkov, alexey.anisenkov@cern.ch, 2017
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 import hashlib
 import os
 import socket
 import time
+
 from sys import exc_info
 from json import dumps, loads
 from os import environ, getuid
 
 from pilot.common.exception import FileHandlingFailure
-from pilot.util.auxiliary import correct_none_types
+from pilot.util.auxiliary import (
+    correct_none_types,
+    uuidgen_t
+)
 from pilot.util.config import config
 from pilot.util.constants import get_pilot_version, get_rucio_client_version
-from pilot.util.container import execute, execute2
+from pilot.util.container import execute2
 from pilot.util.filehandling import append_to_file, write_file
 from pilot.util.https import request2
 
@@ -130,10 +134,8 @@ class TraceReport(dict):
             s = 'ppilot_%s' % job.jobdefinitionid
             self['uuid'] = hashlib.md5(s.encode('utf-8')).hexdigest()  # hash_pilotid, Python 2/3
         else:
-            #self['uuid'] = commands.getoutput('uuidgen -t 2> /dev/null').replace('-', '')  # all LFNs of one request have the same uuid
-            cmd = 'uuidgen -t 2> /dev/null'
-            exit_code, stdout, stderr = execute(cmd, timeout=10)
-            self['uuid'] = stdout.replace('-', '')
+            _uuid = uuidgen_t()  # 'uuidgen -t 2> /dev/null'
+            self['uuid'] = _uuid.replace('-', '')
 
     def get_value(self, key):
         """

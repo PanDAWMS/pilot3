@@ -33,6 +33,7 @@ from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
 from typing import Any
+from uuid import uuid4
 
 from pilot.util.constants import (
     SUCCESS,
@@ -802,3 +803,12 @@ def is_kubernetes_resource() -> bool:
         return True
     else:
         return False
+
+
+def uuidgen_t() -> str:
+    """
+    Generate a UUID string in the same format as "uuidgen -t".
+
+    :return: A UUID in the format "00000000-0000-0000-0000-000000000000" (str).
+    """
+    return str(uuid4())
