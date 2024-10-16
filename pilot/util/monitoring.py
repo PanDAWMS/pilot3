@@ -30,7 +30,7 @@ from typing import Any
 from signal import SIGKILL
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, MiddlewareImportFailure
+from pilot.common.exception import PilotException, MiddlewareImportFailure  #, FileHandlingFailure
 from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
@@ -40,7 +40,7 @@ from pilot.util.filehandling import (
     remove_files,
     get_local_file_size,
     read_file,
-    zip_files
+    zip_files, write_file
 )
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import (
@@ -135,7 +135,7 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         if exit_code != 0:
             return exit_code, diagnostics
 
-        # display OOM process info
+        # display OOM process info (once)
         display_oom_info(job.pid)
 
     # should the pilot abort the payload?
@@ -204,20 +204,30 @@ def display_oom_info(payload_pid):
 
     :param payload_pid: payload pid (int).
     """
-
+    fname = f"/proc/{payload_pid}/oom_score_adj"
     payload_score = get_score(payload_pid) if payload_pid else 'UNKNOWN'
     pilot_score = get_score(os.getpid())
-    logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score}')
+    if isinstance(pilot_score, str) and pilot_score == 'UNKNOWN':
+        logger.warning(f'could not get oom_score for pilot process: {pilot_score}')
+    else:
+        relative_payload_score = "1"
+
+        # write the payload oom_score to the oom_score_adj file
+        try:
+            write_file(path=fname, contents=relative_payload_score)
+        except Exception as e:  # FileHandlingFailure
+            logger.warning(f'could not write oom_score to file: {e}')
+
+        logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
 
 
-def get_score(pid):
+def get_score(pid) -> str:
     """
     Get the OOM process score.
 
-    :param pid: process id (int).
-    :return: score (string).
+    :param pid: process id (int)
+    :return: score (str).
     """
-
     try:
         score = '%s' % read_file('/proc/%d/oom_score' % pid)
     except Exception as error:
