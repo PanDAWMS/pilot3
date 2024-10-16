@@ -110,10 +110,121 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
     else:
         envsetup = ''
 
-    return verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)  # exit_code, diagnostics
+    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
+    if exit_code != 0 and exit_code != -1:
+        return exit_code, diagnostics
+    elif exit_code == -1:
+        pass  # go to next test
+    else:
+        return 0, diagnostics
+
+    return 0, diagnostics
 
 
 def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
+    """
+    Verify the proxy using arcproxy.
+
+    :param envsetup: general setup string for proxy commands (string).
+    :param limit: time limit in hours (int).
+    :param  proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (string)
+    :return: exit code (int), error diagnostics (string).
+    """
+    exit_code = 0
+    diagnostics = ""
+    proxies = ['cert', 'proxy']
+
+    if test:
+        return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
+        #return errors.NOVOMSPROXY, 'dummy test'
+
+    try:
+        logger.debug(f'proxy_id={proxy_id}')
+        logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
+        logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
+    except Exception as exc:
+        logger.debug(f'exc={exc}')
+
+    if proxy_id is not None:
+        if not hasattr(verify_arcproxy, "cache"):
+            verify_arcproxy.cache = {}
+
+        if proxy_id in verify_arcproxy.cache:  # if exist, then calculate result from current cache
+            validity_end_cert = verify_arcproxy.cache[proxy_id][0]
+            validity_end = verify_arcproxy.cache[proxy_id][1]
+            if validity_end < 0:  # previous validity check failed, do not try to re-check
+                exit_code = -1
+                diagnostics = "arcproxy verification failed (cached result)"
+            else:
+                #
+                validities = [validity_end_cert, validity_end]
+                for proxyname, validity in list(zip(proxies, validities)):
+                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
+                        del verify_arcproxy.cache[proxy_id]
+
+            return exit_code, diagnostics
+
+    # options and options' sequence are important for parsing, do not change it
+    # -i validityEnd -i validityLeft: time left for the certificate
+    # -i vomsACvalidityEnd -i vomsACvalidityLeft: time left for the proxy
+    #   validityEnd - timestamp when proxy validity ends.
+    #   validityLeft - duration of proxy validity left in seconds.
+    #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
+    #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
+    cmd = f"{envsetup}arcproxy -i subject"
+    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
+    logger.info(f'subject={stdout}')
+
+    cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
+    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
+    if stdout is not None:
+        if 'command not found' in stdout:
+            logger.warning(f"arcproxy is not available on this queue,"
+                           f"this can lead to memory issues with voms-proxy-info on SL6: {stdout}")
+            exit_code = -1
+        else:
+            exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
+
+            if proxy_id and validity_end:  # setup cache if requested
+                if exit_code == 0:
+                    logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
+                    verify_arcproxy.cache[proxy_id] = [validity_end_cert, validity_end]
+                else:
+                    logger.warning('cannot store validity ends from arcproxy in cache')
+                    verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
+            if exit_code == 0:
+
+                #if proxy_id in verify_arcproxy.cache:
+                #    logger.debug('getting validity ends from arcproxy cache')
+                #else:
+                #    logger.debug('using validity ends from arcproxy (cache not available)')
+                endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
+                for proxyname, validity in list(zip(proxies, endtimes)):
+                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
+                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
+                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
+                        if proxy_id:
+                            del verify_arcproxy.cache[proxy_id]
+                    if exit_code == errors.CERTIFICATEHASEXPIRED:
+                        logger.debug('certificate has expired')
+                        break
+                return exit_code, diagnostics
+            elif exit_code == -1:  # skip to next proxy test
+                return exit_code, diagnostics
+            elif exit_code == errors.NOVOMSPROXY:
+                return exit_code, diagnostics
+            else:
+                logger.info("will try voms-proxy-info instead")
+                exit_code = -1
+    else:
+        logger.warning('command execution failed')
+
+    return exit_code, diagnostics
+
+
+def verify_arcproxy_bad(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
     """
     Verify the proxy using arcproxy.
 
