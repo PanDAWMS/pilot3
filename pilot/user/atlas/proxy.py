@@ -246,7 +246,7 @@ def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:
     if os.environ.get('X509_USER_PROXY', '') != '':
         cmd = f"{envsetup}voms-proxy-info -actimeleft --timeleft --file $X509_USER_PROXY"
         logger.info(f'executing command: {cmd}')
-        _exit_code, stdout, stderr = execute(cmd, shell=True)
+        _exit_code, stdout, stderr = execute_nothreads(cmd, shell=True)
         if stdout is not None:
             if "command not found" in stdout:
                 logger.info("skipping voms proxy check since command is not available")
