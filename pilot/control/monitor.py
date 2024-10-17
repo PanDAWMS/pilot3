@@ -89,6 +89,9 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     last_minute_check = t_0
 
     queuedata = get_queuedata_from_job(queues)
+    if not queuedata:
+        logger.warning('queuedata could not be extracted from queues')
+
     push = args.harvester and args.harvester_submitmode.lower() == 'push'
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
@@ -103,7 +106,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 break
 
             # check if the OIDC token needs to be refreshed
-            if tokendownloadchecktime:
+            if tokendownloadchecktime and queuedata:
                 if int(time.time() - last_token_check) > tokendownloadchecktime:
                     last_token_check = time.time()
                     if 'no_token_renewal' in queuedata.catchall:

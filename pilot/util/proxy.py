@@ -26,7 +26,10 @@ import traceback
 from pilot.common.exception import FileHandlingFailure
 from pilot.util import https
 from pilot.util.config import config
-from pilot.util.container import execute
+from pilot.util.container import (
+    execute,
+    execute_nothreads
+)
 from pilot.util.filehandling import write_file
 
 logger = logging.getLogger(__name__)
@@ -78,7 +81,7 @@ def vomsproxyinfo(options: str = '-all', mute: bool = False, path: str = '') -> 
     executable = f'voms-proxy-info {options}'
     if path:
         executable += f' --file={path}'
-    exit_code, stdout, stderr = execute(executable)
+    exit_code, stdout, stderr = execute_nothreads(executable)
     if not mute:
         logger.info(stdout + stderr)
 

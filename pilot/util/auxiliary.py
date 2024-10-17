@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """Auxiliary functions."""
 
@@ -33,6 +33,7 @@ from collections import deque, OrderedDict
 from numbers import Number
 from time import sleep
 from typing import Any
+from uuid import uuid4
 
 from pilot.util.constants import (
     SUCCESS,
@@ -44,7 +45,10 @@ from pilot.util.constants import (
 )
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.container import execute
-from pilot.util.filehandling import dump
+from pilot.util.filehandling import (
+    dump,
+    grep
+)
 
 zero_depth_bases = (str, bytes, Number, range, bytearray)
 iteritems = 'items'
@@ -444,7 +448,7 @@ def get_memory_usage(pid: int) -> (int, str, str):
     return execute(f'ps aux -q {pid}', timeout=60)
 
 
-def extract_memory_usage_value(output: str) -> int:
+def extract_memory_usage_value(output: str) -> str:
     """
     Extract the memory usage value from the ps output (in kB).
 
@@ -482,34 +486,38 @@ def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str
     return txt
 
 
-def has_instruction_set(instruction_set: str) -> bool:
+def has_instruction_sets(instruction_sets: list) -> str:
     """
     Determine whether a given CPU instruction set is available.
 
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
+    Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
 
-    :param instruction_set: instruction set (e.g. AVX2) (str)
-    :return: True if given instruction set is available, False otherwise (bool).
+    :param instruction_sets: instruction set (e.g. AVX2) (list)
+    :return: string of pipe-separated instruction sets (str).
     """
-    status = False
-    cmd = fr"grep -o \'{instruction_set.lower()}[^ ]*\|{instruction_set.upper()}[^ ]*\' /proc/cpuinfo"
-    exit_code, stdout, stderr = execute(cmd)
-    if not exit_code and not stderr:
-        if instruction_set.lower() in stdout.split() or instruction_set.upper() in stdout.split():
-            status = True
+    ret = ""
 
-    return status
+    for instr in instruction_sets:
+        pattern = re.compile(fr'{instr.lower()}[^ ]*', re.IGNORECASE)
+        out = grep(patterns=[pattern], file_name="/proc/cpuinfo")
+
+        for stdout in out:
+            if instr.upper() not in ret and (instr.lower() in stdout.split() or instr.upper() in stdout.split()):
+                ret += f'|{instr.upper()}' if ret else instr.upper()
+
+    return ret
 
 
-def has_instruction_sets(instruction_sets: str) -> bool:
+def has_instruction_sets_old(instruction_sets: list) -> str:
     """
     Determine whether a given list of CPU instruction sets is available.
 
     The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
     Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
 
-    :param instruction_sets: instruction set (e.g. AVX2) (str)
-    :return: True if given instruction set is available, False otherwise (bool).
+    :param instruction_sets: instruction set (e.g. AVX2) (list)
+    :return: string of pipe-separated instruction sets (str).
     """
     ret = ""
     pattern = ""
@@ -709,8 +717,8 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
         else:
             try:
                 host = socket.gethostname()
-            except socket.herror as exc:
-                logger.warning(f'failed to get host name: {exc}')
+            except socket.herror as e:
+                logger.warning(f'failed to get host name: {e}')
                 host = 'localhost'
         return host.split('.')[0]
 
@@ -821,3 +829,12 @@ def is_kubernetes_resource() -> bool:
         return True
     else:
         return False
+
+
+def uuidgen_t() -> str:
+    """
+    Generate a UUID string in the same format as "uuidgen -t".
+
+    :return: A UUID in the format "00000000-0000-0000-0000-000000000000" (str).
+    """
+    return str(uuid4())

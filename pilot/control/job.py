@@ -470,7 +470,7 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
     return False
 
 
-def get_job_status_from_server(job_id: int, url: str, port: str) -> (str, int, int):
+def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, int):
     """
     Return the current status of job <jobId> from the dispatcher.
 
@@ -482,7 +482,7 @@ def get_job_status_from_server(job_id: int, url: str, port: str) -> (str, int, i
     In the case of time-out, the dispatcher will be asked one more time after 10 s.
 
     :param job_id: PanDA job id (int)
-    :param url: PanDA server URL (str
+    :param url: PanDA server URL (int)
     :param port: PanDA server port (str)
     :return: status (string; e.g. holding), attempt_nr (int), status_code (int).
     """
@@ -1511,10 +1511,6 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         data['harvester_id'] = os.environ.get('HARVESTER_ID')
     if 'HARVESTER_WORKER_ID' in os.environ:
         data['worker_id'] = os.environ.get('HARVESTER_WORKER_ID')
-
-#    instruction_sets = has_instruction_sets(['AVX', 'AVX2'])
-#    if instruction_sets:
-#        data['cpuConsumptionUnit'] = instruction_sets
 
     return data
 
