@@ -113,11 +113,10 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
         while True:
             try:
                 line = stream.readline()
-            except AttributeError:
-                # Handle the case where stream is None
-                break
-
-            if not line:
+                if not line:
+                    break
+            except (AttributeError, ValueError):
+                # Handle the case where stream is None (AttributeError) or closed (ValueError)
                 break
 
             queue.put(line)
