@@ -31,7 +31,10 @@ from typing import Any
 
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.container import execute
+from pilot.util.container import (
+    execute,
+    execute_nothreads
+)
 from pilot.util.proxy import get_proxy
 
 logger = logging.getLogger(__name__)
@@ -162,93 +165,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
     _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
 
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-    if stdout is not None:
-        if 'command not found' in stdout:
-            logger.warning(f"arcproxy is not available on this queue,"
-                           f"this can lead to memory issues with voms-proxy-info on SL6: {stdout}")
-            exit_code = -1
-        else:
-            exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
-
-            if proxy_id and validity_end:  # setup cache if requested
-                if exit_code == 0:
-                    logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
-                    verify_arcproxy.cache[proxy_id] = [validity_end_cert, validity_end]
-                else:
-                    logger.warning('cannot store validity ends from arcproxy in cache')
-                    verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
-            if exit_code == 0:
-                endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
-                for proxyname, validity in list(zip(proxies, endtimes)):
-                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
-                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
-                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
-                        if proxy_id:
-                            del verify_arcproxy.cache[proxy_id]
-                    if exit_code == errors.CERTIFICATEHASEXPIRED:
-                        logger.debug('certificate has expired')
-                        break
-            if exit_code == errors.ARCPROXYLIBFAILURE:
-                logger.warning("currenly ignoring arcproxy library failure")
-                exit_code = 0
-                diagnostics = ""
-    else:
-        logger.warning('command execution failed')
-
-    return exit_code, diagnostics
-
-
-def verify_arcproxy_bad(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
-    """
-    Verify the proxy using arcproxy.
-
-    :param envsetup: general setup string for proxy commands (str)
-    :param limit: time limit in hours (int)
-    :param proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (str or None)
-    :param test: free Boolean test parameter (bool)
-    :return: exit code (int), error diagnostics (str) (tuple).
-    """
-    exit_code = 0
-    diagnostics = ""
-    proxies = ['cert', 'proxy']
-
-    if test:
-        return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
-
-    if proxy_id is not None:
-        if not hasattr(verify_arcproxy, "cache"):
-            verify_arcproxy.cache = {}
-
-        if proxy_id in verify_arcproxy.cache:  # if exist, then calculate result from current cache
-            validity_end_cert = verify_arcproxy.cache[proxy_id][0]
-            validity_end = verify_arcproxy.cache[proxy_id][1]
-            if validity_end < 0:  # previous validity check failed, do not try to re-check
-                exit_code = -1
-                diagnostics = "arcproxy verification failed (cached result)"
-            else:
-                #
-                validities = [validity_end_cert, validity_end]
-                for proxyname, validity in list(zip(proxies, validities)):
-                    exit_code, diagnostics = check_time_left(proxyname, validity, limit)
-                    if exit_code == errors.VOMSPROXYABOUTTOEXPIRE:
-                        # remove the proxy_id from the dictionary to trigger a new entry after a new proxy has been downloaded
-                        del verify_arcproxy.cache[proxy_id]
-
-            return exit_code, diagnostics
-
-    # options and options' sequence are important for parsing, do not change it
-    # -i validityEnd -i validityLeft: time left for the certificate
-    # -i vomsACvalidityEnd -i vomsACvalidityLeft: time left for the proxy
-    #   validityEnd - timestamp when proxy validity ends.
-    #   validityLeft - duration of proxy validity left in seconds.
-    #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
-    #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
-    cmd = f"{envsetup}arcproxy -i subject"
-    _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-
-    cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
+    _exit_code, stdout, stderr = execute_nothreads(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
         if 'command not found' in stdout:
             logger.warning(f"arcproxy is not available on this queue,"
