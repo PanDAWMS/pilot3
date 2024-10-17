@@ -110,25 +110,18 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
     else:
         envsetup = ''
 
-    exit_code, diagnostics = verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)
-    if exit_code != 0 and exit_code != -1:
-        return exit_code, diagnostics
-    elif exit_code == -1:
-        pass  # go to next test
-    else:
-        return 0, diagnostics
-
-    return 0, diagnostics
+    return verify_arcproxy(envsetup, limit, proxy_id=proxy_id, test=test)  # exit_code, diagnostics
 
 
 def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
     """
     Verify the proxy using arcproxy.
 
-    :param envsetup: general setup string for proxy commands (string).
-    :param limit: time limit in hours (int).
-    :param  proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (string)
-    :return: exit code (int), error diagnostics (string).
+    :param envsetup: general setup string for proxy commands (str)
+    :param limit: time limit in hours (int)
+    :param proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (str or None)
+    :param test: free Boolean test parameter (bool)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
     exit_code = 0
     diagnostics = ""
@@ -136,20 +129,12 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
 
     if test:
         return errors.VOMSPROXYABOUTTOEXPIRE, 'dummy test'
-        #return errors.NOVOMSPROXY, 'dummy test'
-
-    try:
-        logger.debug(f'proxy_id={proxy_id}')
-        logger.debug(f'verify_arcproxy.cache={verify_arcproxy.cache}')
-        logger.debug(f'verify_arcproxy.cache[proxy_id]={verify_arcproxy.cache[proxy_id]}')
-    except Exception as exc:
-        logger.debug(f'exc={exc}')
 
     if proxy_id is not None:
         if not hasattr(verify_arcproxy, "cache"):
             verify_arcproxy.cache = {}
 
-        if proxy_id in verify_arcproxy.cache:  # if exist, then calculate result from current cache
+        if proxy_id in verify_arcproxy.cache:  # if exists, then calculate result from current cache
             validity_end_cert = verify_arcproxy.cache[proxy_id][0]
             validity_end = verify_arcproxy.cache[proxy_id][1]
             if validity_end < 0:  # previous validity check failed, do not try to re-check
@@ -174,8 +159,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
     #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
     #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
     cmd = f"{envsetup}arcproxy -i subject"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-    logger.info(f'subject={stdout}')
+    _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
 
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
@@ -195,11 +179,6 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     logger.warning('cannot store validity ends from arcproxy in cache')
                     verify_arcproxy.cache[proxy_id] = [-1, -1]  # -1 in cache means any error in prev validation
             if exit_code == 0:
-
-                #if proxy_id in verify_arcproxy.cache:
-                #    logger.debug('getting validity ends from arcproxy cache')
-                #else:
-                #    logger.debug('using validity ends from arcproxy (cache not available)')
                 endtimes = [validity_end_cert, validity_end] if not proxy_id else verify_arcproxy.cache[proxy_id]
                 for proxyname, validity in list(zip(proxies, endtimes)):
                     exit_code, diagnostics = check_time_left(proxyname, validity, limit)
@@ -210,14 +189,10 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
-                return exit_code, diagnostics
-            elif exit_code == -1:  # skip to next proxy test
-                return exit_code, diagnostics
-            elif exit_code == errors.NOVOMSPROXY:
-                return exit_code, diagnostics
-            else:
-                logger.info("will try voms-proxy-info instead")
-                exit_code = -1
+            if exit_code == errors.ARCPROXYLIBFAILURE:
+                logger.warning("currenly ignoring arcproxy library failure")
+                exit_code = 0
+                diagnostics = ""
     else:
         logger.warning('command execution failed')
 
