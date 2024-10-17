@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 """Auxiliary functions."""
 
@@ -45,7 +45,10 @@ from pilot.util.constants import (
 )
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.container import execute
-from pilot.util.filehandling import dump
+from pilot.util.filehandling import (
+    dump,
+    grep
+)
 
 zero_depth_bases = (str, bytes, Number, range, bytearray)
 iteritems = 'items'
@@ -484,6 +487,29 @@ def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str
 
 
 def has_instruction_sets(instruction_sets: list) -> str:
+    """
+    Determine whether a given CPU instruction set is available.
+
+    The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
+    Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
+
+    :param instruction_sets: instruction set (e.g. AVX2) (list)
+    :return: string of pipe-separated instruction sets (str).
+    """
+    ret = ""
+
+    for instr in instruction_sets:
+        pattern = re.compile(fr'{instr.lower()}[^ ]*', re.IGNORECASE)
+        out = grep(patterns=[pattern], file_name="/proc/cpuinfo")
+
+        for stdout in out:
+            if instr.upper() not in ret and (instr.lower() in stdout.split() or instr.upper() in stdout.split()):
+                ret += f'|{instr.upper()}' if ret else instr.upper()
+
+    return ret
+
+
+def has_instruction_sets_old(instruction_sets: list) -> str:
     """
     Determine whether a given list of CPU instruction sets is available.
 
