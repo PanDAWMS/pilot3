@@ -21,6 +21,7 @@
 
 """Functions for executing commands."""
 
+import errno
 import os
 import subprocess
 import logging
@@ -113,12 +114,17 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
         while True:
             try:
                 line = stream.readline()
-            except AttributeError:
-                # Handle the case where stream is None
+                if not line:
+                    break
+            except (AttributeError, ValueError):
+                # Handle the case where stream is None (AttributeError) or closed (ValueError)
                 break
-
-            if not line:
-                break
+            except OSError as e:
+                if e.errno == errno.EBADF:
+                    # Handle the case where the file descriptor is bad
+                    break
+                else:
+                    raise
 
             queue.put(line)
 
@@ -146,8 +152,11 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
         exit_code = process.poll()
 
     # Wait for the threads to finish reading
-    stdout_thread.join()
-    stderr_thread.join()
+    try:
+        stdout_thread.join()
+        stderr_thread.join()
+    except Exception as e:
+        logger.warning(f'exception caught in execute: {e}')
 
     # Read the remaining output from the queues
     while not stdout_queue.empty():
@@ -263,11 +272,14 @@ def execute_old2(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
     return exit_code, stdout, stderr
 
 
-def execute_old(executable: Any, **kwargs: dict) -> Any:
+def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
     """
     Execute the command with its options in the provided executable list using subprocess time-out handler.
 
     The function also determines whether the command should be executed within a container.
+
+    This variant of execute() is not using threads to read stdout and stderr. This is required for some use-cases like
+    executing arcproxy where the stdout is time-ordered.
 
     :param executable: command to be executed (str or list)
     :param kwargs: kwargs (dict)

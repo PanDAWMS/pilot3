@@ -32,7 +32,10 @@ from pilot.common.exception import (
     NoSuchFile
 )
 from pilot.info.jobdata import JobData
-from pilot.util.container import execute
+from pilot.util.container import (
+    execute,
+    execute_nothreads
+)
 from pilot.util.filehandling import (
     read_json,
     copy,
@@ -830,7 +833,7 @@ def get_cpu_arch() -> str:
 
     # CPU arch script has now been copied, time to execute it
     # (reset irrelevant stderr)
-    ec, stdout, stderr = execute(cmd)
+    ec, stdout, stderr = execute_nothreads(cmd)
     if ec == 0 and ('RHEL9 and clone support is relatively new' in stderr or
                     'RHEL8 and clones are not supported for users' in stderr):
         stderr = ''

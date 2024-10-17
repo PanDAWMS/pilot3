@@ -31,7 +31,10 @@ from typing import Any
 
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.common.errorcodes import ErrorCodes
-from pilot.util.container import execute
+from pilot.util.container import (
+    execute,
+    execute_nothreads
+)
 from pilot.util.proxy import get_proxy
 
 logger = logging.getLogger(__name__)
@@ -134,7 +137,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
         if not hasattr(verify_arcproxy, "cache"):
             verify_arcproxy.cache = {}
 
-        if proxy_id in verify_arcproxy.cache:  # if exist, then calculate result from current cache
+        if proxy_id in verify_arcproxy.cache:  # if exists, then calculate result from current cache
             validity_end_cert = verify_arcproxy.cache[proxy_id][0]
             validity_end = verify_arcproxy.cache[proxy_id][1]
             if validity_end < 0:  # previous validity check failed, do not try to re-check
@@ -162,7 +165,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
     _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
 
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
-    _exit_code, stdout, stderr = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
+    _exit_code, stdout, stderr = execute_nothreads(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
         if 'command not found' in stdout:
             logger.warning(f"arcproxy is not available on this queue,"
@@ -243,7 +246,7 @@ def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:
     if os.environ.get('X509_USER_PROXY', '') != '':
         cmd = f"{envsetup}voms-proxy-info -actimeleft --timeleft --file $X509_USER_PROXY"
         logger.info(f'executing command: {cmd}')
-        _exit_code, stdout, stderr = execute(cmd, shell=True)
+        _exit_code, stdout, stderr = execute_nothreads(cmd, shell=True)
         if stdout is not None:
             if "command not found" in stdout:
                 logger.info("skipping voms proxy check since command is not available")
