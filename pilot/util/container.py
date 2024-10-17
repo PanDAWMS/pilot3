@@ -21,6 +21,7 @@
 
 """Functions for executing commands."""
 
+import errno
 import os
 import subprocess
 import logging
@@ -118,6 +119,12 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
             except (AttributeError, ValueError):
                 # Handle the case where stream is None (AttributeError) or closed (ValueError)
                 break
+            except OSError as e:
+                if e.errno == errno.EBADF:
+                    # Handle the case where the file descriptor is bad
+                    break
+                else:
+                    raise
 
             queue.put(line)
 
@@ -145,8 +152,11 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
         exit_code = process.poll()
 
     # Wait for the threads to finish reading
-    stdout_thread.join()
-    stderr_thread.join()
+    try:
+        stdout_thread.join()
+        stderr_thread.join()
+    except Exception as e:
+        logger.warning(f'exception caught in execute: {e}')
 
     # Read the remaining output from the queues
     while not stdout_queue.empty():
