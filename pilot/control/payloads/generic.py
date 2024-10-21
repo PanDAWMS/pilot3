@@ -842,7 +842,7 @@ class Executor:
                         if stdout and stderr
                         else "General payload setup verification error (check setup logs)"
                     )
-                    # check for special errors in thw output
+                    # check for special errors in the output
                     exit_code = errors.resolve_transform_error(exit_code, diagnostics)
                     diagnostics = errors.format_diagnostics(exit_code, diagnostics)
                     return exit_code, diagnostics

@@ -100,7 +100,8 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                                    stdout=kwargs.get('stdout', subprocess.PIPE),
                                    stderr=kwargs.get('stderr', subprocess.PIPE),
                                    cwd=kwargs.get('cwd', getcwd()),
-                                   preexec_fn=os.setsid,    # setpgrp
+                                   start_new_session=True,  # alternative to use os.setsid
+                                   # preexec_fn=os.setsid,    # setpgrp
                                    encoding='utf-8',
                                    errors='replace')
         if kwargs.get('returnproc', False):
