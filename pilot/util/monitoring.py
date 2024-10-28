@@ -205,22 +205,39 @@ def display_oom_info(payload_pid):
 
     :param payload_pid: payload pid (int).
     """
-    #fname = f"/proc/{payload_pid}/oom_score_adj"
+    fname = f"/proc/{payload_pid}/oom_score"
     payload_score = get_score(payload_pid) if payload_pid else 'UNKNOWN'
     pilot_score = get_score(os.getpid())
+
+    #cmd = "whoami"
+    #_, stdout, _ = execute(cmd)
+    #ogger.debug(f"stdout = {stdout}")
+    #cmd = f"ls -l {fname}"
+    #_, stdout, _ = execute(cmd)
+    #ogger.debug(f"stdout = {stdout}")
+
     if isinstance(pilot_score, str) and pilot_score == 'UNKNOWN':
         logger.warning(f'could not get oom_score for pilot process: {pilot_score}')
     else:
-        #relative_payload_score = "1"
+        relative_payload_score = "1"
+        write_to_oom_score_adj(payload_pid, relative_payload_score)
+        logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
 
-        # write the payload oom_score to the oom_score_adj file
-        #try:
-        #    write_file(path=fname, contents=relative_payload_score)
-        #except Exception as e:  # FileHandlingFailure
-        #    logger.warning(f'could not write oom_score to file: {e}')
 
-        #logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
-        logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score}')
+def write_to_oom_score_adj(pid, value):
+    """Writes the specified value to the oom_score_adj file for the given PID.
+
+    Args:
+        pid: The PID of the process.
+        value: The value to write to the oom_score_adj file.
+    """
+
+    command = f"echo {value} > /proc/{pid}/oom_score_adj"
+    try:
+        subprocess.check_call(command, shell=True)
+        logger.info(f"successfully wrote {value} to /proc/{pid}/oom_score_adj")
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"error writing to /proc/{pid}/oom_score_adj: {e}")
 
 
 def get_score(pid) -> str:
