@@ -147,7 +147,7 @@ def main() -> int:
         return error.get_error_code()
 
     # update the OIDC token if necessary (after queuedata has been downloaded, since PQ.catchall can contain instruction to prevent token renewal)
-    if 'no_token_renewal' in infosys.queuedata.catchall:
+    if 'no_token_renewal' in infosys.queuedata.catchall or args.token_renewal is False:
         logger.info("OIDC token will not be renewed by the pilot")
     else:
         update_local_oidc_token_info(args.url, args.port)
@@ -439,6 +439,16 @@ def get_args() -> Any:
         required=False,
         type=int,
         help="Number of getjob requests",
+    )
+
+    # no_token_renewal
+    arg_parser.add_argument(
+        "-w",
+        "--notokenrenewal",
+        dest="token_renewal",
+        action="store_false",
+        default=True,
+        help="Disable token renewal",
     )
 
     arg_parser.add_argument(
