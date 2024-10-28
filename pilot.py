@@ -441,16 +441,6 @@ def get_args() -> Any:
         help="Number of getjob requests",
     )
 
-    # no_token_renewal
-    arg_parser.add_argument(
-        "-w",
-        "--notokenrenewal",
-        dest="token_renewal",
-        action="store_false",
-        default=True,
-        help="Disable token renewal",
-    )
-
     arg_parser.add_argument(
         "-x",
         "--getjobfailures",
@@ -459,6 +449,16 @@ def get_args() -> Any:
         required=False,
         type=int,
         help="Maximum number of getjob request failures in Harvester mode",
+    )
+
+    # no_token_renewal
+    arg_parser.add_argument(
+        "-y",
+        "--notokenrenewal",
+        dest="token_renewal",
+        action="store_false",
+        default=True,
+        help="Disable token renewal",
     )
 
     arg_parser.add_argument(
