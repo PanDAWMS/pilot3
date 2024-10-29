@@ -62,7 +62,8 @@ from pilot.util.processes import (
 from pilot.util.psutils import (
     is_process_running,
     get_pid,
-    get_subprocesses
+    get_subprocesses,
+    find_actual_payload_pid
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
@@ -136,8 +137,8 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         if exit_code != 0:
             return exit_code, diagnostics
 
-        # display OOM process info (once)
-        display_oom_info(job.pid)
+        # update the OOM process info to prevent killing processes in the wrong order in case the job is killed (once)
+        update_oom_info(job.pid, job.transformation)
 
     # should the pilot abort the payload?
     exit_code, diagnostics = should_abort_payload(current_time, mt)
@@ -199,22 +200,32 @@ def still_running(pid):
     return running
 
 
-def display_oom_info(payload_pid):
+def update_oom_info(bash_pid, payload_cmd):
     """
-    Display OOM process info.
+    Update OOM process info.
 
-    :param payload_pid: payload pid (int).
+    In case the job is killed, the OOM process info should be updated to prevent killing processes in the wrong order.
+    It will otherwise lead to lingering processes.
+
+    :param bash_pid: bash chain pid (int)
+    :param payload_cmd: payload command (string).
     """
+    # use the pid of the bash chain to get the actual payload pid which should be a child process
+    payload_pid = find_actual_payload_pid(bash_pid, payload_cmd)
+    if not payload_pid:
+        return
+
     fname = f"/proc/{payload_pid}/oom_score"
+    fname_adj = fname + "_adj"
     payload_score = get_score(payload_pid) if payload_pid else 'UNKNOWN'
     pilot_score = get_score(os.getpid())
 
-    #cmd = "whoami"
-    #_, stdout, _ = execute(cmd)
-    #ogger.debug(f"stdout = {stdout}")
-    #cmd = f"ls -l {fname}"
-    #_, stdout, _ = execute(cmd)
-    #ogger.debug(f"stdout = {stdout}")
+    cmd = "whoami"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"stdout = {stdout}")
+    cmd = f"ls -l {fname_adj}"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"stdout = {stdout}")
 
     if isinstance(pilot_score, str) and pilot_score == 'UNKNOWN':
         logger.warning(f'could not get oom_score for pilot process: {pilot_score}')

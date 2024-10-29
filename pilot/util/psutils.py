@@ -291,3 +291,33 @@ def find_process_by_jobid(jobid: int) -> int or None:
                 return proc.pid
 
     return None
+
+
+def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
+    """
+    Find the actual payload PID.
+
+    Identify all subprocesses of the given bash PID and search for the payload command. Return its PID.
+
+    :param bash_pid: bash PID (int)
+    :param payload_cmd: payload command (partial) (str)
+    :return: payload PID (int or None).
+    """
+    if not _is_psutil_available:
+        logger.warning('find_actual_payload_pid(): psutil not available - aborting')
+        return None
+
+    children = get_subprocesses(bash_pid)
+    if not children:
+        logger.warning(f'no children found for bash PID {bash_pid}')
+        return None
+
+    for pid in reversed(children):  # reverse the order since it's probably the last PID
+        cmd = get_command_by_pid(pid)
+        logger.debug(f'pid={pid} cmd={cmd}')
+        if payload_cmd in cmd:
+            logger.info(f'found payload PID={pid} for bash PID={bash_pid}')
+            return pid
+
+    logger.warning(f'could not find payload PID for bash PID {bash_pid}')
+    return None
