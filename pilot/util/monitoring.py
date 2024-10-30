@@ -242,13 +242,15 @@ def write_to_oom_score_adj(pid, value):
         pid: The PID of the process.
         value: The value to write to the oom_score_adj file.
     """
-
     command = f"echo {value} > /proc/{pid}/oom_score_adj"
     try:
         subprocess.check_call(command, shell=True)
         logger.info(f"successfully wrote {value} to /proc/{pid}/oom_score_adj")
     except subprocess.CalledProcessError as e:
         logger.warning(f"error writing to /proc/{pid}/oom_score_adj: {e}")
+        ec, stdout, stderr = execute(command)
+        logger.debug(f"ec = {ec} stdout = {stdout}\nstderr = {stderr}")
+        _, stdout, _ = execute(f"cat /proc/{pid}/oom_score_adj")
 
 
 def get_score(pid) -> str:

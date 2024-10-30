@@ -310,9 +310,9 @@ def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
     children = get_subprocesses(bash_pid)
     if not children:
         logger.warning(f'no children found for bash PID {bash_pid}')
-        return None
+        return bash_pid
 
-    for pid in reversed(children):  # reverse the order since it's probably the last PID
+    for pid in children:
         cmd = get_command_by_pid(pid)
         logger.debug(f'pid={pid} cmd={cmd}')
         if payload_cmd in cmd:
