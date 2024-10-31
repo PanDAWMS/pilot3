@@ -224,7 +224,7 @@ def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str
                 f"left={float(seconds_left) / 3600:.2f}h (now={tnow} validity={validity} left={seconds_left}s)")
 
     # special case for limit=72h (3 days) for pilot startup
-    if limit == 72 and proxyname == "proxy" and seconds_left < limit * 3600 - 20 * 60:
+    if limit == 72 and seconds_left < limit * 3600 - 20 * 60:
         diagnostics = f'proxy is too short for pilot startup: {float(seconds_left) / 3600:.2f}h'
         logger.warning(diagnostics)
         exit_code = errors.PROXYTOOSHORT
