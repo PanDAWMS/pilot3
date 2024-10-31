@@ -27,7 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_proxy(limit: int = None, x509: str = None, proxy_id: str = "pilot", test: bool = False) -> (int, str):
+def verify_proxy(limit: int = None, x509: str = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> (int, str):
     """
     Check for a valid voms/grid proxy longer than N hours.
 
@@ -37,6 +37,7 @@ def verify_proxy(limit: int = None, x509: str = None, proxy_id: str = "pilot", t
     :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (str)
     :param proxy_id: proxy id (str)
     :param test: free Boolean test parameter (bool)
+    :param pilotstartup: free Boolean pilotstartup parameter (bool)
     :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string) (int, str).
     """
     if limit or x509 or proxy_id or test:  # to bypass pylint score 0

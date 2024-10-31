@@ -90,7 +90,7 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     return exit_code, diagnostics, x509
 
 
-def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:
+def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:
     """
     Check for a valid voms/grid proxy longer than N hours.
 
@@ -100,8 +100,11 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
     :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (bool)
     :param proxy_id: proxy id (str)
     :param test: free Boolean test parameter (bool)
+    :param pilotstartup: free Boolean pilotstartup parameter (bool)
     :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str) (tuple).
     """
+    if pilotstartup:
+        limit = 72  # 3 days
     if limit is None:
         limit = 1
 
@@ -171,6 +174,8 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
         else:
             exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
 
+            validity_end = int(time()) + 71 * 3600  # 71 hours test
+
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
                     logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
@@ -219,7 +224,12 @@ def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str
     logger.info(f"cache: check {proxyname} validity: wanted={limit}h ({limit * 3600 - 20 * 60}s with grace) "
                 f"left={float(seconds_left) / 3600:.2f}h (now={tnow} validity={validity} left={seconds_left}s)")
 
-    if seconds_left < limit * 3600 - 20 * 60:
+    # special case for limit=72h (3 days) for pilot startup
+    if limit == 72 and proxyname == "proxy" and seconds_left < limit * 3600 - 20 * 60:
+        diagnostics = f'proxy is too short for pilot startup: {float(seconds_left) / 3600:.2f}h'
+        logger.warning(diagnostics)
+        exit_code = errors.PROXYTOOSHORT
+    elif seconds_left < limit * 3600 - 20 * 60:
         diagnostics = f'cert/proxy is about to expire: {float(seconds_left) / 3600:.2f}h'
         logger.warning(diagnostics)
         exit_code = errors.CERTIFICATEHASEXPIRED if proxyname == 'cert' else errors.VOMSPROXYABOUTTOEXPIRE
