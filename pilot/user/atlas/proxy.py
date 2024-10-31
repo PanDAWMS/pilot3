@@ -161,9 +161,6 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
     #   validityLeft - duration of proxy validity left in seconds.
     #   vomsACvalidityEnd - timestamp when VOMS attribute validity ends.
     #   vomsACvalidityLeft - duration of VOMS attribute validity left in seconds.
-    cmd = f"{envsetup}arcproxy -i subject"
-    _exit_code, _, _ = execute(cmd, shell=True)  # , usecontainer=True, copytool=True)
-
     cmd = f"{envsetup}arcproxy -i validityEnd -i validityLeft -i vomsACvalidityEnd -i vomsACvalidityLeft"
     _exit_code, stdout, stderr = execute_nothreads(cmd, shell=True)  # , usecontainer=True, copytool=True)
     if stdout is not None:
