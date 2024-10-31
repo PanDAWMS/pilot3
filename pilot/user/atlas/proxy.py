@@ -173,8 +173,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
             exit_code = -1
         else:
             exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
-
-            validity_end = int(time()) + 71 * 3600  # 71 hours test
+            # validity_end = int(time()) + 71 * 3600  # 71 hours test
 
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
