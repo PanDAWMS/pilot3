@@ -182,8 +182,6 @@ def main() -> int:
         f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
     )
 
-    # check if real-time logging is requested for this queue
-    #rtloggingtype
     # update the pilot heartbeat file
     update_pilot_heartbeat(time.time())
 
