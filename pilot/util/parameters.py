@@ -17,15 +17,18 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
 # This module contains functions that are used with the get_parameters() function defined in the information module.
 
 # WARNING: IN GENERAL, NEEDS TO USE PLUG-IN MANAGER
 
-from pilot.info import infosys
-
 import logging
+from typing import Any
+
+from pilot.info import infosys
+from pilot.util.config import config
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +43,6 @@ def get_maximum_input_sizes():
     try:
         _maxinputsizes = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     except TypeError as exc:
-        from pilot.util.config import config
         _maxinputsizes = config.Pilot.maximum_input_file_sizes  # MB
         logger.warning(f'could not convert schedconfig value for maxwdir: {exc} (will use default value instead - {_maxinputsizes})')
 
@@ -49,25 +51,24 @@ def get_maximum_input_sizes():
 
     try:
         _maxinputsizes = int(_maxinputsizes)
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         _maxinputsizes = 14336 + 2000
         logger.warning(f'failed to convert maxinputsizes to int: {exc} (using value: {_maxinputsizes} MB)')
 
     return _maxinputsizes
 
 
-def convert_to_int(parameter, default=None):
+def convert_to_int(parameter: Any, default: Any = None) -> Any:
     """
     Try to convert a given parameter to an integer value.
+
     The default parameter can be used to force the function to always return a given value in case the integer
     conversion, int(parameter), fails.
 
-    :param parameter: parameter (any type).
-    :param default: None by default (if set, always return an integer; the given value will be returned if
-    conversion to integer fails).
-    :return: converted integer.
+    :param parameter: parameter (Any)
+    :param default: None by default (Any)
+    :return: converted integer (Any).
     """
-
     try:
         value = int(parameter)
     except (ValueError, TypeError):
