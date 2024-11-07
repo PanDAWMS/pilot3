@@ -859,8 +859,7 @@ def request2(url: str = "",
 
     if ipv == 'IPv4':
         logger.info("will use IPv4 in server communication")
-        opener = urllib.request.build_opener(IPv4HTTPHandler())
-        urllib.request.install_opener(opener)
+        install_ipv4_opener()
     else:
         logger.info("will use IPv6 in server communication")
 
@@ -870,10 +869,10 @@ def request2(url: str = "",
         logger.debug('sending data to server')
         with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
             # Handle the response here
-            logger.debug(f"response.status={response.status}, response.reason={response.reason}")
+            logger.info(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
             if 'getProxy' not in url:
-                logger.debug(f"response={ret}")
+                logger.info(f"response={ret}")
         logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
@@ -895,6 +894,24 @@ def request2(url: str = "",
                 ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
     return ret
+
+
+def install_ipv4_opener():
+    """Install the IPv4 opener."""
+    http_proxy = os.environ.get("http_proxy")
+    all_proxy = os.environ.get("all_proxy")
+    if http_proxy and all_proxy:
+        logger.info(f"using http_proxy={http_proxy}, all_proxy={all_proxy}")
+        proxy_handler = urllib.request.ProxyHandler({
+            'http': http_proxy,
+            'https': http_proxy,
+            'all': all_proxy
+        })
+        opener = urllib.request.build_opener(proxy_handler, IPv4HTTPHandler())
+    else:
+        logger.info("no http_proxy found, will use IPv4 without proxy")
+        opener = urllib.request.build_opener(IPv4HTTPHandler())
+    urllib.request.install_opener(opener)
 
 
 def request2_old(url: str = "",
