@@ -1121,11 +1121,13 @@ class StageOutClient(StagingClient):
                                  " .. will use default ddm=%s as (local) destination; ddm_alt=%s", activity, e.lfn, ddm, ddm_alt)
                 e.ddmendpoint = ddm
                 e.ddmendpoint_alt = ddm_alt
-            elif e.ddmendpoint not in storages:  # fspec.ddmendpoint is not in associated storages => assume it as final (non local) alternative destination
+            #elif e.ddmendpoint not in storages and is_unified:  ## customize nucleus logic if need
+            #   pass
+            elif e.ddmendpoint not in storages:  # fspec.ddmendpoint is not in associated storages => use it as (non local) alternative destination
                 self.logger.info("[prepare_destinations][%s]: Requested fspec.ddmendpoint=%s is not in the list of allowed (local) destinations"
                                  " .. will consider default ddm=%s for transfer and tag %s as alt. location", activity, e.ddmendpoint, ddm, e.ddmendpoint)
                 e.ddmendpoint_alt = e.ddmendpoint  # verify me
-                e.ddmendpoint = ddm
+                e.ddmendpoint = ddm  # check/verify nucleus case
             else:  # set corresponding ddmendpoint_alt if exist (next entry in available storages list)
                 cur = storages.index(e.ddmendpoint)
                 ddm_next = storages[cur + 1] if (cur + 1) < len(storages) else storages[0]  # cycle storages, take the first elem when reach end
