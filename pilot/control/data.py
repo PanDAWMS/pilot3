@@ -922,7 +922,8 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             #if not is_unified:
             #    client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
 
-            client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
+            ## FIX ME LATER: split activities: for `astorages` and `copytools` (to unify with ES workflow)
+            client.prepare_destinations(xdata, activity, alt_exclude=list(filter(None, [job.nucleus])))
 
             altstageout = job.allow_altstageout()
             client.transfer(xdata, activity, raise_exception=not altstageout, **kwargs)
