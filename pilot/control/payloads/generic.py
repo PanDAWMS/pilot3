@@ -956,6 +956,17 @@ class Executor:
                     f"\n\nfinished pid={proc.pid} exit_code={exit_code} state={self.__job.state}\n"
                 )
 
+                # make sure there are no lingering processes
+                items = find_lingering_processes(os.getpid())
+                if items:
+                    logger.warning("found lingering processes")
+                    list_items()
+                    #logger.warning(f"found lingering processes: {items}")
+                    #for item in items:
+                    #    kill_processes(item)
+                else:
+                    logger.info("(1/2) found no lingering processes")
+
                 # stop the utility command (e.g. a coprocess if necessary
                 if proc_co:
                     logger.debug(f"stopping utility command: {utility_cmd}")
@@ -989,12 +1000,13 @@ class Executor:
                 # make sure there are no lingering processes
                 items = find_lingering_processes(os.getpid())
                 if items:
+                    logger.warning("found lingering processes")
                     list_items()
                     #logger.warning(f"found lingering processes: {items}")
                     #for item in items:
                     #    kill_processes(item)
                 else:
-                    logger.info("found no lingering processes")
+                    logger.info("(2/2) found no lingering processes")
 
             if self.__job.is_hpo and state != "failed":
                 # in case there are more hyper-parameter points, move away the previous log files
