@@ -36,7 +36,10 @@ from typing import Any, TextIO
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
 from pilot.info import JobData
-from pilot.util.auxiliary import set_pilot_state  # , show_memory_usage
+from pilot.util.auxiliary import (
+    set_pilot_state,  # , show_memory_usage
+    list_items
+)
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
@@ -56,6 +59,7 @@ from pilot.util.filehandling import (
     read_file
 )
 from pilot.util.processes import kill_processes
+from pilot.util.psutils import find_lingering_processes
 from pilot.util.timing import (
     add_to_pilot_timing,
     get_time_measurement
@@ -981,6 +985,16 @@ class Executor:
                 # stop any running utilities
                 if self.__job.utilities != {}:
                     self.stop_utilities()
+
+                # make sure there are no lingering processes
+                items = find_lingering_processes()
+                if items:
+                    list_items()
+                    #logger.warning(f"found lingering processes: {items}")
+                    #for item in items:
+                    #    kill_processes(item)
+                else:
+                    logger.info("found no lingering processes")
 
             if self.__job.is_hpo and state != "failed":
                 # in case there are more hyper-parameter points, move away the previous log files
