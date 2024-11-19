@@ -321,3 +321,23 @@ def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
 
     logger.warning(f'could not find payload PID for bash PID {bash_pid}')
     return None
+
+
+def find_lingering_processes(parent_pid: int) -> list:
+    """
+    Find processes that are still running after the specified parent process has terminated.
+
+    :param parent_pid: The PID of the parent process (int)
+    :return: A list of lingering process PIDs (list).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot find lingering processes - aborting')
+        return []
+
+    lingering_processes = []
+    parent_process = psutil.Process(parent_pid)
+    for child in parent_process.children(recursive=True):
+        if child.status() != psutil.STATUS_ZOMBIE:
+            lingering_processes.append(child.pid)
+
+    return lingering_processes
