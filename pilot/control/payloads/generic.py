@@ -987,7 +987,7 @@ class Executor:
                     self.stop_utilities()
 
                 # make sure there are no lingering processes
-                items = find_lingering_processes()
+                items = find_lingering_processes(os.getpid())
                 if items:
                     list_items()
                     #logger.warning(f"found lingering processes: {items}")
