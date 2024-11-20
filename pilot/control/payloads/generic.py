@@ -960,7 +960,7 @@ class Executor:
                 items = find_lingering_processes(os.getpid())
                 if items:
                     logger.warning("found lingering processes")
-                    list_items()
+                    list_items(items)
                     #logger.warning(f"found lingering processes: {items}")
                     #for item in items:
                     #    kill_processes(item)
@@ -1001,7 +1001,7 @@ class Executor:
                 items = find_lingering_processes(os.getpid())
                 if items:
                     logger.warning("found lingering processes")
-                    list_items()
+                    list_items(items)
                     #logger.warning(f"found lingering processes: {items}")
                     #for item in items:
                     #    kill_processes(item)
