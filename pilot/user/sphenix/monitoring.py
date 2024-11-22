@@ -17,18 +17,20 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 
-from typing import Any
+from pilot.info.jobdata import JobData
 
 
-def fast_monitor_tasks(job: Any) -> int:
+def fast_monitor_tasks(job: JobData) -> int:
     """
     Perform fast monitoring tasks.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: exit code (int).
     """
+    if not job:  # to bypass pylint warning
+        pass
     exit_code = 0
 
     return exit_code
