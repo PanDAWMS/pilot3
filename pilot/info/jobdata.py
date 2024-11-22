@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
@@ -177,6 +177,7 @@ class JobData(BaseData):
     noexecstrcnv = None        # server instruction to the pilot if it should take payload setup from job parameters
     swrelease = ""                    # software release string
     writetofile = ""                    #
+    nucleus = ""
 
     # cmtconfig encoded info
     alrbuserplatform = ""          # ALRB_USER_PLATFORM encoded in platform/cmtconfig value
@@ -195,7 +196,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
-                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout'],
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
