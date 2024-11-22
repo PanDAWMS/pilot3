@@ -46,7 +46,7 @@ def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
     """
     Find all processes that belong to the same group using the given ps command output.
 
-    Recursively search for the children processes belonging to pid and return their pid's.
+    Search for the children processes belonging to pid and return their pid's.
     pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
     the pids of the children AND the parent.
 
@@ -585,7 +585,7 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
         cpu_consumption_time = utime + stime + cutime + cstime
         max_threshold = 1e6
         if cpu_consumption_time > max_threshold:
-            logger.warning(f'CPU consumption time={cpu_consumption_time} exceeds sanity threshold={max_threshold} (reset to 1.0)')
+            logger.warning(f'CPU consumption time={cpu_consumption_time} for pid={pid} exceeds sanity threshold={max_threshold} (reset to 1.0)')
             logger.warning(f"utime={utime} stime={stime} cutime={cutime} cstime={cstime} hz={hz}")
             logger.warning(f"fp.read()={_read}")
             cpu_consumption_time = 1.0
