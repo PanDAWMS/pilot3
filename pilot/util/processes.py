@@ -574,7 +574,8 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as fp:
-                    fields = fp.read().split(' ')[13:17]
+                    _read = fp.read()
+                    fields = _read.split(' ')[13:17]
                     utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
             except IOError as exc:
                 logger.warning(f'exception caught: {exc} (ignored)')
@@ -585,6 +586,8 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
         max_threshold = 1e6
         if cpu_consumption_time > max_threshold:
             logger.warning(f'CPU consumption time={cpu_consumption_time} exceeds sanity threshold={max_threshold}')
+            logger.warning(f"utime={utime} stime={stime} cutime={cutime} cstime={cstime} hz={hz}")
+            logger.warning(f"fp.read()={_read}")
             cpu_consumption_time = 0.0
     else:
         cpu_consumption_time = 0.0
