@@ -582,6 +582,10 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes
         cpu_consumption_time = utime + stime + cutime + cstime
+        max_threshold = 1e6
+        if cpu_consumption_time > max_threshold:
+            logger.warning(f'CPU consumption time={cpu_consumption_time} exceeds sanity threshold={max_threshold}')
+            cpu_consumption_time = 0.0
     else:
         cpu_consumption_time = 0.0
 
