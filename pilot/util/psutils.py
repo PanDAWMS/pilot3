@@ -341,3 +341,24 @@ def find_lingering_processes(parent_pid: int) -> list:
             lingering_processes.append(child.pid)
 
     return lingering_processes
+
+
+def check_cpu_load():
+    """
+    Check if the system is under heavy CPU load.
+
+    High CPU load is here defined to be above 80%.
+
+    :return: True (system is under heavy CPU load), False (system load is normal).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot check CPU load (pretending it is normal)')
+        return False
+
+    cpu_percent = psutil.cpu_percent(interval=1)
+    if cpu_percent > 80:
+        logger.info("system is under heavy CPU load")
+        return True
+    else:
+        logger.info("system load is normal")
+        return False
