@@ -552,6 +552,7 @@ def get_cpu_consumption_time(t0: tuple) -> float:
 def get_instant_cpu_consumption_time(pid: int) -> float:
     """
     Return the CPU consumption time (system+user time) for a given process, by parsing /prod/pid/stat.
+
     Note 1: the function returns 0.0 if the pid is not set.
     Note 2: the function must sum up all the user+system times for both the main process (pid) and the child
     processes, since the main process is most likely spawning new processes.
@@ -574,8 +575,7 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as fp:
-                    _read = fp.read()
-                    fields = _read.split(' ')[13:17]
+                    fields = fp.read().split(' ')[13:17]
                     utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
             except IOError as exc:
                 logger.warning(f'exception caught: {exc} (ignored)')
@@ -583,12 +583,6 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes
         cpu_consumption_time = utime + stime + cutime + cstime
-        max_threshold = 1e6
-        if cpu_consumption_time > max_threshold:
-            logger.warning(f'CPU consumption time={cpu_consumption_time} for pid={pid} exceeds sanity threshold={max_threshold} (reset to 1.0)')
-            logger.warning(f"utime={utime} stime={stime} cutime={cutime} cstime={cstime} hz={hz}")
-            logger.warning(f"fp.read()={_read}")
-            cpu_consumption_time = 1.0
     else:
         cpu_consumption_time = 0.0
 

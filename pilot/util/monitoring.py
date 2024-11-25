@@ -116,12 +116,14 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         else:
             _cpuconsumptiontime = int(round(cpuconsumptiontime))
             if _cpuconsumptiontime > 0:
+                # make sure there are no sudden jumps in the cpuconsumptiontime
+                #factor = _cpuconsumptiontime / job.cpuconsumptiontime
                 job.cpuconsumptiontime = int(round(cpuconsumptiontime))
                 job.cpuconversionfactor = 1.0
                 logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
             elif _cpuconsumptiontime == -1:
                 logger.warning('could not get CPU consumption time')
-            elif _cpuconsumptiontime == 0.0:
+            elif _cpuconsumptiontime == 0:
                 logger.warning(f'process {job.pid} can no longer be monitored (due to stat problems) - aborting')
                 return 0, ""
             else:
