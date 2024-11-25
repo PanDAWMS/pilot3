@@ -61,6 +61,7 @@ from pilot.util.processes import (
 )
 from pilot.util.psutils import (
     is_process_running,
+    check_cpu_load,
     get_pid,
     get_subprocesses,
     find_actual_payload_pid
@@ -116,9 +117,19 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         else:
             _cpuconsumptiontime = int(round(cpuconsumptiontime))
             if _cpuconsumptiontime > 0:
-                # make sure there are no sudden jumps in the cpuconsumptiontime
-                #factor = _cpuconsumptiontime / job.cpuconsumptiontime
-                job.cpuconsumptiontime = int(round(cpuconsumptiontime))
+                if job.cpuconsumptiontime == -1:  # no time set yet so just proceed
+                    job.cpuconsumptiontime = _cpuconsumptiontime
+                else:
+                    # make sure there are no sudden jumps in the cpuconsumptiontime
+                    increase_factor = _cpuconsumptiontime / job.cpuconsumptiontime if job.cpuconsumptiontime > 0 else 1
+                    high_cpu_load = check_cpu_load()
+                    factor = 10 if high_cpu_load else 5
+                    if increase_factor > factor:
+                        logger.warning(f'CPU consumption time increased by a factor of {increase_factor} (over the limit of {factor})')
+                        logger.warning(f"will not consider the new value: {_cpuconsumptiontime}")
+                    else:
+                        logger.debug(f'CPU consumption time increased by a factor of {increase_factor} (below the limit of {factor})')
+                        job.cpuconsumptiontime = _cpuconsumptiontime
                 job.cpuconversionfactor = 1.0
                 logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
             elif _cpuconsumptiontime == -1:
