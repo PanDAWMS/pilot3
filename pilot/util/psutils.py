@@ -355,7 +355,12 @@ def check_cpu_load():
         logger.warning('psutil not available, cannot check CPU load (pretending it is normal)')
         return False
 
-    cpu_percent = psutil.cpu_percent(interval=1)
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+        logger.warning(f"Failed to read CPU percent: {e}")
+        logger.info("system is under heavy CPU load (assumed)")
+        return True
     if cpu_percent > 80:
         logger.info("system is under heavy CPU load")
         return True
