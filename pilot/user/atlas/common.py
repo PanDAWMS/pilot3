@@ -26,6 +26,7 @@ import fnmatch
 import logging
 import os
 import re
+import time
 
 from collections import defaultdict
 from functools import reduce
@@ -487,14 +488,17 @@ def get_nthreads(catchall: str) -> int:
     return _nthreads if _nthreads else 1
 
 
-def get_payload_command(job: JobData) -> str:
+def get_payload_command(job: JobData, args: object = None) -> str:
     """
     Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
 
     :param job: job object (JobData)
-    :return: command (str).
+    :param args: pilot arguments (object)
+    :return: command (str)
     :raises TrfDownloadFailure: in case of download failure.
     """
+    if not args:  # bypass pylint complaint
+        pass
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -515,6 +519,7 @@ def get_payload_command(job: JobData) -> str:
         exitcode = 0
         diagnostics = ""
 
+        t0 = time.time()
         try:
             exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
@@ -531,6 +536,10 @@ def get_payload_command(job: JobData) -> str:
                                f'input file traces should already have been sent')
             else:
                 process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
+
+            t1 = time.time()
+            dt = int(t1 - t0)
+            logger.info(f'remote file verification finished in {dt} s')
 
             # fail the job if the remote files could not be verified
             if exitcode != 0:

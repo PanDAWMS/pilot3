@@ -28,6 +28,7 @@ from signal import SIGTERM
 from typing import Any
 
 from pilot.common.exception import TrfDownloadFailure
+from pilot.info.jobdata import JobData
 from pilot.util.config import config
 from pilot.util.constants import UTILITY_BEFORE_PAYLOAD, UTILITY_AFTER_PAYLOAD_STARTED
 from pilot.util.filehandling import read_file
@@ -60,7 +61,7 @@ def validate(job: Any) -> bool:
     return True
 
 
-def get_payload_command(job: object):
+def get_payload_command(job: JobData, args: object = None):
     """
     Return the full command for executing the payload.
 
@@ -68,12 +69,15 @@ def get_payload_command(job: object):
     By default, the full payload command is assumed to be in the job.jobparams.
 
     :param job: job object (object)
+    :param args: pilot arguments (object)
     :return: command (str).
     """
     # Try to download the trf
     # if job.imagename != "" or "--containerImage" in job.jobparams:
     #    job.transformation = os.path.join(os.path.dirname(job.transformation), "runcontainer")
     #    logger.warning('overwrote job.transformation, now set to: %s' % job.transformation)
+    if not args:  # bypass pylint complaint
+        pass
     ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
