@@ -253,6 +253,11 @@ def update_oom_info(bash_pid, payload_cmd):
         return
 
     fname = f"/proc/{payload_pid}/oom_score"
+    # abort if the file does not exist
+    if not os.path.exists(fname):
+        logger.warning(f'oom_score file does not exist: {fname} (abort)')
+        return
+
     fname_adj = fname + "_adj"
     payload_score = get_score(payload_pid) if payload_pid else 'UNKNOWN'
     pilot_score = get_score(os.getpid())
