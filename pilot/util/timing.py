@@ -52,6 +52,8 @@ from pilot.util.constants import (
     PILOT_PRE_STAGEOUT,
     PILOT_PRE_FINAL_UPDATE,
     PILOT_START_TIME,
+    PILOT_PRE_REMOTEIO,
+    PILOT_POST_REMOTEIO
 )
 from pilot.util.filehandling import (
     read_json,
@@ -234,6 +236,19 @@ def get_total_pilot_time(job_id: str, args: object) -> int:
     return get_time_difference(job_id, PILOT_START_TIME, PILOT_END_TIME, args)
 
 
+def get_total_remoteio_time(job_id: str, args: object) -> int:
+    """
+    Return the total time to verify remote i/o files for the given job_id.
+
+    High level function that returns the end time for the given job_id.
+
+    :param job_id: PanDA job id (str)
+    :param args: pilot arguments (object)
+    :return: time in seconds (int).
+    """
+    return get_time_difference(job_id, PILOT_PRE_REMOTEIO, PILOT_POST_REMOTEIO, args)
+
+
 def get_postgetjob_time(job_id: str, args: object) -> int or None:
     """
     Return the post getjob time.
@@ -394,6 +409,17 @@ def timing_report(job_id: str, args: object) -> tuple[int, int, int, int, int, i
     time_payload = get_payload_execution_time(job_id, args)
     time_stageout = get_stageout_time(job_id, args)
     time_log_creation = get_log_creation_time(job_id, args)
+    time_remoteio = get_total_remoteio_time(job_id, args)
+
+    # correct the setup and stagein times if remote i/o verification was done
+    if time_remoteio > 0:
+        logger.info("correcting setup and stagein times since remote i/o verification was done")
+        logger.debug(f"original setup time: {time_setup} s")
+        logger.debug(f"original stagein time: {time_stagein} s")
+        time_setup -= time_remoteio
+        time_stagein += time_remoteio
+        logger.debug(f"corrected setup time: {time_setup} s")
+        logger.debug(f"corrected stagein time: {time_stagein} s")
 
     logger.info('.' * 30)
     logger.info('. Timing measurements:')
