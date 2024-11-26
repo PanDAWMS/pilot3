@@ -200,8 +200,8 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
                         f'CPU consumption time increased by a factor of {increase_factor} (over the limit of {factor})')
                     logger.warning(f"will not consider the new value: {_cpuconsumptiontime}")
                 else:
-                    logger.debug(
-                        f'CPU consumption time increased by a factor of {increase_factor} (below the limit of {factor})')
+                    logger.info(
+                        f'CPU consumption time changed by a factor of {increase_factor} (below the limit of {factor})')
 
                     # make sure that /proc/self/statm still exists, otherwise the job is no longer using CPU, ie discard the info
                     if check_proc_access():
