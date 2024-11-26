@@ -37,9 +37,9 @@ from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
 from pilot.util.filehandling import (
     get_disk_usage,
-    remove_files,
     get_local_file_size,
     read_file,
+    remove_files,
     zip_files,
     #write_file
 )
@@ -54,22 +54,23 @@ from pilot.util.parameters import (
     get_maximum_input_sizes
 )
 from pilot.util.processes import (
+    check_proc_access,
     get_current_cpu_consumption_time,
-    kill_processes,
     get_number_of_child_processes,
+    kill_processes,
     reap_zombies
 )
 from pilot.util.psutils import (
     is_process_running,
     check_cpu_load,
+    find_actual_payload_pid,
     get_pid,
     get_subprocesses,
-    find_actual_payload_pid
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
+    check_hz,
     get_local_disk_space,
-    check_hz
 )
 from pilot.info import infosys, JobData
 
@@ -201,10 +202,14 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
                 else:
                     logger.debug(
                         f'CPU consumption time increased by a factor of {increase_factor} (below the limit of {factor})')
-                    job.cpuconsumptiontime = _cpuconsumptiontime
+
+                    # make sure that /proc/self/statm still exists, otherwise the job is no longer using CPU, ie discard the info
+                    if check_proc_access():
+                        logger.debug("/proc/self/statm exists - will update the CPU consumption time")
+                        job.cpuconsumptiontime = _cpuconsumptiontime
             job.cpuconversionfactor = 1.0
             logger.info(
-                f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
+                f'(instant) CPU consumption time for pid={job.pid}: {job.cpuconsumptiontime})')
         elif _cpuconsumptiontime == -1:
             logger.warning('could not get CPU consumption time')
         elif _cpuconsumptiontime == 0:

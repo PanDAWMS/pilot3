@@ -946,3 +946,18 @@ def reap_zombies(pid: int = -1):
             pass
     logger.info(f'reaping zombies for max {max_timeout} seconds')
     waitpid(pid)
+
+
+def check_proc_access() -> bool:
+    """
+    Verify that /proc/self/statm can be accessed.
+
+    :return: True if /proc/self/statm can be accessed, False otherwise (bool).
+    """
+    try:
+        with open('/proc/self/statm', 'r') as f:
+            _ = f.read()
+        return True
+    except (FileNotFoundError, PermissionError) as e:
+        logger.warning(f"error accessing /proc/self/statm: {e} (CPU consumption time will be discarded)")
+        return False
