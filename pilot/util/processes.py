@@ -578,7 +578,9 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
                     fields = fp.read().split(' ')[13:17]
                     utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
             except IOError as exc:
-                logger.warning(f'exception caught: {exc} (ignored)')
+                logger.warning(f'exception caught: {exc} (ignoring process {pid})')
+        else:
+            logger.debug(f"{path} no longer exist (ignoring terminated process {pid})")
 
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes
