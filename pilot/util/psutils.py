@@ -335,10 +335,16 @@ def find_lingering_processes(parent_pid: int) -> list:
         return []
 
     lingering_processes = []
-    parent_process = psutil.Process(parent_pid)
-    for child in parent_process.children(recursive=True):
-        if child.status() != psutil.STATUS_ZOMBIE:
-            lingering_processes.append(child.pid)
+    try:
+        parent_process = psutil.Process(parent_pid)
+        for child in parent_process.children(recursive=True):
+            try:
+                if child.status() != psutil.STATUS_ZOMBIE:
+                    lingering_processes.append(child.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                logger.warning(f"[harmless] failed to get status for child process {child.pid}: {e}")
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, psutil.FileNotFoundError) as e:
+        logger.warning(f"[harmless] failed to get parent process {parent_pid}: {e}")
 
     return lingering_processes
 
