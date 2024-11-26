@@ -115,8 +115,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting pre-setup time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, update_time, self.__args)
 
     def post_setup(self, job: JobData, update_time: bool = None):
