@@ -505,8 +505,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting post-payload time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, update_time, self.__args)
 
     def run_command(self, cmd: str, label: str = "") -> Any:
@@ -694,11 +692,10 @@ class Executor:
 
         return exit_code
 
-    def get_payload_command(self, job: JobData) -> str:
+    def get_payload_command(self) -> str:
         """
         Return the payload command string.
 
-        :param job: job object (JobData)
         :return: command (str).
         """
         cmd = ""
@@ -708,14 +705,14 @@ class Executor:
             user = __import__(
                 f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
             )
-            cmd = user.get_payload_command(job)  # + 'sleep 900'  # to test looping jobs
+            cmd = user.get_payload_command(self.__job, args=self.__args)  # + 'sleep 900'  # to test looping jobs
         except PilotException as error:
-            self.post_setup(job)
+            self.post_setup(self.__job)
             logger.error(traceback.format_exc())
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+            self.__job.piloterrorcodes, self.__job.piloterrordiags = errors.add_error_code(
                 error.get_error_code()
             )
-            self.__traces.pilot["error_code"] = job.piloterrorcodes[0]
+            self.__traces.pilot["error_code"] = self.__job.piloterrorcodes[0]
             logger.fatal(
                 f"could not define payload command (traces error set to: {self.__traces.pilot['error_code']})"
             )
@@ -802,7 +799,7 @@ class Executor:
         self.pre_setup(self.__job)
 
         # get the user defined payload command
-        cmd = self.get_payload_command(self.__job)
+        cmd = self.get_payload_command()
         if not cmd:
             logger.warning("aborting run() since payload command could not be defined")
             return errors.UNKNOWNPAYLOADFAILURE, "undefined payload command"
