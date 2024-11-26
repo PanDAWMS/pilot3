@@ -328,6 +328,8 @@ def _stage_in(args: object, job: JobData) -> bool:
         logger.info(" -- lfn=%s, status_code=%s, status=%s", infile.lfn, infile.status_code, status)
 
     # write time stamps to pilot timing file
+
+    # MOVE THIS TO AFTER REMOTE FILE OPEN HAS BEEN VERIFIED (actually just before the payload starts)
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEIN, time.time(), args)
 
     remain_files = [infile for infile in job.indata if infile.status not in ['remote_io', 'transferred', 'no_transfer']]

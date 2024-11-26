@@ -492,8 +492,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting pre-payload time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
 
     def post_payload(self, job: JobData):
