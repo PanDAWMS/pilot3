@@ -57,7 +57,9 @@ from pilot.util.constants import (
     UTILITY_AFTER_PAYLOAD_FINISHED,
     UTILITY_AFTER_PAYLOAD_STARTED2,
     UTILITY_BEFORE_STAGEIN,
-    UTILITY_AFTER_PAYLOAD_FINISHED2
+    UTILITY_AFTER_PAYLOAD_FINISHED2,
+    PILOT_PRE_REMOTEIO,
+    PILOT_POST_REMOTEIO
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
@@ -82,6 +84,7 @@ from pilot.util.processes import (
     get_trimmed_dictionary,
     is_child
 )
+from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
 from .container import (
     create_root_container_command,
@@ -519,7 +522,8 @@ def get_payload_command(job: JobData, args: object = None) -> str:
         exitcode = 0
         diagnostics = ""
 
-        t0 = time.time()
+        t0 = int(time.time())
+        add_to_pilot_timing(job.jobid, PILOT_PRE_REMOTEIO, t0, args)
         try:
             exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
@@ -537,8 +541,9 @@ def get_payload_command(job: JobData, args: object = None) -> str:
             else:
                 process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
 
-            t1 = time.time()
-            dt = int(t1 - t0)
+            t1 = int(time.time())
+            add_to_pilot_timing(job.jobid, PILOT_POST_REMOTEIO, t1, args)
+            dt = t1 - t0
             logger.info(f'remote file verification finished in {dt} s')
 
             # fail the job if the remote files could not be verified
