@@ -58,7 +58,10 @@ from pilot.util.filehandling import (
     write_file,
     read_file
 )
-from pilot.util.processes import kill_processes
+from pilot.util.processes import (
+    kill_process,
+    kill_processes,
+)
 from pilot.util.psutils import find_lingering_processes
 from pilot.util.timing import (
     add_to_pilot_timing,
@@ -954,17 +957,6 @@ class Executor:
                     f"\n\nfinished pid={proc.pid} exit_code={exit_code} state={self.__job.state}\n"
                 )
 
-                # make sure there are no lingering processes
-                items = find_lingering_processes(os.getpid())
-                if items:
-                    logger.warning("found lingering processes")
-                    list_items(items)
-                    #logger.warning(f"found lingering processes: {items}")
-                    #for item in items:
-                    #    kill_processes(item)
-                else:
-                    logger.info("(1/2) found no lingering processes")
-
                 # stop the utility command (e.g. a coprocess if necessary
                 if proc_co:
                     logger.debug(f"stopping utility command: {utility_cmd}")
@@ -998,13 +990,12 @@ class Executor:
                 # make sure there are no lingering processes
                 items = find_lingering_processes(os.getpid())
                 if items:
-                    logger.warning("found lingering processes")
+                    logger.warning("found lingering processes - will now be removed")
                     list_items(items)
-                    #logger.warning(f"found lingering processes: {items}")
-                    #for item in items:
-                    #    kill_processes(item)
+                    for item in items:
+                        kill_process(item, hardkillonly=True)
                 else:
-                    logger.info("(2/2) found no lingering processes")
+                    logger.info("found no lingering processes")
 
             if self.__job.is_hpo and state != "failed":
                 # in case there are more hyper-parameter points, move away the previous log files
