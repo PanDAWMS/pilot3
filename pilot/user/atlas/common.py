@@ -548,6 +548,8 @@ def get_payload_command(job: JobData, args: object = None) -> str:
 
             # fail the job if the remote files could not be verified
             if exitcode != 0:
+                # improve the error diagnostics
+                diagnostics = errors.format_diagnostics(exitcode, diagnostics)
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
                 raise PilotException(diagnostics, code=exitcode)
     else:
