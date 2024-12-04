@@ -100,7 +100,11 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
+        # keep track of the time since the job started running (approximate since it is set here, move later)
+        if not job.runningstart:
+            job.runningstart = current_time
 
+        # check the disk space
         # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
         if job.utilities != {}:
             utility_monitor(job)
@@ -108,10 +112,13 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
 
-        # set the CPU consumption time for the job
-        exit_code, diagnostics = set_cpu_consumption_time(job)
-        if exit_code:
-            return exit_code, diagnostics
+        # set the CPU consumption time for the job (if it has been running for > 10s)
+        if job.runningstart and (current_time - job.runningstart) > 10:
+            exit_code, diagnostics = set_cpu_consumption_time(job)
+            if exit_code:
+                return exit_code, diagnostics
+        else:
+            logger.debug('skipping CPU consumption time check since job has not been running for long enough')
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
