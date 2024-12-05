@@ -839,3 +839,13 @@ def uuidgen_t() -> str:
     :return: A UUID in the format "00000000-0000-0000-0000-000000000000" (str).
     """
     return str(uuid4())
+
+
+def list_items(items: list):
+    """
+    List the items in the given list as a numbered list.
+
+    :param items: list of items (list)
+    """
+    for i, item in enumerate(items):
+        logger.info(f'{i + 1}: {item}')

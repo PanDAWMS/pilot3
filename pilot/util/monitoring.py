@@ -37,9 +37,9 @@ from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
 from pilot.util.filehandling import (
     get_disk_usage,
-    remove_files,
     get_local_file_size,
     read_file,
+    remove_files,
     zip_files,
     #write_file
 )
@@ -54,21 +54,23 @@ from pilot.util.parameters import (
     get_maximum_input_sizes
 )
 from pilot.util.processes import (
+    check_proc_access,
     get_current_cpu_consumption_time,
-    kill_processes,
     get_number_of_child_processes,
+    kill_processes,
     reap_zombies
 )
 from pilot.util.psutils import (
     is_process_running,
+    check_cpu_load,
+    find_actual_payload_pid,
     get_pid,
     get_subprocesses,
-    find_actual_payload_pid
 )
 from pilot.util.timing import get_time_since
 from pilot.util.workernode import (
+    check_hz,
     get_local_disk_space,
-    check_hz
 )
 from pilot.info import infosys, JobData
 
@@ -98,7 +100,11 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
 
     # update timing info for running jobs (to avoid an update after the job has finished)
     if job.state == 'running':
+        # keep track of the time since the job started running (approximate since it is set here, move later)
+        if not job.runningstart:
+            job.runningstart = current_time
 
+        # check the disk space
         # make sure that any utility commands are still running (and determine pid of memory monitor- as early as possible)
         if job.utilities != {}:
             utility_monitor(job)
@@ -106,24 +112,13 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
         # confirm that the worker node has a proper SC_CLK_TCK (problems seen on MPPMU)
         check_hz()
 
-        try:
-            cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
-        except Exception as error:
-            diagnostics = f"Exception caught: {error}"
-            logger.warning(diagnostics)
-            exit_code = get_exception_error_code(diagnostics)
-            return exit_code, diagnostics
+        # set the CPU consumption time for the job (if it has been running for > 10s)
+        if job.runningstart and (current_time - job.runningstart) > 10:
+            exit_code, diagnostics = set_cpu_consumption_time(job)
+            if exit_code:
+                return exit_code, diagnostics
         else:
-            _cpuconsumptiontime = int(round(cpuconsumptiontime))
-            if _cpuconsumptiontime > 0:
-                job.cpuconsumptiontime = int(round(cpuconsumptiontime))
-                job.cpuconversionfactor = 1.0
-                logger.info(f'(instant) CPU consumption time for pid={job.pid}: {cpuconsumptiontime} (rounded to {job.cpuconsumptiontime})')
-            elif _cpuconsumptiontime == -1:
-                logger.warning('could not get CPU consumption time')
-            else:
-                logger.warning(f'process {job.pid} is no longer using CPU - aborting')
-                return 0, ""
+            logger.debug('skipping CPU consumption time check since job has not been running for long enough')
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
@@ -183,6 +178,55 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
     return exit_code, diagnostics
 
 
+def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
+    """
+    Set the CPU consumption time for the job.
+
+    :param job: job object (JobData)
+    :return: exit code (int), diagnostics (string).
+    """
+    try:
+        cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
+    except Exception as error:
+        diagnostics = f"Exception caught: {error}"
+        logger.warning(diagnostics)
+        exit_code = get_exception_error_code(diagnostics)
+        return exit_code, diagnostics
+    else:
+        _cpuconsumptiontime = int(round(cpuconsumptiontime))
+        if _cpuconsumptiontime > 0:
+            if job.cpuconsumptiontime == -1:  # no time set yet so just proceed
+                job.cpuconsumptiontime = _cpuconsumptiontime
+            else:
+                # make sure there are no sudden jumps in the cpuconsumptiontime
+                increase_factor = _cpuconsumptiontime / job.cpuconsumptiontime if job.cpuconsumptiontime > 0 else 1
+                high_cpu_load = check_cpu_load()
+                factor = 10 if high_cpu_load else 5
+                if increase_factor > factor:
+                    logger.warning(
+                        f'CPU consumption time increased by a factor of {increase_factor} (over the limit of {factor})')
+                    logger.warning(f"will not consider the new value: {_cpuconsumptiontime}")
+                else:
+                    logger.info(
+                        f'CPU consumption time changed by a factor of {increase_factor} (below the limit of {factor})')
+
+                    # make sure that /proc/self/statm still exists, otherwise the job is no longer using CPU, ie discard the info
+                    if check_proc_access():
+                        logger.debug("/proc/self/statm exists - will update the CPU consumption time")
+                        job.cpuconsumptiontime = _cpuconsumptiontime
+            job.cpuconversionfactor = 1.0
+            logger.info(
+                f'(instant) CPU consumption time for pid={job.pid}: {job.cpuconsumptiontime})')
+        elif _cpuconsumptiontime == -1:
+            logger.warning('could not get CPU consumption time')
+        elif _cpuconsumptiontime == 0:
+            logger.warning(f'process {job.pid} can no longer be monitored (due to stat problems) - aborting')
+        else:
+            logger.warning(f'process {job.pid} is no longer using CPU - aborting')
+
+    return 0, ""
+
+
 def still_running(pid):
     # verify that the process is still alive
 
@@ -216,6 +260,11 @@ def update_oom_info(bash_pid, payload_cmd):
         return
 
     fname = f"/proc/{payload_pid}/oom_score"
+    # abort if the file does not exist
+    if not os.path.exists(fname):
+        logger.warning(f'oom_score file does not exist: {fname} (abort)')
+        return
+
     fname_adj = fname + "_adj"
     payload_score = get_score(payload_pid) if payload_pid else 'UNKNOWN'
     pilot_score = get_score(os.getpid())

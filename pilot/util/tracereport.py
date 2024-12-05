@@ -114,7 +114,7 @@ class TraceReport(dict):
 
         try:
             hostname = os.environ.get('PANDA_HOSTNAME', socket.gethostname())
-        except socket.herror as exc:
+        except (socket.gaierror, socket.herror) as exc:
             logger.warning(f'unable to detect hostname for trace report: {exc}')
             hostname = os.environ.get('PANDA_HOSTNAME', 'unknown')
 
@@ -126,7 +126,7 @@ class TraceReport(dict):
 
         try:
             self['ip'] = socket.gethostbyname(hostname)
-        except socket.herror as exc:
+        except (socket.gaierror, socket.herror) as exc:
             logger.debug(f"unable to detect host IP for trace report: {exc}")
             self['ip'] = '0.0.0.0'
 

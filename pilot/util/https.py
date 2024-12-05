@@ -799,11 +799,7 @@ class IPv4HTTPHandler(urllib.request.HTTPHandler):
         return socket.create_connection((host, port), timeout, source_address, family=socket.AF_INET)
 
 
-def request2(url: str = "",
-             data: dict = None,
-             secure: bool = True,
-             compressed: bool = True,
-             panda: bool = False) -> str or dict:
+def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
     """
     Send a request using HTTPS (using urllib module).
 
@@ -851,7 +847,8 @@ def request2(url: str = "",
     # create a context with certificate verification
     ssl_context = get_ssl_context()
     #ssl_context.verify_mode = ssl.CERT_REQUIRED
-    ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+    if not use_oidc_token:
+        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
 
     if not secure:
         ssl_context.verify_mode = False

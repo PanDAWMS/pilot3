@@ -26,6 +26,7 @@ import fnmatch
 import logging
 import os
 import re
+import time
 
 from collections import defaultdict
 from functools import reduce
@@ -56,7 +57,9 @@ from pilot.util.constants import (
     UTILITY_AFTER_PAYLOAD_FINISHED,
     UTILITY_AFTER_PAYLOAD_STARTED2,
     UTILITY_BEFORE_STAGEIN,
-    UTILITY_AFTER_PAYLOAD_FINISHED2
+    UTILITY_AFTER_PAYLOAD_FINISHED2,
+    PILOT_PRE_REMOTEIO,
+    PILOT_POST_REMOTEIO
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
@@ -81,6 +84,7 @@ from pilot.util.processes import (
     get_trimmed_dictionary,
     is_child
 )
+from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
 from .container import (
     create_root_container_command,
@@ -487,14 +491,17 @@ def get_nthreads(catchall: str) -> int:
     return _nthreads if _nthreads else 1
 
 
-def get_payload_command(job: JobData) -> str:
+def get_payload_command(job: JobData, args: object = None) -> str:
     """
     Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
 
     :param job: job object (JobData)
-    :return: command (str).
+    :param args: pilot arguments (object)
+    :return: command (str)
     :raises TrfDownloadFailure: in case of download failure.
     """
+    if not args:  # bypass pylint complaint
+        pass
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
@@ -515,6 +522,8 @@ def get_payload_command(job: JobData) -> str:
         exitcode = 0
         diagnostics = ""
 
+        t0 = int(time.time())
+        add_to_pilot_timing(job.jobid, PILOT_PRE_REMOTEIO, t0, args)
         try:
             exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
@@ -532,8 +541,15 @@ def get_payload_command(job: JobData) -> str:
             else:
                 process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
 
+            t1 = int(time.time())
+            add_to_pilot_timing(job.jobid, PILOT_POST_REMOTEIO, t1, args)
+            dt = t1 - t0
+            logger.info(f'remote file verification finished in {dt} s')
+
             # fail the job if the remote files could not be verified
             if exitcode != 0:
+                # improve the error diagnostics
+                diagnostics = errors.format_diagnostics(exitcode, diagnostics)
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exitcode, msg=diagnostics)
                 raise PilotException(diagnostics, code=exitcode)
     else:

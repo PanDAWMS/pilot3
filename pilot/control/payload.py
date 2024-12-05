@@ -744,7 +744,30 @@ def scan_for_memory_errors(subprocesses: list) -> str:
                 if search_str in line:
                     diagnostics = line[line.find(search_str):]
                     logger.warning(f'found memory error: {diagnostics}')
-                    break
+
+                    # make sure that this message is for a true subprocess of the pilot
+                    # extract the pid from the message and compare it to the subprocesses list
+                    match = search(r'Killed process (\d+)', diagnostics)
+                    if match:
+                        try:
+                            found_pid = int(match.group(1))
+                            logger.info(f"extracted PID: {found_pid}")
+
+                            # is it a known subprocess?
+                            if found_pid in subprocesses:
+                                logger.info("PID found in the list of subprocesses")
+                                break
+                            else:
+                                logger.warning("the extracted PID is not a known subprocess of the payload")
+                                diagnostics = ""
+                                # is the extracted PID a subprocess of the main pilot process itself?
+
+                        except (ValueError, TypeError, AttributeError) as e:
+                            logger.warning(f"failed to extract PID from the message: {e}")
+                            diagnostics = ""
+                    else:
+                        logger.warning("PID could not be extracted from the message")
+                        diagnostics = ""
 
         if diagnostics:
             break

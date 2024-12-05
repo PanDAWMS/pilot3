@@ -1072,7 +1072,7 @@ class StageOutClient(StagingClient):
 
     mode = "stage-out"
 
-    def prepare_destinations(self, files: list, activities: list or str, alt_exclude: list = []) -> list:
+    def prepare_destinations(self, files: list, activities: list or str, alt_exclude: list = None) -> list:
         """
         Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`.
 
@@ -1083,6 +1083,9 @@ class StageOutClient(StagingClient):
         :param alt_exclude: global list of destinations that should be excluded / not used for alternative stage-out
         :return: updated fspec entries (list).
         """
+        if alt_exclude is None:  # to bypass pylint complaint if declared as [] above
+            alt_exclude = []
+
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
 

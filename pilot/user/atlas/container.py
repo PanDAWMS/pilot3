@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+import select
 import shlex
 import subprocess
 import time
@@ -807,6 +808,117 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
 
 
 def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int, str, int]:  # noqa: C901
+    """
+    Execute the remote file open script.
+
+    :param path: path to container script (str)
+    :param python_script_timeout: timeout (int)
+    :return: exit code (int), stdout (str), lsetup time (int) (tuple).
+    """
+    lsetup_timeout = 600  # Timeout for 'lsetup' step
+    exit_code = 1
+    stdout = ""
+
+    # Start the Bash script process with non-blocking I/O
+    try:
+        process = subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
+    except OSError as e:
+        logger.warning(f"error starting subprocess: {e}")
+        return exit_code, "", 0
+
+    # Split the path at the last dot
+    filename, _ = path.rsplit(".", 1)
+
+    # Create the new path with the desired suffix
+    new_path = f"{filename}.stdout"
+
+    start_time = time.time()  # Track execution start time
+    lsetup_start_time = start_time
+    lsetup_completed = False  # Flag to track completion of 'lsetup' process
+    python_completed = False  # Flag to track completion of 'python3' process
+    lsetup_completed_at = None
+
+    with open(new_path, "w", encoding='utf-8') as file:
+        while True:
+            # Check for timeout (once per second)
+            if time.time() - start_time > lsetup_timeout and not lsetup_completed:
+                logger.warning("timeout for 'lsetup' exceeded - killing script")
+                exit_code = 2  # 'lsetup' timeout
+                process.kill()
+                break
+
+            # Use select to check if there is data to read (to byspass any blocking operation that will prevent time-out checks)
+            ready, _, _ = select.select([process.stdout], [], [], 1.0)
+            if ready:
+                output = process.stdout.readline()  # Read bytes directly
+                if output:
+                    output = output.decode().strip()
+                    file.write(output + "\n")
+                    stdout += output + "\n"
+
+                    # Check for LSETUP_COMPLETED message
+                    if output == "LSETUP_COMPLETED":
+                        lsetup_completed = True
+                        lsetup_completed_at = time.time()
+                        start_time = time.time()  # Reset start time for 'python3' timeout
+
+                    # Check for PYTHON_COMPLETED message
+                    if "PYTHON_COMPLETED" in output:
+                        python_completed = True
+                        match = re.search(r"\d+$", output)
+                        if match:
+                            exit_code = int(match.group())
+                            logger.info(f"python remote open command has completed with exit code {exit_code}")
+                        else:
+                            logger.info("python remote open command has completed without any exit code")
+                        break
+
+            # Timeout for python script after LSETUP_COMPLETED
+            if lsetup_completed and ((time.time() - lsetup_completed_at) > python_script_timeout):
+                logger.warning(f"(1) timeout for 'python3' subscript exceeded - killing script "
+                               f"({time.time()} - {lsetup_completed_at} > {python_script_timeout})")
+                exit_code = 3
+                process.kill()
+                break
+
+            # Timeout for python script after LSETUP_COMPLETED
+            if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
+                logger.warning(f"(2) timeout for 'python3' subscript exceeded - killing script "
+                               f"({time.time()} - {start_time} > {python_script_timeout})")
+                exit_code = 3
+                process.kill()
+                break
+
+            if python_completed:
+                logger.info('aborting since python command has finished')
+                return_code = process.poll()
+                if return_code:
+                    logger.warning(f"script execution completed with return code: {return_code}")
+                    # exit_code = return_code
+                break
+
+            # Check if script has completed normally
+            return_code = process.poll()
+            if return_code is not None:
+                pass
+            #    logger.info(f"script execution completed with return code: {return_code}")
+            #    exit_code = return_code
+            #    break
+
+            time.sleep(0.5)
+
+    # Ensure process is terminated
+    if process.poll() is None:
+        process.terminate()
+
+    # Check if 'lsetup' was completed
+    lsetup_time = int(lsetup_completed_at - lsetup_start_time) if lsetup_completed_at else 0
+
+    return exit_code, stdout, lsetup_time
+
+
+def execute_remote_file_open_old(path: str, python_script_timeout: int) -> tuple[int, str, int]:  # noqa: C901
     """
     Execute the remote file open script.
 
