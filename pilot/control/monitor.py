@@ -109,7 +109,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             if tokendownloadchecktime and queuedata:
                 if int(time.time() - last_token_check) > tokendownloadchecktime:
                     last_token_check = time.time()
-                    if 'no_token_renewal' in queuedata.catchall:
+                    if 'no_token_renewal' in queuedata.catchall or args.token_renewal is False:
                         logger.info("OIDC token will not be renewed by the pilot")
                     else:
                         update_local_oidc_token_info(args.url, args.port)

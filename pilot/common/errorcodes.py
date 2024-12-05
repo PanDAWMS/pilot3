@@ -182,6 +182,7 @@ class ErrorCodes:
     PREEMPTION = 1379
     ARCPROXYFAILURE = 1380
     ARCPROXYLIBFAILURE = 1381
+    PROXYTOOSHORT = 1382  # used at the beginning of the pilot to indicate that the proxy is too short
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -326,6 +327,7 @@ class ErrorCodes:
         PREEMPTION: "Job was preempted",
         ARCPROXYFAILURE: "General arcproxy failure",
         ARCPROXYLIBFAILURE: "Arcproxy failure while loading shared libraries",
+        PROXYTOOSHORT: "Proxy is too short",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

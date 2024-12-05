@@ -46,7 +46,7 @@ def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
     """
     Find all processes that belong to the same group using the given ps command output.
 
-    Recursively search for the children processes belonging to pid and return their pid's.
+    Search for the children processes belonging to pid and return their pid's.
     pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
     the pids of the children AND the parent.
 
@@ -552,6 +552,7 @@ def get_cpu_consumption_time(t0: tuple) -> float:
 def get_instant_cpu_consumption_time(pid: int) -> float:
     """
     Return the CPU consumption time (system+user time) for a given process, by parsing /prod/pid/stat.
+
     Note 1: the function returns 0.0 if the pid is not set.
     Note 2: the function must sum up all the user+system times for both the main process (pid) and the child
     processes, since the main process is most likely spawning new processes.
@@ -577,7 +578,9 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
                     fields = fp.read().split(' ')[13:17]
                     utime, stime, cutime, cstime = [(float(f) / hz) for f in fields]
             except IOError as exc:
-                logger.warning(f'exception caught: {exc} (ignored)')
+                logger.warning(f'exception caught: {exc} (ignoring process {pid})')
+        else:
+            logger.debug(f"{path} no longer exist (ignoring terminated process {pid})")
 
     if utime and stime and cutime and cstime:
         # sum up all the user+system times for both the main process (pid) and the child processes
@@ -943,3 +946,18 @@ def reap_zombies(pid: int = -1):
             pass
     logger.info(f'reaping zombies for max {max_timeout} seconds')
     waitpid(pid)
+
+
+def check_proc_access() -> bool:
+    """
+    Verify that /proc/self/statm can be accessed.
+
+    :return: True if /proc/self/statm can be accessed, False otherwise (bool).
+    """
+    try:
+        with open('/proc/self/statm', 'r') as f:
+            _ = f.read()
+        return True
+    except (FileNotFoundError, PermissionError) as e:
+        logger.warning(f"error accessing /proc/self/statm: {e} (CPU consumption time will be discarded)")
+        return False

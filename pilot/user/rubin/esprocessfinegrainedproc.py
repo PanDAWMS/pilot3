@@ -60,17 +60,17 @@ class ESRunnerThreadPool(futures.ThreadPoolExecutor):
         self.outputs = {}
         self._lock = threading.RLock()
         self.max_workers = max_workers
-        super(ESRunnerThreadPool, self).__init__(max_workers=max_workers,
-                                                 thread_name_prefix=thread_name_prefix,
-                                                 initializer=initializer,
-                                                 initargs=initargs)
+        super().__init__(max_workers=max_workers,
+                         thread_name_prefix=thread_name_prefix,
+                         initializer=initializer,
+                         initargs=initargs)
 
     def submit(self, fn, *args, **kwargs):
-        future = super(ESRunnerThreadPool, self).submit(fn, *args, **kwargs)
+        future = super().submit(fn, *args, **kwargs)
         return future
 
     def run_event(self, fn, event):
-        future = super(ESRunnerThreadPool, self).submit(fn, event)
+        future = super().submit(fn, event)
         with self._lock:
             self.futures[event['eventRangeID']] = {'event': event, 'future': future}
 

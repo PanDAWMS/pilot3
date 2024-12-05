@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2019
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
 
 """API for data transfers."""
 
@@ -1072,7 +1072,7 @@ class StageOutClient(StagingClient):
 
     mode = "stage-out"
 
-    def prepare_destinations(self, files: list, activities: list or str) -> list:
+    def prepare_destinations(self, files: list, activities: list or str, alt_exclude: list = None) -> list:
         """
         Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`.
 
@@ -1080,8 +1080,12 @@ class StageOutClient(StagingClient):
 
         :param files: list of FileSpec objects to be processed (list)
         :param activities: ordered list of activities to be used to resolve astorages (list or str)
+        :param alt_exclude: global list of destinations that should be excluded / not used for alternative stage-out
         :return: updated fspec entries (list).
         """
+        if alt_exclude is None:  # to bypass pylint complaint if declared as [] above
+            alt_exclude = []
+
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
 
@@ -1108,11 +1112,26 @@ class StageOutClient(StagingClient):
             raise PilotException(f"Failed to resolve destination: no associated storages defined for activity={activity} ({act})",
                                  code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
-        # take the fist choice for now, extend the logic later if need
-        ddm = storages[0]
-        ddm_alt = storages[1] if len(storages) > 1 else None
+        def resolve_alt_destination(primary, exclude=None):
+            """ resolve alt destination as the next to primary entry not equal to `primary` and `exclude` """
 
-        self.logger.info(f"[prepare_destinations][{activity}]: allowed (local) destinations: {storages}")
+            cur = storages.index(primary) if primary in storages else 0
+            inext = (cur + 1) % len(storages)  # cycle storages, take the first elem when reach end
+            exclude = set([primary] + list(exclude if exclude is not None else []))
+            alt = None
+            for attempt in range(len(exclude) or 1):  # apply several tries to jump exclude entries (in case of dublicated data will stack)
+                inext = (cur + 1) % len(storages)  # cycle storages, start from the beginning when reach end
+                if storages[inext] not in exclude:
+                    alt = storages[inext]
+                    break
+                cur += 1
+            return alt
+
+        # default destination
+        ddm = storages[0]  # take the fist choice for now, extend the logic later if need
+        ddm_alt = resolve_alt_destination(ddm, exclude=alt_exclude)
+
+        self.logger.info(f"[prepare_destinations][{activity}]: allowed (local) destinations: {storages}, alt_exclude={alt_exclude}")
         self.logger.info(f"[prepare_destinations][{activity}]: resolved default destination: ddm={ddm}, ddm_alt={ddm_alt}")
 
         for e in files:
@@ -1121,17 +1140,18 @@ class StageOutClient(StagingClient):
                                  " .. will use default ddm=%s as (local) destination; ddm_alt=%s", activity, e.lfn, ddm, ddm_alt)
                 e.ddmendpoint = ddm
                 e.ddmendpoint_alt = ddm_alt
-            elif e.ddmendpoint not in storages:  # fspec.ddmendpoint is not in associated storages => assume it as final (non local) alternative destination
+            #elif e.ddmendpoint not in storages and is_unified:  ## customize nucleus logic if need
+            #   pass
+            elif e.ddmendpoint not in storages:  # fspec.ddmendpoint is not in associated storages => use it as (non local) alternative destination
                 self.logger.info("[prepare_destinations][%s]: Requested fspec.ddmendpoint=%s is not in the list of allowed (local) destinations"
-                                 " .. will consider default ddm=%s for transfer and tag %s as alt. location", activity, e.ddmendpoint, ddm, e.ddmendpoint)
-                e.ddmendpoint_alt = e.ddmendpoint  # verify me
-                e.ddmendpoint = ddm
-            else:  # set corresponding ddmendpoint_alt if exist (next entry in available storages list)
-                cur = storages.index(e.ddmendpoint)
-                ddm_next = storages[cur + 1] if (cur + 1) < len(storages) else storages[0]  # cycle storages, take the first elem when reach end
-                e.ddmendpoint_alt = ddm_next if e.ddmendpoint != ddm_next else None
-                self.logger.info("[prepare_destinations][%s]: set ddmendpoint_alt=%s for fspec.ddmendpoint=%s",
-                                 activity, e.ddmendpoint_alt, e.ddmendpoint)
+                                 " .. will consider default ddm=%s as primary and set %s as alt. location", activity, e.ddmendpoint, ddm, e.ddmendpoint)
+                e.ddmendpoint_alt = e.ddmendpoint if e.ddmendpoint not in alt_exclude else None
+                e.ddmendpoint = ddm  # use default destination, check/verify nucleus case
+            else:  # set corresponding ddmendpoint_alt if exist (next entry in cycled storages list)
+                e.ddmendpoint_alt = resolve_alt_destination(e.ddmendpoint, exclude=alt_exclude)
+
+            self.logger.info("[prepare_destinations][%s]: use ddmendpoint_alt=%s for fspec.ddmendpoint=%s",
+                             activity, e.ddmendpoint_alt, e.ddmendpoint)
 
         return files
 

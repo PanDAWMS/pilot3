@@ -791,11 +791,131 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
     return auth_token_content
 
 
-def request2(url: str = "",
-             data: dict = None,
-             secure: bool = True,
-             compressed: bool = True,
-             panda: bool = False) -> str or dict:
+class IPv4HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(self._create_connection, req)
+
+    def _create_connection(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+        return socket.create_connection((host, port), timeout, source_address, family=socket.AF_INET)
+
+
+def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
+    """
+    Send a request using HTTPS (using urllib module).
+
+    :param url: the URL of the resource (str)
+    :param data: data to send (dict)
+    :param secure: use secure connection (bool)
+    :param compressed: compress data (bool)
+    :param panda: True for panda server interactions (bool)
+    :return: server response (str or dict).
+    """
+    if data is None:
+        data = {}
+
+    ipv = os.environ.get("PILOT_IP_VERSION")
+
+    # https might not have been set up if running in a [middleware] container
+    if not _ctx.cacert:
+        https_setup(None, get_pilot_version())
+
+    # should tokens be used?
+    auth_token, auth_origin = get_local_oidc_token_info()
+    use_oidc_token = auth_token and auth_origin and panda
+    auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
+    if not auth_token_content and use_oidc_token:
+        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+        return ""
+
+    # get the relevant headers
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
+    logger.info(f'headers = {hide_token(headers.copy())}')
+    logger.info(f'data = {data}')
+
+    # encode data as compressed JSON
+    if compressed:
+        rdata_out = BytesIO()
+        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
+            f_gzip.write(json.dumps(data).encode())
+        data_json = rdata_out.getvalue()
+    else:
+        data_json = json.dumps(data).encode('utf-8')
+
+    # set up the request
+    req = urllib.request.Request(url, data_json, headers=headers)
+
+    # create a context with certificate verification
+    ssl_context = get_ssl_context()
+    #ssl_context.verify_mode = ssl.CERT_REQUIRED
+    if not use_oidc_token:
+        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+
+    if not secure:
+        ssl_context.verify_mode = False
+        ssl_context.check_hostname = False
+
+    if ipv == 'IPv4':
+        logger.info("will use IPv4 in server communication")
+        install_ipv4_opener()
+    else:
+        logger.info("will use IPv6 in server communication")
+
+    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
+    # Send the request securely
+    try:
+        logger.debug('sending data to server')
+        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
+            # Handle the response here
+            logger.info(f"response.status={response.status}, response.reason={response.reason}")
+            ret = response.read().decode('utf-8')
+            if 'getProxy' not in url:
+                logger.info(f"response={ret}")
+        logger.debug('sent request to server')
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+        logger.warning(f'failed to send request: {exc}')
+        ret = ""
+    else:
+        if secure and isinstance(ret, str):
+            if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
+                ret = {'StatusCode': '0'}
+            elif ret.startswith('{') and ret.endswith('}'):
+                try:
+                    ret = json.loads(ret)
+                except json.JSONDecodeError as e:
+                    logger.warning(f'failed to parse response: {e}')
+            else:  # response="StatusCode=_some number_"
+                # Parse the query string into a dictionary
+                query_dict = parse_qs(ret)
+
+                # Convert lists to single values
+                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+
+    return ret
+
+
+def install_ipv4_opener():
+    """Install the IPv4 opener."""
+    http_proxy = os.environ.get("http_proxy")
+    all_proxy = os.environ.get("all_proxy")
+    if http_proxy and all_proxy:
+        logger.info(f"using http_proxy={http_proxy}, all_proxy={all_proxy}")
+        proxy_handler = urllib.request.ProxyHandler({
+            'http': http_proxy,
+            'https': http_proxy,
+            'all': all_proxy
+        })
+        opener = urllib.request.build_opener(proxy_handler, IPv4HTTPHandler())
+    else:
+        logger.info("no http_proxy found, will use IPv4 without proxy")
+        opener = urllib.request.build_opener(IPv4HTTPHandler())
+    urllib.request.install_opener(opener)
+
+
+def request2_old(url: str = "",
+                 data: dict = None,
+                 secure: bool = True,
+                 compressed: bool = True,
+                 panda: bool = False) -> str or dict:
     """
     Send a request using HTTPS (using urllib module).
 

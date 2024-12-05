@@ -179,6 +179,7 @@ def get_error_code_translation_dictionary() -> dict:
     """
     error_code_translation_dictionary = {
         -1: [64, "Site offline"],
+        errors.CVMFSISNOTALIVE: [64, "CVMFS is not responding"],  # same exit code as site offline
         errors.GENERALERROR: [65, "General pilot error, consult batch log"],  # added to traces object
         errors.MKDIR: [66, "Could not create directory"],  # added to traces object
         errors.NOSUCHFILE: [67, "No such file or directory"],  # added to traces object
@@ -196,7 +197,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.MISSINGINPUTFILE: [77, "Missing input file in SE"],  # should pilot report this type of error to wrapper?
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
         errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
-        errors.CVMFSISNOTALIVE: [64, "CVMFS is not responding"],  # same exit code as site offline
+        errors.PROXYTOOSHORT: [80, "Proxy too short"],  # added to traces object
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
@@ -838,3 +839,13 @@ def uuidgen_t() -> str:
     :return: A UUID in the format "00000000-0000-0000-0000-000000000000" (str).
     """
     return str(uuid4())
+
+
+def list_items(items: list):
+    """
+    List the items in the given list as a numbered list.
+
+    :param items: list of items (list)
+    """
+    for i, item in enumerate(items):
+        logger.info(f'{i + 1}: {item}')

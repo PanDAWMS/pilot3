@@ -291,3 +291,85 @@ def find_process_by_jobid(jobid: int) -> int or None:
                 return proc.pid
 
     return None
+
+
+def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
+    """
+    Find the actual payload PID.
+
+    Identify all subprocesses of the given bash PID and search for the payload command. Return its PID.
+
+    :param bash_pid: bash PID (int)
+    :param payload_cmd: payload command (partial) (str)
+    :return: payload PID (int or None).
+    """
+    if not _is_psutil_available:
+        logger.warning('find_actual_payload_pid(): psutil not available - aborting')
+        return None
+
+    children = get_subprocesses(bash_pid)
+    if not children:
+        logger.warning(f'no children found for bash PID {bash_pid}')
+        return bash_pid
+
+    for pid in children:
+        cmd = get_command_by_pid(pid)
+        logger.debug(f'pid={pid} cmd={cmd}')
+        if payload_cmd in cmd:
+            logger.info(f'found payload PID={pid} for bash PID={bash_pid}')
+            return pid
+
+    logger.warning(f'could not find payload PID for bash PID {bash_pid}')
+    return None
+
+
+def find_lingering_processes(parent_pid: int) -> list:
+    """
+    Find processes that are still running after the specified parent process has terminated.
+
+    :param parent_pid: The PID of the parent process (int)
+    :return: A list of lingering process PIDs (list).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot find lingering processes - aborting')
+        return []
+
+    lingering_processes = []
+    try:
+        parent_process = psutil.Process(parent_pid)
+        for child in parent_process.children(recursive=True):
+            try:
+                if child.status() != psutil.STATUS_ZOMBIE:
+                    lingering_processes.append(child.pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                logger.warning(f"[harmless] failed to get status for child process {child.pid}: {e}")
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, psutil.FileNotFoundError) as e:
+        logger.warning(f"[harmless] failed to get parent process {parent_pid}: {e}")
+
+    return lingering_processes
+
+
+def check_cpu_load():
+    """
+    Check if the system is under heavy CPU load.
+
+    High CPU load is here defined to be above 80%.
+
+    :return: True (system is under heavy CPU load), False (system load is normal).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot check CPU load (pretending it is normal)')
+        return False
+
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+        logger.warning(f"Failed to read CPU percent: {e}")
+        logger.info("system is under heavy CPU load (assumed)")
+        return True
+    if cpu_percent > 80:
+        logger.info("system is under heavy CPU load")
+        return True
+    else:
+        logger.info("system load is normal")
+        return False

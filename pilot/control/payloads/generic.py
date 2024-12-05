@@ -36,7 +36,10 @@ from typing import Any, TextIO
 from pilot.common.errorcodes import ErrorCodes
 from pilot.control.job import send_state
 from pilot.info import JobData
-from pilot.util.auxiliary import set_pilot_state  # , show_memory_usage
+from pilot.util.auxiliary import (
+    set_pilot_state,  # , show_memory_usage
+    list_items
+)
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
@@ -55,7 +58,11 @@ from pilot.util.filehandling import (
     write_file,
     read_file
 )
-from pilot.util.processes import kill_processes
+from pilot.util.processes import (
+    kill_process,
+    kill_processes,
+)
+from pilot.util.psutils import find_lingering_processes
 from pilot.util.timing import (
     add_to_pilot_timing,
     get_time_measurement
@@ -108,8 +115,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting pre-setup time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_SETUP, update_time, self.__args)
 
     def post_setup(self, job: JobData, update_time: bool = None):
@@ -488,8 +493,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting pre-payload time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
 
     def post_payload(self, job: JobData):
@@ -502,8 +505,6 @@ class Executor:
         """
         # write time stamps to pilot timing file
         update_time = time.time()
-        logger.debug(f"setting post-payload time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_POST_PAYLOAD, update_time, self.__args)
 
     def run_command(self, cmd: str, label: str = "") -> Any:
@@ -691,11 +692,10 @@ class Executor:
 
         return exit_code
 
-    def get_payload_command(self, job: JobData) -> str:
+    def get_payload_command(self) -> str:
         """
         Return the payload command string.
 
-        :param job: job object (JobData)
         :return: command (str).
         """
         cmd = ""
@@ -705,14 +705,14 @@ class Executor:
             user = __import__(
                 f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
             )
-            cmd = user.get_payload_command(job)  # + 'sleep 900'  # to test looping jobs
+            cmd = user.get_payload_command(self.__job, args=self.__args)  # + 'sleep 900'  # to test looping jobs
         except PilotException as error:
-            self.post_setup(job)
+            self.post_setup(self.__job)
             logger.error(traceback.format_exc())
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+            self.__job.piloterrorcodes, self.__job.piloterrordiags = errors.add_error_code(
                 error.get_error_code()
             )
-            self.__traces.pilot["error_code"] = job.piloterrorcodes[0]
+            self.__traces.pilot["error_code"] = self.__job.piloterrorcodes[0]
             logger.fatal(
                 f"could not define payload command (traces error set to: {self.__traces.pilot['error_code']})"
             )
@@ -799,7 +799,7 @@ class Executor:
         self.pre_setup(self.__job)
 
         # get the user defined payload command
-        cmd = self.get_payload_command(self.__job)
+        cmd = self.get_payload_command()
         if not cmd:
             logger.warning("aborting run() since payload command could not be defined")
             return errors.UNKNOWNPAYLOADFAILURE, "undefined payload command"
@@ -842,7 +842,7 @@ class Executor:
                         if stdout and stderr
                         else "General payload setup verification error (check setup logs)"
                     )
-                    # check for special errors in thw output
+                    # check for special errors in the output
                     exit_code = errors.resolve_transform_error(exit_code, diagnostics)
                     diagnostics = errors.format_diagnostics(exit_code, diagnostics)
                     return exit_code, diagnostics
@@ -981,6 +981,16 @@ class Executor:
                 # stop any running utilities
                 if self.__job.utilities != {}:
                     self.stop_utilities()
+
+                # make sure there are no lingering processes
+                items = find_lingering_processes(os.getpid())
+                if items:
+                    logger.warning("found lingering processes - will now be removed")
+                    list_items(items)
+                    for item in items:
+                        kill_process(item, hardkillonly=True)
+                else:
+                    logger.info("found no lingering processes")
 
             if self.__job.is_hpo and state != "failed":
                 # in case there are more hyper-parameter points, move away the previous log files

@@ -1550,13 +1550,13 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
     if verify_proxy:
         userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
-        # is the proxy still valid?
-        exit_code, diagnostics = userproxy.verify_proxy(test=False)
+        # is the proxy still valid? at pilot startup, the proxy lifetime must be at least 72h
+        exit_code, diagnostics = userproxy.verify_proxy(test=False, pilotstartup=True)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             traces.pilot['error_code'] = exit_code
         if exit_code == errors.ARCPROXYLIBFAILURE:
             logger.warning("currently ignoring arcproxy library failure")
-        if exit_code in {errors.NOPROXY, errors.NOVOMSPROXY, errors.CERTIFICATEHASEXPIRED}:
+        if exit_code in {errors.NOPROXY, errors.NOVOMSPROXY, errors.CERTIFICATEHASEXPIRED, errors.PROXYTOOSHORT}:
             logger.warning(diagnostics)
             return False
 
@@ -1684,10 +1684,13 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     cmd = https.get_server_command(args.url, args.port)
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
-        res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
-        logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
-        if not res:  # fallback to curl solution
+        if "curlgetjob" in infosys.queuedata.catchall:
             res = https.request(cmd, data=data)
+        else:
+            res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
+            logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
+            if not res:  # fallback to curl solution
+                res = https.request(cmd, data=data)
 
     return res
 

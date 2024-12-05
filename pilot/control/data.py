@@ -328,6 +328,8 @@ def _stage_in(args: object, job: JobData) -> bool:
         logger.info(" -- lfn=%s, status_code=%s, status=%s", infile.lfn, infile.status_code, status)
 
     # write time stamps to pilot timing file
+
+    # MOVE THIS TO AFTER REMOTE FILE OPEN HAS BEEN VERIFIED (actually just before the payload starts)
     add_to_pilot_timing(job.jobid, PILOT_POST_STAGEIN, time.time(), args)
 
     remain_files = [infile for infile in job.indata if infile.status not in ['remote_io', 'transferred', 'no_transfer']]
@@ -917,19 +919,22 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
             kwargs = {'workdir': job.workdir, 'cwd': job.workdir, 'usecontainer': False, 'job': job,
                       'output_dir': args.output_dir, 'catchall': job.infosys.queuedata.catchall,
                       'rucio_host': args.rucio_host}  #, mode='stage-out')
-            is_unified = job.infosys.queuedata.type == 'unified'
+            #is_unified = job.infosys.queuedata.type == 'unified'
             # prod analy unification: use destination preferences from PanDA server for unified queues
-            if not is_unified:
-                client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
+            #if not is_unified:
+            #    client.prepare_destinations(xdata, activity)  ## FIX ME LATER: split activities: for astorages and for copytools (to unify with ES workflow)
 
-            altstageout = not is_unified and job.allow_altstageout()  # do not use alt stage-out for unified queues
+            ## FIX ME LATER: split activities: for `astorages` and `copytools` (to unify with ES workflow)
+            client.prepare_destinations(xdata, activity, alt_exclude=list(filter(None, [job.nucleus])))
+
+            altstageout = job.allow_altstageout()
             client.transfer(xdata, activity, raise_exception=not altstageout, **kwargs)
             remain_files = [entry for entry in xdata if entry.require_transfer()]
             # check if alt stageout can be applied (all remain files must have alt storage declared ddmendpoint_alt)
             has_altstorage = all(entry.ddmendpoint_alt and entry.ddmendpoint != entry.ddmendpoint_alt for entry in remain_files)
 
-            logger.info('alt stage-out settings: %s, is_unified=%s, altstageout=%s, remain_files=%s, has_altstorage=%s',
-                        activity, is_unified, altstageout, len(remain_files), has_altstorage)
+            logger.info('alt stage-out settings: %s, allow_altstageout=%s, remain_files=%s, has_altstorage=%s',
+                        activity, altstageout, len(remain_files), has_altstorage)
 
             if altstageout and remain_files and has_altstorage:  # apply alternative stageout for failed transfers
                 for entry in remain_files:
@@ -992,8 +997,12 @@ def _stage_out_new(job: JobData, args: object) -> bool:
         logger.info('this job does not have any output files, only stage-out log file')
         job.stageout = 'log'
 
+    is_unified = job.infosys.queuedata.type == 'unified'
+    is_analysis = job.is_analysis()
+    activities = ['write_lan_analysis', 'write_lan', 'w'] if is_unified and is_analysis else ['write_lan', 'w']
+
     if job.stageout != 'log':  ## do stage-out output files
-        if not _do_stageout(job, args, job.outdata, ['pw', 'w'], title='output',
+        if not _do_stageout(job, args, job.outdata, activities, title='output',
                             ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('transfer of output file(s) failed')
@@ -1037,7 +1046,7 @@ def _stage_out_new(job: JobData, args: object) -> bool:
         # write time stamps to pilot timing file
         add_to_pilot_timing(job.jobid, PILOT_POST_LOG_TAR, time.time(), args)
 
-        if not _do_stageout(job, args, [logfile], ['pl', 'pw', 'w'], title='log',
+        if not _do_stageout(job, args, [logfile], ['pl'] + activities, title='log',
                             ipv=args.internet_protocol_version):
             is_success = False
             logger.warning('log transfer failed')

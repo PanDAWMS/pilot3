@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 """
 Standalone implementation of time-out check on function call.
@@ -43,32 +43,32 @@ from functools import wraps
 from pilot.util.auxiliary import TimeoutException
 
 
-class TimedThread(object):
+class TimedThread:
     """
         Thread-based Timer implementation (`threading` module)
         (shared memory space, GIL limitations, no way to kill thread, Windows compatible)
     """
 
-    def __init__(self, timeout):
+    def __init__(self, _timeout):
         """
             :param timeout: timeout value for operation in seconds.
         """
 
-        self.timeout = timeout
+        self.timeout = _timeout
         self.is_timeout = False
 
     def execute(self, func, args, kwargs):
 
         try:
             ret = (True, func(*args, **kwargs))
-        except Exception:
+        except (TypeError, ValueError, AttributeError, KeyError):
             ret = (False, sys.exc_info())
 
         self.result = ret
 
         return ret
 
-    def run(self, func, args, kwargs, timeout=None):
+    def run(self, func, args, kwargs, _timeout=None):
         """
             :raise: TimeoutException if timeout value is reached before function finished
         """
@@ -78,30 +78,30 @@ class TimedThread(object):
 
         thread.start()
 
-        timeout = timeout if timeout is not None else self.timeout
+        _timeout = _timeout if _timeout is not None else self.timeout
 
         try:
-            thread.join(timeout)
-        except Exception as exc:
+            thread.join(_timeout)
+        except (RuntimeError, KeyboardInterrupt) as exc:
             print(f'exception caught while joining timer thread: {exc}')
 
         if thread.is_alive():
             self.is_timeout = True
-            raise TimeoutException("Timeout reached", timeout=timeout)
+            raise TimeoutException("Timeout reached", timeout=_timeout)
 
         ret = self.result
 
         if ret[0]:
             return ret[1]
-        else:
-            try:
-                _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])
-            except AttributeError:
-                exec("raise ret[1][0], ret[1][1], ret[1][2]")
-            raise _r
+
+        try:
+            _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])
+        except AttributeError:
+            exec("raise ret[1][0], ret[1][1], ret[1][2]")
+        raise _r
 
 
-class TimedProcess(object):
+class TimedProcess:
     """
         Process-based Timer implementation (`multiprocessing` module). Uses shared Queue to keep result.
         (completely isolated memory space)
@@ -110,22 +110,22 @@ class TimedProcess(object):
         Traceback data is printed to stderr
     """
 
-    def __init__(self, timeout):
+    def __init__(self, _timeout):
         """
-            :param timeout: timeout value for operation in seconds.
+            :param _timeout: timeout value for operation in seconds.
         """
 
-        self.timeout = timeout
+        self.timeout = _timeout
         self.is_timeout = False
 
-    def run(self, func, args, kwargs, timeout=None):
+    def run(self, func, args, kwargs, _timeout=None):
 
         def _execute(func, args, kwargs, queue):
             try:
                 ret = func(*args, **kwargs)
                 queue.put((True, ret))
-            except Exception as e:
-                print('Exception occurred while executing %s' % func, file=sys.stderr)
+            except (TypeError, ValueError, AttributeError, KeyError) as e:
+                print(f'exception occurred while executing {func}', file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
                 queue.put((False, e))
 
@@ -137,14 +137,14 @@ class TimedProcess(object):
         process.daemon = True
         process.start()
 
-        timeout = timeout if timeout is not None else self.timeout
+        _timeout = _timeout if _timeout is not None else self.timeout
 
         try:
-            ret = queue.get(block=True, timeout=timeout)
-        except Empty:
+            ret = queue.get(block=True, timeout=_timeout)
+        except Empty as exc:
             self.is_timeout = True
             process.terminate()
-            raise TimeoutException("Timeout reached", timeout=timeout)
+            raise TimeoutException("Timeout reached", timeout=_timeout) from exc
         finally:
             while process.is_alive():
                 process.join(1)
@@ -158,20 +158,20 @@ class TimedProcess(object):
 
         if ret[0]:
             return ret[1]
-        else:
-            raise ret[1]
+        raise ret[1]
 
 
 Timer = TimedProcess
 
 
-def timeout(seconds, timer=None):
+def timeout(seconds: int, timer: Timer = None):
     """
     Decorator for a function which causes it to timeout (stop execution) once passed given number of seconds.
-    :param timer: timer class (by default is Timer)
-    :raise: TimeoutException in case of timeout interrupt
-    """
 
+    :param seconds: timeout value in seconds (int)
+    :param timer: timer class (None or Timer)
+    :raise: TimeoutException in case of timeout interrupt.
+    """
     timer = timer or Timer
 
     def decorate(function):

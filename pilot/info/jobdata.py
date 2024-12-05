@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Wen Guan, wen.guan@cern.ch, 2018
 
@@ -133,6 +133,7 @@ class JobData(BaseData):
     prodproxy = ""                 # to keep track of production proxy on unified queues
     completed = False              # True when job has finished or failed, used by https::send_update()
     lsetuptime = 0                 # payload setup time (lsetup)
+    runningstart = None            # time when the payload started running (only for internal monitoring purposes, not the actual start time)
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -177,6 +178,7 @@ class JobData(BaseData):
     noexecstrcnv = None        # server instruction to the pilot if it should take payload setup from job parameters
     swrelease = ""                    # software release string
     writetofile = ""                    #
+    nucleus = ""
 
     # cmtconfig encoded info
     alrbuserplatform = ""          # ALRB_USER_PLATFORM encoded in platform/cmtconfig value
@@ -195,7 +197,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
-                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout'],
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
