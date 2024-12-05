@@ -381,13 +381,13 @@ def get_cpu_cores(modelstring):
         logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets)')
 
     logger.debug(f'current model string: {modelstring}')
-    if number_of_cores > 0 and '-Core' not in modelstring:
+    if number_of_cores > 0:
         if '-Core Processor' in modelstring:  # NN-Core info already in string - update it
             pattern = r'(\d+)\-Core Processor'
             _nn = re.findall(pattern, modelstring)
             if _nn:
                 modelstring = modelstring.replace(f'{_nn[0]}-Core', f'{number_of_cores}-Core')
-        if 'Core Processor' in modelstring:
+        elif 'Core Processor' in modelstring:
             modelstring = modelstring.replace('Core', '%d-Core' % number_of_cores)
         elif 'Processor' in modelstring:
             modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
