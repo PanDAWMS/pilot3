@@ -1088,7 +1088,8 @@ class JobData(BaseData):
             for zombie in self.zombies:
                 try:
                     logger.info(f"zombie collector waiting for pid {zombie}")
-                    _id, _ = os.waitpid(zombie, os.WNOHANG if current_depth else 0)
+                    # dangerous, can lead to blocking : _id, _ = os.waitpid(zombie, os.WNOHANG if current_depth else 0)
+                    _id, _ = os.waitpid(zombie, os.WNOHANG)
                 except OSError as exc:
                     logger.info(f"harmless exception when collecting zombies: {exc}")
                     zombies_to_remove.append(zombie)
