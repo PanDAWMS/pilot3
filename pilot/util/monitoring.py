@@ -133,7 +133,7 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
             return exit_code, diagnostics
 
         # update the OOM process info to prevent killing processes in the wrong order in case the job is killed (once)
-        update_oom_info(job.pid, job.transformation)
+        # update_oom_info(job.pid, job.transformation)
 
     # should the pilot abort the payload?
     exit_code, diagnostics = should_abort_payload(current_time, mt)

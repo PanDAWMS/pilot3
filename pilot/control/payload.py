@@ -271,14 +271,16 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C9
             job.t0 = os.times()
             exit_code, diagnostics = payload_executor.run()
             if exit_code and exit_code > 1000:  # pilot error code, add to list
-                logger.debug(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
+                logger.warning(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
 
             logger.debug(f'run() returned exit_code={exit_code}')
             set_cpu_consumption_time(job)
             job.transexitcode = exit_code % 255
-            out.close()
-            err.close()
+            if out:
+                out.close()
+            if err:
+                err.close()
 
             # some HPO jobs will produce new output files (following lfn name pattern), discover those and replace the job.outdata list
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
