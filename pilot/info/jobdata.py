@@ -1100,7 +1100,6 @@ class JobData(BaseData):
             # Remove collected zombies from the list
             for zombie in zombies_to_remove:
                 self.zombies.remove(zombie)
-
             if current_depth == 0:
                 break
 
