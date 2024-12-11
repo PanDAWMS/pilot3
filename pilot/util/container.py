@@ -113,21 +113,22 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
 
     def read_output(stream, queue):
         while True:
+            sleep(0.01)
             try:
                 line = stream.readline()
                 if not line:
                     break
             except (AttributeError, ValueError):
-                # Handle the case where stream is None (AttributeError) or closed (ValueError)
                 break
             except OSError as e:
                 if e.errno == errno.EBADF:
-                    # Handle the case where the file descriptor is bad
                     break
                 else:
                     raise
-
-            queue.put(line)
+            try:
+                queue.put_nowait(line)
+            except queue.Full:
+                sleep(0.01)  # Sleep for a short interval to avoid busy waiting
 
     stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_queue))
     stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_queue))
