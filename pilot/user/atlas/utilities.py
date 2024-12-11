@@ -324,7 +324,7 @@ def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> st
         if os.path.exists(init_path):
             path = init_path
         else:
-            logger.info(f"neither {path}, nor {init_path} exist")
+            logger.debug(f"neither {path}, nor {init_path} exist")
             path = ""
 
         if path == "" and allowtxtfile:
