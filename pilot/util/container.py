@@ -119,9 +119,11 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                 if not line:
                     break
             except (AttributeError, ValueError):
+                # Handle the case where stream is None (AttributeError) or closed (ValueError)
                 break
             except OSError as e:
                 if e.errno == errno.EBADF:
+                    # Handle the case where the file descriptor is bad
                     break
                 else:
                     raise
