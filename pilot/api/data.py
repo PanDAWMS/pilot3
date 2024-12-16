@@ -1057,7 +1057,7 @@ class StageInClient(StagingClient):
         else:
             if disk_space:
                 available_space = convert_mb_to_b(disk_space)
-                self.logger.info("locally available space: {available_space} B")
+                self.logger.info(f"locally available space: {available_space} B")
 
                 # are we within the limit?
                 if totalsize > available_space:
