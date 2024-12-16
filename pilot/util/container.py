@@ -113,7 +113,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
 
     def read_output(stream, queue):
         while True:
-            sleep(0.01)
+            sleep(1)
             try:
                 line = stream.readline()
                 if not line:
