@@ -31,7 +31,7 @@ import time
 import re
 
 from collections import namedtuple
-from os import environ, getuid
+from os import environ, getuid, getpid
 from subprocess import (
     Popen,
     PIPE
@@ -53,6 +53,7 @@ from pilot.util.https import (
     get_local_oidc_token_info,
     update_local_oidc_token_info
 )
+from pilot.util.psutils import get_process_info
 from pilot.util.queuehandling import (
     abort_jobs_in_queues,
     get_maxwalltime_from_job,
@@ -84,8 +85,8 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     last_token_check = t_0
 
     # for CPU usage debugging
-    # cpuchecktime = int(config.Pilot.cpu_check)
-    # tcpu = t_0
+    cpuchecktime = int(config.Pilot.cpu_check)
+    tcpu = t_0
     last_minute_check = t_0
 
     queuedata = get_queuedata_from_job(queues)
@@ -158,15 +159,15 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             time.sleep(1)
 
             # time to check the CPU usage?
-            # if is_pilot_check(check='cpu_usage'):
-            #     if int(time.time() - tcpu) > cpuchecktime:
-            #         processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
-            #         if processes:
-            #             logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
-            #             nproc = processes[3]
-            #             if nproc > 1:
-            #                 logger.info(f'.. there are {nproc} such processes running')
-            #         tcpu = time.time()
+            if is_pilot_check(check='cpu_usage'):
+                if int(time.time() - tcpu) > cpuchecktime:
+                    processes = get_process_info('python3 pilot3/pilot.py', pid=getpid())
+                    if processes:
+                        logger.info(f'PID={getpid()} has CPU usage={processes[0]}% CMD={processes[2]}')
+                        nproc = processes[3]
+                        if nproc > 1:
+                            logger.info(f'.. there are {nproc} such processes running')
+                    tcpu = time.time()
 
             # proceed with running the other checks
             run_checks(queues, args)
@@ -283,11 +284,7 @@ def reached_maxtime_abort(args: Any):
     args.graceful_stop.set()
 
 
-#def log_lifetime(sig, frame, traces):
-#    logger.info('lifetime: %i used, %i maximum', int(time.time() - traces.pilot['lifetime_start']), traces.pilot['lifetime_max'])
-
-
-def get_process_info(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
+def get_process_info_old(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
     """
     Return process info for given command.
 

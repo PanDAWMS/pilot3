@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
 
 import logging
 import os
@@ -373,3 +373,40 @@ def check_cpu_load():
     else:
         logger.info("system load is normal")
         return False
+
+
+def get_process_info(cmd: str, user: str = "", pid: int = 0) -> list:
+    """
+    Return process info for given command.
+
+    The function returns a list with format [cpu, mem, command, number of commands] for
+    a given command (e.g. python3 pilot3/pilot.py).
+
+    :param cmd: command (str)
+    :param user: user (str)
+    :param pid: process id (int)
+    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)) (list).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot check pilot CPU load')
+        return []
+
+    processes = []
+    num = 0
+
+    for proc in psutil.process_iter(['pid', 'username', 'cpu_percent', 'memory_percent', 'cmdline']):
+        try:
+            if user and proc.info['username'] != user:
+                continue
+            cmdline = proc.info['cmdline']
+            if cmdline and cmd in ' '.join(cmdline):
+                num += 1
+                if proc.info['pid'] == pid:
+                    processes = [proc.info['cpu_percent'], proc.info['memory_percent'], ' '.join(cmdline)]
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    if processes:
+        processes.append(num)
+
+    return processes
