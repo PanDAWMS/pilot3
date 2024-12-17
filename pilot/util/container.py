@@ -27,6 +27,7 @@ import subprocess
 import logging
 import queue
 import re
+import select
 import shlex
 import signal
 import threading
@@ -113,7 +114,28 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
 
     def read_output(stream, queue):
         while True:
-            sleep(1)
+            try:
+                # Use select to wait for the stream to be ready for reading
+                ready, _, _ = select.select([stream], [], [], 1.0)
+                if ready:
+                    line = stream.readline()
+                    if not line:
+                        break
+                    try:
+                        queue.put_nowait(line)
+                    except queue.Full:
+                        pass  # Handle the case where the queue is full
+            except (AttributeError, ValueError):
+                break
+            except OSError as e:
+                if e.errno == errno.EBADF:
+                    break
+                else:
+                    raise
+
+    def read_output_old(stream, queue):
+        while True:
+            #sleep(1)
             try:
                 line = stream.readline()
                 if not line:
@@ -130,7 +152,8 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
             try:
                 queue.put_nowait(line)
             except queue.Full:
-                sleep(0.01)  # Sleep for a short interval to avoid busy waiting
+                pass
+                #sleep(0.01)  # Sleep for a short interval to avoid busy waiting
 
     stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_queue))
     stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_queue))
