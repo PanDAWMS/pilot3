@@ -52,6 +52,86 @@ execute_lock = threading.Lock()
 def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
     """
     Executes the command with its options in the provided executable list using subprocess time-out handler.
+    :param executable: command to be executed (str or list)
+    :param kwargs: kwargs (dict)
+    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    """
+    usecontainer = kwargs.get('usecontainer', False)
+    job = kwargs.get('job')
+    obscure = kwargs.get('obscure', '')  # if this string is set, hide it in the log message
+
+    # Convert executable to string if it is a list
+    if isinstance(executable, list):
+        executable = ' '.join(executable)
+
+    if job and job.imagename != "" and "runcontainer" in executable:
+        usecontainer = False
+        job.usecontainer = usecontainer
+
+    if usecontainer:
+        executable, diagnostics = containerise_executable(executable, **kwargs)
+        if not executable:
+            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
+
+    if not kwargs.get('mute', False):
+        print_executable(executable, obscure=obscure)
+
+    timeout = get_timeout(kwargs.get('timeout', None))
+    exe = ['/usr/bin/python'] + executable.split() if kwargs.get('mode', 'bash') == 'python' else ['/bin/bash', '-c', executable]
+
+    process = None
+    try:
+        with execute_lock:
+            process = subprocess.Popen(
+                exe,
+                bufsize=-1,
+                stdout=kwargs.get('stdout', subprocess.PIPE),
+                stderr=kwargs.get('stderr', subprocess.PIPE),
+                cwd=kwargs.get('cwd', getcwd()),
+                start_new_session=True,
+                encoding='utf-8',
+                errors='replace'
+            )
+            if kwargs.get('returnproc', False):
+                return process
+
+        # Use communicate() to read stdout and stderr reliably
+        try:
+            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # Timeout handling
+            stderr = f'subprocess communicate sent TimeoutExpired: {exc}'
+            logger.warning(stderr)
+            exit_code = errors.COMMANDTIMEDOUT
+            stderr = kill_all(process, stderr)
+            return exit_code, "", stderr
+        except Exception as exc:
+            logger.warning(f'exception caused when executing command: {executable}: {exc}')
+            exit_code = errors.UNKNOWNEXCEPTION
+            stderr = kill_all(process, str(exc))
+            return exit_code, "", stderr
+
+        exit_code = process.poll()
+        if stdout and stdout.endswith('\n'):
+            stdout = stdout[:-1]
+
+        return exit_code, stdout, stderr
+
+    finally:
+        # Ensure the process is cleaned up
+        if process and not kwargs.get('returnproc', False):
+            try:
+                process.wait(timeout=60)
+                process.stdout.close()
+                process.stderr.close()
+            except Exception:
+                pass
+
+
+def execute_old3(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
+    """
+    Executes the command with its options in the provided executable list using subprocess time-out handler.
 
     The function also determines whether the command should be executed within a container.
 
@@ -125,6 +205,8 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                         queue.put_nowait(line)
                     except queue.Full:
                         pass  # Handle the case where the queue is full
+                else:
+                    sleep(0.01)  # Sleep for a short interval to avoid busy waiting
             except (AttributeError, ValueError):
                 break
             except OSError as e:
@@ -132,28 +214,6 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                     break
                 else:
                     raise
-
-    def read_output_old(stream, queue):
-        while True:
-            #sleep(1)
-            try:
-                line = stream.readline()
-                if not line:
-                    break
-            except (AttributeError, ValueError):
-                # Handle the case where stream is None (AttributeError) or closed (ValueError)
-                break
-            except OSError as e:
-                if e.errno == errno.EBADF:
-                    # Handle the case where the file descriptor is bad
-                    break
-                else:
-                    raise
-            try:
-                queue.put_nowait(line)
-            except queue.Full:
-                pass
-                #sleep(0.01)  # Sleep for a short interval to avoid busy waiting
 
     stdout_thread = threading.Thread(target=read_output, args=(process.stdout, stdout_queue))
     stderr_thread = threading.Thread(target=read_output, args=(process.stderr, stderr_queue))
@@ -178,7 +238,8 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
         exit_code = errors.UNKNOWNEXCEPTION
         stderr = kill_all(process, str(exc))
     else:
-        exit_code = process.poll()
+        #exit_code = process.poll()
+        exit_code = process.returncode
 
     # Wait for the threads to finish reading
     try:
