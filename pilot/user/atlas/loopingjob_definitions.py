@@ -61,7 +61,8 @@ def remove_unwanted_files(workdir: str, files: list[str]) -> list[str]:
                 "memory_" in _file or
                 "mem." in _file or
                 "docs/" in _file or
-                "DBRelease-" in _file):
+                "DBRelease-" in _file or
+                _file == ""):
             _files.append(_file)
 
     return _files
