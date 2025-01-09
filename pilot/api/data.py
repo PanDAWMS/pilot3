@@ -196,19 +196,22 @@ class StagingClient:
         """
         return None
 
-    def prepare_inputddms(self, files: list):
+    def prepare_inputddms(self, files: list, activities: list = None):
         """
         Prepare input DDMs.
 
         Populates filespec.inputddms for each entry from `files` list.
 
         :param files: list of `FileSpec` objects
+        :param activities: ordered list of activities to resolve `astorages` (optional)
         """
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
-        storages = astorages.get('read_lan', [])
+        activities = activities or ['read_lan']
 
-        #activity = activities[0]
+        storages = next((astorages.get(a) for a in activities if astorages.get(a)), None) or []
+
         #if not storages:  ## ignore empty astorages
+        #    activity = activities[0]
         #    raise PilotException("Failed to resolve input sources: no associated storages defined for activity=%s (%s)"
         #                         % (activity, ','.join(activities)), code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
