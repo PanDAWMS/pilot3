@@ -688,35 +688,23 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
         if msg:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
     if exit_code != 0:
-        msg = ""
-
-        # are there any critical errors in the stdout?
-        path = os.path.join(job.workdir, config.Payload.payloadstdout)
-        if os.path.exists(path):
-            lines = extract_lines_from_file('CRITICAL', path)
-            if lines:
-                logger.warning(f'found CRITICAL errors in {config.Payload.payloadstdout}:\n{lines}')
-                msg = lines.split('\n')[0]
-        else:
-            logger.warning('found no payload stdout')
+        msg = get_critical_error_from_stdout(job.workdir)  # if any
 
         if stderr != "" and not msg:
             msg = errors.extract_stderr_error(stderr)
             if msg == "":
                 # look for warning messages instead (might not be fatal so do not set UNRECOGNIZEDTRFSTDERR)
                 msg = errors.extract_stderr_warning(stderr)
-            #    fatal = False
-            #else:
-            #    fatal = True
-            #if msg != "":  # redundant since resolve_transform_error is used above
-            #    logger.warning("extracted message from stderr:\n%s", msg)
-            #    exit_code = set_error_code_from_stderr(msg, fatal)
 
         # note: msg should be constructed either from stderr or stdout
         if msg:
             msg = errors.format_diagnostics(exit_code, msg)
 
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=msg)
+        if exit_code < 1000:
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONFAILURE,
+                                                                             msg=error_diag)
+        else:
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=msg)
     else:
         logger.info('main payload execution returned zero exit code')
 
@@ -726,6 +714,28 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
             # COREDUMP error will only be set if the core dump belongs to the payload (ie 'core.<payload pid>')
             logger.warning('setting COREDUMP error')
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
+
+
+def get_critical_error_from_stdout(workdir: str) -> str:
+    """
+    Get any critical error messages from the payload stdout.
+
+    :param workdir: payload work dir (str)
+    :return: error message (str).
+    """
+    msg = ""
+
+    # are there any critical errors in the stdout?
+    path = os.path.join(workdir, config.Payload.payloadstdout)
+    if os.path.exists(path):
+        lines = extract_lines_from_file('CRITICAL', path)
+        if lines:
+            logger.warning(f'found CRITICAL errors in {config.Payload.payloadstdout}:\n{lines}')
+            msg = lines.split('\n')[0]
+    else:
+        logger.warning('found no payload stdout')
+
+    return msg
 
 
 def scan_for_memory_errors(subprocesses: list) -> str:
