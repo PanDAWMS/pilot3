@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -29,6 +29,7 @@ import time
 import hashlib
 import logging
 import queue
+import random
 from collections import namedtuple
 from json import dumps
 from glob import glob
@@ -2165,8 +2166,9 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 args.graceful_stop.set()
                 break
 
-            logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res}")
-            for _ in range(60):
+            delay = random.randint(60, 180)
+            logger.warning(f"did not get a job -- sleep {delay}s and repeat -- status: {res}")
+            for _ in range(delay):
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
