@@ -179,7 +179,7 @@ def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
 
     machinefeatures = MachineFeatures().get()
     jobfeatures = JobFeatures().get()
-    # correct hs06 for corecount: hs06*perf_scale/total_cpu*corecount
+    # correct hs06 for corecount
     hs06 = machinefeatures.get('hs06', 0)
     total_cpu = machinefeatures.get('total_cpu', 0)
     if hs06 and total_cpu and (total_cpu != '0' or total_cpu != 0):
