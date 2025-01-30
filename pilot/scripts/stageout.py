@@ -37,6 +37,7 @@ from pilot.info import (
     FileSpec,
 )
 from pilot.util.config import config
+from pilot.util.https import https_setup
 from pilot.util.filehandling import write_json
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.tracereport import TraceReport
@@ -300,6 +301,8 @@ if __name__ == '__main__':  # noqa: C901
     job = Job(produserid=args.produserid, jobid=args.jobid, taskid=args.taskid, jobdefinitionid=args.jobdefinitionid)
     trace_report.init(job)
 
+    https_setup()
+
     try:
         infoservice = InfoService()
         infoservice.init(args.queuename, infosys.confinfo, infosys.extinfo)
@@ -310,7 +313,6 @@ if __name__ == '__main__':  # noqa: C901
     # perform stage-out (single transfers)
     err = ""
     errcode = 0
-    xfiles = None
     activity = 'pw'
 
     client = StageOutClient(infoservice, logger=logger, trace_report=trace_report, workdir=args.workdir)
@@ -330,6 +332,7 @@ if __name__ == '__main__':  # noqa: C901
         xfiles += _xfiles
 
         # prod analy unification: use destination preferences from PanDA server for unified queues
+        # alt stage-out for unified queues should be implemented later (TODO?)
         if infoservice.queuedata.type != 'unified':
             client.prepare_destinations(xfiles, activity)
 

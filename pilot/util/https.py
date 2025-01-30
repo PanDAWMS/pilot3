@@ -76,7 +76,7 @@ errors = ErrorCodes()
 
 _ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
 _ctx.ssl_context = None
-_ctx.user_agent = None
+_ctx.user_agent = "Pilot3"  # default value (must be string not None)
 _ctx.capath = None
 _ctx.cacert = None
 
