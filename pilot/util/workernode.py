@@ -411,3 +411,27 @@ def check_hz():
         import traceback
         logger.fatal('failed to read SC_CLK_TCK - will not be able to perform CPU consumption calculation')
         logger.warning(traceback.format_exc())
+
+
+def get_hepspec_per_core() -> str:
+    """
+    Get the published hepspec value per core.
+
+    On HTCondor only.
+
+    :return: hepspec value (str).
+    """
+    condor_machine_ad = os.environ.get('CONDOR_MACHINE_AD', '')
+    if not condor_machine_ad:
+        logger.warning('CONDOR_MACHINE_AD not set - cannot determine hepspec value')
+        return ''
+
+    cmd = f"cat {condor_machine_ad}"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"cmd: {cmd}, stdout:\n{stdout}")
+
+    cmd = f"condor_status -ads {condor_machine_ad} -af HEPSPEC_PER_CORE"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"cmd: {cmd}, stdout:\n{stdout}")
+
+    return stdout
