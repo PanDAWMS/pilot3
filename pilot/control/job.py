@@ -139,7 +139,7 @@ from pilot.util.timing import (
 from pilot.util.workernode import (
     collect_workernode_info,
     get_cpu_arch,
-    get_cpu_cores,
+    get_cpu_info,
     get_cpu_model,
     get_disk_space,
     get_node_name,
@@ -755,7 +755,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
-    cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
+    cpumodel = get_cpu_info(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
 
     # CPU instruction set

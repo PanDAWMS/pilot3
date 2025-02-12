@@ -339,15 +339,16 @@ def lscpu():
     return ec, stdout
 
 
-def get_cpu_cores(modelstring):
+def get_cpu_info(modelstring: str) -> str:
     """
-    Get core count from /proc/cpuinfo and update modelstring (CPU model).
+    Get core count, number of sockets and hyperthreading info from /proc/cpuinfo and update modelstring (CPU model).
+
     E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
          -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
-    :param modelstring: CPU model string.
-    :return: updated cpu model (string).
-    """
 
+    :param modelstring: CPU model info (str)
+    :return: updated CPU model info (str).
+    """
     number_of_cores = 0
 
     ec, stdout = lscpu()
@@ -355,8 +356,18 @@ def get_cpu_cores(modelstring):
         return modelstring
 
     cores_per_socket = 0
+    threads_per_core = 0
     sockets = 0
     for line in stdout.split('\n'):
+
+        try:
+            pattern = r'Thread\(s\)\ per\ core\:\ +(\d+)'
+            _threads = re.findall(pattern, line)
+            if _threads:
+                threads_per_core = int(_threads[0])
+                continue
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
 
         try:
             pattern = r'Core\(s\)\ per\ socket\:\ +(\d+)'
@@ -372,14 +383,28 @@ def get_cpu_cores(modelstring):
             _sockets = re.findall(pattern, line)
             if _sockets:
                 sockets = int(_sockets[0])
-                break
+                break  # abort loop since all info has been found
         except Exception as exc:
             logger.warning(f'exception caught: {exc}')
 
+    ht = "HT" if threads_per_core else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets)')
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}')
 
+    return update_modelstring(modelstring, number_of_cores, ht, sockets)
+
+
+def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets: int) -> str:
+    """
+    Update the model string with the number of cores, hyperthreading info and number of sockets.
+
+    :param modelstring: CPU model info (str)
+    :param number_of_cores: number of cores (int)
+    :param ht: hyperthreading info (str)
+    :param sockets: number of sockets (int)
+    :return: updated CPU model info (str).
+    """
     logger.debug(f'current model string: {modelstring}')
     if number_of_cores > 0:
         if '-Core Processor' in modelstring:  # NN-Core info already in string - update it
@@ -393,6 +418,12 @@ def get_cpu_cores(modelstring):
             modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
         else:
             modelstring += ' %d-Core Processor' % number_of_cores
+
+        if ht:
+            modelstring += " " + ht
+        modelstring += f' {sockets}-Socket'
+        if len(sockets) > 1:
+            modelstring += 's'
         logger.debug(f'updated model string: {modelstring}')
 
     return modelstring
