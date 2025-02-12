@@ -422,7 +422,7 @@ def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets:
         if ht:
             modelstring += " " + ht
         modelstring += f' {sockets}-Socket'
-        if len(sockets) > 1:
+        if sockets > 1:
             modelstring += 's'
         logger.debug(f'updated model string: {modelstring}')
 
