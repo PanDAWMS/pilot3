@@ -98,7 +98,7 @@ class QueueData(BaseData):
 
     altstageout = None  # allow altstageout: force (True) or disable (False) or no preferences (None)
     pilot_walltime_grace = 1.0  # pilot walltime grace factor
-    pilot_rss_grace = 2.0  # pilot rss grace factor
+    pilot_rss_grace = 1.0  # pilot rss grace factor
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
@@ -187,11 +187,21 @@ class QueueData(BaseData):
 
     def set_pilot_walltime_grace(self):
         """Set pilot walltime grace factor based on the queuedata settings."""
-        self.pilot_walltime_grace = self.params.get('pilot_walltime_grace', 1.0)
+        try:
+            _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 0))
+            self.pilot_walltime_grace = 1.0 + _pilot_walltime_grace / 100.0
+        except (ValueError, TypeError) as e:
+            logger.warning(f"failed to set pilot_walltime_grace: {e}")
+            self.pilot_walltime_grace = 1.0
 
     def set_pilot_rss_grace(self):
         """Set pilot rss grace factor based on the queuedata settings."""
-        self.pilot_rss_grace = self.params.get('pilot_rss_grace', 2.0)
+        try:
+            _pilot_rss_grace = float(self.params.get('pilot_rss_grace', 100))
+            self.pilot_rss_grace = 1.0 + _pilot_rss_grace / 100.0
+        except (ValueError, TypeError) as e:
+            logger.warning(f"failed to set pilot_rss_grace: {e}")
+            self.pilot_rss_grace = 2.0
 
     def clean(self):
         """Validate and finally clean up required data values (required object properties) if needed."""

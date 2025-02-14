@@ -93,6 +93,8 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     if not queuedata:
         logger.warning('queuedata could not be extracted from queues')
 
+    logger.debug(f"queuedata.pilot_walltime_grace={queuedata.pilot_walltime_grace}")
+    logger.debug(f"queuedata.pilot_rss_grace={queuedata.pilot_rss_grace}")
     push = args.harvester and args.harvester_submitmode.lower() == 'push'
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
