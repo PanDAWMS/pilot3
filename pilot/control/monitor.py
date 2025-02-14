@@ -149,7 +149,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             # every minute run the following check
             if is_pilot_check(check='machinefeatures'):
                 if time.time() - last_minute_check > 60:
-                    reached_maxtime = run_shutdowntime_minute_check(time_since_start)
+                    reached_maxtime = run_shutdowntime_minute_check(time_since_start, queuedata.pilot_walltime_grace)
                     if reached_maxtime:
                         reached_maxtime_abort(args)
                         break
@@ -210,7 +210,7 @@ def get_oidc_check_time() -> int or None:
     return token_check
 
 
-def run_shutdowntime_minute_check(time_since_start: int) -> bool:
+def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: float) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
@@ -232,11 +232,12 @@ def run_shutdowntime_minute_check(time_since_start: int) -> bool:
         _shutdowntime = machinefeatures.get('shutdowntime', None)
         if _shutdowntime:
             try:
-                shutdowntime = int(_shutdowntime)
+                shutdowntime = int(_shutdowntime * pilot_walltime_grace)
             except (TypeError, ValueError):  # as exc:
                 #logger.debug(f'failed to convert shutdowntime: {exc}')
                 return False  # will be ignored
-            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
+            # increase the shutdowntime in case a factor was set in CRIC
+            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now} (PQ.pilot_walltime_grace={pilot_walltime_grace})')
         if not shutdowntime:
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored

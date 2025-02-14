@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-25
 
 
 """
@@ -97,6 +97,8 @@ class QueueData(BaseData):
     memkillgrace = 100  # memory kill grace value in percentage
 
     altstageout = None  # allow altstageout: force (True) or disable (False) or no preferences (None)
+    pilot_walltime_grace = 1.0  # pilot walltime grace factor
+    pilot_rss_grace = 2.0  # pilot rss grace factor
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
@@ -128,7 +130,7 @@ class QueueData(BaseData):
 
         # first defined ext field will be used
         # if key is not explicitly specified then ext name will be used as is
-        ## fix me later to proper internal names if need
+        ## fix me later to proper internal names if needed
 
         kmap = {
             'name': 'nickname',
@@ -183,6 +185,14 @@ class QueueData(BaseData):
         if val is not None:  # cast to bool
             return bool(val)
 
+    def set_pilot_walltime_grace(self):
+        """Set pilot walltime grace factor based on the queuedata settings."""
+        self.pilot_walltime_grace = self.params.get('pilot_walltime_grace', 1.0)
+
+    def set_pilot_rss_grace(self):
+        """Set pilot rss grace factor based on the queuedata settings."""
+        self.pilot_rss_grace = self.params.get('pilot_rss_grace', 2.0)
+
     def clean(self):
         """Validate and finally clean up required data values (required object properties) if needed."""
         # validate es_stageout_gap value
@@ -211,6 +221,10 @@ class QueueData(BaseData):
 
         # set altstageout settings
         self.altstageout = self.allow_altstageout()
+
+        # set pilot walltime and rss grace factors
+        self.set_pilot_walltime_grace()
+        self.set_pilot_rss_grace()
 
     ## custom function pattern to apply extra validation to the key values
     ##def clean__keyname(self, raw, value):
