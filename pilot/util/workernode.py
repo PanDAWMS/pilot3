@@ -339,7 +339,7 @@ def lscpu():
     return ec, stdout
 
 
-def get_cpu_info(modelstring: str) -> str:
+def get_cpu_info(modelstring: str) -> (str, int):
     """
     Get core count, number of sockets and hyperthreading info from /proc/cpuinfo and update modelstring (CPU model).
 
@@ -347,7 +347,7 @@ def get_cpu_info(modelstring: str) -> str:
          -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
 
     :param modelstring: CPU model info (str)
-    :return: updated CPU model info (str).
+    :return: updated CPU model info (str), CPU MHz (int).
     """
     number_of_cores = 0
 
@@ -357,42 +357,40 @@ def get_cpu_info(modelstring: str) -> str:
 
     cores_per_socket = 0
     threads_per_core = 0
+    cpu_mhz = 0
     sockets = 0
+
+    def get_number_for_pattern(pattern: str, line: str) -> int:
+        number = None
+        try:
+            _number = re.findall(pattern, line)
+            if _number:
+                number = int(_number[0])
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
+
+        return number
+
     for line in stdout.split('\n'):
-
-        try:
-            pattern = r'Thread\(s\)\ per\ core\:\ +(\d+)'
-            _threads = re.findall(pattern, line)
-            if _threads:
-                threads_per_core = int(_threads[0])
-                continue
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
-
-        try:
-            pattern = r'Core\(s\)\ per\ socket\:\ +(\d+)'
-            _cores = re.findall(pattern, line)
-            if _cores:
-                cores_per_socket = int(_cores[0])
-                continue
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
-
-        try:
-            pattern = r'Socket\(s\)\:\ +(\d+)'
-            _sockets = re.findall(pattern, line)
-            if _sockets:
-                sockets = int(_sockets[0])
-                break  # abort loop since all info has been found
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
+        threads_per_core = get_number_for_pattern(r'Thread\(s\)\ per\ core\:\ +(\d+)', line)
+        if threads_per_core:
+            continue
+        cores_per_socket = get_number_for_pattern(r'Core\(s\)\ per\ socket\:\ +(\d+)', line)
+        if cores_per_socket:
+            continue
+        cpu_mhz = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
+        if cpu_mhz:
+            continue
+        sockets = get_number_for_pattern(r'Socket\(s\)\:\ +(\d+)', line)
+        if sockets:
+            break
 
     ht = "HT" if threads_per_core else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}')
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {cpu_mhz}')
 
-    return update_modelstring(modelstring, number_of_cores, ht, sockets)
+    return update_modelstring(modelstring, number_of_cores, ht, sockets), cpu_mhz
 
 
 def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets: int) -> str:
