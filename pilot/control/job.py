@@ -758,6 +758,8 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     cpumodel, cpu_mhz = get_cpu_info(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
     logger.debug(f"got CPU MHz: {cpu_mhz}")
+    if cpu_mhz:
+        job.cpufrequencies.append(cpu_mhz)
 
     # CPU instruction set
     instruction_sets = has_instruction_sets(['AVX2'])
