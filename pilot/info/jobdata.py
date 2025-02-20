@@ -110,6 +110,7 @@ class JobData(BaseData):
     cpuconsumptionunit = "s"       #
     cpuconsumptiontime = -1        #
     cpuconversionfactor = 1        #
+    cpufrequencies = []           # list of CPU frequencies
     nevents = 0                    # number of events
     neventsw = 0                   # number of events written
     dbtime = None                  #
@@ -199,7 +200,7 @@ class JobData(BaseData):
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
                    'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
-                    'logdata', 'outdata', 'indata'],
+                    'logdata', 'outdata', 'indata', 'cpufrequencies'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
@@ -1128,6 +1129,7 @@ class JobData(BaseData):
         self.exitcode = 0
         self.exitmsg = ""
         self.corecounts = []
+        self.cpufrequencies = []
         self.subprocesses = []
 
     def to_json(self):
