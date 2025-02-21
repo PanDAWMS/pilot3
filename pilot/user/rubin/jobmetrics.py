@@ -17,18 +17,19 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """Functions for building job metrics."""
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
+from pilot.info import JobData
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: object, extra: dict = None) -> str:
+def get_job_metrics(job: JobData, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
 
@@ -39,7 +40,7 @@ def get_job_metrics(job: object, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (object)
+    :param job: job object (JobData)
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
