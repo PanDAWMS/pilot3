@@ -219,6 +219,7 @@ def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: f
     """
     # check machine features if present for shutdowntime
     machinefeatures = MachineFeatures().get()
+    logger.debug(f"MachineFeatures().get()={machinefeatures}")
     if machinefeatures:
         grace_time = 10 * 60
         try:
