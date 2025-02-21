@@ -17,17 +17,17 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """Functions for building job metrics."""
 
 import logging
 import os
 import re
-from typing import Any
 
 from pilot.api import analytics
 from pilot.common.exception import FileHandlingFailure
+from pilot.info import JobData
 from pilot.util.config import config
 from pilot.util.features import (
     MachineFeatures,
@@ -52,11 +52,11 @@ from .utilities import get_memory_monitor_output_filename
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job: Any, extra: dict = None) -> str:  # noqa: C901
+def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C901
     """
     Get the job metrics string.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
@@ -255,7 +255,7 @@ def add_event_number(job_metrics: str, workdir: str) -> str:
     return job_metrics
 
 
-def get_job_metrics(job: Any, extra: dict = None) -> str:
+def get_job_metrics(job: JobData, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
 
@@ -266,7 +266,7 @@ def get_job_metrics(job: Any, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
