@@ -17,15 +17,21 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
+import glob
+import logging
 import os
 import re
-import glob
-from time import sleep
 from datetime import datetime
+from time import sleep
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.exception import (
+    NoSuchFile,
+    FileHandlingFailure
+)
+from pilot.info import JobData
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
 from pilot.util.filehandling import (
@@ -33,22 +39,21 @@ from pilot.util.filehandling import (
     head,
     read_base_urls
 )
-import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def get_analysis_trf(transform, workdir):
+def get_analysis_trf(transform: str, workdir: str) -> (int, str, str):
     """
     Prepare to download the user analysis transform with curl.
+
     The function will verify the download location from a known list of hosts.
 
-    :param transform: full trf path (url) (string).
-    :param workdir: work directory (string).
-    :return: exit code (int), diagnostics (string), transform_name (string)
+    :param transform: full trf path (url) (str)
+    :param workdir: work directory (str)
+    :return: exit code (int), diagnostics (str), transform_name (str).
     """
-
     ec = 0
     diagnostics = ""
 
@@ -62,7 +67,7 @@ def get_analysis_trf(transform, workdir):
             logger.debug(f"jobopt_file = {jobopt_file} workdir = {workdir}")
             try:
                 copy(jobopt_file, workdir)
-            except Exception as exc:
+            except (NoSuchFile, FileHandlingFailure) as exc:
                 logger.error(f"could not copy file {jobopt_file} to {workdir} : {exc}")
 
     if '/' in transform:
@@ -105,7 +110,7 @@ def get_analysis_trf(transform, workdir):
     logger.debug(f"changing permission of {path} to 0o755")
     try:
         os.chmod(path, 0o755)
-    except Exception as exc:
+    except OSError as exc:
         diagnostics = f"failed to chmod {transform_name}: {exc}"
         return errors.CHMODTRF, diagnostics, ""
 
@@ -146,15 +151,14 @@ def get_valid_base_urls(order: str = None) -> list:
     return valid_base_urls
 
 
-def download_transform(url, transform_name, workdir):
+def download_transform(url: str, transform_name: str, workdir: str) -> (bool, str):
     """
     Download the transform from the given url
     :param url: download URL with path to transform (string).
     :param transform_name: trf name (string).
     :param workdir: work directory (string).
-    :return:
+    :return: status (bool), diagnostics (str).
     """
-
     status = False
     diagnostics = ""
     path = os.path.join(workdir, transform_name)
@@ -173,7 +177,7 @@ def download_transform(url, transform_name, workdir):
         try:
             copy(source_path, path)
             status = True
-        except Exception as error:
+        except (NoSuchFile, FileHandlingFailure) as error:
             status = False
             diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
             logger.error(diagnostics)
@@ -193,9 +197,9 @@ def download_transform(url, transform_name, workdir):
                 logger.fatal(f'could not download transform: {stdout}')
                 status = False
                 break
-            else:
-                logger.info("will try again after 60 s")
-                sleep(60)
+
+            logger.info("will try again after 60 s")
+            sleep(60)
         else:
             logger.info(f"curl command returned: {stdout}")
             status = True
@@ -205,17 +209,17 @@ def download_transform(url, transform_name, workdir):
     return status, diagnostics
 
 
-def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})'):
+def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})') -> float:
     """
     Extract a more precise end of setup time from the payload stdout.
+
     File path should be verified already.
     The function will look for a date time in the beginning of the payload stdout with the given pattern.
 
-    :param path: path to payload stdout (string).
-    :param pattern: regular expression pattern (raw string).
+    :param path: path to payload stdout (str)
+    :param pattern: regular expression pattern (str)
     :return: time in seconds since epoch (float).
     """
-
     end_time = None
     head_list = head(path, count=50)
     time_string = find_pattern_in_list(head_list, pattern)
@@ -226,50 +230,52 @@ def get_end_setup_time(path, pattern=r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2}
     return end_time
 
 
-def get_schedconfig_priority():
+def get_schedconfig_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def get_queuedata_priority():
+def get_queuedata_priority() -> list:
     """
     Return the prioritized list for the schedconfig sources.
+
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
-def get_ddm_source_priority():
+def get_ddm_source_priority() -> list:
     """
     Return the prioritized list for the DDM sources.
+
     This list is used to determine which source to use for the DDM endpoints, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_storage_data().
 
-    :return: prioritized DDM source list.
+    :return: prioritized DDM source list (list).
     """
-
     return ['LOCAL', 'USER', 'CVMFS', 'CRIC', 'PANDA']
 
 
-def should_verify_setup(job):
+def should_verify_setup(job: JobData):
     """
     Should the setup command be verified?
 
     :param job: job object.
     :return: Boolean.
     """
+    if not job:  # to bypass pylint complaint
+        pass
 
     return False
