@@ -17,26 +17,31 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
 # - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
 
-import os
-
-from pilot.util.config import config
-from pilot.util.filehandling import read_file, tail
+""" Functions for interpreting the payload stdout/err. """
 
 import logging
+import os
+
+from pilot.info import JobData
+from pilot.util.config import config
+from pilot.util.filehandling import (
+    read_file,
+    tail
+)
+
 logger = logging.getLogger(__name__)
 
 
-def interpret(job):
+def interpret(job: JobData) -> int:
     """
-    Interpret the payload, look for specific errors in the stdout.
+    Interpret the payload stdout/err, look for specific errors.
 
-    :param job: job object
+    :param job: job object (JobData)
     :return: exit code (payload) (int).
     """
-
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     message = 'payload stdout dump\n'
     message += read_file(stdout)
@@ -49,16 +54,16 @@ def interpret(job):
     return 0
 
 
-def get_log_extracts(job, state):
+def get_log_extracts(job: JobData, state: str) -> str:
     """
-    Extract special warnings and other other info from special logs.
+    Extract special warnings and other info from special logs.
+
     This function also discovers if the payload had any outbound connections.
 
-    :param job: job object.
-    :param state: job state (string).
-    :return: log extracts (string).
+    :param job: job object (JobData)
+    :param state: job state (str)
+    :return: log extracts (str).
     """
-
     logger.info("building log extracts (sent to the server as \'pilotLog\')")
 
     # for failed/holding jobs, add extracts from the pilot log file, but always add it to the pilot log itself
@@ -66,20 +71,19 @@ def get_log_extracts(job, state):
     _extracts = get_pilot_log_extracts(job)
     if _extracts != "":
         logger.warning(f'detected the following tail of warning/fatal messages in the pilot log:\n{_extracts}')
-        if state == 'failed' or state == 'holding':
+        if state in {'failed', 'holding'}:
             extracts += _extracts
 
     return extracts
 
 
-def get_pilot_log_extracts(job):
+def get_pilot_log_extracts(job: JobData) -> str:
     """
     Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
 
-    :param job: job object.
-    :return: tail of pilot log (string).
+    :param job: job object (JobData)
+    :return: tail of pilot log (str).
     """
-
     extracts = ""
 
     path = os.path.join(job.workdir, config.Pilot.pilotlog)
