@@ -18,19 +18,23 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2017-18
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
+
+"""Support functions for Rucio."""
 
 import hashlib
 
 
-def get_rucio_path(scope, name):
+def get_rucio_path(scope: str, name: str) -> str:
     """
-    Construct Rucio standard path using the scope and the LFN
+    Construct Rucio standard path using the scope and the LFN.
+
+    :param scope: The scope of the data (str)
+    :param name: The name of the data (str)
+    :return: The Rucio path (str).
     """
-
-    s = '%s:%s' % (scope, name)
-    hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()  # Python 2/3
-
+    s = f'{scope}:{name}'
+    hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
     paths = scope.split('.') + [hash_hex[0:2], hash_hex[2:4], name]
 
     return '/'.join(paths)
