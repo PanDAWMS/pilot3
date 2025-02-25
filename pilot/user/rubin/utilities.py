@@ -17,25 +17,33 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
-
-import os
-import time
-from pilot.util.filehandling import read_json, copy, write_json
-from pilot.util.parameters import convert_to_int
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
 
 import logging
+import os
+import time
+
+from pilot.common.exception import (
+    NoSuchFile,
+    FileHandlingFailure
+)
+from pilot.info import JobData
+from pilot.util.filehandling import (
+    read_json,
+    copy, write_json
+)
+from pilot.util.parameters import convert_to_int
+
 logger = logging.getLogger(__name__)
 
 
-def get_memory_monitor_summary_filename(selector=None):
+def get_memory_monitor_summary_filename(selector: bool = None) -> str:
     """
     Return the name for the memory monitor summary file.
 
-    :param selector: special conditions flag (boolean).
-    :return: File name (string).
+    :param selector: special conditions flag (bool)
+    :return: File name (str).
     """
-
     name = "memory_monitor_summary.json"
     if selector:
         name += '_snapshot'
@@ -43,29 +51,28 @@ def get_memory_monitor_summary_filename(selector=None):
     return name
 
 
-def get_memory_monitor_output_filename(suffix='txt'):
+def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
     """
     Return the filename of the memory monitor text output file.
 
-    :return: File name (string).
+    :return: File name (str).
     """
-
     return f"memory_monitor_output.{suffix}"
 
 
-def get_memory_monitor_info_path(workdir, allowtxtfile=False):
+def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> str:
     """
-    Find the proper path to the utility info file
+    Find the proper path to the utility info file.
+
     Priority order:
        1. JSON summary file from workdir
        2. JSON summary file from pilot initdir
        3. Text output file from workdir (if allowtxtfile is True)
 
-    :param workdir: relevant work directory (string).
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
-    :return: path (string).
+    :param workdir: relevant work directory (str)
+    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
+    :return: path (str).
     """
-
     pilot_initdir = os.environ.get('PILOT_HOME', '')
     path = os.path.join(workdir, get_memory_monitor_summary_filename())
     init_path = os.path.join(pilot_initdir, get_memory_monitor_summary_filename())
@@ -85,16 +92,17 @@ def get_memory_monitor_info_path(workdir, allowtxtfile=False):
     return path
 
 
-def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
+def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str = "") -> dict:  # noqa: C901
     """
     Add the utility info to the node structure if available.
 
-    :param workdir: relevant work directory (string).
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
-    :param name: name of memory monitor (string).
-    :return: node structure (dictionary).
+    :param workdir: relevant work directory (str)
+    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
+    :param name: name of memory monitor (str)
+    :return: node structure (dict).
     """
-
+    if not allowtxtfile:  # to bypass pylint complaint
+        pass
     node = {}
 
     # Get the values from the memory monitor file (json if it exists, otherwise the preliminary txt file)
@@ -126,7 +134,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
                 node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
                 node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
-            except Exception as exc:
+            except KeyError as exc:
                 logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
@@ -148,7 +156,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['rateWCHAR'] = summary_dictionary['Avg']['rateWCHAR']
                 node['rateRBYTES'] = summary_dictionary['Avg']['rateRBYTES']
                 node['rateWBYTES'] = summary_dictionary['Avg']['rateWBYTES']
-            except Exception:
+            except KeyError:
                 logger.warning("standard memory fields were not found in memory monitor json (or json doesn't exist yet)")
             else:
                 logger.info("extracted standard memory fields from memory monitor json")
@@ -162,7 +170,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['avgVMEM'] = summary_dictionary['Avg']['vmem']
                 node['avgSWAP'] = summary_dictionary['Avg']['swap']
                 node['avgPSS'] = summary_dictionary['Avg']['pss']
-            except Exception as exc:
+            except KeyError as exc:
                 logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
                 node['maxRSS'] = -1
@@ -184,7 +192,7 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
                 node['rateWCHAR'] = summary_dictionary['Avg']['wchar']
                 node['rateRBYTES'] = summary_dictionary['Avg']['read_bytes']
                 node['rateWBYTES'] = summary_dictionary['Avg']['write_bytes']
-            except Exception:
+            except KeyError:
                 logger.warning("standard memory fields were not found in prmon json (or json doesn't exist yet)")
             else:
                 logger.info("extracted standard memory fields from prmon json")
@@ -196,45 +204,44 @@ def get_memory_monitor_info(workdir, allowtxtfile=False, name=""):  # noqa: C901
     return node
 
 
-def get_max_memory_monitor_value(value, maxvalue, totalvalue):  # noqa: C90
+def get_max_memory_monitor_value(value: int, maxvalue: int, totalvalue: int) -> tuple[int, int, int]:  # noqa: C90
     """
     Return the max and total value (used by memory monitoring).
+
     Return an error code, 1, in case of value error.
 
-    :param value: value to be tested (integer).
-    :param maxvalue: current maximum value (integer).
-    :param totalvalue: total value (integer).
-    :return: exit code, maximum and total value (tuple of integers).
+    :param value: value to be tested (int)
+    :param maxvalue: current maximum value (int)
+    :param totalvalue: total value (int)
+    :return: exit code, maximum and total value (tuple).
     """
-
     ec = 0
     try:
         value_int = int(value)
-    except Exception as exc:
+    except (ValueError, TypeError) as exc:
         logger.warning(f"exception caught: {exc}")
         ec = 1
     else:
         totalvalue += value_int
-        if value_int > maxvalue:
-            maxvalue = value_int
+        maxvalue = max(maxvalue, value_int)
 
     return ec, maxvalue, totalvalue
 
 
-def convert_unicode_string(unicode_string):
+def convert_unicode_string(unicode_string: str) -> str or None:
     """
     Convert a unicode string into str.
 
-    :param unicode_string:
-    :return: string.
+    :param unicode_string: unicode string (str)
+    :return: string or None (str or None).
     """
-
     if unicode_string is not None:
         return str(unicode_string)
+
     return None
 
 
-def get_average_summary_dictionary_prmon(path):
+def get_average_summary_dictionary_prmon(path: str) -> dict:
     """
     Loop over the memory monitor output file and create the averaged summary dictionary.
 
@@ -247,10 +254,9 @@ def get_average_summary_dictionary_prmon(path):
     later in the function. This means that any change in the format such as new columns
     will be handled automatically.
 
-    :param path: path to memory monitor txt output file (string).
-    :return: summary dictionary.
+    :param path: path to memory monitor txt output file (str)
+    :return: summary dictionary (dict).
     """
-
     summary_dictionary = {}
 
     # get the raw memory monitor output, convert to dictionary
@@ -260,12 +266,12 @@ def get_average_summary_dictionary_prmon(path):
         # Calculate averages and store all values
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
-        def filter_value(value):
+        def filter_value(value: str or None) -> bool:
             """ Inline function used to remove any string or None values from data. """
             if isinstance(value, str) or value is None:
                 return False
-            else:
-                return True
+
+            return True
 
         keys = ['vmem', 'pss', 'rss', 'swap']
         values = {}
@@ -297,16 +303,15 @@ def get_average_summary_dictionary_prmon(path):
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = None) -> dict:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
-    :param path:
-    :param storejson: store dictionary on disk if True (boolean).
-    :param jobid: job id (string).
-    :return: prmon metadata (dictionary).
+    :param path: path to memory monitor txt output file (str)
+    :param storejson: store dictionary on disk if True (bool)
+    :param jobid: job id (str)
+    :return: prmon metadata (dict).
     """
-
     # get the raw memory monitor output, convert to dictionary
     dictionary = convert_text_file_to_dictionary(path)
 
@@ -327,24 +332,24 @@ def get_metadata_dict_from_txt(path, storejson=False, jobid=None):
     return dictionary
 
 
-def convert_text_file_to_dictionary(path):
+def convert_text_file_to_dictionary(path: str) -> dict:
     """
     Convert row-column text file to dictionary.
+
     User first row identifiers as dictionary keys.
     Note: file must follow the convention:
         NAME1   NAME2   ..
         value1  value2  ..
         ..      ..      ..
 
-    :param path: path to file (string).
-    :return: dictionary.
+    :param path: path to file (str)
+    :return: dictionary (dict).
     """
-
     summary_keys = []  # to keep track of content
     header_locked = False
     dictionary = {}
 
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = convert_unicode_string(line)
             if line != "":
@@ -371,21 +376,27 @@ def convert_text_file_to_dictionary(path):
     return dictionary
 
 
-def get_last_value(value_list):
+def get_last_value(value_list: list) -> int or None:
+    """
+    Return the last value in the list.
+
+    :param value_list: list of values (list)
+    :return: value (int or None).
+    """
     value = None
     if value_list:
         value = value_list[-1]
+
     return value
 
 
-def get_average_summary_dictionary(path):
+def get_average_summary_dictionary(path: str) -> dict:
     """
     Loop over the memory monitor output file and create the averaged summary dictionary.
 
-    :param path: path to memory monitor txt output file (string).
-    :return: summary dictionary.
+    :param path: path to memory monitor txt output file (str)
+    :return: summary dictionary (dict).
     """
-
     maxvmem = -1
     maxrss = -1
     maxpss = -1
@@ -399,15 +410,13 @@ def get_average_summary_dictionary(path):
     totalpss = 0
     totalswap = 0
     n = 0
-    summary_dictionary = {}
-
     rchar = None
     wchar = None
     rbytes = None
     wbytes = None
 
     first = True
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             # Skip the first line
             if first:
@@ -434,9 +443,9 @@ def get_average_summary_dictionary(path):
                         wchar = None
                         rbytes = None
                         wbytes = None
-                except Exception:
+                except (ValueError, TypeError, IndexError) as exc:
                     logger.warning(f"unexpected format of utility output: {line} (expected format: Time, VMEM, PSS, "
-                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES])")
+                                   f"RSS, Swap [, RCHAR, WCHAR, RBYTES, WBYTES]): {exc}")
                 else:
                     # Convert to int
                     ec1, maxvmem, totalvmem = get_max_memory_monitor_value(vmem, maxvmem, totalvmem)
@@ -469,7 +478,7 @@ def get_average_summary_dictionary(path):
     return summary_dictionary
 
 
-def get_memory_values(workdir, name=""):
+def get_memory_values(workdir: str, name: str = "") -> dict:
     """
     Find the values in the memory monitor output file.
 
@@ -481,11 +490,10 @@ def get_memory_values(workdir, name=""):
         "Avg":{"avgVMEM":19384236,"avgPSS":5023500,"avgRSS":6501489,"avgSwap":5964997},
         "Other":{"rchar":NN,"wchar":NN,"rbytes":NN,"wbytes":NN}}
 
-    :param workdir: relevant work directory (string).
-    :param name: name of memory monitor (string).
-    :return: memory values dictionary.
+    :param workdir: relevant work directory (str)
+    :param name: name of memory monitor (str)
+    :return: memory values dictionary (dict).
     """
-
     summary_dictionary = {}
 
     # Get the path to the proper memory info file (priority ordered)
@@ -504,24 +512,21 @@ def get_memory_values(workdir, name=""):
             else:
                 summary_dictionary = get_average_summary_dictionary(path)
             logger.debug(f'summary_dictionary={str(summary_dictionary)} (trf name={name})')
+    elif path == "":
+        logger.warning("filename not set for memory monitor output")
     else:
-        if path == "":
-            logger.warning("filename not set for memory monitor output")
-        else:
-            # Normally this means that the memory output file has not been produced yet
-            pass
+        # Normally this means that the memory output file has not been produced yet
+        pass
 
     return summary_dictionary
 
 
-def post_memory_monitor_action(job):
+def post_memory_monitor_action(job: JobData):
     """
     Perform post action items for memory monitor.
 
-    :param job: job object.
-    :return:
+    :param job: job object (JobData).
     """
-
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
     path2 = os.environ.get('PILOT_HOME')
@@ -537,27 +542,21 @@ def post_memory_monitor_action(job):
 
     try:
         copy(path1, path2)
-    except Exception as exc:
+    except (NoSuchFile, FileHandlingFailure) as exc:
         logger.warning(f'failed to copy memory monitor output: {exc}')
 
 
 def precleanup():
-    """
-    Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
-
-    :return:
-    """
-
+    """Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir."""
     pass
 
 
-def get_cpu_arch():
+def get_cpu_arch() -> str:
     """
     Return the CPU architecture string.
 
     If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
 
-    :return: CPU arch (string).
+    :return: CPU arch (str).
     """
-
     return ""
