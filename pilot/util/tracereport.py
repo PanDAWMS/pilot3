@@ -104,7 +104,7 @@ class TraceReport(dict):
             'pq': environ.get('PILOT_SITENAME', '')
         }
 
-        super(TraceReport, self).__init__(defs)
+        super().__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
         self.ipv = kwargs.get('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
         self.workdir = kwargs.get('workdir', '')  # workdir is needed for streaming the curl output, but should not be included in the report
@@ -200,8 +200,8 @@ class TraceReport(dict):
             return True
 
         url = config.Rucio.url
-        logger.info("tracing server: %s" % url)
-        logger.info("sending tracing report: %s" % str(self))
+        logger.info(f"tracing server: {url}")
+        logger.info(f"sending tracing report: {self}")
 
         if not self.verify_trace():
             logger.warning('cannot send trace since not all fields are set')
@@ -219,15 +219,14 @@ class TraceReport(dict):
             try:
                 data_urllib = data_urllib.replace(f'\"ipv\": \"{self.ipv}\", ', '')
                 data_urllib = data_urllib.replace(f'\"workdir\": \"{self.workdir}\", ', '')
-            except Exception as e:
+            except (KeyError, ValueError) as e:
                 logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
-            logger.debug(f'data (type={type(data)})={data}')
-            logger.debug(f'data_urllib (type={type(data_urllib)})={data_urllib}')
+
             # send the trace report using the new request2 function
             # must convert data to a dictionary and make sure None values are kept
             data_str_urllib = data_urllib.replace('None', '\"None\"')
             data_str_urllib = data_str_urllib.replace('null', '\"None\"')
-            logger.debug(f'data_str_urllib={data_str_urllib}')
+
             data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
             data_dict = correct_none_types(data_dict)
             logger.debug(f'data_dict={data_dict}')
@@ -236,8 +235,8 @@ class TraceReport(dict):
             if ret:
                 logger.info("tracing report sent")
                 return True
-            else:
-                logger.warning("failed to send tracing report - using old curl command")
+
+            logger.warning("failed to send tracing report - using old curl command")
 
             ssl_certificate = self.get_ssl_certificate()
 
@@ -288,7 +287,7 @@ class TraceReport(dict):
 
         except Exception:
             # if something fails, log it but ignore
-            logger.error('tracing failed: %s' % str(exc_info()))
+            logger.error(f'tracing failed: {exc_info()}')
         else:
             logger.info("tracing report sent")
 
@@ -351,8 +350,8 @@ class TraceReport(dict):
         :return: out (TextIOWrapper or None), err (TextIOWrapper or None) (tuple).
         """
         try:
-            out = open(outpath, mode=mode)
-            err = open(errpath, mode=mode)
+            out = open(outpath, mode=mode, encoding='utf-8')  # pylint: disable=consider-using-with
+            err = open(errpath, mode=mode, encoding='utf-8')  # pylint: disable=consider-using-with
         except IOError as error:
             logger.warning(f'failed to open curl stdout/err: {error}')
             out = None
@@ -366,4 +365,4 @@ class TraceReport(dict):
 
         :return: path (str).
         """
-        return environ.get('X509_USER_PROXY', '/tmp/x509up_u%s' % getuid())
+        return environ.get('X509_USER_PROXY', f'/tmp/x509up_u{getuid()}')
