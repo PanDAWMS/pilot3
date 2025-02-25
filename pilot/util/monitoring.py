@@ -17,21 +17,25 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """ This module contains implementations of job monitoring tasks. """
 
 import logging
 import os
-import time
 import subprocess
+import time
+import traceback
 from glob import glob
-from typing import Any
 from signal import SIGKILL
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, MiddlewareImportFailure  #, FileHandlingFailure
-from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
+from pilot.common.exception import (
+    PilotException,
+    MiddlewareImportFailure
+)
+from pilot.util.auxiliary import set_pilot_state
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
@@ -40,8 +44,7 @@ from pilot.util.filehandling import (
     get_local_file_size,
     read_file,
     remove_files,
-    zip_files,
-    #write_file
+    zip_files
 )
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import (
@@ -81,13 +84,14 @@ errors = ErrorCodes()
 def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[int, str]:  # noqa: C901
     """
     Perform the tasks for the job monitoring.
+
     The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
     minute).
 
     :param job: job object (JobData)
     :param mt: monitoring time object to keep track of time measurements (MonitoringTime)
     :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :return: exit code (int), diagnostics (string).
+    :return: exit code (int), diagnostics (str).
     """
     exit_code = 0
     diagnostics = ""
@@ -183,7 +187,7 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
     Set the CPU consumption time for the job.
 
     :param job: job object (JobData)
-    :return: exit code (int), diagnostics (string).
+    :return: exit code (int), diagnostics (str).
     """
     try:
         cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
@@ -227,9 +231,13 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
     return 0, ""
 
 
-def still_running(pid):
-    # verify that the process is still alive
+def still_running(pid: int) -> bool:
+    """
+    Verify that the given process is still alive.
 
+    :param pid: process id (int)
+    :return: True if the process is still running, False otherwise (bool).
+    """
     running = False
     try:
         if pid:
@@ -244,7 +252,7 @@ def still_running(pid):
     return running
 
 
-def update_oom_info(bash_pid, payload_cmd):
+def update_oom_info(bash_pid: int, payload_cmd: str):
     """
     Update OOM process info.
 
@@ -252,7 +260,7 @@ def update_oom_info(bash_pid, payload_cmd):
     It will otherwise lead to lingering processes.
 
     :param bash_pid: bash chain pid (int)
-    :param payload_cmd: payload command (string).
+    :param payload_cmd: payload command (str).
     """
     # use the pid of the bash chain to get the actual payload pid which should be a child process
     payload_pid = find_actual_payload_pid(bash_pid, payload_cmd)
@@ -284,12 +292,12 @@ def update_oom_info(bash_pid, payload_cmd):
         logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
 
 
-def write_to_oom_score_adj(pid, value):
-    """Writes the specified value to the oom_score_adj file for the given PID.
+def write_to_oom_score_adj(pid: int, value: int):
+    """
+    Write the specified value to the oom_score_adj file for the given PID.
 
-    Args:
-        pid: The PID of the process.
-        value: The value to write to the oom_score_adj file.
+    :param pid: process id (int)
+    :param value: value to write (int).
     """
     command = f"echo {value} > /proc/{pid}/oom_score_adj"
     try:
@@ -302,7 +310,7 @@ def write_to_oom_score_adj(pid, value):
         _, stdout, _ = execute(f"cat /proc/{pid}/oom_score_adj")
 
 
-def get_score(pid) -> str:
+def get_score(pid: int) -> str:
     """
     Get the OOM process score.
 
@@ -321,15 +329,13 @@ def get_score(pid) -> str:
     return score
 
 
-def get_exception_error_code(diagnostics):
+def get_exception_error_code(diagnostics: str) -> int:
     """
     Identify a suitable error code to a given exception.
 
-    :param diagnostics: exception diagnostics (string).
-    :return: exit_code
+    :param diagnostics: exception diagnostics (str)
+    :return: exit_code (int).
     """
-
-    import traceback
     logger.warning(traceback.format_exc())
     if "Resource temporarily unavailable" in diagnostics:
         exit_code = errors.RESOURCEUNAVAILABLE
