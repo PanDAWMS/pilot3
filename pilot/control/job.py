@@ -2945,6 +2945,9 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     # keep track of jobs we don't want to continue monitoring
     # no_monitoring = {}  # { job:id: time.time(), .. }
 
+    # fail-safe to be able to report a job that is still running after the pilot has been ordered to abort
+    final_job = None
+
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
     cont = True
@@ -2980,6 +2983,7 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         # note: when sending a state change to the server, the server might respond with 'tobekilled'
                         try:
                             jobs[i]
+                            final_job = jobs[i]
                         except Exception as error:
                             logger.warning('detected stale jobs[i] object in job_monitor: %s', error)
                         else:
@@ -3125,6 +3129,17 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
+
+    # fail-safe
+    if os.environ.get('REACHED_MAXTIME', None):
+        if not final_job:
+            logger.warning('REACHED_MAXTIME seen by job monitor - but final job object not set, cannot report')
+        else:
+            logger.warning('REACHED_MAXTIME seen by job monitor - will report final job')
+            try:
+                fail_monitored_job(final_job, errors.REACHEDMAXTIME, "Reached maxtime", queues, traces)
+            except Exception as error:
+                logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
 
     logger.info('[job] job monitor thread has finished')
 
