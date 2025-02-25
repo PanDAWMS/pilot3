@@ -18,29 +18,44 @@
 # Authors:
 # - Alexey Anisenkov, alexey.anisenkov@cern.ch, 2017
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 import hashlib
+import logging
 import os
 import socket
 import time
 
+from io import TextIOWrapper
+from json import (
+    dumps,
+    loads
+)
+from os import (
+    environ,
+    getuid
+)
 from sys import exc_info
-from json import dumps, loads
-from os import environ, getuid
+from typing import Any
 
 from pilot.common.exception import FileHandlingFailure
+from pilot.info import JobData
 from pilot.util.auxiliary import (
     correct_none_types,
     uuidgen_t
 )
 from pilot.util.config import config
-from pilot.util.constants import get_pilot_version, get_rucio_client_version
+from pilot.util.constants import (
+    get_pilot_version,
+    get_rucio_client_version
+)
 from pilot.util.container import execute2
-from pilot.util.filehandling import append_to_file, write_file
+from pilot.util.filehandling import (
+    append_to_file,
+    write_file
+)
 from pilot.util.https import request2
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -49,9 +64,14 @@ class TraceReport(dict):
     ipv = 'IPv6'
     workdir = ''
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: dict, **kwargs: dict):
+        """
+        Initialize the trace report.
 
-        event_version = "%s+%s" % (get_pilot_version(), get_rucio_client_version())
+        :param args: arguments (dict)
+        :param kwargs: keyword arguments (dict)
+        """
+        event_version = f"{get_pilot_version()}+{get_rucio_client_version()}"
         defs = {  # for reference, see Tracing report document in wiki area of Pilot GitHub repository
             'eventType': '',
             'eventVersion': event_version,  # Pilot+Rucio client version
@@ -90,17 +110,15 @@ class TraceReport(dict):
         self.workdir = kwargs.get('workdir', '')  # workdir is needed for streaming the curl output, but should not be included in the report
 
     # sitename, dsname, eventType
-    def init(self, job):
+    def init(self, job: JobData):
         """
-        Initialization.
+        Initialize the trace report.
 
-        :param job: job object.
-        :return:
+        :param job: job object (JobData).
         """
-
         data = {
             'clientState': 'INIT_REPORT',
-            'usr': hashlib.md5(job.produserid.encode('utf-8')).hexdigest(),  # anonymise user and pilot id's, Python 2/3
+            'usr': hashlib.md5(job.produserid.encode('utf-8')).hexdigest(),  # anonymise user and pilot id's
             'appid': job.jobid,
             'usrdn': job.produserid,
             'taskid': job.taskid
@@ -131,30 +149,29 @@ class TraceReport(dict):
             self['ip'] = '0.0.0.0'
 
         if job.jobdefinitionid:
-            s = 'ppilot_%s' % job.jobdefinitionid
+            s = f'ppilot_{job.jobdefinitionid}'
             self['uuid'] = hashlib.md5(s.encode('utf-8')).hexdigest()  # hash_pilotid, Python 2/3
         else:
             _uuid = uuidgen_t()  # 'uuidgen -t 2> /dev/null'
             self['uuid'] = _uuid.replace('-', '')
 
-    def get_value(self, key):
+    def get_value(self, key: str) -> Any:
         """
         Return trace report value for given key.
 
         :param key: key (str)
         :return: trace report value (Any).
         """
-
         return self.get(key, None)
 
-    def verify_trace(self):
+    def verify_trace(self) -> bool:
         """
         Verify the trace consistency.
+
         Are all required fields set? Remove escape chars from stateReason if present.
 
-        :return: Boolean.
+        :return: True if all required fields are set, False otherwise (bool).
         """
-
         # remove any escape characters that might be present in the stateReason field
         state_reason = self.get('stateReason', '')
         if not state_reason:
@@ -168,16 +185,15 @@ class TraceReport(dict):
 
         if not self['eventType'] or not self['localSite'] or not self['remoteSite']:
             return False
-        else:
-            return True
 
-    def send(self):
+        return True
+
+    def send(self) -> bool:
         """
         Send trace to rucio server using curl.
 
-        :return: Boolean.
+        :return: True if send was successful or not required, False otherwise (bool).
         """
-
         # only send trace if it is actually required (can be turned off with pilot option)
         if environ.get('PILOT_USE_RUCIO_TRACES', 'True') == 'False':
             logger.debug('rucio trace does not need to be sent')
@@ -278,21 +294,25 @@ class TraceReport(dict):
 
         return True
 
-    def close(self, out, err):
+    def close(self, out: TextIOWrapper or None, err: TextIOWrapper or None):
         """
         Close all open file streams.
-        """
 
+        :param out: stdout file (TextIOWrapper)
+        :param err: stderr file (TextIOWrapper).
+        """
         if out:
             out.close()
         if err:
             err.close()
 
-    def assign_error(self, out):
+    def assign_error(self, out: TextIOWrapper) -> int:
         """
         Browse the stdout from curl line by line and look for errors.
-        """
 
+        :param out: stdout file (TextIOWrapper)
+        :return: exit code (int).
+        """
         exit_code = 0
         count = 0
         while True:
@@ -312,26 +332,24 @@ class TraceReport(dict):
 
         return exit_code
 
-    def get_trace_curl_filenames(self, name='trace_curl'):
+    def get_trace_curl_filenames(self, name: str = 'trace_curl') -> tuple[str, str]:
         """
         Return file names for the curl stdout and stderr.
 
         :param name: name pattern (str)
-        :return: stdout file name (str), stderr file name (str).
+        :return: stdout file name (str), stderr file name (str) (tuple).
         """
-        #workdir = self.workdir if self.workdir else os.getcwd()
-        #return os.path.join(workdir, f'{name}.stdout'), os.path.join(workdir, f'{name}.stderr')
-        return f'{name}.stdout', f'{name}.stderr'
+        return f"{name}.stdout", f"{name}.stderr"
 
-    def get_trace_curl_files(self, outpath, errpath, mode='wb'):
+    def get_trace_curl_files(self, outpath: str, errpath: str, mode: str = 'wb') -> tuple[TextIOWrapper or None, TextIOWrapper or None]:
         """
         Return file objects for the curl stdout and stderr.
 
         :param outpath: path for stdout (str)
         :param errpath: path for stderr (str)
-        :return: out (file), err (file).
+        :param mode: mode (str)
+        :return: out (TextIOWrapper or None), err (TextIOWrapper or None) (tuple).
         """
-
         try:
             out = open(outpath, mode=mode)
             err = open(errpath, mode=mode)
@@ -342,11 +360,10 @@ class TraceReport(dict):
 
         return out, err
 
-    def get_ssl_certificate(self):
+    def get_ssl_certificate(self) -> str:
         """
         Return the path to the SSL certificate
 
-        :return: path (string).
+        :return: path (str).
         """
-
         return environ.get('X509_USER_PROXY', '/tmp/x509up_u%s' % getuid())
