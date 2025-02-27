@@ -210,16 +210,23 @@ def get_oidc_check_time() -> int or None:
     return token_check
 
 
-def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: float) -> bool:
+def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: int) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
+    Pilot walltime grace factor in percentage to be used with the shutdowntime when
+    published on sites supporting machine features. It is converted to a scaling
+    factor with 1 + pilot_walltime_grace/100.
+
     :param time_since_start: how many seconds have lapsed since the pilot started (int)
+    :param pilot_walltime_grace: pilot walltime grace factor (int)
     :return: True if reached max time, False otherwise (also if shutdowntime not known) (bool).
     """
     # check machine features if present for shutdowntime
     machinefeatures = MachineFeatures().get()
     logger.debug(f"MachineFeatures().get()={machinefeatures}")
+    logger.debug(f"type(machinefeatures)={type(machinefeatures)}")
+
     if machinefeatures:
         grace_time = 10 * 60
         try:
@@ -233,10 +240,11 @@ def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: f
         _shutdowntime = machinefeatures.get('shutdowntime', None)
         if _shutdowntime:
             try:
-                shutdowntime = int(_shutdowntime * pilot_walltime_grace)
-            except (TypeError, ValueError):  # as exc:
-                #logger.debug(f'failed to convert shutdowntime: {exc}')
+                shutdowntime = int(_shutdowntime)
+            except (TypeError, ValueError) as exc:
+                logger.warning(f'failed to convert shutdowntime: {exc}')
                 return False  # will be ignored
+
             # increase the shutdowntime in case a factor was set in CRIC
             logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now} (PQ.pilot_walltime_grace={pilot_walltime_grace})')
         if not shutdowntime:
@@ -248,6 +256,8 @@ def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: f
             logger.debug(f'shutdowntime ({shutdowntime}) was set before pilot started - ignore it '
                          f'(now - time since start = {now - time_since_start})')
             return False  # will be ignored
+
+        #scaled_job_walltime = int(time_since_start * (1 + pilot_walltime_grace / 100))
 
         # did we pass, or are we close to the shutdowntime?
         if now > shutdowntime - grace_time:
