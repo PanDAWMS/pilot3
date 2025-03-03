@@ -135,6 +135,7 @@ class JobData(BaseData):
     completed = False              # True when job has finished or failed, used by https::send_update()
     lsetuptime = 0                 # payload setup time (lsetup)
     runningstart = None            # time when the payload started running (only for internal monitoring purposes, not the actual start time)
+    starttime = None               # time when the job started running (epoch time in seconds)
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
