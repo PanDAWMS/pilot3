@@ -137,19 +137,31 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     max_running_time_old = max_running_time
                     logger.info(f'using max running time = {max_running_time}s')
 
-            # for testing: max_running_time = 4 * 60
+            # if start_time for the current job is known (push queues), a more detailed check can be performed
+            if start_time and queuedata:  # in epoch seconds
+                time_since_job_start = int(time.time()) - start_time
+                # in this case, max_running_time is the max job walltime
+                limit = max_running_time * queuedata.pilot_walltime_grace  # queuedata.pilot_walltime_grace = 1 + PQ.pilot_walltime_grace/100
+                if time_since_job_start > limit:
+                    logger.fatal(f"time since job start ({time_since_job_start}s) has exceeded the limit ({limit}s) - time to abort pilot")
+                    logger.fatal(f'limit = max running time ({max_running_time}s) * pilot walltime grace ({queuedata.pilot_walltime_grace})')
+                    reached_maxtime_abort(args)
+                    break
+
+            # fallback to max_running_time if start_time is not known
             if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
                 break
+
             if n_iterations % 60 == 0:
                 logger.info(f'{time_since_start}s have passed since pilot start')
 
             # every minute run the following check
             if is_pilot_check(check='machinefeatures'):
                 if time.time() - last_minute_check > 60:
-                    reached_maxtime = run_shutdowntime_minute_check(time_since_start, queuedata.pilot_walltime_grace)
+                    reached_maxtime = run_shutdowntime_minute_check(time_since_start)
                     if reached_maxtime:
                         reached_maxtime_abort(args)
                         break
@@ -210,16 +222,11 @@ def get_oidc_check_time() -> int or None:
     return token_check
 
 
-def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: int) -> bool:
+def run_shutdowntime_minute_check(time_since_start: int) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
-    Pilot walltime grace factor in percentage to be used with the shutdowntime when
-    published on sites supporting machine features. It is converted to a scaling
-    factor with 1 + pilot_walltime_grace/100.
-
     :param time_since_start: how many seconds have lapsed since the pilot started (int)
-    :param pilot_walltime_grace: pilot walltime grace factor (int)
     :return: True if reached max time, False otherwise (also if shutdowntime not known) (bool).
     """
     # check machine features if present for shutdowntime
@@ -246,7 +253,7 @@ def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: i
                 return False  # will be ignored
 
             # increase the shutdowntime in case a factor was set in CRIC
-            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now} (PQ.pilot_walltime_grace={pilot_walltime_grace})')
+            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
         if not shutdowntime:
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored
@@ -256,8 +263,6 @@ def run_shutdowntime_minute_check(time_since_start: int, pilot_walltime_grace: i
             logger.debug(f'shutdowntime ({shutdowntime}) was set before pilot started - ignore it '
                          f'(now - time since start = {now - time_since_start})')
             return False  # will be ignored
-
-        #scaled_job_walltime = int(time_since_start * (1 + pilot_walltime_grace / 100))
 
         # did we pass, or are we close to the shutdowntime?
         if now > shutdowntime - grace_time:
