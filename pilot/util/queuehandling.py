@@ -104,7 +104,7 @@ def scan_for_jobs(queues: namedtuple) -> list:
     return jobs
 
 
-def get_maxwalltime_from_job(queues: namedtuple, params: dict) -> int or None:
+def get_timeinfo_from_job(queues: namedtuple, params: dict) -> tuple[int or None, int or None]:
     """
     Return the maxwalltime from the job object.
 
@@ -112,13 +112,14 @@ def get_maxwalltime_from_job(queues: namedtuple, params: dict) -> int or None:
 
     :param queues: queues object (namedtuple)
     :param params: queuedata.params (dict)
-    :return: maxwalltime (int or None).
+    :return: maxwalltime (int or None), starttime (int or None) (tuple).
     """
     maxwalltime = None
+    starttime = None
     use_job_maxwalltime = False
     current_job_id = os.environ.get('PANDAID', None)
     if not current_job_id:
-        return None
+        return None, None
 
     # on push queues, one can set params.use_job_maxwalltime to decide if job.maxwalltime should be used to check
     # job running time
@@ -135,9 +136,12 @@ def get_maxwalltime_from_job(queues: namedtuple, params: dict) -> int or None:
                 # make sure maxwalltime is an int (might be 'NULL')
                 if not isinstance(maxwalltime, int):
                     maxwalltime = None
+                starttime = job.starttime
+                if not isinstance(starttime, int):
+                    starttime = None
                 break
 
-    return maxwalltime
+    return maxwalltime, starttime
 
 
 def get_queuedata_from_job(queues: namedtuple) -> object or None:
