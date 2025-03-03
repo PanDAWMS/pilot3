@@ -252,8 +252,6 @@ def run_shutdowntime_minute_check(time_since_start: int) -> bool:
                 logger.warning(f'failed to convert shutdowntime: {exc}')
                 return False  # will be ignored
 
-            # increase the shutdowntime in case a factor was set in CRIC
-            logger.debug(f'machinefeatures shutdowntime={shutdowntime} - now={now}')
         if not shutdowntime:
             logger.debug('ignoring shutdowntime since it is not set')
             return False  # will be ignored
