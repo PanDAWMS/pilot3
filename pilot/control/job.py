@@ -2184,12 +2184,13 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
             # keep track of start time
             job.starttime = int(time.time())
+            logger.info(f'job {job.jobid} has start time={job.starttime}')
 
             # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
             if "loggingfile" in job.infosys.queuedata.catchall:
                 set_debug_mode(job.jobid, args.url, args.port)
 
-            logger.info('resetting any existing errors')
+            # logger.info('resetting any existing errors')
             job.reset_errors()
 
             #else:

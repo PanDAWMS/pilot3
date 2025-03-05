@@ -147,6 +147,13 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     logger.fatal(f'limit = max running time ({max_running_time}s) * pilot walltime grace ({queuedata.pilot_walltime_grace})')
                     reached_maxtime_abort(args)
                     break
+                else:
+                    logger.debug(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
+                    logger.debug(f'max running time = {max_running_time}s, queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
+            if not start_time:
+                logger.debug("no start time found")
+            if not queuedata:
+                logger.debug("no queuedata found")
 
             # fallback to max_running_time if start_time is not known
             if time_since_start > max_running_time - grace_time:
@@ -477,7 +484,7 @@ def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, 
             logger.warning(f'caught exception: {exc}')
         else:
             if _max_running_time:
-                #logger.debug(f'using max running time from job: {_max_running_time}s')
+                logger.debug(f'using max running time from job: {_max_running_time}s and start time: {start_time}')
                 return _max_running_time, start_time
 
     # use the schedconfig value if set, otherwise use the pilot option lifetime value
