@@ -151,11 +151,6 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     logger.debug(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
                     logger.debug(f'max running time = {max_running_time}s, queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
 
-            if not start_time:
-                logger.debug("no start time found")
-            if not queuedata:
-                logger.debug("no queuedata found")
-
             # fallback to max_running_time if start_time is not known
             if time_since_start > max_running_time - grace_time:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
