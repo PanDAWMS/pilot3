@@ -17,24 +17,28 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-25
 
 """ CPU related functionality."""
 
 import logging
-from typing import Any
+
+from pilot.info import JobData
 from pilot.util.container import execute
 
 logger = logging.getLogger(__name__)
 
 
-def get_core_count(job: Any) -> int:
+def get_core_count(job: JobData) -> int:
     """
     Return the core count.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :return: core count (int).
     """
+    if not job:  # to bypass pylint complaint
+        pass
+
     return 0
 
 
@@ -46,6 +50,8 @@ def add_core_count(corecount: int, core_counts: list = None):
     :param core_counts: list of core counts (list)
     :return: updated list of core counts (list).
     """
+    if not corecount:  # to bypass pylint complaint
+        pass
     if core_counts is None:
         core_counts = []
 
@@ -61,11 +67,11 @@ def set_core_counts(**kwargs: dict):
     job = kwargs.get('job', None)
     if job and job.pgrp:
         cmd = f"ps axo pgid,psr | sort | grep {job.pgrp} | uniq | awk '{{print $1}}' | grep -x {job.pgrp} | wc -l"
-        exit_code, stdout, stderr = execute(cmd, mute=True)
+        _, stdout, _ = execute(cmd, mute=True)
         logger.debug(f'{cmd}: {stdout}')
         try:
             job.actualcorecount = int(stdout)
-        except Exception as exc:
+        except ValueError as exc:
             logger.warning(f'failed to convert number of actual cores to int: {exc}')
         else:
             logger.debug(f'set number of actual cores to: {job.actualcorecount}')

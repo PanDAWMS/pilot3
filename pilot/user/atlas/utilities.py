@@ -475,8 +475,7 @@ def get_max_memory_monitor_value(value: int, maxvalue: int, totalvalue: int) -> 
         ec = 1
     else:
         totalvalue += value_int
-        if value_int > maxvalue:
-            maxvalue = value_int
+        maxvalue = max(maxvalue, value_int)
 
     return ec, maxvalue, totalvalue
 
@@ -794,9 +793,7 @@ def post_memory_monitor_action(job: JobData):
 
 
 def precleanup():
-    """
-    Do a pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
-    """
+    """Do a pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir."""
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
     if os.path.exists(path):

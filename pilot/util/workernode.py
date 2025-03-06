@@ -339,15 +339,16 @@ def lscpu():
     return ec, stdout
 
 
-def get_cpu_cores(modelstring):
+def get_cpu_info(modelstring: str) -> (str, int):
     """
-    Get core count from /proc/cpuinfo and update modelstring (CPU model).
+    Get core count, number of sockets and hyperthreading info from /proc/cpuinfo and update modelstring (CPU model).
+
     E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
          -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
-    :param modelstring: CPU model string.
-    :return: updated cpu model (string).
-    """
 
+    :param modelstring: CPU model info (str)
+    :return: updated CPU model info (str), CPU MHz (int).
+    """
     number_of_cores = 0
 
     ec, stdout = lscpu()
@@ -355,31 +356,53 @@ def get_cpu_cores(modelstring):
         return modelstring
 
     cores_per_socket = 0
+    threads_per_core = 0
+    cpu_mhz = 0
     sockets = 0
+
+    def get_number_for_pattern(pattern: str, line: str) -> int:
+        number = None
+        try:
+            _number = re.findall(pattern, line)
+            if _number:
+                number = int(_number[0])
+        except Exception as exc:
+            logger.warning(f'exception caught: {exc}')
+
+        return number
+
     for line in stdout.split('\n'):
+        threads_per_core = get_number_for_pattern(r'Thread\(s\)\ per\ core\:\ +(\d+)', line)
+        if threads_per_core:
+            continue
+        cores_per_socket = get_number_for_pattern(r'Core\(s\)\ per\ socket\:\ +(\d+)', line)
+        if cores_per_socket:
+            continue
+        cpu_mhz = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
+        if cpu_mhz:
+            continue
+        sockets = get_number_for_pattern(r'Socket\(s\)\:\ +(\d+)', line)
+        if sockets:
+            break
 
-        try:
-            pattern = r'Core\(s\)\ per\ socket\:\ +(\d+)'
-            _cores = re.findall(pattern, line)
-            if _cores:
-                cores_per_socket = int(_cores[0])
-                continue
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
-
-        try:
-            pattern = r'Socket\(s\)\:\ +(\d+)'
-            _sockets = re.findall(pattern, line)
-            if _sockets:
-                sockets = int(_sockets[0])
-                break
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
-
+    ht = "HT" if threads_per_core else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets)')
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {cpu_mhz}')
 
+    return update_modelstring(modelstring, number_of_cores, ht, sockets), cpu_mhz
+
+
+def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets: int) -> str:
+    """
+    Update the model string with the number of cores, hyperthreading info and number of sockets.
+
+    :param modelstring: CPU model info (str)
+    :param number_of_cores: number of cores (int)
+    :param ht: hyperthreading info (str)
+    :param sockets: number of sockets (int)
+    :return: updated CPU model info (str).
+    """
     logger.debug(f'current model string: {modelstring}')
     if number_of_cores > 0:
         if '-Core Processor' in modelstring:  # NN-Core info already in string - update it
@@ -393,6 +416,12 @@ def get_cpu_cores(modelstring):
             modelstring = modelstring.replace('Processor', '%d-Core Processor' % number_of_cores)
         else:
             modelstring += ' %d-Core Processor' % number_of_cores
+
+        if ht:
+            modelstring += " " + ht
+        modelstring += f' {sockets}-Socket'
+        if sockets > 1:
+            modelstring += 's'
         logger.debug(f'updated model string: {modelstring}')
 
     return modelstring
@@ -411,3 +440,27 @@ def check_hz():
         import traceback
         logger.fatal('failed to read SC_CLK_TCK - will not be able to perform CPU consumption calculation')
         logger.warning(traceback.format_exc())
+
+
+def get_hepspec_per_core() -> str:
+    """
+    Get the published hepspec value per core.
+
+    On HTCondor only.
+
+    :return: hepspec value (str).
+    """
+    condor_machine_ad = os.environ.get('CONDOR_MACHINE_AD', '')
+    if not condor_machine_ad:
+        logger.warning('CONDOR_MACHINE_AD not set - cannot determine hepspec value')
+        return ''
+
+    cmd = f"cat {condor_machine_ad}"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"cmd: {cmd}, stdout:\n{stdout}")
+
+    cmd = f"condor_status -ads {condor_machine_ad} -af HEPSPEC_PER_CORE"
+    _, stdout, _ = execute(cmd)
+    logger.debug(f"cmd: {cmd}, stdout:\n{stdout}")
+
+    return stdout

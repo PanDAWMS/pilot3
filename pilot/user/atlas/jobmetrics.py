@@ -17,19 +17,18 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """Functions for building job metrics."""
 
 import logging
 import os
 import re
-from typing import Any
 
 from pilot.api import analytics
 from pilot.common.exception import FileHandlingFailure
+from pilot.info import JobData
 from pilot.util.config import config
-from pilot.util.jobmetrics import get_job_metrics_entry
 from pilot.util.features import (
     MachineFeatures,
     JobFeatures
@@ -38,7 +37,11 @@ from pilot.util.filehandling import (
     find_last_line,
     read_file
 )
-from pilot.util.math import float_to_rounded_string
+from pilot.util.jobmetrics import get_job_metrics_entry
+from pilot.util.math import (
+    float_to_rounded_string,
+    mean
+)
 from .cpu import get_core_count
 from .common import (
     get_db_info,
@@ -49,11 +52,11 @@ from .utilities import get_memory_monitor_output_filename
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics_string(job: Any, extra: dict = None) -> str:
+def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C901
     """
     Get the job metrics string.
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """
@@ -64,9 +67,6 @@ def get_job_metrics_string(job: Any, extra: dict = None) -> str:
     # report core count (will also set corecount in job object)
     corecount = get_core_count(job)
     logger.debug(f'job definition core count: {corecount}')
-
-    #if corecount is not None and corecount != "NULL" and corecount != 'null':
-    #    job_metrics += get_job_metrics_entry("coreCount", corecount)
 
     # report number of actual used cores and add it to the list of measured core counts
     if job.actualcorecount:
@@ -92,9 +92,7 @@ def get_job_metrics_string(job: Any, extra: dict = None) -> str:
     # get the max disk space used by the payload (at the end of a job)
     if job.state in {"finished", "failed", "holding"}:
         max_space = job.get_max_workdir_size()
-        zero = 0
-
-        if max_space > zero:
+        if max_space > 0:
             job_metrics += get_job_metrics_entry("workDirSize", max_space)
         else:
             logger.info(f"will not add max space = {max_space} B to job metrics")
@@ -117,6 +115,15 @@ def get_job_metrics_string(job: Any, extra: dict = None) -> str:
     if job.dask_scheduler_ip and job.jupyter_session_ip:
         job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
         job_metrics += get_job_metrics_entry("sessionIP", job.jupyter_session_ip)
+
+    if job.cpufrequencies:
+        try:
+            _mean = int(mean(job.cpufrequencies))
+        except ValueError:
+            pass
+        else:
+            # job_metrics += get_job_metrics_entry("cpuFrequency", _mean)
+            logger.info(f"could have reported an average CPU frequency of {_mean} MHz ({len(job.cpufrequencies)} samples)")
 
     # add any additional info
     if extra:
@@ -179,7 +186,7 @@ def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
 
     machinefeatures = MachineFeatures().get()
     jobfeatures = JobFeatures().get()
-    # correct hs06 for corecount: hs06*perf_scale/total_cpu*corecount
+    # correct hs06 for corecount
     hs06 = machinefeatures.get('hs06', 0)
     total_cpu = machinefeatures.get('total_cpu', 0)
     if hs06 and total_cpu and (total_cpu != '0' or total_cpu != 0):
@@ -248,7 +255,7 @@ def add_event_number(job_metrics: str, workdir: str) -> str:
     return job_metrics
 
 
-def get_job_metrics(job: Any, extra: dict = None) -> str:
+def get_job_metrics(job: JobData, extra: dict = None) -> str:
     """
     Return a properly formatted job metrics string.
 
@@ -259,7 +266,7 @@ def get_job_metrics(job: Any, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (Any)
+    :param job: job object (JobData)
     :param extra: any extra information to be added (dict)
     :return: job metrics (str).
     """

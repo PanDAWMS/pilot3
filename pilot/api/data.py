@@ -623,7 +623,7 @@ class StagingClient:
             # propagate message from first error back up
             # errmsg = str(caught_errors[0]) if caught_errors else ''
             if caught_errors and "Cannot authenticate" in str(caught_errors):
-                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE
+                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE if self.mode == 'stage-in' else ErrorCodes.STAGEOUTAUTHENTICATIONFAILURE  # is it stage-in/out?
             elif caught_errors and "bad queue configuration" in str(caught_errors):
                 code = ErrorCodes.BADQUEUECONFIGURATION
             elif caught_errors and isinstance(caught_errors[0], PilotException):

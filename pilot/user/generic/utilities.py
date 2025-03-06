@@ -17,29 +17,25 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
+
+"""Generic utility functionality."""
 
 import logging
 logger = logging.getLogger(__name__)
 
 
 def precleanup():
-    """
-    Pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir.
-
-    :return:
-    """
-
-    pass
+    """Perform pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir."""
+    pass  # pylint: disable=unnecessary-pass
 
 
-def get_cpu_arch():
+def get_cpu_arch() -> str:
     """
     Return the CPU architecture string.
 
     If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
 
-    :return: CPU arch (string).
+    :return: CPU arch (str).
     """
-
     return ""
