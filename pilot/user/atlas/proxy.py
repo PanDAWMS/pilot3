@@ -193,6 +193,9 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                     if exit_code == errors.CERTIFICATEHASEXPIRED:
                         logger.debug('certificate has expired')
                         break
+                    if exit_code == errors.PROXYTOOSHORT:
+                        # logger.debug('proxy is too short - aborting')
+                        break
             if exit_code == errors.ARCPROXYLIBFAILURE:
                 logger.warning("currenly ignoring arcproxy library failure")
                 exit_code = 0

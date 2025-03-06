@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -29,6 +29,7 @@ import time
 import hashlib
 import logging
 import queue
+import random
 from collections import namedtuple
 from json import dumps
 from glob import glob
@@ -138,7 +139,7 @@ from pilot.util.timing import (
 from pilot.util.workernode import (
     collect_workernode_info,
     get_cpu_arch,
-    get_cpu_cores,
+    get_cpu_info,
     get_cpu_model,
     get_disk_space,
     get_node_name,
@@ -754,8 +755,11 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
-    cpumodel = get_cpu_cores(cpumodel)  # add the CPU cores if not present
+    cpumodel, cpu_mhz = get_cpu_info(cpumodel)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
+    logger.debug(f"got CPU MHz: {cpu_mhz}")
+    if cpu_mhz:
+        job.cpufrequencies.append(cpu_mhz)
 
     # CPU instruction set
     instruction_sets = has_instruction_sets(['AVX2'])
@@ -2165,8 +2169,9 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 args.graceful_stop.set()
                 break
 
-            logger.warning(f"did not get a job -- sleep 60s and repeat -- status: {res}")
-            for _ in range(60):
+            delay = random.randint(60, 180)
+            logger.warning(f"did not get a job -- sleep {delay}s and repeat -- status: {res}")
+            for _ in range(delay):
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
@@ -2177,11 +2182,15 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             except PilotException as error:
                 raise error
 
+            # keep track of start time
+            job.starttime = int(time.time())
+            logger.info(f'job {job.jobid} has start time={job.starttime}')
+
             # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
             if "loggingfile" in job.infosys.queuedata.catchall:
                 set_debug_mode(job.jobid, args.url, args.port)
 
-            logger.info('resetting any existing errors')
+            # logger.info('resetting any existing errors')
             job.reset_errors()
 
             #else:
@@ -2940,6 +2949,9 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     # keep track of jobs we don't want to continue monitoring
     # no_monitoring = {}  # { job:id: time.time(), .. }
 
+    # fail-safe to be able to report a job that is still running after the pilot has been ordered to abort
+    final_job = None
+
     # overall loop counter (ignoring the fact that more than one job may be running)
     n = 0
     cont = True
@@ -2975,6 +2987,7 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         # note: when sending a state change to the server, the server might respond with 'tobekilled'
                         try:
                             jobs[i]
+                            final_job = jobs[i]
                         except Exception as error:
                             logger.warning('detected stale jobs[i] object in job_monitor: %s', error)
                         else:
@@ -3120,6 +3133,17 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     if threads_aborted(caller='job_monitor'):
         logger.debug('will proceed to set job_aborted')
         args.job_aborted.set()
+
+    # fail-safe
+    if os.environ.get('REACHED_MAXTIME', None):
+        if not final_job:
+            logger.warning('REACHED_MAXTIME seen by job monitor - but final job object not set, cannot report')
+        else:
+            logger.warning('REACHED_MAXTIME seen by job monitor - will report final job')
+            try:
+                fail_monitored_job(final_job, errors.REACHEDMAXTIME, "Reached maxtime", queues, traces)
+            except Exception as error:
+                logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
 
     logger.info('[job] job monitor thread has finished')
 

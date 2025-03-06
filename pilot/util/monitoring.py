@@ -17,21 +17,25 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """ This module contains implementations of job monitoring tasks. """
 
 import logging
 import os
-import time
 import subprocess
+import time
+import traceback
 from glob import glob
-from typing import Any
 from signal import SIGKILL
+from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import PilotException, MiddlewareImportFailure  #, FileHandlingFailure
-from pilot.util.auxiliary import set_pilot_state  #, show_memory_usage
+from pilot.common.exception import (
+    PilotException,
+    MiddlewareImportFailure
+)
+from pilot.util.auxiliary import set_pilot_state
 from pilot.util.config import config
 from pilot.util.constants import PILOT_PRE_PAYLOAD
 from pilot.util.container import execute
@@ -40,8 +44,7 @@ from pilot.util.filehandling import (
     get_local_file_size,
     read_file,
     remove_files,
-    zip_files,
-    #write_file
+    zip_files
 )
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import (
@@ -81,13 +84,14 @@ errors = ErrorCodes()
 def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[int, str]:  # noqa: C901
     """
     Perform the tasks for the job monitoring.
+
     The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
     minute).
 
     :param job: job object (JobData)
     :param mt: monitoring time object to keep track of time measurements (MonitoringTime)
     :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :return: exit code (int), diagnostics (string).
+    :return: exit code (int), diagnostics (str).
     """
     exit_code = 0
     diagnostics = ""
@@ -183,7 +187,7 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
     Set the CPU consumption time for the job.
 
     :param job: job object (JobData)
-    :return: exit code (int), diagnostics (string).
+    :return: exit code (int), diagnostics (str).
     """
     try:
         cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
@@ -192,44 +196,48 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
         logger.warning(diagnostics)
         exit_code = get_exception_error_code(diagnostics)
         return exit_code, diagnostics
-    else:
-        _cpuconsumptiontime = int(round(cpuconsumptiontime))
-        if _cpuconsumptiontime > 0:
-            if job.cpuconsumptiontime == -1:  # no time set yet so just proceed
-                job.cpuconsumptiontime = _cpuconsumptiontime
-            else:
-                # make sure there are no sudden jumps in the cpuconsumptiontime
-                increase_factor = _cpuconsumptiontime / job.cpuconsumptiontime if job.cpuconsumptiontime > 0 else 1
-                high_cpu_load = check_cpu_load()
-                factor = 10 if high_cpu_load else 5
-                if increase_factor > factor:
-                    logger.warning(
-                        f'CPU consumption time increased by a factor of {increase_factor} (over the limit of {factor})')
-                    logger.warning(f"will not consider the new value: {_cpuconsumptiontime}")
-                else:
-                    logger.info(
-                        f'CPU consumption time changed by a factor of {increase_factor} (below the limit of {factor})')
 
-                    # make sure that /proc/self/statm still exists, otherwise the job is no longer using CPU, ie discard the info
-                    if check_proc_access():
-                        logger.debug("/proc/self/statm exists - will update the CPU consumption time")
-                        job.cpuconsumptiontime = _cpuconsumptiontime
-            job.cpuconversionfactor = 1.0
-            logger.info(
-                f'(instant) CPU consumption time for pid={job.pid}: {job.cpuconsumptiontime})')
-        elif _cpuconsumptiontime == -1:
-            logger.warning('could not get CPU consumption time')
-        elif _cpuconsumptiontime == 0:
-            logger.warning(f'process {job.pid} can no longer be monitored (due to stat problems) - aborting')
+    _cpuconsumptiontime = int(round(cpuconsumptiontime))
+    if _cpuconsumptiontime > 0:
+        if job.cpuconsumptiontime == -1:  # no time set yet so just proceed
+            job.cpuconsumptiontime = _cpuconsumptiontime
         else:
-            logger.warning(f'process {job.pid} is no longer using CPU - aborting')
+            # make sure there are no sudden jumps in the cpuconsumptiontime
+            increase_factor = _cpuconsumptiontime / job.cpuconsumptiontime if job.cpuconsumptiontime > 0 else 1
+            high_cpu_load = check_cpu_load()
+            factor = 10 if high_cpu_load else 5
+            if increase_factor > factor:
+                logger.warning(
+                    f'CPU consumption time increased by a factor of {increase_factor} (over the limit of {factor})')
+                logger.warning(f"will not consider the new value: {_cpuconsumptiontime}")
+            else:
+                logger.info(
+                    f'CPU consumption time changed by a factor of {increase_factor} (below the limit of {factor})')
+
+                # make sure that /proc/self/statm still exists, otherwise the job is no longer using CPU, ie discard the info
+                if check_proc_access():
+                    logger.debug("/proc/self/statm exists - will update the CPU consumption time")
+                    job.cpuconsumptiontime = _cpuconsumptiontime
+        job.cpuconversionfactor = 1.0
+        logger.info(
+            f'(instant) CPU consumption time for pid={job.pid}: {job.cpuconsumptiontime})')
+    elif _cpuconsumptiontime == -1:
+        logger.warning('could not get CPU consumption time')
+    elif _cpuconsumptiontime == 0:
+        logger.warning(f'process {job.pid} can no longer be monitored (due to stat problems) - aborting')
+    else:
+        logger.warning(f'process {job.pid} is no longer using CPU - aborting')
 
     return 0, ""
 
 
-def still_running(pid):
-    # verify that the process is still alive
+def still_running(pid: int) -> bool:
+    """
+    Verify that the given process is still alive.
 
+    :param pid: process id (int)
+    :return: True if the process is still running, False otherwise (bool).
+    """
     running = False
     try:
         if pid:
@@ -244,7 +252,7 @@ def still_running(pid):
     return running
 
 
-def update_oom_info(bash_pid, payload_cmd):
+def update_oom_info(bash_pid: int, payload_cmd: str):
     """
     Update OOM process info.
 
@@ -252,7 +260,7 @@ def update_oom_info(bash_pid, payload_cmd):
     It will otherwise lead to lingering processes.
 
     :param bash_pid: bash chain pid (int)
-    :param payload_cmd: payload command (string).
+    :param payload_cmd: payload command (str).
     """
     # use the pid of the bash chain to get the actual payload pid which should be a child process
     payload_pid = find_actual_payload_pid(bash_pid, payload_cmd)
@@ -284,12 +292,12 @@ def update_oom_info(bash_pid, payload_cmd):
         logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
 
 
-def write_to_oom_score_adj(pid, value):
-    """Writes the specified value to the oom_score_adj file for the given PID.
+def write_to_oom_score_adj(pid: int, value: int):
+    """
+    Write the specified value to the oom_score_adj file for the given PID.
 
-    Args:
-        pid: The PID of the process.
-        value: The value to write to the oom_score_adj file.
+    :param pid: process id (int)
+    :param value: value to write (int).
     """
     command = f"echo {value} > /proc/{pid}/oom_score_adj"
     try:
@@ -302,7 +310,7 @@ def write_to_oom_score_adj(pid, value):
         _, stdout, _ = execute(f"cat /proc/{pid}/oom_score_adj")
 
 
-def get_score(pid) -> str:
+def get_score(pid: int) -> str:
     """
     Get the OOM process score.
 
@@ -310,7 +318,7 @@ def get_score(pid) -> str:
     :return: score (str).
     """
     try:
-        score = '%s' % read_file('/proc/%d/oom_score' % pid)
+        score = read_file(f'/proc/{pid}/oom_score')
     except Exception as error:
         logger.warning(f'caught exception reading oom_score: {error}')
         score = 'UNKNOWN'
@@ -321,15 +329,13 @@ def get_score(pid) -> str:
     return score
 
 
-def get_exception_error_code(diagnostics):
+def get_exception_error_code(diagnostics: str) -> int:
     """
     Identify a suitable error code to a given exception.
 
-    :param diagnostics: exception diagnostics (string).
-    :return: exit_code
+    :param diagnostics: exception diagnostics (str)
+    :return: exit_code (int).
     """
-
-    import traceback
     logger.warning(traceback.format_exc())
     if "Resource temporarily unavailable" in diagnostics:
         exit_code = errors.RESOURCEUNAVAILABLE
@@ -343,27 +349,25 @@ def get_exception_error_code(diagnostics):
     return exit_code
 
 
-def set_number_used_cores(job, walltime):
+def set_number_used_cores(job: JobData, walltime: int):
     """
     Set the number of cores used by the payload.
+
     The number of actual used cores is reported with job metrics (if set).
     The walltime can be used to estimate the number of used cores in combination with memory monitor output,
     (utime+stime)/walltime. If memory momitor information is not available, a ps command is used (not reliable for
     multi-core jobs).
 
-    :param job: job object.
-    :param walltime: wall time for payload in seconds (int).
-    :return:
+    :param job: job object (JobData)
+    :param walltime: wall time for payload in seconds (int)
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    cpu = __import__('pilot.user.%s.cpu' % pilot_user, globals(), locals(), [pilot_user], 0)
-
+    cpu = __import__(f'pilot.user.{pilot_user}.cpu', globals(), locals(), [pilot_user], 0)
     kwargs = {'job': job, 'walltime': walltime}
     cpu.set_core_counts(**kwargs)
 
 
-def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, resource_type: str, debug: bool = False):
+def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, resource_type: str, debug: bool = False) -> tuple[int, str]:
     """
     Verify the memory usage (optional).
     Note: this function relies on a stand-alone memory monitor tool that may be executed by the Pilot.
@@ -375,10 +379,11 @@ def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, reso
     :param debug: True for args.debug==True (bool)
     :return: exit code (int), error diagnostics (str).
     """
-    #if debug:
-    #    show_memory_usage()
+    if debug:
+        pass
+        # show_memory_usage()
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    memory = __import__('pilot.user.%s.memory' % pilot_user, globals(), locals(), [pilot_user], 0)
+    memory = __import__(f'pilot.user.{pilot_user}.memory', globals(), locals(), [pilot_user], 0)
 
     if not memory.allow_memory_usage_verifications():
         return 0, ""
@@ -388,13 +393,12 @@ def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, reso
     if current_time - mt.get('ct_memory') > memory_verification_time:
         # is the used memory within the allowed limit?
         try:
-            exit_code, diagnostics = memory.memory_usage(job, resource_type)
+            exit_code, _ = memory.memory_usage(job, resource_type)
         except Exception as error:
             logger.warning(f'caught exception: {error}')
             exit_code = -1
         if exit_code != 0:
             logger.warning('ignoring failure to parse memory monitor output')
-            #return exit_code, diagnostics
         else:
             # update the ct_proxy with the current time
             mt.update('ct_memory')
@@ -402,19 +406,19 @@ def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, reso
     return 0, ""
 
 
-def should_abort_payload(current_time, mt):
+def should_abort_payload(current_time: int, mt: MonitoringTime):
     """
-    Should the pilot abort the payload?
+    Check if the pilot should abort the payload.
+
     In the case of Raythena, the Driver is monitoring the time to end jobs and may decide
     that the pilot should abort the payload. Internally, this is achieved by letting the Actors
     know it's time to end, and they in turn contacts the pilot by placing a 'pilot_kill_payload' file
     in the run directory.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :return: exit code (int), error diagnostics (string).
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object (MonitoringTime)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     # is it time to look for the kill instruction file?
     killing_time = convert_to_int(config.Pilot.kill_instruction_time, default=600)
     if current_time - mt.get('ct_kill') > killing_time:
@@ -426,18 +430,18 @@ def should_abort_payload(current_time, mt):
     return 0, ""
 
 
-def verify_user_proxy(current_time, mt):
+def verify_user_proxy(current_time: int, mt: MonitoringTime) -> tuple[int, str]:
     """
     Verify the user proxy.
+
     This function is called by the job_monitor_tasks() function.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :return: exit code (int), error diagnostics (string).
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object (MonitoringTime)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    userproxy = __import__('pilot.user.%s.proxy' % pilot_user, globals(), locals(), [pilot_user], 0)
+    userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
 
     # is it time to verify the proxy?
     # test bad proxy
@@ -448,27 +452,26 @@ def verify_user_proxy(current_time, mt):
         exit_code, diagnostics = userproxy.verify_proxy(test=False)  # use test=True to test expired proxy
         if exit_code != 0:
             return exit_code, diagnostics
-        else:
-            # update the ct_proxy with the current time
-            mt.update('ct_proxy')
+
+        # update the ct_proxy with the current time
+        mt.update('ct_proxy')
 
     return 0, ""
 
 
-def verify_looping_job(current_time, mt, job, args):
+def verify_looping_job(current_time: int, mt: MonitoringTime, job: JobData, args: object):
     """
     Verify that the job is not looping.
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param job: job object.
-    :param args: pilot args object.
-    :return: exit code (int), error diagnostics (string).
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object (MonitoringTime)
+    :param job: job object (JobData)
+    :param args: pilot arguments (object)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     # only perform looping job check if desired and enough time has passed since start
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    loopingjob_definitions = __import__('pilot.user.%s.loopingjob_definitions' % pilot_user, globals(), locals(), [pilot_user], 0)
+    loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions', globals(), locals(), [pilot_user], 0)
 
     runcheck = loopingjob_definitions.allow_loopingjob_detection()
     if not job.looping_check and runcheck:
@@ -502,9 +505,9 @@ def verify_looping_job(current_time, mt, job, args):
             else:
                 exit_code = errors.UNKNOWNEXCEPTION
             return exit_code, diagnostics
-        else:
-            if exit_code != 0:
-                return exit_code, diagnostics
+
+        if exit_code != 0:
+            return exit_code, diagnostics
 
         # update the ct_proxy with the current time
         mt.update('ct_looping')
@@ -512,16 +515,15 @@ def verify_looping_job(current_time, mt, job, args):
     return 0, ""
 
 
-def check_lease_time(current_time, mt, leasetime):
+def check_lease_time(current_time: int, mt: MonitoringTime, leasetime: int) -> tuple[int, str]:
     """
     Check the lease time in stager mode.
 
     :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object
+    :param mt: measured time object (MonitoringTime)
     :param leasetime: lease time in seconds (int)
-    :return: exit code (int), error diagnostics (string).
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ''
     if current_time - mt.get('ct_lease') > 10:
@@ -539,17 +541,17 @@ def check_lease_time(current_time, mt, leasetime):
     return exit_code, diagnostics
 
 
-def verify_disk_usage(current_time, mt, job):
+def verify_disk_usage(current_time: int, mt: MonitoringTime, job: JobData) -> tuple[int, str]:
     """
     Verify the disk usage.
+
     The function checks 1) payload stdout size, 2) local space, 3) work directory size, 4) output file sizes.
 
     :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object
-    :param job: job object
-    :return: exit code (int), error diagnostics (string).
+    :param mt: measured time object (MonitoringTime)
+    :param job: job object (JobData)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     disk_space_verification_time = convert_to_int(config.Pilot.disk_space_verification_time, default=300)
     if current_time - mt.get('ct_diskspace') > disk_space_verification_time:
         # time to check the disk space
@@ -584,19 +586,19 @@ def verify_disk_usage(current_time, mt, job):
     return 0, ""
 
 
-def verify_running_processes(current_time, mt, pid):
+def verify_running_processes(current_time: int, mt: MonitoringTime, pid: int) -> tuple[int, str]:
     """
     Verify the number of running processes.
+
     The function sets the environmental variable PILOT_MAXNPROC to the maximum number of found (child) processes
     corresponding to the main payload process id.
     The function does not return an error code (always returns exit code 0).
 
-    :param current_time: current time at the start of the monitoring loop (int).
-    :param mt: measured time object.
-    :param pid: payload process id (int).
-    :return: exit code (int), error diagnostics (string).
+    :param current_time: current time at the start of the monitoring loop (int)
+    :param mt: measured time object (MonitoringTime)
+    :param pid: payload process id (int)
+    :return: exit code (int), error diagnostics (string) (tuple).
     """
-
     nproc_env = 0
 
     process_verification_time = convert_to_int(config.Pilot.process_verification_time, default=300)
@@ -618,18 +620,17 @@ def verify_running_processes(current_time, mt, pid):
     return 0, ""
 
 
-def utility_monitor(job):  # noqa: C901
+def utility_monitor(job: JobData):  # noqa: C901
     """
     Make sure that any utility commands are still running.
+
     In case a utility tool has crashed, this function may restart the process.
     The function is used by the job monitor thread.
 
-    :param job: job object.
-    :return:
+    :param job: job object (JobData).
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    usercommon = __import__('pilot.user.%s.common' % pilot_user, globals(), locals(), [pilot_user], 0)
+    usercommon = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
 
     # loop over all utilities
     for utcmd in list(job.utilities.keys()):  # E.g. utcmd = MemoryMonitor
@@ -651,7 +652,7 @@ def utility_monitor(job):  # noqa: C901
             # clean up the process
             kill_process(utproc)
 
-            if job.state == 'finished' or job.state == 'failed' or job.state == 'stageout':
+            if job.state in {'finished', 'failed', 'stageout'}:
                 logger.debug('no need to restart utility command since payload has finished running')
                 continue
 
@@ -686,9 +687,8 @@ def kill_process(process: Any):
     """
     Kill process before restart to get rid of defunct processes.
 
-    :param process: process object
+    :param process: process object (Any).
     """
-
     diagnostics = ''
     try:
         logger.warning('killing lingering subprocess')
@@ -700,17 +700,16 @@ def kill_process(process: Any):
         os.kill(process.pid, SIGKILL)
     except ProcessLookupError as exc:
         diagnostics += f'\n(kill process) ProcessLookupError={exc}'
+
     logger.warning(f'sent hard kill signal - final stderr: {diagnostics}')
 
 
-def get_local_size_limit_stdout(bytes=True):
+def get_local_size_limit_stdout() -> int:
     """
     Return a proper value for the local size limit for payload stdout (from config file).
 
-    :param bytes: boolean (if True, convert kB to Bytes).
     :return: size limit (int).
     """
-
     try:
         localsizelimit_stdout = int(config.Pilot.local_size_limit_stdout)
     except Exception as error:
@@ -718,20 +717,18 @@ def get_local_size_limit_stdout(bytes=True):
         logger.warning(f'bad value in config for local_size_limit_stdout: {error} (will use value: {localsizelimit_stdout} kB)')
 
     # convert from kB to B
-    if bytes:
-        localsizelimit_stdout *= 1024
+    localsizelimit_stdout *= 1024
 
     return localsizelimit_stdout
 
 
-def check_payload_stdout(job):
+def check_payload_stdout(job: JobData) -> tuple[int, str]:
     """
     Check the size of the payload stdout.
 
-    :param job: job object.
-    :return: exit code (int), diagnostics (string).
+    :param job: job object (JobData)
+    :return: exit code (int), diagnostics (string) (tuple).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -799,17 +796,17 @@ def check_payload_stdout(job):
     return exit_code, diagnostics
 
 
-def check_log_size(filename, to_be_zipped=None, archive=False):
+def check_log_size(filename: str, to_be_zipped: list = None, archive: bool = False) -> tuple[int, bool]:
     """
     Check the payload log file size.
+
     The log will be added to the list of files to be zipped, if too large.
 
-    :param filename: file path (string)
-    :param to_be_zipped: list of files to be zipped
-    :param archive: is this file an archive? (boolean)
-    :return: exit code (int), to_be_zipped (list)
+    :param filename: file path (str)
+    :param to_be_zipped: list of files to be zipped (list)
+    :param archive: is this file an archive? (bool)
+    :return: exit code (int), to_be_zipped (list) (tuple).
     """
-
     exit_code = 0
 
     try:
@@ -834,16 +831,16 @@ def check_log_size(filename, to_be_zipped=None, archive=False):
     return exit_code, to_be_zipped
 
 
-def check_local_space(initial=True):
+def check_local_space(initial: bool = True) -> tuple[int, str]:
     """
-    Do we have enough local disk space left to run the job?
+    Check if we have enough local disk space left to run the job.
+
     For the initial local space check, the Pilot will require 2 GB of free space, but during running
     this can be lowered to 1 GB.
 
-    :param initial: True means a 2 GB limit, False means a 1 GB limit (optional Boolean)
-    :return: pilot error code (0 if success, NOLOCALSPACE if failure)
+    :param initial: True means a 2 GB limit, False means a 1 GB limit (bool)
+    :return: pilot error code (0 if success, NOLOCALSPACE if failure) (int), diagnostics (str) (tuple).
     """
-
     ec = 0
     diagnostics = ""
 
@@ -874,15 +871,15 @@ def check_local_space(initial=True):
     return ec, diagnostics
 
 
-def check_work_dir(job):
+def check_work_dir(job: JobData) -> tuple[int, str]:
     """
     Check the size of the work directory.
+
     The function also updates the workdirsizes list in the job object.
 
-    :param job: job object.
-    :return: exit code (int), error diagnostics (string)
+    :param job: job object (JobData)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -929,14 +926,14 @@ def check_work_dir(job):
     return exit_code, diagnostics
 
 
-def get_max_allowed_work_dir_size():
+def get_max_allowed_work_dir_size() -> int:
     """
     Return the maximum allowed size of the work directory.
+
     Note: input sizes need not be added to [..] when copytool=mv (ie on storm/NDGF).
 
     :return: max allowed work dir size in Bytes (int).
     """
-
     try:
         maxwdirsize = convert_mb_to_b(get_maximum_input_sizes())  # from MB to B, e.g. 16336 MB -> 17,129,537,536 B
     except Exception as error:
@@ -954,14 +951,13 @@ def get_max_allowed_work_dir_size():
     return maxwdirsize
 
 
-def get_max_input_size(megabyte=False):
+def get_max_input_size(megabyte: bool = False) -> int:
     """
     Return a proper maxinputsize value.
 
-    :param megabyte: return results in MB (Boolean).
+    :param megabyte: return results in MB (bool)
     :return: max input size (int).
     """
-
     _maxinputsize = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     max_input_file_sizes = 14 * 1024 * 1024 * 1024  # 14 GB, 14336 MB (pilot default)
     max_input_file_sizes_mb = 14 * 1024  # 14336 MB (pilot default)
@@ -989,14 +985,13 @@ def get_max_input_size(megabyte=False):
     return _maxinputsize
 
 
-def check_output_file_sizes(job):
+def check_output_file_sizes(job: JobData):
     """
-    Are the output files within the allowed size limits?
+    Check if the output files are within the allowed size limits.
 
-    :param job: job object.
-    :return: exit code (int), error diagnostics (string)
+    :param job: job object (JobData)
+    :return: exit code (int), error diagnostics (str) (tuple).
     """
-
     exit_code = 0
     diagnostics = ""
 
@@ -1023,14 +1018,12 @@ def check_output_file_sizes(job):
     return exit_code, diagnostics
 
 
-def store_subprocess_pids(job):
+def store_subprocess_pids(job: JobData):
     """
     Keep track of all running subprocesses.
 
-    :param job: job object.
-    :return:
+    :param job: job object (JobData).
     """
-
     # only store the pid once
     if job.subprocesses:
         return

@@ -76,6 +76,9 @@ def interpret(job: JobData) -> int:
         # ignore metadata error if trf exit code is non-zero
         if len(job.piloterrorcodes) == 1 and errors.NOPAYLOADMETADATA in job.piloterrorcodes and job.transexitcode != 0:
             logger.warning('ignore metadata error for now')
+        if job.piloterrorcodes[0] < 1000:
+            logger.warning(f"recorded error code is not a pilot error code: {job.piloterrorcodes[0]} - resetting to UNKNOWNTRFFAILURE")
+            job.piloterrorcodes[0] = errors.UNKNOWNTRFFAILURE
         else:
             logger.warning(f'aborting payload error diagnosis since an error has already been set: {job.piloterrorcodes}')
             return -1

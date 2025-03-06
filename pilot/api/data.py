@@ -196,19 +196,22 @@ class StagingClient:
         """
         return None
 
-    def prepare_inputddms(self, files: list):
+    def prepare_inputddms(self, files: list, activities: list = None):
         """
         Prepare input DDMs.
 
         Populates filespec.inputddms for each entry from `files` list.
 
         :param files: list of `FileSpec` objects
+        :param activities: ordered list of activities to resolve `astorages` (optional)
         """
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
-        storages = astorages.get('read_lan', [])
+        activities = activities or ['read_lan']
 
-        #activity = activities[0]
+        storages = next((astorages.get(a) for a in activities if astorages.get(a)), None) or []
+
         #if not storages:  ## ignore empty astorages
+        #    activity = activities[0]
         #    raise PilotException("Failed to resolve input sources: no associated storages defined for activity=%s (%s)"
         #                         % (activity, ','.join(activities)), code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
@@ -620,7 +623,7 @@ class StagingClient:
             # propagate message from first error back up
             # errmsg = str(caught_errors[0]) if caught_errors else ''
             if caught_errors and "Cannot authenticate" in str(caught_errors):
-                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE
+                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE if self.mode == 'stage-in' else ErrorCodes.STAGEOUTAUTHENTICATIONFAILURE  # is it stage-in/out?
             elif caught_errors and "bad queue configuration" in str(caught_errors):
                 code = ErrorCodes.BADQUEUECONFIGURATION
             elif caught_errors and isinstance(caught_errors[0], PilotException):

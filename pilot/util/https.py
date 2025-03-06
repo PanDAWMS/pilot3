@@ -49,7 +49,10 @@ from collections.abc import Callable
 from collections import namedtuple
 from gzip import GzipFile
 from io import BytesIO
-from re import findall
+from re import (
+    findall,
+    sub
+)
 from time import (
     sleep,
     time
@@ -76,7 +79,7 @@ errors = ErrorCodes()
 
 _ctx = namedtuple('_ctx', 'ssl_context user_agent capath cacert')
 _ctx.ssl_context = None
-_ctx.user_agent = None
+_ctx.user_agent = "Pilot3"  # default value (must be string not None)
 _ctx.capath = None
 _ctx.cacert = None
 
@@ -671,10 +674,21 @@ def add_error_codes(data: dict, job: JobData):
     else:
         data['pilotErrorCode'] = pilot_error_code
 
+    def remove_timestamp(log_entry: str) -> str:
+        """
+        Removes the timestamp in the format 'YYYY-MM-DD HH:MM:SS,mmm' from a log entry.
+
+        :param log_entry: The log entry string containing a timestamp (str)
+        :return: The log entry without the timestamp (str).
+        """
+        return sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{1,3})?', '', log_entry).strip()
+
     # add error info
     pilot_error_diag = job.piloterrordiag
     pilot_error_diags = job.piloterrordiags
     if pilot_error_diags != []:
+        # filter out any timestamps that might mess up monitoring (https://its.cern.ch/jira/browse/ATLASPANDA-1324)
+        pilot_error_diags = [remove_timestamp(diag) for diag in pilot_error_diags]
         logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
         data['pilotErrorDiag'] = pilot_error_diags[0]
     else:

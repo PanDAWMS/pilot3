@@ -145,13 +145,14 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     # Only proceed if values are set
     if maxpss_int != -1:
         maxrss = job.infosys.queuedata.maxrss
+        pilot_rss_grace = job.infosys.queuedata.pilot_rss_grace
         memkillgrace = get_memkillgrace(job.infosys.queuedata.memkillgrace)
-        logger.debug(f'memkillgrace: {memkillgrace}')
+        logger.debug(f'memkillgrace: {memkillgrace} pilot_rss_grace: {pilot_rss_grace}')
         if maxrss:
             # correction for SCORE/4CORE/nCORE jobs on UCORE queues
             scale = get_ucore_scale_factor(job)
             try:
-                maxrss_int = 2 * int(maxrss * scale) * 1024  # Convert to int and kB
+                maxrss_int = pilot_rss_grace * int(maxrss * scale) * 1024  # Convert to int and kB
             except (ValueError, TypeError) as exc:
                 logger.warning(f"unexpected value for maxRSS: {exc}")
             else:

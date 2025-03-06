@@ -110,6 +110,7 @@ class JobData(BaseData):
     cpuconsumptionunit = "s"       #
     cpuconsumptiontime = -1        #
     cpuconversionfactor = 1        #
+    cpufrequencies = []           # list of CPU frequencies
     nevents = 0                    # number of events
     neventsw = 0                   # number of events written
     dbtime = None                  #
@@ -134,6 +135,7 @@ class JobData(BaseData):
     completed = False              # True when job has finished or failed, used by https::send_update()
     lsetuptime = 0                 # payload setup time (lsetup)
     runningstart = None            # time when the payload started running (only for internal monitoring purposes, not the actual start time)
+    starttime = None               # time when the job started running (epoch time in seconds)
 
     # time variable used for on-the-fly cpu consumption time measurements done by job monitoring
     t0 = None                      # payload startup time
@@ -199,7 +201,7 @@ class JobData(BaseData):
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
                    'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
-                    'logdata', 'outdata', 'indata'],
+                    'logdata', 'outdata', 'indata', 'cpufrequencies'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
                     'postprocess', 'coprocess', 'containeroptions', 'pilotsecrets'],
              bool: ['is_eventservice', 'is_eventservicemerge', 'is_hpo', 'noexecstrcnv', 'debug', 'usecontainer',
@@ -1128,6 +1130,7 @@ class JobData(BaseData):
         self.exitcode = 0
         self.exitmsg = ""
         self.corecounts = []
+        self.cpufrequencies = []
         self.subprocesses = []
 
     def to_json(self):
