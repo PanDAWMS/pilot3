@@ -446,7 +446,7 @@ def get_logging_info(job: JobData, args: object) -> dict:
             logger.info("correct logserver formal: logging_type;protocol://hostname:port")
             return {}
 
-        regex = r"logserver='(?P<logging_type>[^;]+);(?P<protocol>[^:]+)://(?P<hostname>[^:]+):(?P<port>\d+)'"
+        regex = r"logserver=(?P<logging_type>[^;]+);(?P<protocol>[^:]+)://(?P<hostname>[^:]+):(?P<port>\d+)"
         match = search(regex, logserver)
         if match:
             logging_type = match.group('logging_type')
@@ -489,6 +489,23 @@ def get_logging_info(job: JobData, args: object) -> dict:
     return info_dic
 
 
+def get_catchall_loggingfile(catchall: str) -> str:
+    """
+    Extract the logging file from the catchall field if present.
+
+    :param catchall: catchall field from queuedata (str)
+    :return: logging file name (str).
+    """
+    filename = ""
+    if catchall and "loggingfile" in catchall:
+        _filename = findall(r'loggingfile=([^,]+)', catchall)
+        if _filename:
+            filename = _filename[0]
+            logger.debug(f'found filename in catchall: {filename}')
+
+    return filename
+
+
 def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis: bool, catchall: str) -> str:
     """
     Find the log file to tail in the RT logging.
@@ -505,10 +522,16 @@ def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis
     counter = 0
     maxwait = 5 * 60
 
+    # get filename from env or from catchall if present
+    filename_env = os.environ.get('REALTIME_LOGFILE', None)
+    filename_catchall = get_catchall_loggingfile(catchall) if not filename_env else None
+
+    # .. otherwise get it from the debug command or use default for analysis jobs
     if 'tail' in debug_command:
         filename = debug_command.split(' ')[-1]
-    elif is_analysis:
+    elif is_analysis and not filename_env and not filename_catchall:
         filename = 'tmp.stdout*'
+
     if filename:
         logger.debug(f'filename={filename}')
         while counter < maxwait and not args.graceful_stop.is_set():
@@ -520,12 +543,13 @@ def find_log_to_tail(debug_command: str, workdir: str, args: object, is_analysis
                 break
             counter += 10
 
-    if not path and "loggingfile" in catchall:
+    if not path and filename_env:
+        # extract the path from the env variable
+        path = filename_env
+
+    if not path and filename_catchall:
         # extract the path from the catchall "..,loggingfile=path,.."
-        _path = findall(r'loggingfile=([^,]+)', catchall)
-        if _path:
-            path = _path[0]
-            logger.debug(f'found path in catchall: {path}')
+        path = filename_catchall
 
     # fallback to known log file if no other file could be found
     logf = path if path else config.Payload.payloadstdout
