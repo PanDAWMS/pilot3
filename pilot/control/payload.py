@@ -726,7 +726,7 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
 
         if exit_code < 1000:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONFAILURE,
-                                                                             msg=error_diag)
+                                                                             msg=msg)
         else:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=msg)
     else:
