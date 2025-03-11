@@ -56,6 +56,7 @@ class TimedThread:
 
         self.timeout = _timeout
         self.is_timeout = False
+        self.result = None
 
     def execute(self, func, args, kwargs):
 
@@ -89,16 +90,18 @@ class TimedThread:
             self.is_timeout = True
             raise TimeoutException("Timeout reached", timeout=_timeout)
 
-        ret = self.result
+        if self.result:
+            ret = self.result
+            if ret[0]:
+                return ret[1]
 
-        if ret[0]:
-            return ret[1]
-
-        try:
-            _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])
-        except AttributeError:
-            exec("raise ret[1][0], ret[1][1], ret[1][2]")
-        raise _r
+            try:
+                _r = ret[1][0](ret[1][1]).with_traceback(ret[1][2])
+            except AttributeError:
+                exec("raise ret[1][0], ret[1][1], ret[1][2]")
+            raise _r
+        else:
+            raise TimeoutException("Unknown time-out related error, see batch log for more info")
 
 
 class TimedProcess:
