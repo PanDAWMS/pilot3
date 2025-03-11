@@ -54,7 +54,7 @@ from pilot.util.auxiliary import (
     check_for_final_server_update,
     encode_globaljobid,
     get_batchsystem_jobid,
-    get_display_info,
+    # get_display_info,
     get_job_scheduler_id,
     get_pilot_state,
     has_instruction_sets,
@@ -763,14 +763,15 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     # CPU instruction set
     instruction_sets = has_instruction_sets(['AVX2'])
-    product, vendor = get_display_info()
+    # if the product and vendor info is needed, better to cache it since it is expensive to get
+    # product, vendor = get_display_info()
     if instruction_sets:
         if 'cpuConsumptionUnit' in data:
             data['cpuConsumptionUnit'] += '+' + instruction_sets
         else:
             data['cpuConsumptionUnit'] = instruction_sets
-        if product and vendor:
-            logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
+        #if product and vendor:
+        #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
     # CPU architecture
     cpu_arch = get_cpu_arch()
