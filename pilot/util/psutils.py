@@ -17,8 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
 
+import getpass
 import logging
 import os
 import subprocess
@@ -410,3 +411,52 @@ def get_process_info(cmd: str, user: str = "", pid: int = 0) -> list:
         processes.append(num)
 
     return processes
+
+
+def list_processes_and_threads() -> list:
+    """
+    List all processes and threads owned by the current user.
+
+    This function corresponds to the command "ps -eo pid,ppid -m".
+
+    :return: list of processes and threads (list).
+    """
+    if not _is_psutil_available:
+        logger.warning('psutil not available, cannot check pilot CPU load')
+        return []
+
+    current_user = getpass.getuser()
+    processes = []
+    # Gather only processes owned by the current user (and skip PID 1)
+    for proc in psutil.process_iter(attrs=['pid', 'ppid', 'username']):
+        try:
+            info = proc.info
+            if info.get('username') != current_user:
+                continue
+            if info['pid'] == 1:
+                continue
+            processes.append((info['pid'], info['ppid'], proc))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    # Sort by PID so the output order roughly matches ps
+    processes.sort(key=lambda x: x[0])
+
+    lines = []
+    lines.append(f"{'PID':>6} {'PPID':>6}")
+    for pid, ppid, proc in processes:
+        ppid_str = str(ppid) if ppid is not None else '-'
+        # Print the main process line
+        lines.append(f"{pid:6} {ppid_str:6}")
+        # Try to fetch threads (if available)
+        try:
+            threads = proc.threads()
+        except psutil.AccessDenied:
+            threads = []
+        # Filter out the main thread (whose id equals the process id)
+        extra_threads = [t for t in threads if t.id != pid]
+        if extra_threads:
+            # Mimic ps -m: print one extra line with dashes for threads
+            lines.append(f"{'-':6} {'-':6}")
+
+    return lines
