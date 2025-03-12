@@ -602,6 +602,9 @@ def verify_running_processes(current_time: int, mt: MonitoringTime, pid: int) ->
     nproc_env = 0
 
     process_verification_time = convert_to_int(config.Pilot.process_verification_time, default=300)
+    logger.debug(f"process_verification_time={process_verification_time}")
+    logger.debug(f"current_time={current_time}")
+    logger.debug(f"ct_process={mt.get('ct_process')}")
     if current_time - mt.get('ct_process') > process_verification_time:
         # time to check the number of processes
         nproc = get_number_of_child_processes(pid)
