@@ -451,7 +451,7 @@ def list_processes_and_threads() -> list:
         # Try to fetch threads (if available)
         try:
             threads = proc.threads()
-        except psutil.AccessDenied:
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
             threads = []
         # Filter out the main thread (whose id equals the process id)
         extra_threads = [t for t in threads if t.id != pid]
