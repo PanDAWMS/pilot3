@@ -3100,8 +3100,9 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         break
                     else:
                         # note: when sending a state change to the server, the server might respond with 'tobekilled'
-                        if _job.state == 'failed':
-                            logger.warning('job state is \'failed\' - order log transfer and abort job_monitor() (2)')
+                        # only if combined with tobekilled, in which case errors.PANDAKILL is set
+                        if _job.state == 'failed' and errors.PANDAKILL in _job.piloterrorcodes:
+                            logger.warning('job state is \'failed\' and errors.PANDAKILL is set - order log transfer and abort job_monitor() (2)')
                             _job.stageout = 'log'  # only stage-out log file
                             put_in_queue(_job, queues.data_out)
                             #abort = True
