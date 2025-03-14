@@ -17,12 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Error codes set by the pilot."""
 
 import re
+from json import dumps
 from typing import Any
 
 
@@ -589,6 +590,20 @@ class ErrorCodes:
             error_message = diag
 
         return error_message
+
+    @classmethod
+    def generate_json(cls) -> dict:
+        """
+        Generate a JSON object containing the error codes and diagnostics.
+
+        :return: JSON object (dict).
+        """
+        error_dict = {}
+        for error_const, message in cls._error_messages.items():
+            # Assume each error constant is defined with a numeric value
+            error_dict[error_const] = [error_const.__name__, message]
+
+        return dumps(error_dict, indent=2)
 
     @classmethod
     def is_recoverable(cls, code: int = 0) -> bool:
