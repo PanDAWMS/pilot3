@@ -23,7 +23,7 @@
 """Error codes set by the pilot."""
 
 import re
-from json import dumps
+from json import dump
 from typing import Any
 
 
@@ -592,18 +592,15 @@ class ErrorCodes:
         return error_message
 
     @classmethod
-    def generate_json(cls) -> dict:
-        """
-        Generate a JSON object containing the error codes and diagnostics.
-
-        :return: JSON object (dict).
-        """
+    def generate_json(cls, filename: str = "error_codes.json"):
+        """Generate a JSON object containing the error codes and diagnostics."""
         error_dict = {}
         for error_const, message in cls._error_messages.items():
             # Assume each error constant is defined with a numeric value
-            error_dict[error_const] = [error_const.__name__, message]
+            error_dict[error_const] = [error_const, message]
 
-        return dumps(error_dict, indent=2)
+        with open(filename, "w", encoding='utf-8') as f:
+            dump(error_dict, f, indent=4)
 
     @classmethod
     def is_recoverable(cls, code: int = 0) -> bool:
