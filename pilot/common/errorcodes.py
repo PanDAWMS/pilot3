@@ -592,12 +592,24 @@ class ErrorCodes:
         return error_message
 
     @classmethod
+    def get_error_name(cls, code: int) -> str:
+        """
+        Returns the name of the error constant given its value.
+        Assumes that error constants are defined as uppercase integers in the class.
+        """
+        for name, value in cls.__dict__.items():
+            if isinstance(value, int) and value == code and name.isupper():
+                return name
+
+        return str(code)  # fallback if not found
+
+    @classmethod
     def generate_json(cls, filename: str = "error_codes.json"):
         """Generate a JSON object containing the error codes and diagnostics."""
         error_dict = {}
-        for error_const, message in cls._error_messages.items():
-            # Assume each error constant is defined with a numeric value
-            error_dict[error_const] = [error_const, message]
+        for error_code, message in cls._error_messages.items():
+            error_name = cls.get_error_name(error_code)
+            error_dict[error_code] = [error_name, message]
 
         with open(filename, "w", encoding='utf-8') as f:
             dump(error_dict, f, indent=4)
