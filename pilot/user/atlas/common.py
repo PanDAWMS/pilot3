@@ -2004,7 +2004,6 @@ def get_redundants() -> list:
                 "docs/",
                 "/venv/",
                 "/pilot3",
-                "/usr/*",
                 "usr/*",
                 "%1",
                 "open_remote_file_cmd.sh"]
