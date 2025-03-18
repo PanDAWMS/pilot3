@@ -2118,9 +2118,6 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
 
     list_work_dir(workdir)
 
-    # get list of redundant files and directories (to be removed)
-    dir_list = get_redundants()
-
     # remove core and pool.root files from AthenaMP sub directories
     logger.debug('cleaning up payload')
     try:
@@ -2134,6 +2131,8 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     remove_archives(workdir)
 
     # remove special files
+    # get list of redundant files and directories (to be removed)
+    dir_list = get_redundants()
     remove_special_files(workdir, dir_list)
 
     # verify_container_script(os.path.join(workdir, config.Container.container_script))
