@@ -160,7 +160,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
                 if maxrss_int > 0 and maxpss_int > 0:
                     if maxpss_int > maxrss_int:
                         diagnostics = f"job has exceeded the memory limit {maxpss_int} kB > {maxrss_int} kB " \
-                                      f"(queuedata.pilot_rss_grace ({pilot_rss_grace}) * queuedata.maxrss {maxrss} * scale {scale})"
+                                      f"({pilot_rss_grace}(queuedata.pilot_rss_grace) * {maxrss} (queuedata.maxrss) * {scale} (scale))"
                         logger.warning(diagnostics)
 
                         # Create a lockfile to let RunJob know that it should not restart the memory monitor after it has been killed
