@@ -75,7 +75,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Pilot 3'
-copyright = ''
+# copyright = ''
 author = 'Paul Nilsson'
 
 # The version info for the project you're documenting, acts as replacement for
