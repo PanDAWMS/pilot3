@@ -23,21 +23,22 @@
 
 """Functions for https interactions."""
 
+import ast
 try:
     import certifi
 except ImportError:
     certifi = None
-import ast
+import http.client as http_client
 import json
 import logging
 import os
 import platform
 import random
-import shlex
 try:
     import requests
 except ImportError:
     requests = None
+import shlex
 import socket
 import ssl
 import sys
@@ -260,7 +261,7 @@ def request(url: str, data: dict = None, plain: bool = False, secure: bool = Tru
                 failed = True
                 break
             try:
-                status, output, stderr = execute(req, obscure=obscure, timeout=130)
+                status, output, stderr = execute(req, obscure=obscure, timeout=config.Pilot.http_maxtime)
             except Exception as exc:
                 logger.warning(f'exception: {exc}')
                 failed = True
@@ -490,7 +491,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
         output = urllib.request.urlopen(req, context=context)
     except urllib.error.HTTPError as exc:
         logger.warning(f'server error ({exc.code}): {exc.read()}')
-    except urllib.error.URLError as exc:
+    except (urllib.error.URLError, http_client.RemoteDisconnected) as exc:
         logger.warning(f'connection error: {exc.reason}')
     else:
         exitcode = 0
@@ -640,9 +641,9 @@ def get_panda_server(url: str, port: int, update_server: bool = True) -> str:
     if not update_server:
         return pandaserver
 
-    # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
+    # set a timeout to prevent potential hanging due to problems with DNS resolution, or if the DNS
     # server is slow to respond
-    socket.setdefaulttimeout(10)
+    socket.setdefaulttimeout(config.Pilot.http_maxtime)
 
     # add randomization for PanDA server
     default = 'pandaserver.cern.ch'
@@ -885,7 +886,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
             if 'getProxy' not in url:
                 logger.info(f"response={ret}")
         logger.debug('sent request to server')
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+    except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
     else:
@@ -923,102 +924,6 @@ def install_ipv4_opener():
         logger.info("no http_proxy found, will use IPv4 without proxy")
         opener = urllib.request.build_opener(IPv4HTTPHandler())
     urllib.request.install_opener(opener)
-
-
-def request2_old(url: str = "",
-                 data: dict = None,
-                 secure: bool = True,
-                 compressed: bool = True,
-                 panda: bool = False) -> str or dict:
-    """
-    Send a request using HTTPS (using urllib module).
-
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :param secure: use secure connection (bool)
-    :param compressed: compress data (bool)
-    :param panda: True for panda server interactions (bool)
-    :return: server response (str or dict).
-    """
-    if data is None:
-        data = {}
-    # https might not have been set up if running in a [middleware] container
-    if not _ctx.cacert:
-        https_setup(None, get_pilot_version())
-
-    # should tokens be used?
-    auth_token, auth_origin = get_local_oidc_token_info()
-    use_oidc_token = auth_token and auth_origin and panda
-    auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
-    if not auth_token_content and use_oidc_token:
-        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
-        return ""
-
-    # get the relevant headers
-    headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    logger.info(f'headers = {hide_token(headers.copy())}')
-    logger.info(f'data = {data}')
-
-    # Encode data as compressed JSON
-    if compressed:
-        rdata_out = BytesIO()
-        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
-            f_gzip.write(json.dumps(data).encode())
-        data_json = rdata_out.getvalue()
-    else:
-        data_json = json.dumps(data).encode('utf-8')
-        #data_json = urllib.parse.quote(json.dumps(data))
-        #data_json = data_json.encode('utf-8')
-        #data_json = urllib.parse.urlencode(data).encode()
-
-    # Set up the request
-    req = urllib.request.Request(url, data_json, headers=headers)
-
-    # Create a context with certificate verification
-    #logger.debug(f'cacert={_ctx.cacert}')  # /alrb/x509up_u25606_prod
-    #logger.debug(f'capath={_ctx.capath}')  # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates
-    #context = ssl.create_default_context(cafile=_ctx.cacert, capath=_ctx.capath)
-    #logger.debug(f'context={context}')
-
-    ssl_context = get_ssl_context()
-    #ssl_context.verify_mode = ssl.CERT_REQUIRED
-    ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
-
-    if not secure:
-        ssl_context.verify_mode = False
-        ssl_context.check_hostname = False
-
-    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
-    # Send the request securely
-    try:
-        logger.debug('sending data to server')
-        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-            # Handle the response here
-            logger.debug(f"response.status={response.status}, response.reason={response.reason}")
-            ret = response.read().decode('utf-8')
-            if 'getProxy' not in url:
-                logger.debug(f"response={ret}")
-        logger.debug('sent request to server')
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
-        logger.warning(f'failed to send request: {exc}')
-        ret = ""
-    else:
-        if secure and isinstance(ret, str):
-            if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
-                ret = {'StatusCode': '0'}
-            elif ret.startswith('{') and ret.endswith('}'):
-                try:
-                    ret = json.loads(ret)
-                except json.JSONDecodeError as e:
-                    logger.warning(f'failed to parse response: {e}')
-            else:  # response="StatusCode=_some number_"
-                # Parse the query string into a dictionary
-                query_dict = parse_qs(ret)
-
-                # Convert lists to single values
-                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
-
-    return ret
 
 
 def hide_token(headers: dict) -> dict:
@@ -1114,7 +1019,7 @@ def upload_file(url: str, path: str) -> bool:
             response_data = response.read()
             # Handle response
             ret = response_data.decode('utf-8')
-    except urllib.error.URLError as e:
+    except (urllib.error.URLError, http_client.RemoteDisconnected) as e:
         # Handle URL errors
         logger.warning(f"URL Error: {e}")
         ret = str(e)
@@ -1149,7 +1054,7 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     try:
         with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=timeout) as response:
             content = response.read()
-    except urllib.error.URLError as exc:
+    except (urllib.error.URLError, http_client.RemoteDisconnected) as exc:
         logger.warning(f"error occurred with urlopen: {exc.reason}")
         # Handle the error, set content to None or handle as needed
         content = ""
