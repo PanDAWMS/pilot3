@@ -315,6 +315,8 @@ def get_cpu_model():
     if not modelstring:
         modelstring = "UNKNOWN"
 
+    logger.debug(f"cpu model: {modelstring}")
+
     return modelstring
 
 
