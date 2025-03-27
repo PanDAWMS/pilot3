@@ -2091,6 +2091,7 @@ def remove_special_files(workdir: str, dir_list: list):
         _files = [os.path.abspath(item) for item in files if item not in exclude]
         to_delete += _files
 
+    logger.debug(f"to delete: {to_delete}")
     for item in to_delete:
         if os.path.isfile(item):
             remove(item)
@@ -2116,9 +2117,15 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     logger.debug("removing redundant files prior to log creation")
     workdir = os.path.abspath(workdir)
 
+    logger.debug(f"workdir={workdir}")
+    from pilot.util.filehandling import mkdirs, copy
+    mkdirs(os.path.join(workdir, 'usr'))
+    logger.debug(f"created {workdir}/usr")
+    copy("setup.stdout", os.path.join(workdir, 'usr'))
+
     list_work_dir(workdir)
 
-    # remove core and pool.root files from AthenaMP sub directories
+    # remove core and pool.root files from AthenaMP subdirectories
     logger.debug('cleaning up payload')
     try:
         cleanup_payload(workdir, outputfiles, removecores=not debugmode)
@@ -2133,6 +2140,8 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     # remove special files
     # get list of redundant files and directories (to be removed)
     dir_list = get_redundants()
+
+    logger.debug(f"dir list={dir_list}")
     remove_special_files(workdir, dir_list)
 
     # verify_container_script(os.path.join(workdir, config.Container.container_script))
@@ -2160,6 +2169,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
             logger.debug(f"removing \'{additional}\' from workdir={workdir}")
             remove_dir_tree(path)
 
+    logger.debug("usr should not be here:")
     list_work_dir(workdir)
 
 
