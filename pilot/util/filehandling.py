@@ -504,6 +504,8 @@ def remove_dir_tree(path: str) -> int:
     except OSError as exc:
         logger.warning(f"failed to remove directory: {path} ({exc.errno}, {exc.strerror})")
         return -1
+    logger.debug(f'removed {path}')
+
     return 0
 
 
