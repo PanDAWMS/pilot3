@@ -198,6 +198,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
         errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
         errors.PROXYTOOSHORT: [80, "Proxy too short"],  # added to traces object
+        errors.REACHEDMAXTIME: [81, "Reached maximum time limit"],  # added to traces object
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
