@@ -491,7 +491,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
         output = urllib.request.urlopen(req, context=context)
     except urllib.error.HTTPError as exc:
         logger.warning(f'server error ({exc.code}): {exc.read()}')
-    except (urllib.error.URLError, http_client.RemoteDisconnected) as exc:
+    except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
         logger.warning(f'connection error: {exc.reason}')
     else:
         exitcode = 0
@@ -886,7 +886,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
             if 'getProxy' not in url:
                 logger.info(f"response={ret}")
         logger.debug('sent request to server')
-    except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError) as exc:
+    except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
         logger.warning(f'failed to send request: {exc}')
         ret = ""
     else:
@@ -1019,9 +1019,9 @@ def upload_file(url: str, path: str) -> bool:
             response_data = response.read()
             # Handle response
             ret = response_data.decode('utf-8')
-    except (urllib.error.URLError, http_client.RemoteDisconnected) as e:
+    except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as e:
         # Handle URL errors
-        logger.warning(f"URL Error: {e}")
+        logger.warning(f"exception caught in urlopen: {e}")
         ret = str(e)
 
     if ret == 'ok':
@@ -1054,7 +1054,7 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     try:
         with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=timeout) as response:
             content = response.read()
-    except (urllib.error.URLError, http_client.RemoteDisconnected) as exc:
+    except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
         logger.warning(f"error occurred with urlopen: {exc.reason}")
         # Handle the error, set content to None or handle as needed
         content = ""
