@@ -456,7 +456,7 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
 
-        if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
+        if final:  # and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
 
         if final and state in {'finished', 'holding', 'failed'}:
@@ -3025,11 +3025,17 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         error_code = errors.PANDAKILL
                     elif os.environ.get('REACHED_MAXTIME', None):
                         # the batch system max time has been reached, time to abort (in the next step)
-                        logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
+                        logger.info('REACHED_MAXTIME seen by job monitor - sleeping up to 30 s before aborting job')
+                        counter = 0
+                        while os.environ['SERVER_UPDATE'] != SERVER_UPDATE_FINAL and counter < 30:
+                            time.sleep(1)
+                            counter += 1
+
                         if not args.graceful_stop.is_set():
                             logger.info('setting graceful_stop since it was not set already')
                             args.graceful_stop.set()
                         error_code = errors.REACHEDMAXTIME
+
                     if error_code:
                         jobs[i].state = 'failed'
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
