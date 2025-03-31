@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 import logging
 import os
@@ -37,6 +37,7 @@ from pilot.util.filehandling import (
     remove_dir_tree
 )
 from pilot.util.processgroups import kill_process_group
+from pilot.util.psutils import list_processes_and_threads
 from pilot.util.timer import timeout
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,21 @@ def dump_stack_trace(pid: int):
         logger.info("skipping pstack dump for zombie process")
 
 
+def get_ps_cache() -> str:
+    """
+    Return the corresponding "ps -eo pid,ppid -m" command output (the psutil alternative is preferred).
+
+    :return: ps command output (str).
+    """
+    _ps_cache = list_processes_and_threads()
+    if _ps_cache:
+        ps_cache = "\n".join(_ps_cache)
+    else:
+        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+
+    return ps_cache
+
+
 def kill_processes(pid: int, korphans: bool = True, ps_cache: str = None, nap: int = 10):
     """
     Kill process belonging to the process group that the given pid belongs to.
@@ -203,7 +219,7 @@ def kill_processes(pid: int, korphans: bool = True, ps_cache: str = None, nap: i
         # firstly find all the children process IDs to be killed
         children = []
         if not ps_cache:
-            _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+            ps_cache = get_ps_cache()
         find_processes_in_group(children, pid, ps_cache)
 
         # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -288,7 +304,7 @@ def kill_child_processes(pid: int, ps_cache: str = None):
     # firstly find all the children process IDs to be killed
     children = []
     if not ps_cache:
-        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        ps_cache = get_ps_cache()
     find_processes_in_group(children, pid, ps_cache)
 
     # reverse the process order so that the athena process is killed first (otherwise the stdout will be truncated)
@@ -370,7 +386,7 @@ def get_number_of_child_processes(pid: int) -> int:
     children = []
     n = 0
     try:
-        _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True)
+        ps_cache = get_ps_cache()
         find_processes_in_group(children, pid, ps_cache)
     except Exception as error:
         logger.warning(f"exception caught in find_processes_in_group: {error}")
@@ -600,7 +616,7 @@ def get_current_cpu_consumption_time(pid: int) -> float:
     """
     # get all the child processes
     children = []
-    _, ps_cache, _ = execute("ps -eo pid,ppid -m", mute=True, timeout=60)
+    ps_cache = get_ps_cache()
     if ps_cache:
         find_processes_in_group(children, pid, ps_cache)
     else:

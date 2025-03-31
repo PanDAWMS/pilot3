@@ -1984,8 +1984,8 @@ def get_redundants() -> list:
                 "*proxy",
                 "*runcontainer*",
                 "*job.log.tgz",
-                "pandawnutil/*",
-                "src/*",
+                "pandawnutil",
+                "src",
                 "singularity_cachedir",
                 "apptainer_cachedir",
                 "_joproxy15",
@@ -1993,17 +1993,18 @@ def get_redundants() -> list:
                 "Process",
                 "merged_lhef._0.events-new",
                 "panda_secrets.json",
-                "singularity/*",
-                "apptainer/*",
+                "singularity",
+                "apptainer",
                 "/cores",
                 "/panda_pilot*",
                 "/work",
                 "README*",
                 "MANIFEST*",
                 "*.part*",
-                "docs/",
-                "/venv/",
+                "docs",
+                "/venv",
                 "/pilot3",
+                "usr",
                 "%1",
                 "open_remote_file_cmd.sh"]
 
@@ -2115,13 +2116,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     logger.debug("removing redundant files prior to log creation")
     workdir = os.path.abspath(workdir)
 
-    list_work_dir(workdir)
-
-    # get list of redundant files and directories (to be removed)
-    dir_list = get_redundants()
-
-    # remove core and pool.root files from AthenaMP sub directories
-    logger.debug('cleaning up payload')
+    # remove core and pool.root files from AthenaMP subdirectories
     try:
         cleanup_payload(workdir, outputfiles, removecores=not debugmode)
     except OSError as exc:
@@ -2129,16 +2124,17 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
 
     # explicitly remove any soft linked archives (.a files)
     # since they will be dereferenced by the tar command (--dereference option)
-    logger.debug('removing archives')
     remove_archives(workdir)
 
     # remove special files
+    # get list of redundant files and directories (to be removed)
+    dir_list = get_redundants()
+
     remove_special_files(workdir, dir_list)
 
     # verify_container_script(os.path.join(workdir, config.Container.container_script))
 
     # run a second pass to clean up any broken links
-    logger.debug('cleaning up broken links')
     cleanup_broken_links(workdir)
 
     # remove any present user workDir

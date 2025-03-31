@@ -52,7 +52,6 @@ from pilot.util.constants import (
     PILOT_MULTIJOB_START_TIME,
     PILOT_START_TIME,
     SERVER_UPDATE_NOT_DONE,
-    SUCCESS,
 )
 from pilot.util.cvmfs import (
     cvmfs_diagnostics,
@@ -836,7 +835,6 @@ def get_proper_exit_code() -> (int, int):
                 logging.getLogger(__name__).info(
                     f"pilot has finished ({trace.pilot['nr_jobs']} jobs were processed)"
                 )
-            exitcode = SUCCESS
         elif trace.pilot["state"] == FAILURE:
             logging.critical("pilot workflow failure -- aborting")
         elif trace.pilot["state"] == ERRNO_NOJOBS:
