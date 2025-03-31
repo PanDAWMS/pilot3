@@ -198,6 +198,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.PANDAQUEUENOTACTIVE: [78, "PanDA queue is not active"],
         errors.COMMUNICATIONFAILURE: [79, "PanDA server communication failure"],
         errors.PROXYTOOSHORT: [80, "Proxy too short"],  # added to traces object
+        errors.REACHEDMAXTIME: [81, "Reached maximum time limit"],  # added to traces object
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
@@ -367,9 +368,9 @@ def check_for_final_server_update(update_server: bool) -> None:
     """
     Check for the final server update.
 
-    Do not set graceful stop if pilot has not finished sending the final job update
-    i.e. wait until SERVER_UPDATE is DONE_FINAL. This function sleeps for a maximum
-    of 20*30 s until SERVER_UPDATE env variable has been set to SERVER_UPDATE_FINAL.
+    Do not set graceful stop if pilot has not finished sending the final job update.
+    This function sleeps for a maximum of 20*30 s until SERVER_UPDATE env variable has been set
+    to SERVER_UPDATE_FINAL.
 
     :param update_server: args.update_server (bool).
     """
@@ -378,6 +379,8 @@ def check_for_final_server_update(update_server: bool) -> None:
 
     # abort if in startup stage or if in final update stage
     server_update = os.environ.get('SERVER_UPDATE', '')
+    logger.info(f'current server update state: {server_update}')
+    logger.info(f'update_server={update_server}')
     if server_update == SERVER_UPDATE_NOT_DONE:
         return
 

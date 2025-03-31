@@ -314,7 +314,7 @@ class Fit():
         if len(self._x) != len(self._y):
             raise NotSameLength("input data (lists) have different lengths")
 
-        logger.info(f'model: {self._model}, x: {self._x}, y: {self._y}')
+        logger.debug(f'model: {self._model}, x: {self._x}, y: {self._y}')
         # base calculations
         if self._model == "linear":
             self._ss = sum_square_dev(self._x)

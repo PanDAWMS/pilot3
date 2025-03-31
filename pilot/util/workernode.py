@@ -273,6 +273,8 @@ def get_cpu_model():
     """
     Get cpu model and cache size from /proc/cpuinfo.
 
+    If the cpu model is not found, the function will attempt to use lscpu instead.
+
     Example.
       model name      : Intel(R) Xeon(TM) CPU 2.40GHz
       cache size      : 512 KB
@@ -314,6 +316,18 @@ def get_cpu_model():
     # default return string if no info was found
     if not modelstring:
         modelstring = "UNKNOWN"
+
+    if modelstring == "UNKNOWN":
+        # try to get the model string from lscpu instead
+        _, stdout = lscpu()
+        if stdout:
+            # extract the model string from the lscpu output
+            for line in stdout.split('\n'):
+                if line.find("Model name") != -1:
+                    modelstring = line.split(":")[1].strip()
+                    break
+
+    logger.debug(f"cpu model: {modelstring}")
 
     return modelstring
 

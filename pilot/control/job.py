@@ -54,7 +54,7 @@ from pilot.util.auxiliary import (
     check_for_final_server_update,
     encode_globaljobid,
     get_batchsystem_jobid,
-    get_display_info,
+    # get_display_info,
     get_job_scheduler_id,
     get_pilot_state,
     has_instruction_sets,
@@ -456,7 +456,7 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         # does the server update contain any backchannel information? if so, update the job object
         handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
 
-        if final and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
+        if final:  # and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
 
         if final and state in {'finished', 'holding', 'failed'}:
@@ -763,14 +763,15 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     # CPU instruction set
     instruction_sets = has_instruction_sets(['AVX2'])
-    product, vendor = get_display_info()
+    # if the product and vendor info is needed, better to cache it since it is expensive to get
+    # product, vendor = get_display_info()
     if instruction_sets:
         if 'cpuConsumptionUnit' in data:
             data['cpuConsumptionUnit'] += '+' + instruction_sets
         else:
             data['cpuConsumptionUnit'] = instruction_sets
-        if product and vendor:
-            logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
+        #if product and vendor:
+        #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
     # CPU architecture
     cpu_arch = get_cpu_arch()
@@ -2187,7 +2188,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             logger.info(f'job {job.jobid} has start time={job.starttime}')
 
             # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
-            if "loggingfile" in job.infosys.queuedata.catchall:
+            if "setdebugmode" in job.infosys.queuedata.catchall:
                 set_debug_mode(job.jobid, args.url, args.port)
 
             # logger.info('resetting any existing errors')
@@ -3024,11 +3025,17 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         error_code = errors.PANDAKILL
                     elif os.environ.get('REACHED_MAXTIME', None):
                         # the batch system max time has been reached, time to abort (in the next step)
-                        logger.info('REACHED_MAXTIME seen by job monitor - abort everything')
+                        logger.info('REACHED_MAXTIME seen by job monitor - sleeping up to 30 s before aborting job')
+                        counter = 0
+                        while os.environ['SERVER_UPDATE'] != SERVER_UPDATE_FINAL and counter < 30:
+                            time.sleep(1)
+                            counter += 1
+
                         if not args.graceful_stop.is_set():
                             logger.info('setting graceful_stop since it was not set already')
                             args.graceful_stop.set()
                         error_code = errors.REACHEDMAXTIME
+
                     if error_code:
                         jobs[i].state = 'failed'
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
@@ -3099,8 +3106,9 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         break
                     else:
                         # note: when sending a state change to the server, the server might respond with 'tobekilled'
-                        if _job.state == 'failed':
-                            logger.warning('job state is \'failed\' - order log transfer and abort job_monitor() (2)')
+                        # only if combined with tobekilled, in which case errors.PANDAKILL is set
+                        if _job.state == 'failed' and errors.PANDAKILL in _job.piloterrorcodes:
+                            logger.warning('job state is \'failed\' and errors.PANDAKILL is set - order log transfer and abort job_monitor() (2)')
                             _job.stageout = 'log'  # only stage-out log file
                             put_in_queue(_job, queues.data_out)
                             #abort = True

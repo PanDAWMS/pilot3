@@ -17,12 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Error codes set by the pilot."""
 
 import re
+from json import dump
 from typing import Any
 
 
@@ -589,6 +590,29 @@ class ErrorCodes:
             error_message = diag
 
         return error_message
+
+    @classmethod
+    def get_error_name(cls, code: int) -> str:
+        """
+        Returns the name of the error constant given its value.
+        Assumes that error constants are defined as uppercase integers in the class.
+        """
+        for name, value in cls.__dict__.items():
+            if isinstance(value, int) and value == code and name.isupper():
+                return name
+
+        return str(code)  # fallback if not found
+
+    @classmethod
+    def generate_json(cls, filename: str = "error_codes.json"):
+        """Generate a JSON object containing the error codes and diagnostics."""
+        error_dict = {}
+        for error_code, message in cls._error_messages.items():
+            error_name = cls.get_error_name(error_code)
+            error_dict[error_code] = [error_name, message]
+
+        with open(filename, "w", encoding='utf-8') as f:
+            dump(error_dict, f, indent=4)
 
     @classmethod
     def is_recoverable(cls, code: int = 0) -> bool:
