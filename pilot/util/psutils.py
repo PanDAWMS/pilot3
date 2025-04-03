@@ -122,7 +122,7 @@ def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
                 logger.debug(f"command={command} is in {process.info['cmdline'][0]}")
                 logger.debug(f"ok returning pid={process.info['pid']}")
                 return process.info['pid']
-        except (psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.AccessDenied, psutil.ZombieProcess, KeyError):
             pass
 
     return None
@@ -179,7 +179,7 @@ def get_all_descendant_processes(parent_pid: int, top_pid: int = os.getpid()) ->
                     descendants.append((child_pid, cmdline))
                     descendants.extend(find_descendant_processes(child_pid, top_pid))
             return descendants
-        except (psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.AccessDenied, psutil.ZombieProcess, KeyError):
             return []
     all_descendant_processes = find_descendant_processes(parent_pid, top_pid)
 
@@ -404,7 +404,7 @@ def get_process_info(cmd: str, user: str = "", pid: int = 0) -> list:
                 num += 1
                 if proc.info['pid'] == pid:
                     processes = [proc.info['cpu_percent'], proc.info['memory_percent'], ' '.join(cmdline)]
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, KeyError):
             continue
 
     if processes:

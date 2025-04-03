@@ -151,6 +151,13 @@ def main() -> int:
     else:
         update_local_oidc_token_info(args.url, args.port)
 
+    # create and report the worker node map
+    # site = infosys.queuedata.resource
+    #if args.update_server and args.workerpilotstatusupdate:
+    #    send_worker_status(
+    #        "started", args.queue, args.url, args.port, logger, "IPv6"
+    #    )  # note: assuming IPv6, fallback in place
+
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
     # (must be defined per PQ if wanted). The pilot default is IPv6
@@ -905,6 +912,29 @@ def send_worker_status(
         logger.warning(
             "workerID/harvesterID not known, will not send worker status to server"
         )
+
+
+def send_workernode_map(
+    site: str,
+    url: str,
+    port: str,
+    internet_protocol_version: str,
+):
+    """
+    Send worker node map to the server.
+
+    :param site: ATLAS site name (str)
+    :param url: server url (str)
+    :param port: server port (str)
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
+    """
+    # worker node structure to be sent to the server
+    data = {}
+
+    # attempt to send the worker info to the server
+    send_update(
+        "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
+    )
 
 
 def set_lifetime():
