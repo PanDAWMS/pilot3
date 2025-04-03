@@ -478,3 +478,44 @@ def get_hepspec_per_core() -> str:
     logger.debug(f"cmd: {cmd}, stdout:\n{stdout}")
 
     return stdout
+
+
+def get_worker_node_map(site: str, host_name: str, cpu_model: str, cpus: int, sockets: int,
+                        cores_per_socket: int, threads_per_core: int, architecture: str, level: str,
+                        clock_speed: float, total_mem: int) -> dict:
+    """
+    Return a dictionary with the worker node map.
+
+    The worker node map is a dictionary with the local hardware specs collected by the pilot.
+    It gets reported to the PanDA server with the getJob call.
+
+    The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
+
+    :param site: ATLAS site name from PQ.resource (str)
+    :param host_name: host name (str)
+    :param cpu_model: CPU model (str)
+    :param cpus: number of CPUs (int)
+    :param sockets: number of sockets (int)
+    :param cores_per_socket: number of cores per socket (int)
+    :param threads_per_core: number of threads per core (int)
+    :param architecture: CPU architecture (str)
+    :param level: CPU architecture level (str)
+    :param clock_speed: clock speed (float)
+    :param total_mem: total memory (int)
+    :return: worker node map (dict).
+    """
+    data = {
+        "site": site,
+        "host_name": host_name,  # "slot1@wn1.cern.ch",
+        "cpu_model": cpu_model,  # "AMD EPYC 7B12",
+        "n_logical_cpus": cpus,
+        "n_sockets": sockets,
+        "cores_per_socket": cores_per_socket,
+        "threads_per_core": threads_per_core,
+        "cpu_architecture": architecture,   # "x86_64",
+        "cpu_architecture_level": level,  # "x86_64-v3",
+        "clock_speed": clock_speed,
+        "total_memory": total_mem,
+    }
+
+    return data
