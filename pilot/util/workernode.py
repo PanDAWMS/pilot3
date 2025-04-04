@@ -17,11 +17,12 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
+import logging
 import os
 import re
-import logging
+import subprocess
 from shutil import which
 
 #from subprocess import getoutput
@@ -480,6 +481,38 @@ def get_hepspec_per_core() -> str:
     return stdout
 
 
+def get_total_local_disk_size() -> int:
+    """
+    Run the lsblk command and capture the output.
+
+    The lsblk will only report local disks and not any mounted disks.
+
+    :return: total disk size in bytes (int).
+    """
+    result = subprocess.run(['lsblk', '-d', '-o', 'NAME,SIZE'], capture_output=True, text=True)
+
+    # Regular expression to match disk size (supports K,M,G,T)
+    size_pattern = re.compile(r'(\d+(\.\d+)?)([KMGTP])')
+
+    size_units = {'K': 1e3, 'M': 1e6, 'G': 1e9, 'T': 1e12, 'P': 1e15}
+    total_size_bytes = 0
+
+    try:
+        for line in result.stdout.strip().split('\n')[1:]:
+            parts = line.split()
+            if len(parts) == 2:
+                size_str = parts[1]
+                match = size_pattern.match(size_str)
+                if match:
+                    size_val = float(match.group(1))
+                    unit = match.group(3)
+                    total_size_bytes += size_val * size_units[unit]
+    except Exception:  # ignore any exceptions
+        pass
+
+    return total_size_bytes
+
+
 def get_workernode_map(site: str, cpus: int, sockets: int,
                        cores_per_socket: int, threads_per_core: int, architecture: str, level: str,
                        clock_speed: float, total_mem: int) -> dict:
@@ -514,6 +547,7 @@ def get_workernode_map(site: str, cpus: int, sockets: int,
         "cpu_architecture_level": level,  # "x86_64-v3",
         "clock_speed": clock_speed,
         "total_memory": total_mem,
+        # "total_local_disk": get_total_local_disk_size(),
     }
 
     return data
