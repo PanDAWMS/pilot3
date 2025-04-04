@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
@@ -78,7 +78,10 @@ from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
 from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
-from pilot.util.workernode import get_node_name
+from pilot.util.workernode import (
+    get_node_name,
+    get_workernode_map
+)
 
 errors = ErrorCodes()
 mainworkdir = ""
@@ -152,10 +155,9 @@ def main() -> int:
         update_local_oidc_token_info(args.url, args.port)
 
     # create and report the worker node map
-    # site = infosys.queuedata.resource
     #if args.update_server and args.workerpilotstatusupdate:
-    #    send_worker_status(
-    #        "started", args.queue, args.url, args.port, logger, "IPv6"
+    #    send_workernode_map(
+    #        infosys.queuedata.resource, args.url, args.port, "IPv6"
     #    )  # note: assuming IPv6, fallback in place
 
     # handle special CRIC variables via params
@@ -498,10 +500,18 @@ def get_args() -> Any:
         help="PanDA server URL",
     )
     arg_parser.add_argument(
-        "-p", "--port", dest="port", default=25443, help="PanDA server port"
+        "-p",
+        "--port",
+        dest="port",
+        type=int,
+        default=25443,
+        help="PanDA server port"
     )
     arg_parser.add_argument(
-        "--queuedata-url", dest="queuedata_url", default="", help="Queuedata server URL"
+        "--queuedata-url",
+        dest="queuedata_url",
+        default="",
+        help="Queuedata server URL"
     )
     arg_parser.add_argument(
         "--storagedata-url",
@@ -879,7 +889,7 @@ def send_worker_status(
     status: str,
     queue: str,
     url: str,
-    port: str,
+    port: int,
     logger: Any,
     internet_protocol_version: str,
 ):
@@ -888,12 +898,12 @@ def send_worker_status(
 
     Note: the function can fail, but if it does, it will be ignored.
 
-    :param status: 'started' or 'finished' (string).
-    :param queue: PanDA queue name (string).
-    :param url: server url (string).
-    :param port: server port (string).
-    :param logger: logging object.
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (string).
+    :param status: 'started' or 'finished' (str)
+    :param queue: PanDA queue name (str)
+    :param url: server url (str)
+    :param port: server port (int)
+    :param logger: logging object (object)
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
     """
     # worker node structure to be sent to the server
     data = {}
@@ -917,7 +927,7 @@ def send_worker_status(
 def send_workernode_map(
     site: str,
     url: str,
-    port: str,
+    port: int,
     internet_protocol_version: str,
 ):
     """
@@ -925,11 +935,11 @@ def send_workernode_map(
 
     :param site: ATLAS site name (str)
     :param url: server url (str)
-    :param port: server port (str)
+    :param port: server port (int)
     :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
     """
     # worker node structure to be sent to the server
-    data = {}
+    data = get_workernode_map(site)
 
     # attempt to send the worker info to the server
     send_update(

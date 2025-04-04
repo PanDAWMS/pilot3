@@ -269,7 +269,7 @@ def get_condor_node_name(nodename):
     return nodename
 
 
-def get_cpu_model():
+def get_cpu_model() -> str:
     """
     Get cpu model and cache size from /proc/cpuinfo.
 
@@ -281,7 +281,7 @@ def get_cpu_model():
 
     gives the return string "Intel(R) Xeon(TM) CPU 2.40GHz 512 KB".
 
-    :return: cpu model (string).
+    :return: cpu model (str).
     """
 
     cpumodel = ""
@@ -480,9 +480,9 @@ def get_hepspec_per_core() -> str:
     return stdout
 
 
-def get_worker_node_map(site: str, host_name: str, cpu_model: str, cpus: int, sockets: int,
-                        cores_per_socket: int, threads_per_core: int, architecture: str, level: str,
-                        clock_speed: float, total_mem: int) -> dict:
+def get_workernode_map(site: str, cpus: int, sockets: int,
+                       cores_per_socket: int, threads_per_core: int, architecture: str, level: str,
+                       clock_speed: float, total_mem: int) -> dict:
     """
     Return a dictionary with the worker node map.
 
@@ -492,8 +492,6 @@ def get_worker_node_map(site: str, host_name: str, cpu_model: str, cpus: int, so
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
     :param site: ATLAS site name from PQ.resource (str)
-    :param host_name: host name (str)
-    :param cpu_model: CPU model (str)
     :param cpus: number of CPUs (int)
     :param sockets: number of sockets (int)
     :param cores_per_socket: number of cores per socket (int)
@@ -506,8 +504,8 @@ def get_worker_node_map(site: str, host_name: str, cpu_model: str, cpus: int, so
     """
     data = {
         "site": site,
-        "host_name": host_name,  # "slot1@wn1.cern.ch",
-        "cpu_model": cpu_model,  # "AMD EPYC 7B12",
+        "host_name": get_node_name(),  # "slot1@wn1.cern.ch",
+        "cpu_model": get_cpu_model(),  # "AMD EPYC 7B12",
         "n_logical_cpus": cpus,
         "n_sockets": sockets,
         "cores_per_socket": cores_per_socket,
