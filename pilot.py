@@ -919,16 +919,15 @@ def send_worker_status(
             "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version
         )
     else:
-        logger.warning(
-            "workerID/harvesterID not known, will not send worker status to server"
-        )
+        logger.warning("workerID/harvesterID not known, will not send worker status to server")
 
 
 def send_workernode_map(
-    site: str,
-    url: str,
-    port: int,
-    internet_protocol_version: str,
+        site: str,
+        url: str,
+        port: int,
+        logger: Any,
+        internet_protocol_version: str,
 ):
     """
     Send worker node map to the server.
@@ -936,15 +935,18 @@ def send_workernode_map(
     :param site: ATLAS site name (str)
     :param url: server url (str)
     :param port: server port (int)
+    :param logger: logging object (object)
     :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
     """
     # worker node structure to be sent to the server
-    data = get_workernode_map(site)
-
-    # attempt to send the worker info to the server
-    send_update(
-        "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
-    )
+    try:
+        data = get_workernode_map(site)
+    except Exception as e:
+        logger.warning(f"exception caught: {e}")
+    else:
+        send_update(
+            "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
+        )
 
 
 def set_lifetime():
