@@ -155,10 +155,8 @@ def main() -> int:
         update_local_oidc_token_info(args.url, args.port)
 
     # create and report the worker node map
-    #if args.update_server and args.workerpilotstatusupdate:
-    #    send_workernode_map(
-    #        infosys.queuedata.resource, args.url, args.port, "IPv6"
-    #    )  # note: assuming IPv6, fallback in place
+    if args.update_server:
+        send_workernode_map(infosys.queuedata.resource, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
@@ -926,8 +924,8 @@ def send_workernode_map(
         site: str,
         url: str,
         port: int,
-        logger: Any,
         internet_protocol_version: str,
+        logger: Any,
 ):
     """
     Send worker node map to the server.
@@ -935,8 +933,8 @@ def send_workernode_map(
     :param site: ATLAS site name (str)
     :param url: server url (str)
     :param port: server port (int)
-    :param logger: logging object (object)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str)
+    :param logger: logging object (object).
     """
     # worker node structure to be sent to the server
     try:
@@ -944,9 +942,10 @@ def send_workernode_map(
     except Exception as e:
         logger.warning(f"exception caught: {e}")
     else:
-        send_update(
-            "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
-        )
+        logger.debug(f"could have sent:\n{data}")
+        #send_update(
+        #   "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
+        #)
 
 
 def set_lifetime():
