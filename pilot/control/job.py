@@ -138,11 +138,11 @@ from pilot.util.timing import (
 )
 from pilot.util.workernode import (
     collect_workernode_info,
-    get_cpu_arch,
     get_cpu_info,
     get_cpu_model,
     get_disk_space,
     get_node_name,
+    update_modelstring
 )
 
 logger = logging.getLogger(__name__)
@@ -754,8 +754,10 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
+    number_of_cores, ht, sockets, cpu_mhz, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
-    cpumodel, cpu_mhz = get_cpu_info(cpumodel)  # add the CPU cores if not present
+    if number_of_cores:
+        cpumodel = update_modelstring(cpumodel, number_of_cores, ht, sockets)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
     logger.debug(f"got CPU MHz: {cpu_mhz}")
     if cpu_mhz:
@@ -773,13 +775,11 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         #if product and vendor:
         #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
-    # CPU architecture
-    cpu_arch = get_cpu_arch()
-    if cpu_arch:
-        logger.debug(f'cpu arch={cpu_arch}')
-        data['cpu_architecture_level'] = cpu_arch
+    # CPU architecture level
+    if cpu_arch_level:
+        data['cpu_architecture_level'] = cpu_arch_level
         # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
-        if cpu_arch.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
+        if cpu_arch_level.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
             data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available

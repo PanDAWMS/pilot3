@@ -27,12 +27,20 @@ from shutil import which
 
 #from subprocess import getoutput
 
-from pilot.util.auxiliary import sort_words
-from pilot.common.exception import PilotException, ErrorCodes
-from pilot.util.container import execute
-#from pilot.util.filehandling import copy_pilot_source, copy
+from pilot.common.exception import (
+    PilotException,
+    ErrorCodes
+)
 from pilot.info import infosys
+from pilot.util.auxiliary import sort_words
+from pilot.util.config import config
+from pilot.util.container import execute
 from pilot.util.disk import disk_usage
+from pilot.util.filehandling import (
+    read_json,
+    write_json
+)
+from pilot.util.psutils import get_clock_speed
 
 logger = logging.getLogger(__name__)
 
@@ -68,47 +76,22 @@ def get_local_disk_space(path):
     return disk
 
 
-def get_meminfo():
+def get_total_memory() -> float:
     """
-    Return the total memory (in MB).
+    Return the total memory (in MB) from /proc/meminfo.
 
-    :return: memory (float).
+    :return: total memory in MB (float).
     """
+    try:
+        with open('/proc/meminfo') as f:
+            for line in f:
+                if 'MemTotal:' in line:
+                    mem_kb = int(line.split()[1])
+                    return round(mem_kb / 1024, 2)
+    except (FileNotFoundError, IOError, ValueError) as error:
+        logger.warning(f"exception caught when trying to read /proc/meminfo: {error}")
 
-    mem = 0.0
-    with open("/proc/meminfo", "r") as _fd:
-        mems = _fd.readline()
-        while mems:
-            if mems.upper().find("MEMTOTAL") != -1:
-                try:
-                    mem = float(mems.split()[1]) / 1024  # value listed by command as kB, convert to MB
-                except ValueError as error:
-                    logger.warning(f'exception caught while trying to convert meminfo: {error}')
-                break
-            mems = _fd.readline()
-
-    return mem
-
-
-def get_cpu_frequency():
-    """
-    Return the CPU frequency (in MHz).
-
-    :return: cpu (float).
-    """
-
-    cpu = 0.0
-    with open("/proc/cpuinfo", "r") as _fd:
-        lines = _fd.readlines()
-        for line in lines:
-            if line.find("cpu MHz") != -1:  # Python 2/3
-                try:
-                    cpu = float(line.split(":")[1])
-                except ValueError as error:
-                    logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
-                break  # command info is the same for all cores, so break here
-
-    return cpu
+    return 0.0
 
 
 def get_cpu_flags(sorted=True):
@@ -195,7 +178,7 @@ def collect_workernode_info(path=None):
     :return: memory (float), cpu (float), disk space (float).
     """
 
-    mem = get_meminfo()
+    mem = get_total_memory()
     cpu = get_cpu_frequency()
     try:
         disk = get_local_disk_space(path)
@@ -354,26 +337,49 @@ def lscpu():
     return ec, stdout
 
 
-def get_cpu_info(modelstring: str) -> (str, int):
+def get_partials_from_workernode_map() -> tuple[int, int, int, int, str, str]:
     """
-    Get core count, number of sockets and hyperthreading info from /proc/cpuinfo and update modelstring (CPU model).
+    Get numbers from a cache (the worker node map json) if it exists, otherwise reset variables to 0.
 
-    E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
-         -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
-
-    :param modelstring: CPU model info (str)
-    :return: updated CPU model info (str), CPU MHz (int).
+    :return: cores per socket (int), threads per core (int), clock_speed (int), sockets (int), architecture (str), architecture level (str).
     """
-    number_of_cores = 0
+    try:
+        filename = os.path.join(os.getcwd(), config.Workernode.map)
+        if os.path.exists(filename):
+            workernode_map = read_json(filename)
+            cores_per_socket = workernode_map.get('cores_per_socket', 0)
+            threads_per_core = workernode_map.get('threads_per_core', 0)
+            clock_speed = workernode_map.get('clock_speed', 0)
+            sockets = workernode_map.get('n_sockets', 0)
+            architecture = workernode_map.get('cpu_architecture', '')
+            architecture_level = workernode_map.get('cpu_architecture_level', '')
+            return cores_per_socket, threads_per_core, clock_speed, sockets, architecture, architecture_level
+    except Exception as e:
+        logger.warning(f'cannot read workernode map: {e}')
+
+    return 0, 0, 0, 0, "", ""
+
+
+def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
+    """
+    Get CPU information.
+
+    :return: number of cores (int), ht (str), sockets (int), clock speed (float), threads per core (int),
+    cores per socket (int), archictecture (str), architecture level (str).
+    """
+    # get numbers from a cache (the worker node map json) if it exists, otherwise reset variables to 0
+    cores_per_socket, threads_per_core, clock_speed, sockets, architecture, architecture_level = get_partials_from_workernode_map()
+    if cores_per_socket:
+        number_of_cores = cores_per_socket * sockets
+        ht = "HT" if threads_per_core else ""
+        return number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, architecture, architecture_level
 
     ec, stdout = lscpu()
     if ec:
-        return modelstring
+        return 0, "", 0, 0.0, 0, 0, "", ""
 
-    cores_per_socket = 0
-    threads_per_core = 0
-    cpu_mhz = 0
-    sockets = 0
+    # get the architecture level
+    architecture_level = get_cpu_arch()
 
     def get_number_for_pattern(pattern: str, line: str) -> int:
         number = None
@@ -387,30 +393,43 @@ def get_cpu_info(modelstring: str) -> (str, int):
         return number
 
     for line in stdout.split('\n'):
+        match = re.search(r"^Architecture:\s+(\S+)", line)
+        if match:
+            architecture = match.group(1)
+            continue
         threads_per_core = get_number_for_pattern(r'Thread\(s\)\ per\ core\:\ +(\d+)', line)
         if threads_per_core:
             continue
         cores_per_socket = get_number_for_pattern(r'Core\(s\)\ per\ socket\:\ +(\d+)', line)
         if cores_per_socket:
             continue
-        cpu_mhz = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
-        if cpu_mhz:
+        clock_speed = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
+        if clock_speed:
             continue
         sockets = get_number_for_pattern(r'Socket\(s\)\:\ +(\d+)', line)
         if sockets:
             break
 
+    # if the CPU frequency was not found in the command output, try to get it from psutil instead or from /proc/cpuinfo
+    if not clock_speed:
+        clock_speed = get_clock_speed() or get_cpu_frequency() or 0.0
+
     ht = "HT" if threads_per_core else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {cpu_mhz}')
+        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
+    else:
+        number_of_cores = 0
 
-    return update_modelstring(modelstring, number_of_cores, ht, sockets), cpu_mhz
+    return number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, architecture, architecture_level
 
 
 def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets: int) -> str:
     """
     Update the model string with the number of cores, hyperthreading info and number of sockets.
+
+    E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
+         -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
 
     :param modelstring: CPU model info (str)
     :param number_of_cores: number of cores (int)
@@ -513,9 +532,26 @@ def get_total_local_disk_size() -> int:
     return total_size_bytes
 
 
-def get_workernode_map(site: str, cpus: int, sockets: int,
-                       cores_per_socket: int, threads_per_core: int, architecture: str, level: str,
-                       clock_speed: float, total_mem: int) -> dict:
+def get_cpu_frequency() -> float:
+    """
+    Get the CPU frequency (in MHz) from /proc/cpuinfo.
+
+    This function is only used if psutil cannot provice the clock speed.
+
+    :return: CPU speed (float).
+    """
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if "cpu MHz" in line:
+                    return float(line.strip().split(":")[1])
+    except (FileNotFoundError, IOError, ValueError, KeyError):
+        pass
+
+    return 0.0
+
+
+def get_workernode_map(site: str) -> dict:
     """
     Return a dictionary with the worker node map.
 
@@ -525,29 +561,30 @@ def get_workernode_map(site: str, cpus: int, sockets: int,
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
     :param site: ATLAS site name from PQ.resource (str)
-    :param cpus: number of CPUs (int)
-    :param sockets: number of sockets (int)
-    :param cores_per_socket: number of cores per socket (int)
-    :param threads_per_core: number of threads per core (int)
-    :param architecture: CPU architecture (str)
-    :param level: CPU architecture level (str)
-    :param clock_speed: clock speed (float)
-    :param total_mem: total memory (int)
     :return: worker node map (dict).
     """
+    number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, cpu_architecture, cpu_architecture_level = get_cpu_info()
+    logical_cpus = number_of_cores * (2 if ht else 1)
     data = {
         "site": site,
         "host_name": get_node_name(),  # "slot1@wn1.cern.ch",
         "cpu_model": get_cpu_model(),  # "AMD EPYC 7B12",
-        "n_logical_cpus": cpus,
+        "n_logical_cpus": logical_cpus,
         "n_sockets": sockets,
         "cores_per_socket": cores_per_socket,
         "threads_per_core": threads_per_core,
-        "cpu_architecture": architecture,   # "x86_64",
-        "cpu_architecture_level": level,  # "x86_64-v3",
+        "cpu_architecture": cpu_architecture,   # "x86_64",
+        "cpu_architecture_level": cpu_architecture_level,  # "x86_64-v3",
         "clock_speed": clock_speed,
-        "total_memory": total_mem,
+        "total_memory": get_total_memory(),
         # "total_local_disk": get_total_local_disk_size(),
     }
+
+    # store the workernode map for caching
+    try:
+        filename = os.path.join(os.getcwd(), config.Workernode.map)
+        write_json(data, filename)
+    except Exception as exc:
+        logger.warning(f'failed to write workernode map: {exc}')
 
     return data
