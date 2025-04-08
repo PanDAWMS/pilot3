@@ -754,7 +754,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
-    number_of_cores, ht, sockets, cpu_mhz, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
+    number_of_cores, ht, sockets, cpu_mhz, _, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
     if number_of_cores:
         cpumodel = update_modelstring(cpumodel, number_of_cores, ht, sockets)  # add the CPU cores if not present
