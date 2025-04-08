@@ -156,7 +156,10 @@ def main() -> int:
 
     # create and report the worker node map
     if args.update_server:
-        send_workernode_map(infosys.queuedata.resource, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
+        try:
+            send_workernode_map(infosys.queuedata.resource, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
+        except Exception as error:
+            logger.warning(f"exception caught when sending workernode map: {error}")
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
