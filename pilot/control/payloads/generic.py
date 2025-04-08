@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Executor module for generic payloads."""
@@ -127,8 +127,6 @@ class Executor:
         # write time stamps to pilot timing file
         if not update_time:
             update_time = time.time()
-        logger.debug(f"setting post-setup time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
 
     def improve_post_setup(self):
