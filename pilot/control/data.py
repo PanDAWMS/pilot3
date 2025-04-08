@@ -854,6 +854,13 @@ def copy_special_files(tardir: str):
     else:
         logger.warning(f'cannot find pilot heartbeat file: {path}')
 
+    # store the workernode map
+    try:
+        path = os.path.join(pilot_home, config.Workernode.map)
+        copy(path, tardir)
+    except (NoSuchFile, FileHandlingFailure) as exc:
+        logger.warning(f'failed to copy workernode map: {exc}')
+
 
 def get_tar_timeout(dirsize: float) -> int:
     """

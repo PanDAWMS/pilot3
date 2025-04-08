@@ -397,17 +397,21 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
         if match:
             architecture = match.group(1)
             continue
-        threads_per_core = get_number_for_pattern(r'Thread\(s\)\ per\ core\:\ +(\d+)', line)
-        if threads_per_core:
+        n = get_number_for_pattern(r'Thread\(s\)\ per\ core\:\ +(\d+)', line)
+        if n:
+            threads_per_core = n
             continue
-        cores_per_socket = get_number_for_pattern(r'Core\(s\)\ per\ socket\:\ +(\d+)', line)
-        if cores_per_socket:
+        n = get_number_for_pattern(r'Core\(s\)\ per\ socket\:\ +(\d+)', line)
+        if n:
+            cores_per_socket = n
             continue
-        clock_speed = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
-        if clock_speed:
+        m = get_number_for_pattern(r'CPU\ MHz\:\ +(\d+)', line)
+        if m:
+            clock_speed = m
             continue
-        sockets = get_number_for_pattern(r'Socket\(s\)\:\ +(\d+)', line)
-        if sockets:
+        n = get_number_for_pattern(r'Socket\(s\)\:\ +(\d+)', line)
+        if n:
+            sockets = n
             break
 
     # if the CPU frequency was not found in the command output, try to get it from psutil instead or from /proc/cpuinfo
@@ -565,6 +569,7 @@ def get_workernode_map(site: str) -> dict:
     """
     number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, cpu_architecture, cpu_architecture_level = get_cpu_info()
     logical_cpus = number_of_cores * (2 if ht else 1)
+    mem = int(get_total_memory())
     data = {
         "site": site,
         "host_name": get_node_name(),  # "slot1@wn1.cern.ch",
@@ -576,14 +581,14 @@ def get_workernode_map(site: str) -> dict:
         "cpu_architecture": cpu_architecture,   # "x86_64",
         "cpu_architecture_level": cpu_architecture_level,  # "x86_64-v3",
         "clock_speed": clock_speed,
-        "total_memory": get_total_memory(),
-        # "total_local_disk": get_total_local_disk_size(),
+        "total_memory": mem,
+        "total_local_disk": get_total_local_disk_size(),
     }
 
     # store the workernode map for caching
     try:
         filename = os.path.join(os.getcwd(), config.Workernode.map)
-        write_json(data, filename)
+        write_json(filename, data)
     except Exception as exc:
         logger.warning(f'failed to write workernode map: {exc}')
 
