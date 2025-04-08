@@ -188,7 +188,7 @@ class TraceReport(dict):
 
         return True
 
-    def send(self) -> bool:
+    def send(self) -> bool:  # noqa: C901
         """
         Send trace to rucio server using curl.
 
@@ -231,7 +231,12 @@ class TraceReport(dict):
             data_dict = correct_none_types(data_dict)
             logger.debug(f'data_dict={data_dict}')
             ret = request2(url=url, data=data_dict, secure=False, compressed=False)
+            if isinstance(ret, str):
+                logger.warning(f"tracing server returned a string instead of a dictionary: {ret}")
+                return False
+
             logger.info(f'received: {ret}')
+
             if ret:
                 logger.info("tracing report sent")
                 return True

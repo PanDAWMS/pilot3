@@ -583,6 +583,10 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
 
+    if isinstance(res, str):
+        logger.warning(f"panda server returned a string instead of a dictionary: {res}")
+        return None
+
     if res:
         txt = f'server {update_function} request completed in {int(time()) - time_before}s'
         if job:
@@ -887,8 +891,8 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
                 logger.info(f"response={ret}")
         logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
-        logger.warning(f'failed to send request: {exc}')
-        ret = ""
+        ret = f"failed to send request: {exc}"
+        logger.warning(ret)
     else:
         if secure and isinstance(ret, str):
             if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)

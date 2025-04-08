@@ -508,8 +508,16 @@ def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, i
             # open connection
             ret = https.request2(f'{pandaserver}/server/panda/getStatus', data=data)
             logger.debug(f"request2 response: {ret}")
-            if not ret:
+            if not ret or isinstance(ret, str):
                 ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
+
+            if isinstance(ret, str):  # string response in case of time-out
+                logger.warning(f"dispatcher did not return allowed values: {ret}")
+                status = "unknown"
+                attempt_nr = -1
+                status_code = 20
+                continue
+
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -1694,7 +1702,7 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
         else:
             res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
             logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
-            if not res:  # fallback to curl solution
+            if not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
     return res
@@ -1737,13 +1745,13 @@ def locate_job_definition(args: Any) -> str:
     return path
 
 
-def get_job_definition(queues: namedtuple, args: object) -> dict:
+def get_job_definition(queues: namedtuple, args: object) -> dict or str:
     """
     Get a job definition from a source (server or pre-placed local file).
 
     :param queues: queues object (namedtuple)
     :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :return: job definition (dict).
+    :return: job definition (dict or str).
     """
     res = {}
     path = locate_job_definition(args)
@@ -2129,6 +2137,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(queues, args)
+        if isinstance(res, str):
+            logger.warning(f"get_job_definition() returned a string (setting it to None): {res}")
+            res = None
+
         #res['debug'] = True
         if res:
             dump_job_definition(res)
