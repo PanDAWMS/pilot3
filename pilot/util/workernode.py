@@ -40,6 +40,7 @@ from pilot.util.filehandling import (
     read_json,
     write_json
 )
+from pilot.util.math import convert_b_to_gb
 from pilot.util.psutils import get_clock_speed
 
 logger = logging.getLogger(__name__)
@@ -371,7 +372,7 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
     cores_per_socket, threads_per_core, clock_speed, sockets, architecture, architecture_level = get_partials_from_workernode_map()
     if cores_per_socket:
         number_of_cores = cores_per_socket * sockets
-        ht = "HT" if threads_per_core else ""
+        ht = "HT" if threads_per_core == 2 else ""
         return number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, architecture, architecture_level
 
     ec, stdout = lscpu()
@@ -418,7 +419,7 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
     if not clock_speed:
         clock_speed = get_clock_speed() or get_cpu_frequency() or 0.0
 
-    ht = "HT" if threads_per_core else ""
+    ht = "HT" if threads_per_core == 2 else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
         logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
@@ -570,6 +571,11 @@ def get_workernode_map(site: str) -> dict:
     number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, cpu_architecture, cpu_architecture_level = get_cpu_info()
     logical_cpus = number_of_cores * (2 if ht else 1)
     mem = int(get_total_memory())
+    try:
+        total_local_disk = convert_b_to_gb(get_total_local_disk_size())
+    except ValueError:
+        total_local_disk = 0
+
     data = {
         "site": site,
         "host_name": get_node_name(),  # "slot1@wn1.cern.ch",
@@ -582,7 +588,7 @@ def get_workernode_map(site: str) -> dict:
         "cpu_architecture_level": cpu_architecture_level,  # "x86_64-v3",
         "clock_speed": clock_speed,
         "total_memory": mem,
-        "total_local_disk": get_total_local_disk_size(),
+        "total_local_disk": total_local_disk,
     }
 
     # store the workernode map for caching
