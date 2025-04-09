@@ -17,12 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """Generic user specific functionality."""
 
 import logging
 import os
+import re
 
 from signal import SIGTERM
 
@@ -110,10 +111,20 @@ def get_analysis_run_command(job: object, trf_name: str) -> str:
     # set up trfs
     if job.imagename == "":  # user jobs with no imagename defined
         cmd += f'./{trf_name} {job.jobparams}'
+    elif job.imagename:
+        # to run a script in a container, assume that the script name is contained in the jobparams
+        # but ignore everything else
+        match = re.search(r'\b[\w\-.]+\.sh\b', job.jobparams)
+        if match:
+            shell_script = match.group()
+            cmd += f'apptainer exec {job.imagename} {shell_script}'
+        else:
+            # if no script name is found, assume that the jobparams contain the full command
+            cmd += f'apptainer exec {job.imagename} {job.jobparams}'
     elif trf_name:
         cmd += f'./{trf_name} {job.jobparams}'
     else:
-        cmd += f'python {trf_name} {job.jobparams}'
+        cmd += f'python3 {trf_name} {job.jobparams}'
 
     return cmd
 
