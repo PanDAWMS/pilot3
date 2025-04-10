@@ -500,7 +500,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6') -> dict:
+def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 10) -> dict:
     """
     Send the update to the server using the given function and data.
 
@@ -510,9 +510,9 @@ def send_update(update_function: str, data: dict, url: str, port: int, job: JobD
     :param port: server port (int)
     :param job: job object (JobData)
     :param ipv: internet protocol version, IPv4 or IPv6 (str)
+    :param max_attempts: maximum number of attempts to send the update (int)
     :return: server response (dict).
     """
-    max_attempts = 10
     attempt = 0
     done = False
     res = None
@@ -573,12 +573,15 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     # adjust the server path if the new server API is being used
     if "api/v" in update_function:  # e.g. api/v1
         path = f"{pandaserver}/{update_function}"
+        compressed = False
     else:
         path = f'{pandaserver}/server/panda/{update_function}'
+        compressed = True
 
+    logger.debug(f"update_function = {update_function}, path = {path}")
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{path}', data=data, panda=True)
+        res = request2(f'{path}', data=data, panda=True, compressed=compressed)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
