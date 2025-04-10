@@ -570,9 +570,15 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     res = None
     time_before = int(time())
 
+    # adjust the server path if the new server API is being used
+    if "api/v" in update_function:  # e.g. api/v1
+        path = f"{pandaserver}/{update_function}"
+    else:
+        path = f'{pandaserver}/server/panda/{update_function}'
+
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data, panda=True)
+        res = request2(f'{path}', data=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -764,6 +770,7 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     # only add the content type if there is a body to send (that is of type application/json)
     if content_type:
         headers["Content-Type"] = content_type
+        headers["Accept"] = content_type
 
     return headers
 
