@@ -473,4 +473,4 @@ def get_clock_speed() -> float or None:
         return None
 
     freq = psutil.cpu_freq()  # scpufreq(current=2300, min=2300, max=2300)
-    return freq.current
+    return freq.current if freq is not None else 0.0
