@@ -804,7 +804,10 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
         else:
             logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
     else:
-        logger.warning(f'path does not exist: {path}')
+        if not path:
+            logger.warning('token could not be located (path is not set - make sure OIDC env vars are set)')
+        else:
+            logger.warning(f'path does not exist: {path}')
         return ""
 
     return auth_token_content
