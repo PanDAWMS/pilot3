@@ -749,13 +749,16 @@ def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None, content_type: str = "application/json") -> dict:
+def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None,
+                content_type: str = "application/json", accept: bool = False) -> dict:
     """
     Get the headers for the request.
 
     :param use_oidc_token: True if OIDC token should be used (bool)
     :param auth_token_content: token content (str)
     :param auth_origin: token origin (str)
+    :param content_type: content type (str)
+    :param accept: True if accept header should be added (bool)
     :return: headers (dict).
     """
     if use_oidc_token:
@@ -773,7 +776,8 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     # only add the content type if there is a body to send (that is of type application/json)
     if content_type:
         headers["Content-Type"] = content_type
-        headers["Accept"] = content_type
+        if accept:
+            headers["Accept"] = content_type
 
     return headers
 
@@ -859,8 +863,11 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
         return ""
 
+    # only add Accept to headers if new API is used
+    accept = True if "api/v" in url else False
+
     # get the relevant headers
-    headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
     logger.info(f'headers = {hide_token(headers.copy())}')
     logger.info(f'data = {data}')
 
