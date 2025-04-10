@@ -157,7 +157,7 @@ def main() -> int:
     # create and report the worker node map
     if args.update_server:
         try:
-            send_workernode_map(infosys.queuedata.resource, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
+            send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
 
@@ -917,7 +917,7 @@ def send_worker_status(
     # attempt to send the worker info to the server
     if data["workerID"] and data["harvesterID"]:
         send_update(
-            "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version
+            "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version, max_attempts=2
         )
     else:
         logger.warning("workerID/harvesterID not known, will not send worker status to server")
@@ -945,7 +945,7 @@ def send_workernode_map(
     except Exception as e:
         logger.warning(f"exception caught: {e}")
     else:
-        send_update("pilot/update_worker_node", data, url, port, ipv=internet_protocol_version)
+        send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
 
 
 def set_lifetime():
