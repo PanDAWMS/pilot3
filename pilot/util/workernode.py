@@ -556,7 +556,7 @@ def get_cpu_frequency() -> float:
     return 0.0
 
 
-def get_workernode_map(site: str) -> dict:
+def get_workernode_map(site: str, cache: bool = True) -> dict:
     """
     Return a dictionary with the worker node map.
 
@@ -566,6 +566,7 @@ def get_workernode_map(site: str) -> dict:
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
     :param site: ATLAS site name from PQ.resource (str)
+    :param cache: should the workernode map be cached? (bool)
     :return: worker node map (dict).
     """
     number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, cpu_architecture, cpu_architecture_level = get_cpu_info()
@@ -592,10 +593,11 @@ def get_workernode_map(site: str) -> dict:
     }
 
     # store the workernode map for caching
-    try:
-        filename = os.path.join(os.getcwd(), config.Workernode.map)
-        write_json(filename, data)
-    except Exception as exc:
-        logger.warning(f'failed to write workernode map: {exc}')
+    if cache:
+        try:
+            filename = os.path.join(os.getcwd(), config.Workernode.map)
+            write_json(filename, data)
+        except Exception as exc:
+            logger.warning(f'failed to write workernode map: {exc}')
 
     return data
