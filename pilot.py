@@ -945,10 +945,7 @@ def send_workernode_map(
     except Exception as e:
         logger.warning(f"exception caught: {e}")
     else:
-        logger.debug(f"could have sent:\n{data}")
-        #send_update(
-        #   "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
-        #)
+        send_update("pilot/update_worker_node", data, url, port, ipv=internet_protocol_version)
 
 
 def set_lifetime():
