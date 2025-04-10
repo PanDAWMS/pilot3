@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """Unit tests for pilot utils."""
 
@@ -27,7 +27,8 @@ import unittest
 from pilot.info import infosys
 from pilot.util.workernode import (
     collect_workernode_info,
-    get_disk_space
+    get_disk_space,
+    get_workernode_map
 )
 
 
@@ -71,6 +72,30 @@ class TestUtils(unittest.TestCase):
         diskspace = get_disk_space(infosys.queuedata)  ## FIX ME LATER
 
         self.assertEqual(type(diskspace), int)
+
+    def test_get_workernode_map_types(self):
+        data = get_workernode_map("TEST")
+
+        expected_types = {
+            "site": str,
+            "host_name": str,
+            "cpu_model": str,
+            "n_logical_cpus": int,
+            "n_sockets": int,
+            "cores_per_socket": int,
+            "threads_per_core": int,
+            "cpu_architecture": str,
+            "cpu_architecture_level": str,
+            "clock_speed": float,
+            "total_memory": int,
+            "total_local_disk": int,
+        }
+
+        for key, expected_type in expected_types.items():
+            with self.subTest(key=key):
+                self.assertIn(key, data, f"Key '{key}' is missing in the returned data")
+                self.assertIsInstance(data[key], expected_type,
+                                      f"Key '{key}' should be of type {expected_type.__name__} but got {type(data[key]).__name__}")
 
 
 if __name__ == '__main__':
