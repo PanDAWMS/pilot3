@@ -587,10 +587,13 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
         "threads_per_core": threads_per_core,
         "cpu_architecture": cpu_architecture,   # "x86_64",
         "cpu_architecture_level": cpu_architecture_level,  # "x86_64-v3",
-        "clock_speed": clock_speed,
         "total_memory": mem,
         "total_local_disk": total_local_disk,
     }
+
+    # the clock speed is optional since it is not available for ARM
+    if clock_speed and clock_speed > 0.0:
+        data["clock_speed"] = clock_speed
 
     # store the workernode map for caching
     if cache:
