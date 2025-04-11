@@ -573,15 +573,13 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     # adjust the server path if the new server API is being used
     if "api/v" in update_function:  # e.g. api/v1
         path = f"{pandaserver}/{update_function}"
-        compressed = False
     else:
         path = f'{pandaserver}/server/panda/{update_function}'
-        compressed = True
 
     logger.debug(f"update_function = {update_function}, path = {path}")
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{path}', data=data, panda=True, compressed=compressed)
+        res = request2(f'{path}', data=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -873,6 +871,8 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
     # encode data as compressed JSON
     if compressed:
+        if "api/v" in url:
+            headers['Content-Encoding'] = 'gzip'
         rdata_out = BytesIO()
         with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
             f_gzip.write(json.dumps(data).encode())
