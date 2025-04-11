@@ -61,7 +61,6 @@ from pilot.util.cvmfs import (
 from pilot.util.filehandling import (
     get_pilot_work_dir,
     mkdirs,
-    store_base_urls
 )
 from pilot.util.harvester import (
     is_harvester_mode,
@@ -1029,10 +1028,6 @@ if __name__ == "__main__":
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()
-
-    # store base URLs in a file if set
-    if args.baseurls:
-        store_base_urls(args.baseurls)
 
     # execute main function
     trace = main()

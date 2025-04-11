@@ -17,35 +17,38 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
+import glob
+import logging
 import os
 import re
-import glob
 from time import sleep
 from datetime import datetime
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import find_pattern_in_list
 from pilot.util.container import execute
-from pilot.util.filehandling import copy, head
+from pilot.util.filehandling import (
+    copy,
+    head,
+)
 
-import logging
 logger = logging.getLogger(__name__)
-
 errors = ErrorCodes()
 
 
-def get_analysis_trf(transform, workdir):
+def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int, str, str]:
     """
     Prepare to download the user analysis transform with curl.
+
     The function will verify the download location from a known list of hosts.
 
-    :param transform: full trf path (url) (string).
-    :param workdir: work directory (string).
-    :return: exit code (int), diagnostics (string), transform_name (string)
+    :param transform: full trf path (url) (str)
+    :param workdir: work directory (str)
+    :param base_urls: list of base urls (list)
+    :return: exit code (int), diagnostics (str), transform_name (str).
     """
-
     ec = 0
     diagnostics = ""
 
@@ -76,7 +79,7 @@ def get_analysis_trf(transform, workdir):
     original_base_url = ""
 
     # verify the base URL
-    for base_url in get_valid_base_urls():
+    for base_url in get_valid_base_urls(base_urls):
         if transform.startswith(base_url):
             original_base_url = base_url
             break
@@ -87,7 +90,7 @@ def get_analysis_trf(transform, workdir):
 
     # try to download from the required location, if not - switch to backup
     status = False
-    for base_url in get_valid_base_urls(order=original_base_url):
+    for base_url in get_valid_base_urls(base_urls, order=original_base_url):
         trf = re.sub(original_base_url, base_url, transform)
         logger.debug(f"attempting to download script: {trf}")
         status, diagnostics = download_transform(trf, transform_name, workdir)
@@ -109,28 +112,31 @@ def get_analysis_trf(transform, workdir):
     return ec, diagnostics, transform_name
 
 
-def get_valid_base_urls(order=None):
+def get_valid_base_urls(base_urls: list, order: str = None):
     """
     Return a list of valid base URLs from where the user analysis transform may be downloaded from.
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param order: order (string).
+    :param base_urls: list of base URLs (list)
+    :param order: order (str)
     :return: valid base URLs (list).
     """
-
     valid_base_urls = []
-    _valid_base_urls = ["https://storage.googleapis.com/drp-us-central1-containers",
-                        "https://pandaserver-doma.cern.ch/trf/user"]
+    if not base_urls:
+        base_urls = ["https://storage.googleapis.com/drp-us-central1-containers",
+                     "https://pandaserver-doma.cern.ch/trf/user"]
+
+    for base_url in base_urls:
+        if not base_url.startswith(("http://", "https://")):
+            valid_base_urls.append(f"http://{base_url}")
+            valid_base_urls.append(f"https://{base_url}")
+        else:
+            valid_base_urls.append(base_url)
 
     if order:
-        valid_base_urls.append(order)
-        for url in _valid_base_urls:
-            if url != order:
-                valid_base_urls.append(url)
-    else:
-        valid_base_urls = _valid_base_urls
+        valid_base_urls = [order] + [url for url in valid_base_urls if url != order]
 
     return valid_base_urls
 

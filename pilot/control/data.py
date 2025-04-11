@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
@@ -79,6 +79,7 @@ from pilot.util.filehandling import (
     rename_xrdlog,
     write_file,
 )
+from pilot.util.https import get_base_urls
 from pilot.util.middleware import (
     containerise_middleware,
     use_middleware_script
@@ -459,10 +460,13 @@ def copytool_in(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             # extract a job to stage-in its input
             job = queues.data_in.get(block=True, timeout=1)
 
+            # convert the base URLs for trf downloads to a list (most likely from an empty string)
+            base_urls = get_base_urls(args.baseurls)
+
             # does the user want to execute any special commands before stage-in?
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)  # Python 2/3
-            cmd = user.get_utility_commands(job=job, order=UTILITY_BEFORE_STAGEIN)
+            cmd = user.get_utility_commands(job=job, order=UTILITY_BEFORE_STAGEIN, base_urls=base_urls)
             if cmd:
                 _, stdout, stderr = execute(cmd.get('command'))
                 logger.debug('stdout=%s', stdout)

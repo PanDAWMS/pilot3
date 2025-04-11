@@ -1211,3 +1211,20 @@ def update_local_oidc_token_info(url: str, port: int):
             logger.debug('OIDC token has been refreshed')
     else:
         logger.debug('no OIDC token info to update')
+
+
+def get_base_urls(args_base_urls: str) -> list:
+    """
+    Get base URLs for transform download.
+
+    :param args_base_urls: base URLs (str)
+    :return: list of base URLs (list).
+    """
+    base_urls = args_base_urls.split(",") if args_base_urls else []
+    if not base_urls:
+        # try to get the list from an environmental variable instead
+        urls = os.getenv("PANDA_BASE_URLS", None)
+        if urls:
+            base_urls = urls.split(",") if urls else []
+
+    return base_urls

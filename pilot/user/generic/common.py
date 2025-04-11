@@ -35,6 +35,7 @@ from pilot.util.constants import (
     UTILITY_AFTER_PAYLOAD_STARTED
 )
 from pilot.util.filehandling import read_file
+from pilot.util.https import get_base_urls
 
 from .setup import get_analysis_trf
 
@@ -82,9 +83,10 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     # if job.imagename != "" or "--containerImage" in job.jobparams:
     #    job.transformation = os.path.join(os.path.dirname(job.transformation), "runcontainer")
     #    logger.warning('overwrote job.transformation, now set to: %s' % job.transformation)
-    if not args:  # bypass pylint complaint
-        pass
-    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
+    # convert the base URLs for trf downloads to a list (most likely from an empty string)
+    base_urls = get_base_urls(args.baseurls)
+
+    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
     logger.debug(f'user analysis trf: {trf_name}')
@@ -159,7 +161,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     #    piloterrors = []
 
 
-def get_utility_commands(order: int = None, job: object = None) -> dict:
+def get_utility_commands(order: int = None, job: object = None, base_urls: list = None) -> dict:
     """
     Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
@@ -175,9 +177,10 @@ def get_utility_commands(order: int = None, job: object = None) -> dict:
 
     :param order: optional sorting order (see pilot.util.constants) (int)
     :param job: optional job object (object)
+    :param base_urls: optional list of base URLs (list)
     :return: dictionary of utilities to be executed in parallel with the payload (dict).
     """
-    if order or job:  # to bypass pylint score 0
+    if order or job or base_urls:  # to bypass pylint score 0
         pass
 
     return {}
