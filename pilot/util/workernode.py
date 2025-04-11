@@ -568,40 +568,51 @@ def get_gpu_info() -> list:
 
     # Detect all GPUs using lspci
     try:
-        lspci_output = subprocess.check_output(['lspci', '-nnk']).decode('utf-8')
-        gpu_lines = re.findall(r'^(.*(?:VGA|3D controller).*)$', lspci_output, re.MULTILINE | re.IGNORECASE)
+        if which('lspci'):
+            lspci_output = subprocess.check_output(['lspci', '-nnk']).decode('utf-8')
+            gpu_lines = re.findall(r'^(.*(?:VGA|3D controller).*)$', lspci_output, re.MULTILINE | re.IGNORECASE)
 
-        has_nvidia_gpu = False
-        for line in gpu_lines:
-            gpu_entry = {'vendor_info': line.strip(), 'detailed_name': None}
-            gpu_info.append(gpu_entry)
-            if 'NVIDIA' in line:
-                has_nvidia_gpu = True
+            has_nvidia_gpu = False
+            for line in gpu_lines:
+                if any(keyword in line for keyword in ['Virtio', 'Matrox', 'ASPEED', 'Cirrus', 'QEMU', 'VMware',
+                                                       'Intel']):  # Skip virtual GPUs and non-modern VGA controllers
+                    # logger.debug(f"Ignoring virtual GPU: {line.strip()}")
+                    continue
 
-    except subprocess.CalledProcessError as e:
+                gpu_entry = {'vendor_info': line.strip(), 'detailed_name': None}
+                gpu_info.append(gpu_entry)
+                if 'NVIDIA' in line:
+                    has_nvidia_gpu = True
+        else:
+            logger.warning("lspci command not found - cannot get GPU information that way")
+            has_nvidia_gpu = True  # Assume NVIDIA GPU might still be present
+
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
         logger.warning("Error running lspci:", e.output.decode())
-        return gpu_info
+        has_nvidia_gpu = True  # Assume NVIDIA GPU might still be present
 
     # Only query detailed NVIDIA info if an NVIDIA GPU is detected
     if has_nvidia_gpu:
         try:
-            nvidia_output = subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                stderr=subprocess.DEVNULL
-            ).decode('utf-8').strip()
+            if which('nvidia-smi'):
+                nvidia_output = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
 
-            nvidia_gpus = nvidia_output.split('\n')
-            logger.debug(nvidia_output)
+                nvidia_gpus = nvidia_output.split('\n')
+                logger.debug(nvidia_output)
 
-            # Update matching NVIDIA entries with detailed names
-            nvidia_idx = 0
-            for gpu in gpu_info:
-                if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
-                    gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
-                    nvidia_idx += 1
-
-        except subprocess.CalledProcessError:
-            logger.warning("nvidia-smi command failed or NVIDIA drivers not properly installed.")
+                # Update matching NVIDIA entries with detailed names
+                nvidia_idx = 0
+                for gpu in gpu_info:
+                    if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
+                        gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
+                        nvidia_idx += 1
+            else:
+                logger.warning("nvidia-smi command not found - cannot get detailed GPU information")
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logger.warning(f"nvidia-smi command failed or NVIDIA drivers not properly installed: {e}")
 
     return gpu_info
 
