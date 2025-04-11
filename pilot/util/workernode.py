@@ -556,6 +556,56 @@ def get_cpu_frequency() -> float:
     return 0.0
 
 
+def get_gpu_info() -> list:
+    """
+    Get GPU information using lspci command.
+
+    This function will return a list of GPU devices found on the system.
+
+    :return: List of GPU devices (list).
+    """
+    gpu_info = []
+
+    # Detect all GPUs using lspci
+    try:
+        lspci_output = subprocess.check_output(['lspci', '-nnk']).decode('utf-8')
+        gpu_lines = re.findall(r'^(.*(?:VGA|3D controller).*)$', lspci_output, re.MULTILINE | re.IGNORECASE)
+
+        has_nvidia_gpu = False
+        for line in gpu_lines:
+            gpu_entry = {'vendor_info': line.strip(), 'detailed_name': None}
+            gpu_info.append(gpu_entry)
+            if 'NVIDIA' in line:
+                has_nvidia_gpu = True
+
+    except subprocess.CalledProcessError as e:
+        logger.warning("Error running lspci:", e.output.decode())
+        return gpu_info
+
+    # Only query detailed NVIDIA info if an NVIDIA GPU is detected
+    if has_nvidia_gpu:
+        try:
+            nvidia_output = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8').strip()
+
+            nvidia_gpus = nvidia_output.split('\n')
+            logger.debug(nvidia_output)
+
+            # Update matching NVIDIA entries with detailed names
+            nvidia_idx = 0
+            for gpu in gpu_info:
+                if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
+                    gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
+                    nvidia_idx += 1
+
+        except subprocess.CalledProcessError:
+            logger.warning("nvidia-smi command failed or NVIDIA drivers not properly installed.")
+
+    return gpu_info
+
+
 def get_workernode_map(site: str, cache: bool = True) -> dict:
     """
     Return a dictionary with the worker node map.
@@ -576,6 +626,13 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
         total_local_disk = convert_b_to_gb(get_total_local_disk_size())
     except ValueError:
         total_local_disk = 0
+
+    gpu_info = get_gpu_info()
+    if gpu_info:
+        gpu_info_str = ', '.join([gpu['vendor_info'] for gpu in gpu_info])
+        logger.info(f'found GPUs: {gpu_info_str}')
+    else:
+        logger.info('no GPUs found')
 
     data = {
         "site": site,
