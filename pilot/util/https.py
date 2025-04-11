@@ -866,7 +866,6 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
 
     # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
-    logger.info(f'headers = {hide_token(headers.copy())}')
     logger.info(f'data = {data}')
 
     # encode data as compressed JSON
@@ -879,6 +878,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         data_json = rdata_out.getvalue()
     else:
         data_json = json.dumps(data).encode('utf-8')
+    logger.info(f'headers = {hide_token(headers.copy())}')
 
     # set up the request
     req = urllib.request.Request(url, data_json, headers=headers)
