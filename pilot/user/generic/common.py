@@ -31,8 +31,13 @@ from pilot.common.exception import TrfDownloadFailure
 from pilot.info.jobdata import JobData
 from pilot.util.config import config
 from pilot.util.constants import (
+    UTILITY_AFTER_PAYLOAD_FINISHED,
+    UTILITY_AFTER_PAYLOAD_FINISHED2,
+    UTILITY_AFTER_PAYLOAD_STARTED,
+    UTILITY_AFTER_PAYLOAD_STARTED2,
     UTILITY_BEFORE_PAYLOAD,
-    UTILITY_AFTER_PAYLOAD_STARTED
+    UTILITY_BEFORE_STAGEIN,
+    UTILITY_WITH_PAYLOAD,
 )
 from pilot.util.filehandling import read_file
 from pilot.util.https import get_base_urls
@@ -161,7 +166,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     #    piloterrors = []
 
 
-def get_utility_commands(order: int = None, job: object = None, base_urls: list = None) -> dict:
+def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict:
     """
     Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
@@ -176,14 +181,80 @@ def get_utility_commands(order: int = None, job: object = None, base_urls: list 
     FORMAT: {'command': <command>, 'args': <args>}
 
     :param order: optional sorting order (see pilot.util.constants) (int)
-    :param job: optional job object (object)
+    :param job: optional job object (JobData)
     :param base_urls: optional list of base URLs (list)
     :return: dictionary of utilities to be executed in parallel with the payload (dict).
     """
     if order or job or base_urls:  # to bypass pylint score 0
         pass
+    if base_urls:  # to bypass pylint score 0
+        pass
 
-    return {}
+    if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
+        return get_precopostprocess_command(job.preprocess, job.workdir, 'preprocess', base_urls)
+
+    if order == UTILITY_WITH_PAYLOAD:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_STARTED:
+        return get_utility_after_payload_started()
+
+    if order == UTILITY_AFTER_PAYLOAD_STARTED2 and job.coprocess:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_FINISHED:
+        return {}
+
+    if order == UTILITY_AFTER_PAYLOAD_FINISHED2 and job.postprocess:
+        return get_precopostprocess_command(job.postprocess, job.workdir, 'postprocess', base_urls)
+
+    if order == UTILITY_BEFORE_STAGEIN:
+        return {}
+
+    return None
+
+
+def get_utility_after_payload_started() -> dict:
+    """
+    Return the command dictionary for the utility after the payload has started.
+
+    Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
+
+    :return: command (dict).
+    """
+    com = {}
+    try:
+        cmd = config.Pilot.utility_after_payload_started
+    except AttributeError:
+        pass
+    else:
+        if cmd:
+            com = {'command': cmd, 'args': '', 'label': cmd.lower(), 'ignore_failure': True}
+
+    return com
+
+
+def get_precopostprocess_command(process: dict, workdir: str, label: str, base_urls: list) -> dict:
+    """
+    Return the pre/co/post-process command dictionary.
+
+    Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
+
+    The returned command has the structure: { 'command': <string>, }
+
+    :param process: pre/co/post-process (dict)
+    :param workdir: working directory (str)
+    :param label: label (str)
+    :param base_urls: base URLs for trf download (list)
+    :return: command (dict).
+    """
+    com = {}
+    if process.get('command', ''):
+        com = download_command(process, workdir, base_urls)
+        com['label'] = label
+        com['ignore_failure'] = False
+
+    return com
 
 
 def get_utility_command_setup(name: str, job: object, setup: str = None) -> str:
@@ -364,3 +435,30 @@ def get_pilot_id(jobid: str) -> str:
         pass
 
     return os.environ.get("GTAG", "unknown")
+
+
+def download_command(process: dict, workdir: str, base_urls: list) -> dict:
+    """
+    Download the pre/postprocess commands if necessary.
+
+    Process FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
+
+    :param process: pre/postprocess dictionary (dict)
+    :param workdir: job workdir (str)
+    :param base_urls: list of base URLs (list)
+    :return: updated pre/postprocess dictionary (dict).
+    """
+    cmd = process.get('command', '')
+
+    # download the command if necessary
+    if cmd.startswith('http'):
+        # Try to download the trf (skip when user container is to be used)
+        exitcode, _, cmd = get_analysis_trf(cmd, workdir, base_urls)
+        if exitcode != 0:
+            logger.warning(f'cannot execute command due to previous error: {cmd}')
+            return {}
+
+        # update the preprocess command (the URL should be stripped)
+        process['command'] = './' + cmd
+
+    return process
