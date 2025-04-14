@@ -99,6 +99,11 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     # convert the base URLs for trf downloads to a list (most likely from an empty string)
     base_urls = get_base_urls(args.baseurls)
 
+    # Is it a user job or not?
+    userjob = job.is_analysis()
+    tmp = 'user analysis' if userjob else 'production'
+    logger.info(f'pilot is running a {tmp} job')
+
     ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
