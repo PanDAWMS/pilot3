@@ -503,8 +503,6 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     :return: command (str)
     :raises TrfDownloadFailure: in case of download failure.
     """
-    if not args:  # bypass pylint complaint
-        pass
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
 
