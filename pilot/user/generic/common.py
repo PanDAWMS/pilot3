@@ -23,10 +23,10 @@
 
 import logging
 import os
-import re
 
 from signal import SIGTERM
 
+from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import TrfDownloadFailure
 from pilot.info.jobdata import JobData
 from pilot.util.config import config
@@ -45,6 +45,7 @@ from pilot.util.https import get_base_urls
 from .setup import get_analysis_trf
 
 logger = logging.getLogger(__name__)
+errors = ErrorCodes()
 
 
 def sanity_check() -> int:
@@ -66,10 +67,17 @@ def validate(job: object) -> bool:
     :param job: job object (Any)
     :return: True if validation is successful (bool).
     """
-    if job:  # to bypass pylint score 0
-        pass
+    status = True
 
-    return True
+    if job.imagename and job.imagename.startswith('/'):
+        if os.path.exists(job.imagename):
+            logger.info(f'verified that image exists: {job.imagename}')
+        else:
+            status = False
+            logger.warning(f'image does not exist: {job.imagename}')
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.IMAGENOTFOUND)
+
+    return status
 
 
 def get_payload_command(job: JobData, args: object = None) -> str:
@@ -121,17 +129,23 @@ def get_analysis_run_command(job: object, trf_name: str) -> str:
     elif job.imagename:
         # to run a script in a container, assume that the script name is contained in the jobparams
         # but ignore everything else
-        match = re.search(r'\b[\w\-.]+\.sh\b', job.jobparams)
-        if match:
-            shell_script = match.group()
-            cmd += f'apptainer exec {job.imagename} {shell_script}'
-        else:
-            # if no script name is found, assume that the jobparams contain the full command
-            cmd += f'apptainer exec {job.imagename} {job.jobparams}'
+
+        #match = re.search(r'\b[\w\-.]+\.sh\b', job.jobparams)
+        #if match:
+        #    shell_script = match.group()
+        #    cmd += f'apptainer exec {job.imagename} {shell_script}'
+        #else:
+        #    # if no script name is found, assume that the jobparams contain the full command
+        #    cmd += f'apptainer exec {job.imagename} {job.jobparams}'
+
+        cmd += f'./{trf_name} {job.jobparams}'
+
     elif trf_name:
         cmd += f'./{trf_name} {job.jobparams}'
     else:
         cmd += f'python3 {trf_name} {job.jobparams}'
+
+    logger.info(f'payload run command: {cmd}')
 
     return cmd
 
