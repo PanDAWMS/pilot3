@@ -608,6 +608,7 @@ def get_gpu_info() -> list:
                 for gpu in gpu_info:
                     if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
                         gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
+                        gpu['cuda_version'] = os.environ['CUDA_VERSION', 'unknown']
                         nvidia_idx += 1
             else:
                 logger.warning("nvidia-smi command not found - cannot get detailed GPU information")
