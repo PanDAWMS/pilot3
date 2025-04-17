@@ -154,7 +154,7 @@ def main() -> int:
         update_local_oidc_token_info(args.url, args.port)
 
     # create and report the worker node map
-    if args.update_server:
+    if args.update_server and args.pilot_user == "atlas":  # only send info for atlas for now
         try:
             send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
