@@ -233,8 +233,11 @@ def run_shutdowntime_minute_check(time_since_start: int) -> bool:
     """
     Run checks on machine features shutdowntime once a minute.
 
-    :param time_since_start: how many seconds have lapsed since the pilot started (int)
-    :return: True if reached max time, False otherwise (also if shutdowntime not known) (bool).
+    Args:
+        time_since_start (int): how many seconds have lapsed since the pilot started
+
+    Returns:
+        True if reached max time, False otherwise (also if shutdowntime not known) (bool).
     """
     # check machine features if present for shutdowntime
     machinefeatures = MachineFeatures().get()
