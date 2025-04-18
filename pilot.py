@@ -37,6 +37,7 @@ from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.info import infosys
 from pilot.util.auxiliary import (
     convert_signal_to_exit_code,
@@ -83,6 +84,7 @@ from pilot.util.workernode import (
 )
 
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 mainworkdir = ""
 args = None
 trace = None
@@ -137,6 +139,8 @@ def main() -> int:
     # initialize InfoService
     try:
         infosys.init(args.queue)
+        pilot_cache.queuedata = infosys.queuedata
+
         # check if queue is ACTIVE
         if infosys.queuedata.state != "ACTIVE":
             logger.critical(
@@ -748,22 +752,27 @@ def set_environment_variables():
     """
     # working directory as set with a pilot option (e.g. ..)
     environ["PILOT_WORK_DIR"] = args.workdir  # TODO: replace with singleton
+    pilot_cache.pilot_work_dir = args.workdir
 
     # main work directory (e.g. /scratch/PanDA_Pilot3_3908_1537173670)
     environ["PILOT_HOME"] = mainworkdir  # TODO: replace with singleton
+    pilot_cache.pilot_home_dir = mainworkdir
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
     if not environ.get("PILOT_SOURCE_DIR", None):
         environ["PILOT_SOURCE_DIR"] = args.sourcedir  # TODO: replace with singleton
+        pilot_cache.pilot_source_dir = args.sourcedir
 
     # set the pilot user (e.g. ATLAS)
     environ["PILOT_USER"] = args.pilot_user  # TODO: replace with singleton
 
     # internal pilot state
     environ["PILOT_JOB_STATE"] = "startup"  # TODO: replace with singleton
+    pilot_cache.pilot_job_state = "startup"
 
     # set the pilot version
     environ["PILOT_VERSION"] = get_pilot_version()
+    pilot_cache.pilot_version = get_pilot_version()
 
     # set the default wrap-up/finish instruction
     environ["PILOT_WRAP_UP"] = "NORMAL"

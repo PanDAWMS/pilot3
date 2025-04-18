@@ -42,6 +42,7 @@ from pilot.common.exception import (
     FileHandlingFailure,
     PilotException,
 )
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.info import (
     infosys,
     InfoService,
@@ -133,6 +134,7 @@ from pilot.util.timing import (
     add_to_pilot_timing,
     get_postgetjob_time,
     get_time_since,
+    get_time_since_start,
     time_stamp,
     timing_report,
 )
@@ -145,8 +147,9 @@ from pilot.util.workernode import (
     update_modelstring
 )
 
-logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+logger = logging.getLogger(__name__)
+pilot_cache = get_pilot_cache()
 
 
 def control(queues: namedtuple, traces: Any, args: object):
@@ -1457,6 +1460,39 @@ def get_job_label(args: Any) -> str:
     return job_label
 
 
+def get_remaining_time(args: Any) -> int:
+    """
+    Return the remaining time for the pilot.
+
+    The remaining time is taken as the minimum of the remaining proxy lifetime and the remaining time
+    before the time limit set by the site kills the job.
+
+    Args:
+        args (Any): Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc)
+
+    Returns:
+        int: remaining time in seconds.
+    """
+    # get the remaining time from the proxy
+    remaining_time = pilot_cache.proxy_lifetime
+    logger.info(f"remaining proxy life time = {pilot_cache.proxy_lifetime} s")
+    if not remaining_time:
+        logger.warning('failed to get remaining time from proxy')
+        return 0
+
+    # get the remaining time from the site
+    # e.g. maxtime = 345600, i.e. pilot is allowed to run for a maximum of 345600 s
+    # the remaining time is therefore 345600 - time since pilot started
+    site_remaining_time = infosys.queuedata.maxtime - get_time_since_start(args)
+    logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining_time} s")
+    if not site_remaining_time:
+        logger.warning('failed to get remaining time from site')
+        return 0
+
+    # return the minimum of the two
+    return min(remaining_time, site_remaining_time)
+
+
 def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     """
     Return a dictionary with required fields for the dispatcher getJob operation.
@@ -1479,7 +1515,8 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     _diskspace = get_disk_space(infosys.queuedata)
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
-
+    _remaining_time = get_remaining_time(args)
+    logger.debug(f"could have reported remaining_time={_remaining_time}")
     data = {
         'siteName': infosys.queuedata.resource,
         'computingElement': args.queue,
