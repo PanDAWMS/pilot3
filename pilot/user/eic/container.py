@@ -383,7 +383,9 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
     # add container options
     alrb_setup += ' ' + get_container_options(container_options)
     alrb_setup = alrb_setup.replace('  ', ' ')
-    cmd = alrb_setup
+
+    # wrap the altasLocalSetup etc in /bin/bash -c '<command>'
+    cmd = f"/bin/bash -c \'{alrb_setup}\'"
 
     # correct full payload command in case preprocess command are used (ie replace trf with setupATLAS -c ..)
     #if job.preprocess and job.containeroptions:
