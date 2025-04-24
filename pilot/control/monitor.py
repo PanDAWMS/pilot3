@@ -93,7 +93,6 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     if not queuedata:
         logger.warning('queuedata could not be extracted from queues')
 
-    push = args.harvester and args.harvester_submitmode.lower() == 'push'
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
         n_iterations = 0
@@ -128,7 +127,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 grace_time = 0
             # get the current max_running_time (can change with job)
             try:
-                max_running_time, start_time = get_timeinfo(args.lifetime, queuedata, queues, push, args.pod)
+                max_running_time, start_time = get_timeinfo(args.lifetime, queuedata, queues, args.pod)
             except Exception as exc:
                 logger.warning(f'caught exception: {exc}')
                 max_running_time = args.lifetime
@@ -454,7 +453,7 @@ def run_checks(queues: namedtuple, args: object) -> None:
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, pod: bool) -> tuple[int or None, int or None]:
+def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool) -> tuple[int or None, int or None]:
     """
     Return the maximum allowed running time for the pilot and any start time for the running job.
 
@@ -464,7 +463,6 @@ def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, 
     :param lifetime: optional pilot option time in seconds (int)
     :param queuedata: queuedata object (Any)
     :param queues: queues object (namedtuple)
-    :param push: push mode (bool)
     :param pod: pod mode (bool)
     :return: max running time in seconds (int or None), start time in seconds (int or None) (tuple).
     """
@@ -479,16 +477,14 @@ def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, push: bool, 
         #               f'({max_running_time}s)')
         return max_running_time, start_time
 
-    # for push queues: try to get the walltime from the job object first, in case it exists and is set
-    if push:
-        try:
-            _max_running_time, start_time = get_timeinfo_from_job(queues, queuedata.params)
-        except Exception as exc:
-            logger.warning(f'caught exception: {exc}')
-        else:
-            if _max_running_time:
-                logger.debug(f'using max running time from job: {_max_running_time}s and start time: {start_time}')
-                return _max_running_time, start_time
+    try:
+        _max_running_time, start_time = get_timeinfo_from_job(queues, queuedata.params)
+    except Exception as exc:
+        logger.warning(f'caught exception: {exc}')
+    else:
+        if _max_running_time:
+            logger.debug(f'using max running time from job: {_max_running_time}s and start time: {start_time}')
+            return _max_running_time, start_time
 
     # use the schedconfig value if set, otherwise use the pilot option lifetime value
     if queuedata.maxtime:
