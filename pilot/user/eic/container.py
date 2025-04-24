@@ -371,7 +371,7 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
     else:
         alrb_setup += 'source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh '
         if job.platform or job.alrbuserplatform or job.imagename:
-            alrb_setup += '-c $thePlatform'
+            alrb_setup += '--shell bash -c $thePlatform'
             if not is_cvmfs:
                 alrb_setup += ' -d'
 
