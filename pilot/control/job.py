@@ -1528,6 +1528,10 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         'node': _nodename
     }
 
+    # include remaining time
+    if _remaining_time:
+        data['remaining_time'] = _remaining_time
+
     if args.jobtype != "":
         data['jobType'] = args.jobtype
 
