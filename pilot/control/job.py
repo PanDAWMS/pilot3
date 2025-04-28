@@ -1608,7 +1608,7 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         exit_code, diagnostics = userproxy.verify_proxy(test=False, pilotstartup=True)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
             # only set the traces error code if there is still time to run more jobs
-            if currenttime - starttime > timefloor:
+            if currenttime - starttime > timefloor and exit_code:
                 # we have run out of time to start new jobs, do not report any error (which would have been returned to the
                 # wrapper and Harvester would pick it up)
                 logger.warning("proxy verification failed, but we will not report it since we have anyway run out of time to start new jobs")
