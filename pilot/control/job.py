@@ -1515,7 +1515,7 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     _diskspace = get_disk_space(infosys.queuedata)
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
-    _remaining_time = get_remaining_time(args)
+    #_remaining_time = get_remaining_time(args)
 
     data = {
         'siteName': infosys.queuedata.resource,
@@ -1529,8 +1529,8 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     }
 
     # include remaining time
-    if _remaining_time:
-        data['remaining_time'] = _remaining_time
+    #if _remaining_time:
+    #    data['remaining_time'] = _remaining_time
 
     if args.jobtype != "":
         data['jobType'] = args.jobtype

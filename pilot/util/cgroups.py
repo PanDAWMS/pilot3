@@ -64,7 +64,10 @@ def add_process_to_cgroup(pid: int, group_name: str = 'panda_pilot') -> bool:
     Returns:
         bool: True if successfully added, False otherwise.
     """
-    cgroup_path = f'/sys/fs/cgroup/{group_name}'
+    paths = get_process_cgroups(pid)
+    if not paths:
+        return False
+    cgroup_path = os.path.join(paths[0], group_name)  # f'/sys/fs/cgroup/{group_name}'
 
     try:
         if not os.path.exists(cgroup_path):
@@ -98,3 +101,28 @@ def add_process_to_cgroup(pid: int, group_name: str = 'panda_pilot') -> bool:
         logger.warning(f"unexpected error adding PID {pid} to cgroup '{group_name}': {e}")
         logger.info(f"cgroup version: {get_cgroup_version()}")
         return False
+
+
+def get_process_cgroups(pid="self"):
+    """
+    Gets the cgroup paths for a given process ID (default is 'self' for the current process).
+
+    :param pid: Process ID as a string or integer. Default is 'self'.
+    :return: List of cgroup paths.
+    """
+    cgroups = []
+    path = f"/proc/{pid}/cgroup"
+
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                parts = line.strip().split(":")
+                if len(parts) == 3:
+                    _, _, cgroup_path = parts
+                    cgroups.append(cgroup_path)
+    except FileNotFoundError:
+        print(f"Process {pid} does not exist.")
+    except Exception as e:
+        print(f"Error reading cgroup info for PID {pid}: {e}")
+
+    return cgroups
