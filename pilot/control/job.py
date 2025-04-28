@@ -1516,7 +1516,7 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
     _remaining_time = get_remaining_time(args)
-    logger.debug(f"could have reported remaining_time={_remaining_time}")
+
     data = {
         'siteName': infosys.queuedata.resource,
         'computingElement': args.queue,
