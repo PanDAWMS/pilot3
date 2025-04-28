@@ -67,16 +67,18 @@ def add_process_to_cgroup(pid: int, group_name: str = 'panda_pilot') -> bool:
     paths = get_process_cgroups(pid)
     if not paths:
         return False
-    cgroup_path = os.path.join(paths[0], group_name)  # f'/sys/fs/cgroup/{group_name}'
+    #cgroup_path = os.path.join(paths[0], group_name)  # f'/sys/fs/cgroup/{group_name}'
+    cgroup_path = paths[0]
 
     try:
         if not os.path.exists(cgroup_path):
-            subprocess.run(['sudo', 'mkdir', cgroup_path], check=True)
+            subprocess.run(['mkdir', cgroup_path], check=True, capture_output=True, text=True)
+            #subprocess.run(['sudo', 'mkdir', cgroup_path], check=True)
             logger.info(f"cgroup '{group_name}' created.")
         else:
             logger.info(f"cgroup '{group_name}' already exists.")
     except subprocess.CalledProcessError as e:
-        logger.warning(f"failed to create cgroup '{group_name}': {e}")
+        logger.warning(f"failed to create cgroup '{group_name}': {e}. stdout: {e.stdout}, stderr: {e.stderr}")
         logger.info(f"cgroup version: {get_cgroup_version()}")
         return False
     except PermissionError as e:
