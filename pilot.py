@@ -44,6 +44,7 @@ from pilot.util.auxiliary import (
     pilot_version_banner,
     shell_exit_code,
 )
+from pilot.util.batchsystem import is_htcondor_version_sufficient
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
@@ -803,6 +804,9 @@ def set_environment_variables():
     environ["QUEUEDATA_SERVER_URL"] = f"{args.queuedata_url}"
     if args.storagedata_url:
         environ["STORAGEDATA_SERVER_URL"] = f"{args.storagedata_url}"
+
+    # should cgroups be used for process management?
+    pilot_cache.use_cgroups = is_htcondor_version_sufficient()
 
 
 def wrap_up() -> int:
