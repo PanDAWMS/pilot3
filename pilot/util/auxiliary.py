@@ -852,3 +852,21 @@ def list_items(items: list):
     """
     for i, item in enumerate(items):
         logger.info(f'{i + 1}: {item}')
+
+
+def is_version_sufficient(current_version: str, required_version: str) -> bool:
+    """
+    Compare two version strings without any external libraries.
+
+    Args:
+        current_version (str): Current version string (e.g., '23.0.2').
+        required_version (str): Required version string (e.g., '24.0.7').
+
+    Returns:
+        bool: True if current_version >= required_version, else False.
+    """
+
+    def version_tuple(v):
+        return tuple(map(int, v.split('.')))
+
+    return version_tuple(current_version) >= version_tuple(required_version)

@@ -24,7 +24,43 @@ import os
 import subprocess
 import logging
 
+from pilot.util.auxiliary import is_version_sufficient
+
 logger = logging.getLogger(__name__)
+
+
+def get_htcondor_version() -> str or None:
+    """
+    Get the HTCondor version.
+
+    Returns:
+        str or None: The HTCondor version number.
+    """
+    try:
+        result = subprocess.check_output(['condor_version'], encoding='utf-8')
+        version_line = result.splitlines()[0]
+        version_number = version_line.split()[1]
+        return version_number
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Failed to run condor_version: {e}")
+        return None
+
+
+def is_htcondor_version_sufficient() -> bool:
+    """
+    Check if the HTCondor version is sufficient for cgroup support.
+
+    For the new cgroups support, HTCondor version 24.0.7 or higher is required.
+
+    Returns:
+        bool: True if the version is sufficient, False otherwise.
+    """
+    current_version = get_htcondor_version()
+    if current_version is None:
+        logger.warning("unable to determine HTCondor version")
+        return False
+
+    return is_version_sufficient(current_version, '24.0.7')
 
 
 def get_cgroup_version() -> str:
