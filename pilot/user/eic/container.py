@@ -649,5 +649,11 @@ def set_platform(job: JobData, alrb_setup: str) -> str:
         alrb_setup += f'export thePlatform="{job.imagename}";'
     elif job.platform:
         alrb_setup += f'export thePlatform="{job.platform}";'
+    elif os.getenv('PLATFORM_ID'):
+        platform = os.getenv('PLATFORM_ID')
+        match = re.search(r'platform:(\w+)', platform.lower())
+        if match:
+            result = match.group(1)
+            alrb_setup += f'export thePlatform=\"{result}\";'
 
     return alrb_setup
