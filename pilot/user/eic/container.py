@@ -554,6 +554,11 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         if exit_code:
             job.piloterrordiag = diagnostics
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+
+        # make sure that the platform is set
+        if not job.platform and not job.imagename and os.getenv("PLATFORM_ID"):
+            job.platform = get_platform()
+
         # set the platform info
         alrb_setup = set_platform(job, alrb_setup)
 
@@ -633,6 +638,23 @@ def create_stagein_container_command(workdir: str, cmd: str):
     return cmd
 
 
+def get_platform() -> str:
+    """
+    Get the platform from the environment variable PLATFORM_ID.
+
+    E.g. PLATFORM_ID="platform:el9" -> "el9".
+
+    :return: platform (str).
+    """
+    result = ""
+    platform = os.getenv('PLATFORM_ID')
+    match = re.search(r'platform:(\w+)', platform.lower())
+    if match:
+        result = match.group(1)
+
+    return result
+
+
 def set_platform(job: JobData, alrb_setup: str) -> str:
     """
     Set thePlatform variable and add it to the sub container command.
@@ -650,10 +672,8 @@ def set_platform(job: JobData, alrb_setup: str) -> str:
     elif job.platform:
         alrb_setup += f'export thePlatform="{job.platform}";'
     elif os.getenv('PLATFORM_ID'):
-        platform = os.getenv('PLATFORM_ID')
-        match = re.search(r'platform:(\w+)', platform.lower())
-        if match:
-            result = match.group(1)
-            alrb_setup += f'export thePlatform=\"{result}\";'
+        platform = get_platform()
+        if platform:
+            alrb_setup += f'export thePlatform=\"{platform}\";'
 
     return alrb_setup

@@ -2638,6 +2638,11 @@ def verify_job(job: JobData) -> bool:
     # check the ATHENA_PROC_NUMBER settings
     verify_ncores(job.corecount)
 
+    # make sure there were no earlier problems
+    if status and job.piloterrorcodes:
+        logger.warning(f'job has errors: {job.piloterrorcodes}')
+        status = False
+
     return status
 
 

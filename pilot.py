@@ -806,7 +806,7 @@ def set_environment_variables():
         environ["STORAGEDATA_SERVER_URL"] = f"{args.storagedata_url}"
 
     # should cgroups be used for process management?
-    pilot_cache.use_cgroups = is_htcondor_version_sufficient()
+    pilot_cache.use_cgroups = is_htcondor_version_sufficient() if args.pilot_user.lower() == 'atlas' else False
 
 
 def wrap_up() -> int:

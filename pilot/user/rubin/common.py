@@ -250,10 +250,16 @@ def verify_job(job: object) -> bool:
     :param job: job object (object)
     :return: True if job parameters are verified (bool).
     """
-    if job:  # to bypass pylint score 0
-        pass
+    status = True
 
-    return True
+    # ..
+
+    # make sure there were no earlier problems
+    if status and job.piloterrorcodes:
+        logger.warning(f'job has errors: {job.piloterrorcodes}')
+        status = False
+
+    return status
 
 
 def update_stagein(job: object):
