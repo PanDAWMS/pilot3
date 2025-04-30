@@ -185,6 +185,7 @@ class ErrorCodes:
     ARCPROXYLIBFAILURE = 1381
     PROXYTOOSHORT = 1382  # used at the beginning of the pilot to indicate that the proxy is too short
     STAGEOUTAUTHENTICATIONFAILURE = 1383
+    QUEUENOTSETUPFORCONTAINERS = 1384
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -331,6 +332,7 @@ class ErrorCodes:
         ARCPROXYLIBFAILURE: "Arcproxy failure while loading shared libraries",
         PROXYTOOSHORT: "Proxy is too short",
         STAGEOUTAUTHENTICATIONFAILURE: "Authentication failure during stage-out",
+        QUEUENOTSETUPFORCONTAINERS: "Queue is not set up for containers",
 
     }
 
