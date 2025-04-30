@@ -1246,9 +1246,10 @@ def validate(queues: namedtuple, traces: Any, args: object):
 
             # make sure the queue is correctly configured for containers if needed
             if job.usecontainer:
-                if ":pilot" in pilot_cache.queuedata.container_type:
+                if "pilot" in pilot_cache.queuedata.container_type:
                     pass
                 else:
+                    logger.debug(f"pilot_cache.queuedata={pilot_cache.queuedata}")
                     msg = "container_type must be set in CRIC"
                     logger.error(msg)
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.QUEUENOTSETUPFORCONTAINERS,
