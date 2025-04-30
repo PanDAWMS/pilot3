@@ -375,6 +375,10 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
             if not is_cvmfs:
                 alrb_setup += ' -d'
 
+        if "-c $thePlatform" not in alrb_setup:
+            logger.warning('thePlatform not set in alrb_setup, using brute force')
+            alrb_setup = alrb_setup.replace("atlasLocalSetup.sh", "atlasLocalSetup.sh --shell bash -c $thePlatform")
+
     # update the ALRB setup command
     alrb_setup += f' -s {release_setup}'
     alrb_setup += ' -r /srv/' + container_script
@@ -556,11 +560,17 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
 
         # make sure that the platform is set
+        logger.debug(f"job.platform={job.platform}")
+        logger.debug(f"job.imagename={job.imagename}")
+        logger.debug(f"PLATFORM_ID={os.getenv('PLATFORM_ID')}")
         if not job.platform and not job.imagename and os.getenv("PLATFORM_ID"):
             job.platform = get_platform()
+        logger.debug(f"job.platform={job.platform}")
 
         # set the platform info
         alrb_setup = set_platform(job, alrb_setup)
+
+        logger.debug(f"alrb_setup={alrb_setup}")
 
         # add the jobid to be used as an identifier for the payload running inside the container
         # it is used to identify the pid for the process to be tracked by the memory monitor
@@ -671,7 +681,7 @@ def set_platform(job: JobData, alrb_setup: str) -> str:
         alrb_setup += f'export thePlatform="{job.imagename}";'
     elif job.platform:
         alrb_setup += f'export thePlatform="{job.platform}";'
-    elif os.getenv('PLATFORM_ID'):
+    if "thePlatform" not in alrb_setup:
         platform = get_platform()
         if platform:
             alrb_setup += f'export thePlatform=\"{platform}\";'
