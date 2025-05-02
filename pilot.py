@@ -45,6 +45,7 @@ from pilot.util.auxiliary import (
     shell_exit_code,
 )
 from pilot.util.batchsystem import is_htcondor_version_sufficient
+from pilot.util.cgroups import create_cgroup
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
@@ -807,6 +808,10 @@ def set_environment_variables():
 
     # should cgroups be used for process management?
     pilot_cache.use_cgroups = is_htcondor_version_sufficient() if args.pilot_user.lower() == 'atlas' else False
+
+    # create a cgroup for the pilot
+    if pilot_cache.use_cgroups:
+        _ = create_cgroup()
 
 
 def wrap_up() -> int:

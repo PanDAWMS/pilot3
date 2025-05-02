@@ -20,14 +20,17 @@
 
 """Code for interacting with cgroups."""
 
+import logging
 import os
 import subprocess
-import logging
 
 from pilot.common.pilotcache import get_pilot_cache
+from pilot.util.filehandling import mkdirs
 
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
+CGROUP_PATH = "/sys/fs/cgroup"
+PROC_CGROUP_PATH = "/proc/self/cgroup"
 
 
 def get_cgroup_version() -> str:
@@ -128,3 +131,154 @@ def get_process_cgroups(pid="self"):
         print(f"Error reading cgroup info for PID {pid}: {e}")
 
     return cgroups
+
+
+def parse_cgroup_path(size: int) -> str:
+    """
+    Parse the cgroup v2 path from /proc/self/cgroup.
+
+    Reads the contents of /proc/self/cgroup and extracts the path associated
+    with the cgroup v2 entry (entry with id 0 and empty controller field).
+
+    This function mimics the behavior of a C function using a fixed-size buffer.
+    It prints the contents of the file for debugging and returns the parsed path,
+    truncated to the given size (minus one character to allow for null-termination in C).
+
+    Translated from C code: https://github.com/arosberg/memory_allocator/blob/main/memory_allocator.c
+
+    Args:
+        size (int): The maximum allowed length of the returned path, simulating a buffer size.
+
+    Returns:
+        str: The parsed cgroup v2 path, truncated to (size - 1) characters if needed.
+    """
+    try:
+        with open(PROC_CGROUP_PATH, "r") as f_cgroup:
+            logger.debug(f"parent: Contents of {PROC_CGROUP_PATH}:")
+            for line in f_cgroup:
+                logger.debug(f"parent: {line.strip()}")
+
+                # Attempt to parse line using the expected format: <id>::<path>
+                parts = line.strip().split("::")
+                if len(parts) == 2:
+                    try:
+                        id_ = int(parts[0])
+                        path = parts[1]
+                        if id_ == 0:
+                            # Ensure the path does not exceed the size limit
+                            return path[:size - 1]
+                    except ValueError:
+                        continue
+    except IOError:
+        logger.warning(f"failed to open {PROC_CGROUP_PATH}")
+        return None
+
+    logger.warning(f"error: failed to parse cgroup path from {PROC_CGROUP_PATH}")
+    return None
+
+
+def get_parent_cgroup_path(current_cgroup_path: str) -> str:
+    """
+    Get the parent cgroup path from the current cgroup path.
+
+    Args:
+        current_cgroup_path (str): The current cgroup path.
+
+    Returns:
+        str: The parent cgroup path.
+    """
+
+
+def create_cgroup() -> bool:
+    """
+    Create a cgroup for the current process.
+
+    This function creates a cgroup for the current process and returns its path.
+
+    Returns:
+        bool: True if the cgroup was successfully created, False otherwise.
+    """
+    # Parse the current cgroup path this process is running in
+    current_cgroup_path = parse_cgroup_path(1024)  # ad hoc size
+    if not current_cgroup_path:
+        logger.warning(f"failed to parse cgroup path from {PROC_CGROUP_PATH}")
+        return ""
+
+    # Construct the full path to the parent cgroup
+    parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path)
+
+    # Create a "controller" cgroup for the parent process
+    controller_cgroup_path = os.path.join(parent_cgroup_path, "controller")
+
+    logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
+    try:
+        mkdirs(controller_cgroup_path, mode=0o755)
+    except Exception as e:
+        logger.warning(f"failed to create cgroup: {e}")
+        return False
+
+    # Move the parent process to the controller cgroup
+    status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
+    if not status:
+        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
+        return False
+
+    # Enable memory and pid controllers in the parent cgroup
+    # ..
+
+    return True
+
+
+def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
+    """
+    Moves the given process to the specified cgroup by writing its PID to cgroup.procs.
+
+    Constructs the path to the `cgroup.procs` file inside the given cgroup
+    directory and writes the process ID to it. This is how processes are
+    assigned to cgroups in cgroup v2.
+
+    Args:
+        cgroup_path (str): The filesystem path to the cgroup directory.
+        pid (int): The PID of the process to move into the cgroup.
+
+    Returns:
+        bool: True if the process was successfully moved, False otherwise.
+    """
+    procs_path = os.path.join(cgroup_path, "cgroup.procs")
+
+    try:
+        with open(procs_path, "w") as f:
+            f.write(f"{pid}")
+    except IOError as e:
+        logger.warning(f"Failed to move process to cgroup: {e}")
+        return False
+
+    return True
+
+
+def enable_controllers(cgroup_path: str, controllers: str) -> bool:
+    """
+    Enable specified controllers in the cgroup's subtree_control file.
+
+    Constructs the full path to the `cgroup.subtree_control` file and writes
+    the given controller names (e.g., "+cpu +memory") to it. This is necessary
+    to activate controllers in a cgroup v2 hierarchy.
+
+    Args:
+        cgroup_path (str): The filesystem path to the cgroup directory.
+        controllers (str): A space-separated string of controllers to enable,
+            prefixed with "+" (e.g., "+cpu +memory").
+
+    Returns:
+        bool: True if the controllers were successfully enabled, False otherwise.
+    """
+    subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
+
+    try:
+        with open(subtree_control_path, "w") as f:
+            f.write(controllers)
+    except IOError as e:
+        print(f"Failed to enable controllers in cgroup.subtree_control: {e}")
+        return False
+
+    return True
