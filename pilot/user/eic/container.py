@@ -499,7 +499,7 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
     return cmd
 
 
-def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
+def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:  # noqa: C901
     """
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
@@ -560,12 +560,12 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
 
         # make sure that the platform is set
-        logger.debug(f"job.platform={job.platform}")
-        logger.debug(f"job.imagename={job.imagename}")
-        logger.debug(f"PLATFORM_ID={os.getenv('PLATFORM_ID')}")
-        if not job.platform and not job.imagename and os.getenv("PLATFORM_ID"):
+        if not job.platform and not job.imagename and os.getenv("ALRB_USER_PLATFORM"):
             job.platform = get_platform()
-        logger.debug(f"job.platform={job.platform}")
+        if job.platform:
+            logger.debug(f"job.platform={job.platform}")
+        else:
+            logger.warning("job.platform is not set")
 
         # set the platform info
         alrb_setup = set_platform(job, alrb_setup)
@@ -652,13 +652,13 @@ def get_platform() -> str:
     """
     Get the platform from the environment variable PLATFORM_ID.
 
-    E.g. PLATFORM_ID="platform:el9" -> "el9".
+    E.g. ALRB_USER_PLATFORM="el9#x86_64" -> "el9".
 
     :return: platform (str).
     """
     result = ""
-    platform = os.getenv('PLATFORM_ID')
-    match = re.search(r'platform:(\w+)', platform.lower())
+    platform = os.getenv('ALRB_USER_PLATFORM')
+    match = re.search(r'(\w+)\#', platform.lower())
     if match:
         result = match.group(1)
 
