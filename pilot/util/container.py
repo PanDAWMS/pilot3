@@ -41,7 +41,7 @@ from typing import Any, TextIO
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 #from pilot.util.loggingsupport import flush_handler
-from pilot.util.cgroups import add_process_to_cgroup
+#from pilot.util.cgroups import add_process_to_cgroup
 from pilot.util.processgroups import kill_process_group
 
 errors = ErrorCodes()
@@ -96,11 +96,11 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                 errors='replace'
             )
             # should we create a cgroup for the process and add the pid?
-            if pilot_cache.use_cgroups:
-                status = add_process_to_cgroup(process.pid)
-                if not status:
-                    logger.warning('failed to add process to cgroup')
-                    pilot_cache.use_cgroups = False
+            #if pilot_cache.use_cgroups:  leads to circular import
+            #    status = add_process_to_cgroup(process.pid)
+            #    if not status:
+            #        logger.warning('failed to add process to cgroup')
+            #        pilot_cache.use_cgroups = False
 
             if kwargs.get('returnproc', False):
                 return process
