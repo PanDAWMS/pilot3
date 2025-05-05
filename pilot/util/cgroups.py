@@ -187,6 +187,7 @@ def get_parent_cgroup_path(current_cgroup_path: str) -> str:
     Returns:
         str: The parent cgroup path.
     """
+    return ""
 
 
 def create_cgroup() -> bool:
@@ -203,13 +204,13 @@ def create_cgroup() -> bool:
     if not current_cgroup_path:
         logger.warning(f"failed to parse cgroup path from {PROC_CGROUP_PATH}")
         return ""
+    logger.debug(f"current_cgroup_path= {current_cgroup_path}")
 
     # Construct the full path to the parent cgroup
-    parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path)
+    parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
 
     # Create a "controller" cgroup for the parent process
     controller_cgroup_path = os.path.join(parent_cgroup_path, "controller")
-
     logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
     try:
         mkdirs(controller_cgroup_path, chmod=0o755)
