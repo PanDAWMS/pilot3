@@ -225,7 +225,10 @@ def create_cgroup() -> bool:
         return False
 
     # Enable memory and pid controllers in the parent cgroup
-    # ..
+    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    if not status:
+        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
 
     return True
 
@@ -254,6 +257,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
         logger.warning(f"Failed to move process to cgroup: {e}")
         return False
 
+    logger.debug(f"added process {pid} to cgroup {cgroup_path}")
     return True
 
 
