@@ -218,16 +218,16 @@ def create_cgroup() -> bool:
         logger.warning(f"failed to create cgroup: {e}")
         return False
 
-    # Move the parent process to the controller cgroup
-    status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
-    if not status:
-        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-        return False
-
     # Enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
+
+    # Move the parent process to the controller cgroup
+    status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
+    if not status:
+        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
 
     return True
