@@ -212,7 +212,7 @@ def create_cgroup() -> bool:
 
     logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
     try:
-        mkdirs(controller_cgroup_path, mode=0o755)
+        mkdirs(controller_cgroup_path, chmod=0o755)
     except Exception as e:
         logger.warning(f"failed to create cgroup: {e}")
         return False
