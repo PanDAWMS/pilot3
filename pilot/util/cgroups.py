@@ -218,6 +218,20 @@ def create_cgroup() -> bool:
         logger.warning(f"failed to create cgroup: {e}")
         return False
 
+    #
+    result = subprocess.run(['ls', '-lF', current_cgroup_path], check=True, capture_output=True, text=True)
+    logger.debug(f"Command output: {result.stdout}")
+
+    result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
+    logger.debug(f"Command output: {result.stdout}")
+
+    p = os.path.join(controller_cgroup_path, 'cgroup.procs')
+    if os.path.exists(p):
+        result = subprocess.run(['cat', p], check=True, capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    else:
+        logger.debug(f"File {p} does not exist.")
+
     # Enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
