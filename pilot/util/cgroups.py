@@ -220,10 +220,10 @@ def create_cgroup() -> bool:
 
     #
     try:
-        result = subprocess.run(['ls', '-lF', current_cgroup_path], check=True, capture_output=True, text=True)
+        result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
 
-        result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
+        result = subprocess.run(['ls', '-lF', "controller_cgroup_path/.."], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
 
         p = os.path.join(controller_cgroup_path, 'cgroup.procs')
