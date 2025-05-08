@@ -222,16 +222,6 @@ def create_cgroup() -> bool:
     try:
         result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
-
-        result = subprocess.run(['ls', '-lF', "controller_cgroup_path/.."], check=True, capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-
-        p = os.path.join(controller_cgroup_path, 'cgroup.procs')
-        if os.path.exists(p):
-            result = subprocess.run(['cat', p], check=True, capture_output=True, text=True)
-            logger.debug(f"Command output: {result.stdout}")
-        else:
-            logger.debug(f"File {p} does not exist.")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
@@ -272,6 +262,13 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
             f.write(f"{pid}")
     except IOError as e:
         logger.warning(f"Failed to move process to cgroup: {e}")
+        try:
+            result = subprocess.run(['echo', pid, procs_path], check=True, capture_output=True, text=True)
+            logger.debug(f"Command output: {result.stdout}")
+            return True
+        except Exception as e:
+            logger.warning(f"failed to run command: {e}")
+
         return False
 
     logger.debug(f"added process {pid} to cgroup {cgroup_path}")
@@ -300,7 +297,13 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
         with open(subtree_control_path, "w") as f:
             f.write(controllers)
     except IOError as e:
-        print(f"Failed to enable controllers in cgroup.subtree_control: {e}")
+        logger.warning(f"Failed to enable controllers in cgroup.subtree_control: {e}")
+        try:
+            result = subprocess.run(['echo', controllers, subtree_control_path], check=True, capture_output=True, text=True)
+            logger.debug(f"Command output: {result.stdout}")
+            return True
+        except Exception as e:
+            logger.warning(f"failed to run command: {e}")
         return False
 
     return True
