@@ -700,7 +700,17 @@ def add_error_codes(data: dict, job: JobData):
     pilot_error_diags = job.piloterrordiags
     if pilot_error_diags != []:
         # filter out any timestamps that might mess up monitoring (https://its.cern.ch/jira/browse/ATLASPANDA-1324)
-        pilot_error_diags = [remove_timestamp(diag) for diag in pilot_error_diags]
+        # pilot_error_diags = [remove_timestamp(diag) for diag in pilot_error_diags]
+        pilot_error_diags_cleaned = []
+        for diag in pilot_error_diags:
+            if isinstance(diag, str):
+                pilot_error_diags_cleaned.append(remove_timestamp(diag))
+            else:
+                # Optionally log or convert to string
+                pilot_error_diags_cleaned.append(remove_timestamp(str(diag)))
+                logger.warning(f'pilotErrorDiags contains non-string value: {diag} (converted to string)')
+        pilot_error_diags = pilot_error_diags_cleaned
+
         logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
         data['pilotErrorDiag'] = pilot_error_diags[0]
     else:
