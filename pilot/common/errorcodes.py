@@ -607,7 +607,12 @@ class ErrorCodes:
 
     @classmethod
     def generate_json(cls, filename: str = "error_codes.json"):
-        """Generate a JSON object containing the error codes and diagnostics."""
+        """
+        Generate a JSON object containing the error codes and diagnostics.
+
+        Args:
+            str filename: The name of the JSON file to save the error codes and diagnostics.
+        """
         error_dict = {}
         for error_code, message in cls._error_messages.items():
             error_name = cls.get_error_name(error_code)
@@ -615,6 +620,22 @@ class ErrorCodes:
 
         with open(filename, "w", encoding='utf-8') as f:
             dump(error_dict, f, indent=4)
+
+    @classmethod
+    def convert_acronym_to_code(cls, filename: str = "acronyms.json"):
+        """
+        Convert the acronyms in the ErrorCode class and store them in a JSON with the error codes as values.
+
+        Args:
+            str filename: The name of the JSON file to save the acronyms and error codes.
+        """
+        error_codes = {}
+        for error_code, _ in cls._error_messages.items():
+            error_name = cls.get_error_name(error_code)
+            error_codes[error_name] = error_code
+
+        with open(filename, "w", encoding='utf-8') as f:
+            dump(error_codes, f, indent=4)
 
     @classmethod
     def is_recoverable(cls, code: int = 0) -> bool:
