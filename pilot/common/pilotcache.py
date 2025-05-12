@@ -31,6 +31,7 @@ def get_pilot_cache():
         def __init__(self):
             """ Define standard initialization for the cache. """
             self.use_cgroups = None  # for process management
+            self.cgroups = {}  # for process management
             self.proxy_lifetime = 0
             self.queuedata = {}
             self.pilot_version = None
@@ -39,5 +40,40 @@ def get_pilot_cache():
             self.pilot_home_dir = None
             self.current_job_id = None
             self.current_job_state = None
+
+        def get_pids(self):
+            """
+            Get the list of process IDs (PIDs) from the cgroups dictionary.
+
+            Returns:
+                list: List of PIDs.
+            """
+            return list(self.cgroups.keys())
+
+        def add_cgroup(self, key, value):
+            """
+            Add an entry to the cgroups dictionary.
+
+            Normally, the process id would be used as the key, and a
+            typical value will be the path to the cgroup.
+
+            Args:
+                key (str): Key for the cgroups entry.
+                value: Value for the cgroups entry.
+            """
+            self.cgroups[key] = value
+
+        def get_cgroup(self, key, default=None):
+            """
+            Get an entry from the cgroups dictionary.
+
+            Args:
+                key (str): Key for the cgroups entry.
+                default: Value to return if the key doesn't exist (default: None).
+
+            Returns:
+                The value associated with the key, or default if the key doesn't exist.
+            """
+            return self.cgroups.get(key, default)
 
     return PilotCache()

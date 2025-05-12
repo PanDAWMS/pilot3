@@ -190,15 +190,25 @@ def get_parent_cgroup_path(current_cgroup_path: str) -> str:
     return ""
 
 
-def create_cgroup() -> bool:
+def create_cgroup(pid: int = os.getpid()) -> bool:
     """
     Create a cgroup for the current process.
 
     This function creates a cgroup for the current process and returns its path.
 
+    Args:
+        pid (int): The process ID to create the cgroup for. Default is the current process ID.
+
     Returns:
         bool: True if the cgroup was successfully created, False otherwise.
     """
+    # First make sure that the cgroup was not already created for this pid
+    if pilot_cache:
+        pids = pilot_cache.get_pids()
+        if pid in pids:
+            logger.debug(f"cgroup already created for pid {pid}")
+            return True
+
     # Parse the current cgroup path this process is running in
     current_cgroup_path = parse_cgroup_path(1024)  # ad hoc size
     if not current_cgroup_path:
@@ -225,6 +235,7 @@ def create_cgroup() -> bool:
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
+
     # Enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
@@ -232,10 +243,14 @@ def create_cgroup() -> bool:
         return False
 
     # Move the parent process to the controller cgroup
-    status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
+    status = move_process_to_cgroup(controller_cgroup_path, pid)
     if not status:
         logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
+
+    # Keep track of the cgroup path in the pilot cache
+    if pilot_cache:
+        pilot_cache.add_cgroup(pid, controller_cgroup_path)
 
     return True
 
