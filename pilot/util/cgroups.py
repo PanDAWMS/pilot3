@@ -135,6 +135,39 @@ def get_process_cgroups(pid="self"):
 
 def parse_cgroup_path(size: int) -> str:
     """
+    Parses the cgroup path from /proc/self/cgroup.
+
+    Reads the contents of /proc/self/cgroup and extracts the path associated
+    with the cgroup v2 entry (entry with id 0 and empty controllers field).
+    If not found, returns None.
+
+    Args:
+        size (int): The maximum allowed length of the returned path, simulating a buffer size.
+
+    Returns:
+        str: The parsed cgroup path, truncated to (size - 1) characters if needed.
+             Returns None if parsing fails.
+    """
+    try:
+        with open(PROC_CGROUP_PATH, "r") as f_cgroup:
+            logger.debug(f"Contents of {PROC_CGROUP_PATH}:")
+            for line in f_cgroup:
+                logger.debug(line.strip())
+                parts = line.strip().split(":")
+                if len(parts) == 3:
+                    hierarchy_id, controllers, path = parts
+                    if hierarchy_id == '0' and controllers == '':
+                        return path[:size - 1]
+    except IOError as e:
+        logger.warning(f"Failed to open {PROC_CGROUP_PATH}: {e}")
+        return None
+
+    logger.warning(f"Failed to parse cgroup path from {PROC_CGROUP_PATH}")
+    return None
+
+
+def parse_cgroup_path_old(size: int) -> str:
+    """
     Parse the cgroup v2 path from /proc/self/cgroup.
 
     Reads the contents of /proc/self/cgroup and extracts the path associated
