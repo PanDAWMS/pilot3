@@ -57,6 +57,8 @@ def get_pilot_cache():
             Normally, the process id would be used as the key, and a
             typical value will be the path to the cgroup.
 
+            This is used to keep track of the cgroups for each process.
+
             Args:
                 key (str): Key for the cgroups entry.
                 value: Value for the cgroups entry.
