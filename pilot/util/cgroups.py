@@ -357,11 +357,16 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
     Returns:
         bool: True if the controllers were successfully enabled, False otherwise.
     """
-    subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
+    #subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
         #result = subprocess.run(['echo', controllers, '>', subtree_control_path], check=True, capture_output=True, text=True)
-        result = result = subprocess.run(f'echo \"{controllers}\" > {subtree_control_path}',
-                                         shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
+        #result = subprocess.run(f'echo \"{controllers}\" > {subtree_control_path}',
+        #                        shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
+        cmd = f"echo '{controllers}' | sudo tee {cgroup_path}/cgroup.subtree_control > /dev/null"
+        result = subprocess.run(cmd, shell=True)
+        if result.returncode != 0:
+            logger.warning(f"Failed to enable controllers at {cgroup_path}")
+            return False
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
