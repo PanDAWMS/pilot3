@@ -22,6 +22,7 @@
 
 import logging
 import os
+import psutil
 import subprocess
 
 from pilot.common.pilotcache import get_pilot_cache
@@ -210,20 +211,7 @@ def parse_cgroup_path_old(size: int) -> str:
     return None
 
 
-def get_parent_cgroup_path(current_cgroup_path: str) -> str:
-    """
-    Get the parent cgroup path from the current cgroup path.
-
-    Args:
-        current_cgroup_path (str): The current cgroup path.
-
-    Returns:
-        str: The parent cgroup path.
-    """
-    return ""
-
-
-def create_cgroup(pid: int = os.getpid()) -> bool:
+def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bool:
     """
     Create a cgroup for the current process.
 
@@ -231,6 +219,7 @@ def create_cgroup(pid: int = os.getpid()) -> bool:
 
     Args:
         pid (int): The process ID to create the cgroup for. Default is the current process ID.
+        controller (str, optional): The controller to create the cgroup for. Default is "controller0".
 
     Returns:
         bool: True if the cgroup was successfully created, False otherwise.
@@ -253,7 +242,7 @@ def create_cgroup(pid: int = os.getpid()) -> bool:
     parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
 
     # Create a "controller" cgroup for the parent process
-    controller_cgroup_path = os.path.join(parent_cgroup_path, "controller")
+    controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
     logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
     try:
         mkdirs(controller_cgroup_path, chmod=0o755)
@@ -275,8 +264,9 @@ def create_cgroup(pid: int = os.getpid()) -> bool:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
         return False
 
-    # Move the parent process to the controller cgroup
-    status = move_process_to_cgroup(controller_cgroup_path, pid)
+    # Move the parent process (and any existing child processes) to the controller cgroup
+    #status = move_process_to_cgroup(controller_cgroup_path, pid)
+    status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
     if not status:
         logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
@@ -311,7 +301,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
     except IOError as e:
         logger.warning(f"Failed to move process to cgroup: {e}")
         try:
-            result = subprocess.run(['echo', pid, procs_path], check=True, capture_output=True, text=True)
+            result = subprocess.run(['echo', pid, '>', procs_path], check=True, capture_output=True, text=True)
             logger.debug(f"Command output: {result.stdout}")
             return True
         except Exception as e:
@@ -320,6 +310,34 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
         return False
 
     logger.debug(f"added process {pid} to cgroup {cgroup_path}")
+    return True
+
+
+def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
+    """
+    Moves the given PID and all of its descendants into the specified cgroup
+    by invoking 'echo <pid> > cgroup.procs' using a subprocess shell command.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+        root_pid (int): The PID of the root process to move.
+
+    Raises:
+        RuntimeError: If moving any PID fails.
+    """
+    procs_file = f"{cgroup_path}/cgroup.procs"
+    root_process = psutil.Process(root_pid)
+    all_pids = [root_process.pid] + [p.pid for p in root_process.children(recursive=True)]
+
+    for pid in all_pids:
+        cmd = f"echo {pid} > {procs_file}"
+        try:
+            subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
+            return False
+
+    logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
     return True
 
 
