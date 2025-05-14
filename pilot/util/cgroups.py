@@ -273,7 +273,8 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
 
     # Enable memory and pid controllers in the parent cgroup
-    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    status = enable_controllers(controller_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
         return False
@@ -310,7 +311,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
     procs_path = os.path.join(cgroup_path, "cgroup.procs")
 
     try:
-        with open(procs_path, "w") as f:
+        with open(procs_path, "a") as f:
             f.write(f"{pid}")
     except IOError as e:
         logger.warning(f"Failed to move process to cgroup: {e}")
@@ -345,7 +346,7 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
 
     for pid in all_pids:
         try:
-            with open(procs_file, "w") as f:
+            with open(procs_file, "a") as f:
                 f.write(f"{pid}")
         except IOError as e:
             logger.warning(f"Failed to move process to cgroup: {e}")
@@ -382,13 +383,13 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
     Returns:
         bool: True if the controllers were successfully enabled, False otherwise.
     """
-    #subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
+    subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
         #result = subprocess.run(['echo', controllers, '>', subtree_control_path], check=True, capture_output=True, text=True)
-        #result = subprocess.run(f'echo \"{controllers}\" > {subtree_control_path}',
-        #                        shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
-        cmd = f"echo '{controllers}' | sudo tee {cgroup_path}/cgroup.subtree_control > /dev/null"
-        result = subprocess.run(cmd, shell=True)
+        result = subprocess.run(f'echo \"{controllers}\" > {subtree_control_path}',
+                                shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
+        #cmd = f"echo '{controllers}' | sudo tee {cgroup_path}/cgroup.subtree_control > /dev/null"
+        #result = subprocess.run(cmd, shell=True)
         if result.returncode != 0:
             logger.warning(f"Failed to enable controllers at {cgroup_path}")
             return False
