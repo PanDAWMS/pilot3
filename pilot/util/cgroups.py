@@ -258,10 +258,11 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         logger.warning(f"failed to run command: {e}")
         return False
 
-    # Enable memory and pid controllers in the parent cgroup
-    status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    if not status:
-        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+    try:
+        result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
         return False
 
     # Move the parent process (and any existing child processes) to the controller cgroup
@@ -270,6 +271,19 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     if not status:
         logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
+
+    # Enable memory and pid controllers in the parent cgroup
+    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    if not status:
+        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
+
+    # Move the parent process (and any existing child processes) to the controller cgroup
+    ##status = move_process_to_cgroup(controller_cgroup_path, pid)
+    #status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
+    #if not status:
+    #    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
+    #    return False
 
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
@@ -301,7 +315,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
     except IOError as e:
         logger.warning(f"Failed to move process to cgroup: {e}")
         try:
-            result = subprocess.run(['echo', pid, '>', procs_path], check=True, capture_output=True, text=True)
+            result = subprocess.run([f'echo {pid} > {procs_path}'], check=True, capture_output=True, text=True)
             logger.debug(f"Command output: {result.stdout}")
             return True
         except Exception as e:
@@ -330,12 +344,23 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
     all_pids = [root_process.pid] + [p.pid for p in root_process.children(recursive=True)]
 
     for pid in all_pids:
-        cmd = f"echo {pid} > {procs_file}"
         try:
-            subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
-            return False
+            with open(procs_file, "w") as f:
+                f.write(f"{pid}")
+        except IOError as e:
+            logger.warning(f"Failed to move process to cgroup: {e}")
+
+            cmd = f"echo {pid} > {procs_file}"
+            try:
+                subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
+                result = subprocess.run(f"ls -l {procs_file}", shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
+                if result:
+                    logger.debug(result.stdout)
+                else:
+                    logger.warning("failed to run command: ls? no output")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
+                return False
 
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
     return True
