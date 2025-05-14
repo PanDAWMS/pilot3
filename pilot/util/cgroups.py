@@ -241,6 +241,12 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     # Construct the full path to the parent cgroup
     parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
 
+    # Enable memory and pid controllers in the parent cgroup
+    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    if not status:
+        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
+
     # Create a "controller" cgroup for the parent process
     controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
     logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
@@ -252,6 +258,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
 
     #
     try:
+        logger.debug(f"ls -lF {controller_cgroup_path}")
         result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
@@ -259,6 +266,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
 
     try:
+        logger.debug(f"ls -lF {parent_cgroup_path}")
         result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
@@ -266,25 +274,10 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
 
     # Move the parent process (and any existing child processes) to the controller cgroup
-    #status = move_process_to_cgroup(controller_cgroup_path, pid)
     status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
     if not status:
         logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
-
-    # Enable memory and pid controllers in the parent cgroup
-    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    status = enable_controllers(controller_cgroup_path, "+memory +pids")
-    if not status:
-        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
-        return False
-
-    # Move the parent process (and any existing child processes) to the controller cgroup
-    ##status = move_process_to_cgroup(controller_cgroup_path, pid)
-    #status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
-    #if not status:
-    #    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-    #    return False
 
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
@@ -354,14 +347,18 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
             cmd = f"echo {pid} > {procs_file}"
             try:
                 subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
-                result = subprocess.run(f"ls -l {procs_file}", shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
-                if result:
-                    logger.debug(result.stdout)
-                else:
-                    logger.warning("failed to run command: ls? no output")
             except subprocess.CalledProcessError as e:
                 logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
                 return False
+
+        cmd = f"ls -l {procs_file}"
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
+                                capture_output=True, text=True)
+        if result:
+            logger.debug(result.stdout)
+        else:
+            logger.warning("failed to run command: ls? no output")
 
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
     return True
@@ -385,8 +382,18 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
     """
     subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
-        #result = subprocess.run(['echo', controllers, '>', subtree_control_path], check=True, capture_output=True, text=True)
-        result = subprocess.run(f'echo \"{controllers}\" > {subtree_control_path}',
+        with open(subtree_control_path, "a") as f:
+            f.write(f"{controllers}")
+    except IOError as e:
+        logger.warning(f"Failed to enable controllers: {e}")
+    else:
+        logger.debug(f"Enabled controllers {controllers} in cgroup {cgroup_path}")
+        return True
+
+    try:
+        cmd = f'echo \"{controllers}\" > {subtree_control_path}'
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd,
                                 shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
         #cmd = f"echo '{controllers}' | sudo tee {cgroup_path}/cgroup.subtree_control > /dev/null"
         #result = subprocess.run(cmd, shell=True)
@@ -396,6 +403,15 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
+        #return False
+        cmd = f'ls -l {subtree_control_path}'
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd,
+                                shell=True, check=True, executable="/bin/bash", capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.debug(f"Failed to execute ls command: {result.stderr}")
+        else:
+            logger.debug(f"Command output: {result.stdout}")
         return False
 
     return True
