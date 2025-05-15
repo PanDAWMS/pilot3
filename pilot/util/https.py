@@ -500,7 +500,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 10) -> dict:
+def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> dict:
     """
     Send the update to the server using the given function and data.
 
