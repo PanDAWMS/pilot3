@@ -294,16 +294,16 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
 
-    # Move the parent process (and any existing child processes) to the controller cgroup
-    status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
-    if not status:
-        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-        return False
-
     # Enable memory and pid controllers in the parent controller cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
+
+    # Move the parent process (and any existing child processes) to the controller cgroup
+    status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
+    if not status:
+        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
         return False
 
     # Keep track of the cgroup path in the pilot cache
