@@ -386,6 +386,13 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
             f.write(f"{controllers}")
     except IOError as e:
         logger.warning(f"Failed to enable controllers: {e}")
+
+        path = os.path.join(cgroup_path, "cgroup.procs")
+        cmd = f"cat {path}"
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
+                                capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
     else:
         logger.debug(f"Enabled controllers {controllers} in cgroup {cgroup_path}")
         return True
