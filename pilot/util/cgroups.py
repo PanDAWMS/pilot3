@@ -211,7 +211,7 @@ def parse_cgroup_path_old(size: int) -> str:
     return None
 
 
-def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bool:
+def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bool:  # noqa: C901
     """
     Create a cgroup for the current process.
 
@@ -241,11 +241,31 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     # Construct the full path to the parent cgroup
     parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
 
-    # Enable memory and pid controllers in the parent cgroup
-    status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    if not status:
-        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+    logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
+
+    try:
+        logger.debug(f"ls -lF {parent_cgroup_path}")
+        result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
         return False
+    try:
+        path = os.path.join(parent_cgroup_path, "cgroup.procs")
+        cmd = f"cat {path}"
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
+                                capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
+
+    # should be here; but it fails since there are already processes added to the cgroup
+    # Enable memory and pid controllers in the parent cgroup
+    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    #if not status:
+    #    logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+    #    return False
 
     # Create a "controller" cgroup for the parent process
     controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
@@ -264,19 +284,26 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
-
     try:
-        logger.debug(f"ls -lF {parent_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
+        path = os.path.join(controller_cgroup_path, "cgroup.procs")
+        cmd = f"cat {path}"
+        logger.debug(f"Executing command: {cmd}")
+        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
+                                capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
-        return False
 
     # Move the parent process (and any existing child processes) to the controller cgroup
     status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
     if not status:
         logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
+        return False
+
+    # Enable memory and pid controllers in the parent controller cgroup
+    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    if not status:
+        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
         return False
 
     # Keep track of the cgroup path in the pilot cache
@@ -386,13 +413,6 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
             f.write(f"{controllers}")
     except IOError as e:
         logger.warning(f"Failed to enable controllers: {e}")
-
-        path = os.path.join(cgroup_path, "cgroup.procs")
-        cmd = f"cat {path}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
     else:
         logger.debug(f"Enabled controllers {controllers} in cgroup {cgroup_path}")
         return True
