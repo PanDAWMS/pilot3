@@ -1218,7 +1218,7 @@ def update_local_oidc_token_info(url: str, port: int):
         if not status:
             logger.warning('failed to refresh OIDC token')
         else:
-            logger.debug('OIDC token has been refreshed')
+            logger.info('OIDC token has been refreshed')
     else:
         logger.debug('no OIDC token info to update')
 
