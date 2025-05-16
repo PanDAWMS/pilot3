@@ -19,7 +19,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """Functions for https interactions."""
 
@@ -1094,17 +1094,6 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         content = ""
 
     return content
-
-
-def hide_info(txt, removeme):
-    """
-    Hide sensitive information in the given text.
-
-    :param txt: text (str)
-    :param removeme: text to remove (str)
-    :return: text with sensitive information removed (str).
-    """
-    return txt.replace(removeme, '********')
 
 
 def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
