@@ -39,7 +39,10 @@ from pilot.util.constants import (
     UTILITY_BEFORE_STAGEIN,
     UTILITY_WITH_PAYLOAD,
 )
-from pilot.util.filehandling import read_file
+from pilot.util.filehandling import (
+    get_guid,
+    read_file
+)
 from pilot.util.https import get_base_urls
 
 from .setup import get_analysis_trf
@@ -164,8 +167,21 @@ def update_job_data(job: object):
 
     :param job: job object (object).
     """
-    if job:  # to bypass pylint score 0
-        pass
+    validate_output_data(job)
+
+
+def validate_output_data(job: JobData):
+    """
+    Validate output data.
+
+    Set any missing GUIDs in the output file list.
+
+    :param job: job object (JobData).
+    """
+    for dat in job.outdata:
+        if not dat.guid:
+            dat.guid = get_guid()
+            logger.warning(f'guid not set: generated guid={dat.guid} for lfn={dat.lfn}')
 
 
 def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False):

@@ -30,6 +30,9 @@ from pilot.util.filehandling import (
     read_file,
     tail
 )
+from .common import (
+    update_job_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,9 @@ def interpret(job: JobData) -> int:
     :param job: job object (JobData)
     :return: exit code (payload) (int).
     """
+    # set missing GUIDs if any
+    update_job_data(job)
+
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     message = 'payload stdout dump\n'
     message += read_file(stdout)
