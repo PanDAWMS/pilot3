@@ -24,6 +24,7 @@ import logging
 import os
 import psutil
 import subprocess
+from pathlib import Path
 
 from pilot.common.pilotcache import get_pilot_cache
 from pilot.util.filehandling import mkdirs
@@ -252,14 +253,20 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
     try:
         path = os.path.join(parent_cgroup_path, "cgroup.procs")
-        cmd = f"cat {path}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
+        #cmd = f"cat {path}"
+        #logger.debug(f"Executing command: {cmd}")
+        #result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
+        #                        capture_output=True, text=True)
+        #logger.debug(f"Command output: {result.stdout}")
+        moved = move_procs_to_parent(path)
+        print(f"Moved PIDs: {moved}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
-
+        return False
+    else:
+        if not moved:
+            logger.warning(f"failed to move processes to parent cgroup: {parent_cgroup_path}")
+            return False
     # should be here; but it fails since there are already processes added to the cgroup
     # Enable memory and pid controllers in the parent cgroup
     #status = enable_controllers(parent_cgroup_path, "+memory +pids")
@@ -311,6 +318,42 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         pilot_cache.add_cgroup(pid, controller_cgroup_path)
 
     return True
+
+
+def move_procs_to_parent(path: str):
+    """
+    Moves all PIDs listed in the specified cgroup.procs file to its parent cgroup.
+
+    Args:
+        path (str): Full path to the cgroup.procs file (e.g., os.path.join(parent_cgroup_path, "cgroup.procs")).
+
+    Returns:
+        list: List of PIDs that were moved.
+
+    Raises:
+        RuntimeError: If any PID fails to move.
+    """
+    procs_file = Path(path)
+    cgroup_path = procs_file.parent
+    parent_procs_file = cgroup_path.parent / "cgroup.procs"
+
+    if not procs_file.exists():
+        raise FileNotFoundError(f"{procs_file} does not exist")
+
+    logger.debug("Moving PIDs to parent cgroup: {parent_procs_file}")
+    try:
+        result = subprocess.run(["cat", str(procs_file)], check=True, capture_output=True, text=True)
+        pids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to read {procs_file}: {e}")
+
+    for pid in pids:
+        try:
+            subprocess.run(["bash", "-c", f"echo {pid} > {parent_procs_file}"], check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to move PID {pid} to {parent_procs_file}: {e}")
+
+    return pids
 
 
 def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
