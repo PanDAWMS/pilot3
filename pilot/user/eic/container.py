@@ -60,10 +60,27 @@ def do_use_container(**kwargs: dict) -> bool:
     :param kwargs: dictionary of key-word arguments (dict)
     :return: True is function has decided that a container should be used, False otherwise (bool).
     """
-    if kwargs:  # to bypass pylint score 0
-        pass
+    # to force no container use: return False
+    use_container = False
 
-    return True
+    job = kwargs.get('job', False)
+    copytool = kwargs.get('copytool', False)
+    if job:
+        # for user jobs, TRF option --containerImage must have been used, ie imagename must be set
+        if job.imagename and job.imagename != 'NULL':
+            use_container = True
+        elif not (job.platform or job.alrbuserplatform):
+            use_container = False
+        else:
+            queuedata = job.infosys.queuedata
+            container_name = queuedata.container_type.get("pilot")
+            if container_name:
+                use_container = True
+    elif copytool:
+        # override for copytools - use a container for stage-in/out
+        use_container = True
+
+    return use_container
 
 
 def wrapper(executable: str, **kwargs: dict) -> Callable[..., Any]:
