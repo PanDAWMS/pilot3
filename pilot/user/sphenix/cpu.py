@@ -50,8 +50,9 @@ def add_core_count(corecount: int, core_counts: list = None) -> list:
     """
     if core_counts is None:
         core_counts = []
+    core_counts.append(corecount)
 
-    return core_counts.append(corecount)
+    return core_counts
 
 
 def set_core_counts(**kwargs):
