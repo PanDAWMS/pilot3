@@ -19,7 +19,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """Functions for https interactions."""
 
@@ -500,7 +500,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6') -> dict:
+def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> dict:
     """
     Send the update to the server using the given function and data.
 
@@ -510,9 +510,9 @@ def send_update(update_function: str, data: dict, url: str, port: int, job: JobD
     :param port: server port (int)
     :param job: job object (JobData)
     :param ipv: internet protocol version, IPv4 or IPv6 (str)
+    :param max_attempts: maximum number of attempts to send the update (int)
     :return: server response (dict).
     """
-    max_attempts = 10
     attempt = 0
     done = False
     res = None
@@ -570,9 +570,16 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     res = None
     time_before = int(time())
 
+    # adjust the server path if the new server API is being used
+    if "api/v" in update_function:  # e.g. api/v1
+        path = f"{pandaserver}/{update_function}"
+    else:
+        path = f'{pandaserver}/server/panda/{update_function}'
+
+    logger.debug(f"update_function = {update_function}, path = {path}")
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{pandaserver}/server/panda/{update_function}', data=data, panda=True)
+        res = request2(f'{path}', data=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -582,6 +589,10 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
             res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
+
+    if isinstance(res, str):
+        logger.warning(f"panda server returned a string instead of a dictionary: {res}")
+        return None
 
     if res:
         txt = f'server {update_function} request completed in {int(time()) - time_before}s'
@@ -689,7 +700,17 @@ def add_error_codes(data: dict, job: JobData):
     pilot_error_diags = job.piloterrordiags
     if pilot_error_diags != []:
         # filter out any timestamps that might mess up monitoring (https://its.cern.ch/jira/browse/ATLASPANDA-1324)
-        pilot_error_diags = [remove_timestamp(diag) for diag in pilot_error_diags]
+        # pilot_error_diags = [remove_timestamp(diag) for diag in pilot_error_diags]
+        pilot_error_diags_cleaned = []
+        for diag in pilot_error_diags:
+            if isinstance(diag, str):
+                pilot_error_diags_cleaned.append(remove_timestamp(diag))
+            else:
+                # Optionally log or convert to string
+                pilot_error_diags_cleaned.append(remove_timestamp(str(diag)))
+                logger.warning(f'pilotErrorDiags contains non-string value: {diag} (converted to string)')
+        pilot_error_diags = pilot_error_diags_cleaned
+
         logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
         data['pilotErrorDiag'] = pilot_error_diags[0]
     else:
@@ -736,13 +757,16 @@ def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
     return f'{url}/server/panda/{cmd}'
 
 
-def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None, content_type: str = "application/json") -> dict:
+def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None,
+                content_type: str = "application/json", accept: bool = False) -> dict:
     """
     Get the headers for the request.
 
     :param use_oidc_token: True if OIDC token should be used (bool)
     :param auth_token_content: token content (str)
     :param auth_origin: token origin (str)
+    :param content_type: content type (str)
+    :param accept: True if accept header should be added (bool)
     :return: headers (dict).
     """
     if use_oidc_token:
@@ -760,6 +784,8 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     # only add the content type if there is a body to send (that is of type application/json)
     if content_type:
         headers["Content-Type"] = content_type
+        if accept:
+            headers["Accept"] = content_type
 
     return headers
 
@@ -800,7 +826,10 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
         else:
             logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
     else:
-        logger.warning(f'path does not exist: {path}')
+        if not path:
+            logger.warning('token could not be located (path is not set - make sure OIDC env vars are set)')
+        else:
+            logger.warning(f'path does not exist: {path}')
         return ""
 
     return auth_token_content
@@ -842,19 +871,24 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
         return ""
 
+    # only add Accept to headers if new API is used
+    accept = True if "api/v" in url else False
+
     # get the relevant headers
-    headers = get_headers(use_oidc_token, auth_token_content, auth_origin)
-    logger.info(f'headers = {hide_token(headers.copy())}')
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
     logger.info(f'data = {data}')
 
     # encode data as compressed JSON
     if compressed:
+        if "api/v" in url:
+            headers['Content-Encoding'] = 'gzip'
         rdata_out = BytesIO()
         with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
             f_gzip.write(json.dumps(data).encode())
         data_json = rdata_out.getvalue()
     else:
         data_json = json.dumps(data).encode('utf-8')
+    logger.info(f'headers = {hide_token(headers.copy())}')
 
     # set up the request
     req = urllib.request.Request(url, data_json, headers=headers)
@@ -887,8 +921,8 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
                 logger.info(f"response={ret}")
         logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
-        logger.warning(f'failed to send request: {exc}')
-        ret = ""
+        ret = f"failed to send request: {exc}"
+        logger.warning(ret)
     else:
         if secure and isinstance(ret, str):
             if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
@@ -1062,17 +1096,6 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     return content
 
 
-def hide_info(txt, removeme):
-    """
-    Hide sensitive information in the given text.
-
-    :param txt: text (str)
-    :param removeme: text to remove (str)
-    :return: text with sensitive information removed (str).
-    """
-    return txt.replace(removeme, '********')
-
-
 def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
     """
     Refresh the OIDC token.
@@ -1184,6 +1207,23 @@ def update_local_oidc_token_info(url: str, port: int):
         if not status:
             logger.warning('failed to refresh OIDC token')
         else:
-            logger.debug('OIDC token has been refreshed')
+            logger.info('OIDC token has been refreshed')
     else:
         logger.debug('no OIDC token info to update')
+
+
+def get_base_urls(args_base_urls: str) -> list:
+    """
+    Get base URLs for transform download.
+
+    :param args_base_urls: base URLs (str)
+    :return: list of base URLs (list).
+    """
+    base_urls = args_base_urls.split(",") if args_base_urls else []
+    if not base_urls:
+        # try to get the list from an environmental variable instead
+        urls = os.getenv("PANDA_BASE_URLS", None)
+        if urls:
+            base_urls = urls.split(",") if urls else []
+
+    return base_urls

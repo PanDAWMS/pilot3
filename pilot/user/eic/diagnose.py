@@ -17,8 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
-# - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
 """ Functions for interpreting the payload stdout/err. """
 
@@ -31,7 +30,6 @@ from pilot.util.filehandling import (
     read_file,
     tail
 )
-
 from .common import (
     update_job_data,
 )

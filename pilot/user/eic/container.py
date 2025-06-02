@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Functions related to containerisation for generic user."""
+"""Functions related to containerisation for eic user."""
 
 import json
 import logging
@@ -38,7 +38,7 @@ from pilot.info import (
     #infosys,
     JobData
 )
-from pilot.user.generic.setup import (
+from pilot.user.eic.setup import (
     get_asetup,
     #get_file_system_root_path
 )
@@ -392,6 +392,10 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
             if not is_cvmfs:
                 alrb_setup += ' -d'
 
+        if "-c $thePlatform" not in alrb_setup:
+            logger.warning('thePlatform not set in alrb_setup, using brute force')
+            alrb_setup = alrb_setup.replace("atlasLocalSetup.sh", "atlasLocalSetup.sh --shell bash -c $thePlatform")
+
     # update the ALRB setup command
     alrb_setup += f' -s {release_setup}'
     alrb_setup += ' -r /srv/' + container_script
@@ -512,7 +516,7 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
     return cmd
 
 
-def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
+def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:  # noqa: C901
     """
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
@@ -571,8 +575,19 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         if exit_code:
             job.piloterrordiag = diagnostics
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+
+        # make sure that the platform is set
+        if not job.platform and not job.imagename and os.getenv("ALRB_USER_PLATFORM"):
+            job.platform = get_platform()
+        if job.platform:
+            logger.debug(f"job.platform={job.platform}")
+        else:
+            logger.warning("job.platform is not set")
+
         # set the platform info
         alrb_setup = set_platform(job, alrb_setup)
+
+        logger.debug(f"alrb_setup={alrb_setup}")
 
         # add the jobid to be used as an identifier for the payload running inside the container
         # it is used to identify the pid for the process to be tracked by the memory monitor
@@ -650,6 +665,23 @@ def create_stagein_container_command(workdir: str, cmd: str):
     return cmd
 
 
+def get_platform() -> str:
+    """
+    Get the platform from the environment variable PLATFORM_ID.
+
+    E.g. ALRB_USER_PLATFORM="el9#x86_64" -> "el9".
+
+    :return: platform (str).
+    """
+    result = ""
+    platform = os.getenv('ALRB_USER_PLATFORM')
+    match = re.search(r'(\w+)\#', platform.lower())
+    if match:
+        result = match.group(1)
+
+    return result
+
+
 def set_platform(job: JobData, alrb_setup: str) -> str:
     """
     Set thePlatform variable and add it to the sub container command.
@@ -666,5 +698,9 @@ def set_platform(job: JobData, alrb_setup: str) -> str:
         alrb_setup += f'export thePlatform="{job.imagename}";'
     elif job.platform:
         alrb_setup += f'export thePlatform="{job.platform}";'
+    if "thePlatform" not in alrb_setup:
+        platform = get_platform()
+        if platform:
+            alrb_setup += f'export thePlatform=\"{platform}\";'
 
     return alrb_setup

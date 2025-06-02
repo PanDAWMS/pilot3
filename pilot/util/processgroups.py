@@ -17,12 +17,16 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
 
 import os
 import re
 import subprocess
-from signal import SIGTERM, SIGKILL
+from shutil import which
+from signal import (
+    SIGTERM,
+    SIGKILL
+)
 from time import sleep
 
 import logging
@@ -95,6 +99,9 @@ def get_all_child_pids(parent_pid):
         pid_pattern = re.compile(r'\((\d+)\)')
         pids = pid_pattern.findall(s)
         return [int(pid) for pid in pids]
+    if not which('pstree'):
+        logger.warning('pstree not found, cannot get child processes')
+        return []
     try:
         output = subprocess.check_output(["pstree", "-p", str(parent_pid)], universal_newlines=True)
         logger.debug(output)

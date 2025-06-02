@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Executor module for generic payloads."""
@@ -58,6 +58,7 @@ from pilot.util.filehandling import (
     write_file,
     read_file
 )
+from pilot.util.https import get_base_urls
 from pilot.util.processes import (
     kill_process,
     kill_processes,
@@ -127,8 +128,6 @@ class Executor:
         # write time stamps to pilot timing file
         if not update_time:
             update_time = time.time()
-        logger.debug(f"setting post-setup time to {update_time} s")
-        logger.debug(f"gmtime is {time.gmtime(update_time)}")
         add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
 
     def improve_post_setup(self):
@@ -191,9 +190,12 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should we run any additional commands? (e.g. special monitoring commands)
         cmd_dictionary = user.get_utility_commands(
-            order=UTILITY_BEFORE_PAYLOAD, job=job
+            order=UTILITY_BEFORE_PAYLOAD, job=job, base_urls=base_urls
         )
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
@@ -221,8 +223,11 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should any additional commands be prepended to the payload execution string?
-        cmd_dictionary = user.get_utility_commands(order=UTILITY_WITH_PAYLOAD, job=job)
+        cmd_dictionary = user.get_utility_commands(order=UTILITY_WITH_PAYLOAD, job=job, base_urls=base_urls)
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
             _label = cmd_dictionary.get("label", "utility")
@@ -250,8 +255,11 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should any additional commands be executed after the payload?
-        cmd_dictionary = user.get_utility_commands(order=order, job=self.__job)
+        cmd_dictionary = user.get_utility_commands(order=order, job=self.__job, base_urls=base_urls)
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
             _label = cmd_dictionary.get("label", "utility")
@@ -273,9 +281,12 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(
-            order=UTILITY_AFTER_PAYLOAD_STARTED, job=job
+            order=UTILITY_AFTER_PAYLOAD_STARTED, job=job, base_urls=base_urls
         )
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
@@ -351,9 +362,12 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should any additional commands be executed after the payload?
         cmd_dictionary = user.get_utility_commands(
-            order=UTILITY_AFTER_PAYLOAD_STARTED, job=job
+            order=UTILITY_AFTER_PAYLOAD_STARTED, job=job, base_urls=base_urls
         )
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
@@ -396,8 +410,11 @@ class Executor:
             f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
         )
 
+        # convert the base URLs for trf downloads to a list (most likely from an empty string)
+        base_urls = get_base_urls(self.__args.baseurls)
+
         # should any additional commands be prepended to the payload execution string?
-        cmd_dictionary = user.get_utility_commands(order=order, job=job)
+        cmd_dictionary = user.get_utility_commands(order=order, job=job, base_urls=base_urls)
         label = cmd_dictionary.get("label") if cmd_dictionary else "unknown"
         if cmd_dictionary:
             cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
@@ -923,7 +940,7 @@ class Executor:
 
                 # allow for a secondary command to be started after the payload (e.g. a coprocess)
                 utility_cmd = self.get_utility_command(
-                    order=UTILITY_AFTER_PAYLOAD_STARTED2
+                    order=UTILITY_AFTER_PAYLOAD_STARTED2,
                 )
                 if utility_cmd:
                     logger.debug(f"starting utility command: {utility_cmd}")

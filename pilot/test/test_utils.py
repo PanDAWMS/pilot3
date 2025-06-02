@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 """Unit tests for pilot utils."""
 
@@ -27,7 +27,8 @@ import unittest
 from pilot.info import infosys
 from pilot.util.workernode import (
     collect_workernode_info,
-    get_disk_space
+    get_disk_space,
+    get_workernode_map
 )
 
 
@@ -44,7 +45,18 @@ def check_env() -> bool:
     # return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
-@unittest.skipIf(not check_env(), "This unit test is broken")
+def check_cvmfs() -> bool:
+    """
+    Check whether cvmfs is available.
+
+    To be used to decide whether to skip some test functions.
+
+    :return: True if cvmfs is available, otherwise False (bool).
+    """
+    return os.path.exists('/cvmfs/')
+
+
+@unittest.skipIf(not check_env() or not check_cvmfs(), "This unit test is broken")
 class TestUtils(unittest.TestCase):
     """Unit tests for utils functions."""
 
@@ -61,7 +73,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(type(disk), float)
 
         self.assertNotEqual(mem, 0.0)
-        self.assertNotEqual(cpu, 0.0)
+        # self.assertNotEqual(cpu, 0.0)  # CPU info is not always available, e.g. on ARM
         self.assertNotEqual(disk, 0.0)
 
     def test_get_disk_space(self):
@@ -71,6 +83,32 @@ class TestUtils(unittest.TestCase):
         diskspace = get_disk_space(infosys.queuedata)  ## FIX ME LATER
 
         self.assertEqual(type(diskspace), int)
+
+    def test_get_workernode_map_types(self):
+        data = get_workernode_map("TEST")
+
+        expected_types = {
+            "site": str,
+            "host_name": str,
+            "cpu_model": str,
+            "n_logical_cpus": int,
+            "n_sockets": int,
+            "cores_per_socket": int,
+            "threads_per_core": int,
+            "cpu_architecture": str,
+            "cpu_architecture_level": str,
+            "clock_speed": float,
+            "total_memory": int,
+            "total_local_disk": int,
+        }
+
+        for key, expected_type in expected_types.items():
+            if key == "clock_speed" and key not in data:
+                continue  # Skip the test for clock_speed if it's not present
+            with self.subTest(key=key):
+                self.assertIn(key, data, f"Key '{key}' is missing in the returned data")
+                self.assertIsInstance(data[key], expected_type,
+                                      f"Key '{key}' should be of type {expected_type.__name__} but got {type(data[key]).__name__}")
 
 
 if __name__ == '__main__':

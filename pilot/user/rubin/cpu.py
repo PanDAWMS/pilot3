@@ -50,12 +50,11 @@ def add_core_count(corecount: int, core_counts: list = None):
     :param core_counts: list of core counts (list)
     :return: updated list of core counts (list).
     """
-    if not corecount:  # to bypass pylint complaint
-        pass
     if core_counts is None:
         core_counts = []
+    core_counts.append(corecount)
 
-    return core_counts.append(corecount)
+    return core_counts
 
 
 def set_core_counts(**kwargs: dict):

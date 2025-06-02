@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 # - Alexander Bogdanchikov, alexander.bogdanchikov@cern.ch, 2020
 
 """Functions related to proxy handling for ATLAS."""
@@ -31,14 +31,16 @@ from typing import Any
 
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.util.container import (
     execute,
     execute_nothreads
 )
 from pilot.util.proxy import get_proxy
 
-logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+logger = logging.getLogger(__name__)
+pilot_cache = get_pilot_cache()
 
 
 def get_voms_role(role: str = 'production') -> str:
@@ -424,6 +426,7 @@ def extract_time_left(stdout: str) -> tuple[int or None, int or None, str]:
         logger.info(f"validity_end_cert = {validity_end_cert}")
     if validity_end:
         logger.info(f"validity_end = {validity_end}")
+        pilot_cache.proxy_lifetime = validity_end - int(time())  # remaining time in seconds
 
     return validity_end_cert, validity_end, stdout
 

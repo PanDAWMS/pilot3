@@ -106,7 +106,7 @@ def scan_for_jobs(queues: namedtuple) -> list:
 
 def get_timeinfo_from_job(queues: namedtuple, params: dict) -> tuple[int or None, int or None]:
     """
-    Return the maxwalltime from the job object.
+    Return the maxwalltime and starttime from the job object.
 
     The algorithm requires a set PANDAID environmental variable, in order to find the correct walltime.
 

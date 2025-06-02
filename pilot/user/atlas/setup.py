@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 import glob
 import logging
@@ -38,11 +38,9 @@ from pilot.info import (
     JobData
 )
 from pilot.util.auxiliary import find_pattern_in_list
-from pilot.util.container import execute
 from pilot.util.filehandling import (
     copy,
     head,
-    read_base_urls,
     read_file,
     write_file,
 )
@@ -223,7 +221,7 @@ def set_inds(dataset: str):
         os.environ['INDS'] = 'unknown'
 
 
-def get_analysis_trf(transform: str, workdir: str) -> tuple[int, str, str]:
+def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int, str, str]:
     """
     Prepare to download the user analysis transform with curl.
 
@@ -231,6 +229,7 @@ def get_analysis_trf(transform: str, workdir: str) -> tuple[int, str, str]:
 
     :param transform: full trf path (url) (str)
     :param workdir: work directory (str)
+    :param base_urls: base URLs for trf download (list)
     :return: exit code (int), diagnostics (str), transform_name (str) (tuple).
     """
     ec = 0
@@ -261,7 +260,7 @@ def get_analysis_trf(transform: str, workdir: str) -> tuple[int, str, str]:
     original_base_url = ""
 
     # verify the base URL
-    for base_url in get_valid_base_urls():
+    for base_url in get_valid_base_urls(base_urls):
         if transform.startswith(base_url):
             original_base_url = base_url
             break
@@ -272,7 +271,7 @@ def get_analysis_trf(transform: str, workdir: str) -> tuple[int, str, str]:
 
     # try to download from the required location, if not - switch to backup
     status = False
-    for base_url in get_valid_base_urls(order=original_base_url):
+    for base_url in get_valid_base_urls(base_urls, order=original_base_url):
         trf = re.sub(original_base_url, base_url, transform)
         logger.debug(f"attempting to download script: {trf}")
         status, diagnostics = download_transform(trf, transform_name, workdir)
@@ -352,64 +351,7 @@ def download_transform(url: str, transform_name: str, workdir: str) -> tuple[boo
     return status, diagnostics
 
 
-def download_transform_old(url: str, transform_name: str, workdir: str) -> tuple[bool, str]:
-    """
-    Download the transform from the given url.
-
-    :param url: download URL with path to transform (str)
-    :param transform_name: trf name (str)
-    :param workdir: work directory (str)
-    :return: status (boolean), diagnostics (str) (tuple).
-    """
-    status = False
-    diagnostics = ""
-    path = os.path.join(workdir, transform_name)
-    cmd = f'curl -sS "{url}" > {path}'
-    trial = 1
-    max_trials = 3
-
-    # test if $HARVESTER_WORKDIR is set
-    harvester_workdir = os.environ.get('HARVESTER_WORKDIR')
-    if harvester_workdir is not None:
-        # skip curl by setting max_trials = 0
-        max_trials = 0
-        source_path = os.path.join(harvester_workdir, transform_name)
-        try:
-            copy(source_path, path)
-            status = True
-        except (FileHandlingFailure, NoSuchFile) as error:
-            status = False
-            diagnostics = f"Failed to copy file {source_path} to {path} : {error}"
-            logger.error(diagnostics)
-
-    # try to download the trf a maximum of 3 times
-    while trial <= max_trials:
-        logger.info(f"executing command [trial {trial}/{max_trials}]: {cmd}")
-
-        exit_code, stdout, stderr = execute(cmd, mute=True)
-        if not stdout:
-            stdout = "(None)"
-        if exit_code != 0:
-            # Analyze exit code / output
-            diagnostics = f"curl command failed: {exit_code}, {stdout}, {stderr}"
-            logger.warning(diagnostics)
-            if trial == max_trials:
-                logger.fatal(f'could not download transform: {stdout}')
-                status = False
-                break
-
-            logger.info("will try again after 60 s")
-            sleep(60)
-        else:
-            logger.info(f"curl command returned: {stdout}")
-            status = True
-            break
-        trial += 1
-
-    return status, diagnostics
-
-
-def get_valid_base_urls(order: str = None) -> list:
+def get_valid_base_urls(base_urls: list, order: str = None) -> list:
     """
     Return a list of valid base URLs from where the user analysis transform may be downloaded from.
 
@@ -417,27 +359,26 @@ def get_valid_base_urls(order: str = None) -> list:
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
+    :param base_urls: list of base URLs (list)
     :param order: order (str)
     :return: valid base URLs (list).
     """
-    base_urls = [
-        "www.usatlas.bnl.gov",
-        "pandaserver.cern.ch",
-        "atlpan.web.cern.ch/atlpan",
-        "classis01.roma1.infn.it",
-        "atlas-install.roma1.infn.it"
-    ]
+    if not base_urls:
+        base_urls = [
+            "www.usatlas.bnl.gov",
+            "pandaserver.cern.ch",
+            "atlpan.web.cern.ch/atlpan",
+            "classis01.roma1.infn.it",
+            "atlas-install.roma1.infn.it"
+        ]
 
     valid_base_urls = []
     for base_url in base_urls:
-        valid_base_urls.append(f"http://{base_url}")
-        valid_base_urls.append(f"https://{base_url}")
-
-    # add further URLs in case baseurls.txt file exist (URLs specified with option --baseurls)
-    urls = read_base_urls()
-    if urls:
-        for url in urls:
-            valid_base_urls.append(url)
+        if not base_url.startswith(("http://", "https://")):
+            valid_base_urls.append(f"http://{base_url}")
+            valid_base_urls.append(f"https://{base_url}")
+        else:
+            valid_base_urls.append(base_url)
 
     if order:
         valid_base_urls = [order] + [url for url in valid_base_urls if url != order]

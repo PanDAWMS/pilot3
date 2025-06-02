@@ -388,7 +388,7 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
     Wrap the given command with the special ALRB setup for containers
     E.g. cmd = /bin/bash hello_world.sh
     ->
-    export thePlatform="x86_64-slc6-gcc48-opt"
+    export thePlatform="x86_64-slc6-gcc48-opt el9"
     export ALRB_CONT_RUNPAYLOAD="cmd'
     setupATLAS -c $thePlatform
 

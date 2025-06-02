@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
 """Generic user specific functionality."""
 
