@@ -273,10 +273,11 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C9
             if exit_code and exit_code > 1000:  # pilot error code, add to list
                 logger.warning(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
+            else:
+                job.transexitcode = exit_code % 255
 
             logger.debug(f'run() returned exit_code={exit_code}')
             set_cpu_consumption_time(job)
-            job.transexitcode = exit_code % 255
             if out:
                 out.close()
             if err:
