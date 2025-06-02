@@ -464,6 +464,7 @@ class ErrorCodes:
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
             "General payload setup verification error": self.SETUPFAILURE,
+            "No such file or directory": self.NOSUCHFILE,
         }
 
         # Check if stderr contains any known error messages
