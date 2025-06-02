@@ -48,4 +48,5 @@ def get_job_metrics(job: object, extra: dict = None) -> str:
     #if extra is None:
     #    extra = {}
 
-    return ""
+    # return ""
+    raise NotImplementedError("The get_job_metrics function is not yet implemented. Please provide an implementation.")
