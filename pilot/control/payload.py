@@ -679,6 +679,8 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
     """
     if exit_code != 0:
         logger.warning(f'main payload execution returned non-zero exit code: {exit_code}')
+    if exit_code < 0:
+        logger.warning("payload was killed (negative exit code)")
 
     # check if the transform has produced an error report
     path = os.path.join(job.workdir, config.Payload.error_report)
