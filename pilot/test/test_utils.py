@@ -45,7 +45,18 @@ def check_env() -> bool:
     # return os.path.exists('/cvmfs/atlas.cern.ch/repo/')
 
 
-@unittest.skipIf(not check_env(), "This unit test is broken")
+def check_cvmfs() -> bool:
+    """
+    Check whether cvmfs is available.
+
+    To be used to decide whether to skip some test functions.
+
+    :return: True if cvmfs is available, otherwise False (bool).
+    """
+    return os.path.exists('/cvmfs/')
+
+
+@unittest.skipIf(not check_env() or not check_cvmfs(), "This unit test is broken")
 class TestUtils(unittest.TestCase):
     """Unit tests for utils functions."""
 
