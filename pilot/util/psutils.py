@@ -460,3 +460,17 @@ def list_processes_and_threads() -> list:
             lines.append(f"{'-':6} {'-':6}")
 
     return lines
+
+
+def get_clock_speed() -> float or None:
+    """
+    Return the clock speed in MHz.
+
+    :return: clock speed (float or None).
+    """
+    if not _is_psutil_available:
+        logger.warning('get_clock_speed(): psutil not available - aborting')
+        return None
+
+    freq = psutil.cpu_freq()  # scpufreq(current=2300, min=2300, max=2300)
+    return freq.current if freq is not None else 0.0

@@ -77,7 +77,10 @@ from pilot.util.filehandling import (
     update_extension,
     write_file,
 )
-from pilot.util.https import upload_file
+from pilot.util.https import (
+    upload_file,
+    get_base_urls
+)
 from pilot.util.processes import (
     convert_ps_to_dict,
     find_pid, find_cmd_pids,
@@ -500,10 +503,11 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     :return: command (str)
     :raises TrfDownloadFailure: in case of download failure.
     """
-    if not args:  # bypass pylint complaint
-        pass
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
+
+    # convert the base URLs for trf downloads to a list (most likely from an empty string)
+    base_urls = get_base_urls(args.baseurls)
 
     # Get the platform value
     # platform = job.infosys.queuedata.platform
@@ -578,11 +582,11 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     if is_standard_atlas_job(job.swrelease):
         # Normal setup (production and user jobs)
         logger.info("preparing normal production/analysis job setup command")
-        cmd = get_normal_payload_command(cmd, job, preparesetup, userjob)
+        cmd = get_normal_payload_command(cmd, job, preparesetup, userjob, base_urls)
     else:
         # Generic, non-ATLAS specific jobs, or at least a job with undefined swRelease
         logger.info("generic job (non-ATLAS specific or with undefined swRelease)")
-        cmd = get_generic_payload_command(cmd, job, preparesetup, userjob)
+        cmd = get_generic_payload_command(cmd, job, preparesetup, userjob, base_urls)
 
     # add any missing trailing ;
     if not cmd.endswith(';'):
@@ -684,14 +688,15 @@ def get_exports(from_string: str) -> list:
     return exports
 
 
-def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool) -> str:
+def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool, base_urls: list) -> str:
     """
     Return the payload command for a normal production/analysis job.
 
     :param cmd: any preliminary command setup (str)
     :param job: job object (JobData)
-    :param userjob: True for user analysis jobs, False otherwise (bool)
     :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
+    :param userjob: True for user analysis jobs, False otherwise (bool)
+    :param base_urls: list of base URLs for trf downloads (list)
     :return: normal payload command (str).
     """
     # set the INDS env variable
@@ -700,7 +705,7 @@ def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userj
 
     if userjob:
         # Try to download the trf (skip when user container is to be used)
-        exitcode, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
+        exitcode, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
         if exitcode != 0:
             raise TrfDownloadFailure(diagnostics)
 
@@ -735,7 +740,7 @@ def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userj
     return cmd
 
 
-def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool) -> str:
+def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool, base_urls: list) -> str:
     """
     Return the payload command for a generic job.
 
@@ -743,6 +748,7 @@ def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, user
     :param job: job object (JobData)
     :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
     :param userjob: True for user analysis jobs, False otherwise (bool)
+    :param base_urls: list of base URLs for trf downloads (list)
     :return: generic job command (str).
     """
     if userjob:
@@ -750,7 +756,7 @@ def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, user
         #if job.imagename != "" or "--containerImage" in job.jobparams:
         #    job.transformation = os.path.join(os.path.dirname(job.transformation), "runcontainer")
         #    logger.warning(f'overwrote job.transformation, now set to: {job.transformation}')
-        exitcode, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
+        exitcode, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
         if exitcode != 0:
             raise TrfDownloadFailure(diagnostics)
 
@@ -2159,7 +2165,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     list_work_dir(workdir)
 
 
-def download_command(process: dict, workdir: str) -> dict:
+def download_command(process: dict, workdir: str, base_urls: list) -> dict:
     """
     Download the pre/postprocess commands if necessary.
 
@@ -2167,6 +2173,7 @@ def download_command(process: dict, workdir: str) -> dict:
 
     :param process: pre/postprocess dictionary (dict)
     :param workdir: job workdir (str)
+    :param base_urls: list of base URLs (list)
     :return: updated pre/postprocess dictionary (dict).
     """
     cmd = process.get('command', '')
@@ -2174,7 +2181,7 @@ def download_command(process: dict, workdir: str) -> dict:
     # download the command if necessary
     if cmd.startswith('http'):
         # Try to download the trf (skip when user container is to be used)
-        exitcode, _, cmd = get_analysis_trf(cmd, workdir)
+        exitcode, _, cmd = get_analysis_trf(cmd, workdir, base_urls)
         if exitcode != 0:
             logger.warning(f'cannot execute command due to previous error: {cmd}')
             return {}
@@ -2185,7 +2192,7 @@ def download_command(process: dict, workdir: str) -> dict:
     return process
 
 
-def get_utility_commands(order: int = None, job: JobData = None) -> dict or None:
+def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict or None:
     """
     Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
@@ -2211,10 +2218,11 @@ def get_utility_commands(order: int = None, job: JobData = None) -> dict or None
 
     :param order: optional sorting order (see pilot.util.constants) (int)
     :param job: optional job object (JobData)
+    :param base_urls: list of base URLs (list)
     :return: dictionary of utilities to be executed in parallel with the payload (dict or None).
     """
     if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
-        return get_precopostprocess_command(job.preprocess, job.workdir, 'preprocess')
+        return get_precopostprocess_command(job.preprocess, job.workdir, 'preprocess', base_urls)
 
     if order == UTILITY_WITH_PAYLOAD:
         return {'command': 'NetworkMonitor', 'args': '', 'label': 'networkmonitor', 'ignore_failure': True}
@@ -2223,7 +2231,7 @@ def get_utility_commands(order: int = None, job: JobData = None) -> dict or None
         return get_utility_after_payload_started()
 
     if order == UTILITY_AFTER_PAYLOAD_STARTED2 and job.coprocess:
-        return get_precopostprocess_command(job.coprocess, job.workdir, 'coprocess')
+        return get_precopostprocess_command(job.coprocess, job.workdir, 'coprocess', base_urls)
 
     if order == UTILITY_AFTER_PAYLOAD_FINISHED:
         return get_xcache_command(
@@ -2235,7 +2243,7 @@ def get_utility_commands(order: int = None, job: JobData = None) -> dict or None
         )
 
     if order == UTILITY_AFTER_PAYLOAD_FINISHED2 and job.postprocess:
-        return get_precopostprocess_command(job.postprocess, job.workdir, 'postprocess')
+        return get_precopostprocess_command(job.postprocess, job.workdir, 'postprocess', base_urls)
 
     if order == UTILITY_BEFORE_STAGEIN:
         return get_xcache_command(
@@ -2249,7 +2257,7 @@ def get_utility_commands(order: int = None, job: JobData = None) -> dict or None
     return None
 
 
-def get_precopostprocess_command(process: dict, workdir: str, label: str) -> dict:
+def get_precopostprocess_command(process: dict, workdir: str, label: str, base_urls: list) -> dict:
     """
     Return the pre/co/post-process command dictionary.
 
@@ -2260,11 +2268,12 @@ def get_precopostprocess_command(process: dict, workdir: str, label: str) -> dic
     :param process: pre/co/post-process (dict)
     :param workdir: working directory (str)
     :param label: label (str)
+    :param base_urls: base URLs for trf download (list)
     :return: command (dict).
     """
     com = {}
     if process.get('command', ''):
-        com = download_command(process, workdir)
+        com = download_command(process, workdir, base_urls)
         com['label'] = label
         com['ignore_failure'] = False
 
@@ -2628,6 +2637,11 @@ def verify_job(job: JobData) -> bool:
 
     # check the ATHENA_PROC_NUMBER settings
     verify_ncores(job.corecount)
+
+    # make sure there were no earlier problems
+    if status and job.piloterrorcodes:
+        logger.warning(f'job has errors: {job.piloterrorcodes}')
+        status = False
 
     return status
 

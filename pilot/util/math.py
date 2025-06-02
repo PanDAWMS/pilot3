@@ -204,6 +204,24 @@ def convert_mb_to_b(size: Any) -> int:
     return size * 1024 ** 2
 
 
+def convert_b_to_gb(size: Any) -> int:
+    """
+    Convert value from B to GB for the given size variable.
+
+    If the size is a float, the function will convert it to int.
+
+    :param size: size in B (float or int) (Any)
+    :raises: ValueError for conversion error.
+    :return: size in GB (int).
+    """
+    try:
+        size = int(size)
+    except Exception as exc:
+        raise ValueError(f'cannot convert {size} to int: {exc}') from exc
+
+    return round(size / 1024**3)
+
+
 def diff_lists(list_a: list, list_b: list) -> list:
     """
     Return the difference between list_a and list_b.

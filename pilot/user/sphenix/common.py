@@ -17,13 +17,12 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 import logging
 import os
 import re
 from signal import SIGTERM
-from typing import Any
 
 from pilot.common.exception import (
     TrfDownloadFailure,
@@ -42,7 +41,7 @@ from pilot.util.constants import (
     UTILITY_WITH_PAYLOAD,
 )
 from pilot.util.filehandling import read_file
-
+from pilot.util.https import get_base_urls
 from .setup import get_analysis_trf
 from .utilities import (
     get_memory_monitor_setup,
@@ -92,9 +91,10 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     # if job.imagename != "" or "--containerImage" in job.jobparams:
     #    job.transformation = os.path.join(os.path.dirname(job.transformation), "runcontainer")
     #    logger.warning('overwrote job.transformation, now set to: %s' % job.transformation)
-    if not args:  # to bypass pylint complaint
-        pass
-    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir)
+    # convert the base URLs for trf downloads to a list (most likely from an empty string)
+    base_urls = get_base_urls(args.baseurls)
+
+    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
     if ec != 0:
         raise TrfDownloadFailure(diagnostics)
 
@@ -204,7 +204,7 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     #             logger.warning(f'failed to remove {_file}: {e}')
 
 
-def get_utility_commands(order: int = None, job: Any = None) -> dict or None:
+def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict or None:
     """
     Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
@@ -229,9 +229,13 @@ def get_utility_commands(order: int = None, job: Any = None) -> dict or None:
     FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>, 'ignore_failure': <Boolean>}
 
     :param order: optional sorting order (see pilot.util.constants) (int)
-    :param job: optional job object (object)
+    :param job: optional job object (JobData)
+    :param base_urls: optional list of base URLs (list)
     :return: dictionary of utilities to be executed in parallel with the payload (dict or None).
     """
+    if base_urls:  # to bypass pylint score 0
+        pass
+
     if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
         return {}
 
@@ -389,10 +393,16 @@ def verify_job(job: object) -> bool:
     :param job: job object (object)
     :return: True if job parameters are verified (bool).
     """
-    if job:  # to bypass pylint score 0
-        pass
+    status = True
 
-    return True
+    # ..
+
+    # make sure there were no earlier problems
+    if status and job.piloterrorcodes:
+        logger.warning(f'job has errors: {job.piloterrorcodes}')
+        status = False
+
+    return status
 
 
 def update_stagein(job: object):

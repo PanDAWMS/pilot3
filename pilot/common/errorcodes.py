@@ -185,6 +185,7 @@ class ErrorCodes:
     ARCPROXYLIBFAILURE = 1381
     PROXYTOOSHORT = 1382  # used at the beginning of the pilot to indicate that the proxy is too short
     STAGEOUTAUTHENTICATIONFAILURE = 1383
+    QUEUENOTSETUPFORCONTAINERS = 1384
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -331,6 +332,7 @@ class ErrorCodes:
         ARCPROXYLIBFAILURE: "Arcproxy failure while loading shared libraries",
         PROXYTOOSHORT: "Proxy is too short",
         STAGEOUTAUTHENTICATIONFAILURE: "Authentication failure during stage-out",
+        QUEUENOTSETUPFORCONTAINERS: "Queue is not set up for containers",
 
     }
 
@@ -605,7 +607,12 @@ class ErrorCodes:
 
     @classmethod
     def generate_json(cls, filename: str = "error_codes.json"):
-        """Generate a JSON object containing the error codes and diagnostics."""
+        """
+        Generate a JSON object containing the error codes and diagnostics.
+
+        Args:
+            str filename: The name of the JSON file to save the error codes and diagnostics.
+        """
         error_dict = {}
         for error_code, message in cls._error_messages.items():
             error_name = cls.get_error_name(error_code)
@@ -613,6 +620,22 @@ class ErrorCodes:
 
         with open(filename, "w", encoding='utf-8') as f:
             dump(error_dict, f, indent=4)
+
+    @classmethod
+    def convert_acronym_to_code(cls, filename: str = "acronyms.json"):
+        """
+        Convert the acronyms in the ErrorCode class and store them in a JSON with the error codes as values.
+
+        Args:
+            str filename: The name of the JSON file to save the acronyms and error codes.
+        """
+        error_codes = {}
+        for error_code, _ in cls._error_messages.items():
+            error_name = cls.get_error_name(error_code)
+            error_codes[error_name] = error_code
+
+        with open(filename, "w", encoding='utf-8') as f:
+            dump(error_codes, f, indent=4)
 
     @classmethod
     def is_recoverable(cls, code: int = 0) -> bool:

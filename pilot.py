@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
@@ -37,12 +37,15 @@ from typing import Any
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.info import infosys
 from pilot.util.auxiliary import (
     convert_signal_to_exit_code,
     pilot_version_banner,
     shell_exit_code,
 )
+from pilot.util.batchsystem import is_htcondor_version_sufficient
+# from pilot.util.cgroups import create_cgroup
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
@@ -61,7 +64,6 @@ from pilot.util.cvmfs import (
 from pilot.util.filehandling import (
     get_pilot_work_dir,
     mkdirs,
-    store_base_urls
 )
 from pilot.util.harvester import (
     is_harvester_mode,
@@ -78,9 +80,13 @@ from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
 from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
-from pilot.util.workernode import get_node_name
+from pilot.util.workernode import (
+    get_node_name,
+    get_workernode_map
+)
 
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 mainworkdir = ""
 args = None
 trace = None
@@ -135,6 +141,8 @@ def main() -> int:
     # initialize InfoService
     try:
         infosys.init(args.queue)
+        pilot_cache.queuedata = infosys.queuedata
+
         # check if queue is ACTIVE
         if infosys.queuedata.state != "ACTIVE":
             logger.critical(
@@ -152,11 +160,11 @@ def main() -> int:
         update_local_oidc_token_info(args.url, args.port)
 
     # create and report the worker node map
-    # site = infosys.queuedata.resource
-    #if args.update_server and args.workerpilotstatusupdate:
-    #    send_worker_status(
-    #        "started", args.queue, args.url, args.port, logger, "IPv6"
-    #    )  # note: assuming IPv6, fallback in place
+    if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
+        try:
+            send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
+        except Exception as error:
+            logger.warning(f"exception caught when sending workernode map: {error}")
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
@@ -498,10 +506,18 @@ def get_args() -> Any:
         help="PanDA server URL",
     )
     arg_parser.add_argument(
-        "-p", "--port", dest="port", default=25443, help="PanDA server port"
+        "-p",
+        "--port",
+        dest="port",
+        type=int,
+        default=25443,
+        help="PanDA server port"
     )
     arg_parser.add_argument(
-        "--queuedata-url", dest="queuedata_url", default="", help="Queuedata server URL"
+        "--queuedata-url",
+        dest="queuedata_url",
+        default="",
+        help="Queuedata server URL"
     )
     arg_parser.add_argument(
         "--storagedata-url",
@@ -738,22 +754,27 @@ def set_environment_variables():
     """
     # working directory as set with a pilot option (e.g. ..)
     environ["PILOT_WORK_DIR"] = args.workdir  # TODO: replace with singleton
+    pilot_cache.pilot_work_dir = args.workdir
 
     # main work directory (e.g. /scratch/PanDA_Pilot3_3908_1537173670)
     environ["PILOT_HOME"] = mainworkdir  # TODO: replace with singleton
+    pilot_cache.pilot_home_dir = mainworkdir
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
     if not environ.get("PILOT_SOURCE_DIR", None):
         environ["PILOT_SOURCE_DIR"] = args.sourcedir  # TODO: replace with singleton
+        pilot_cache.pilot_source_dir = args.sourcedir
 
     # set the pilot user (e.g. ATLAS)
     environ["PILOT_USER"] = args.pilot_user  # TODO: replace with singleton
 
     # internal pilot state
     environ["PILOT_JOB_STATE"] = "startup"  # TODO: replace with singleton
+    pilot_cache.pilot_job_state = "startup"
 
     # set the pilot version
     environ["PILOT_VERSION"] = get_pilot_version()
+    pilot_cache.pilot_version = get_pilot_version()
 
     # set the default wrap-up/finish instruction
     environ["PILOT_WRAP_UP"] = "NORMAL"
@@ -784,6 +805,14 @@ def set_environment_variables():
     environ["QUEUEDATA_SERVER_URL"] = f"{args.queuedata_url}"
     if args.storagedata_url:
         environ["STORAGEDATA_SERVER_URL"] = f"{args.storagedata_url}"
+
+    # should cgroups be used for process management?
+    pilot_cache.use_cgroups = is_htcondor_version_sufficient() if args.pilot_user.lower() == 'atlas' else False
+
+    # create a cgroup for the pilot
+    if pilot_cache.use_cgroups:
+        pass
+        # _ = create_cgroup()
 
 
 def wrap_up() -> int:
@@ -879,7 +908,7 @@ def send_worker_status(
     status: str,
     queue: str,
     url: str,
-    port: str,
+    port: int,
     logger: Any,
     internet_protocol_version: str,
 ):
@@ -888,12 +917,12 @@ def send_worker_status(
 
     Note: the function can fail, but if it does, it will be ignored.
 
-    :param status: 'started' or 'finished' (string).
-    :param queue: PanDA queue name (string).
-    :param url: server url (string).
-    :param port: server port (string).
-    :param logger: logging object.
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (string).
+    :param status: 'started' or 'finished' (str)
+    :param queue: PanDA queue name (str)
+    :param url: server url (str)
+    :param port: server port (int)
+    :param logger: logging object (object)
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
     """
     # worker node structure to be sent to the server
     data = {}
@@ -906,35 +935,35 @@ def send_worker_status(
     # attempt to send the worker info to the server
     if data["workerID"] and data["harvesterID"]:
         send_update(
-            "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version
+            "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version, max_attempts=2
         )
     else:
-        logger.warning(
-            "workerID/harvesterID not known, will not send worker status to server"
-        )
+        logger.warning("workerID/harvesterID not known, will not send worker status to server")
 
 
 def send_workernode_map(
-    site: str,
-    url: str,
-    port: str,
-    internet_protocol_version: str,
+        site: str,
+        url: str,
+        port: int,
+        internet_protocol_version: str,
+        logger: Any,
 ):
     """
     Send worker node map to the server.
 
     :param site: ATLAS site name (str)
     :param url: server url (str)
-    :param port: server port (str)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
+    :param port: server port (int)
+    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str)
+    :param logger: logging object (object).
     """
     # worker node structure to be sent to the server
-    data = {}
-
-    # attempt to send the worker info to the server
-    send_update(
-        "pilot/update_worker_node", data, url, port, ipv=internet_protocol_version
-    )
+    try:
+        data = get_workernode_map(site)
+    except Exception as e:
+        logger.warning(f"exception caught: {e}")
+    else:
+        send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
 
 
 def set_lifetime():
@@ -1018,10 +1047,6 @@ if __name__ == "__main__":
 
     # set environment variables (to be replaced with singleton implementation)
     set_environment_variables()
-
-    # store base URLs in a file if set
-    if args.baseurls:
-        store_base_urls(args.baseurls)
 
     # execute main function
     trace = main()

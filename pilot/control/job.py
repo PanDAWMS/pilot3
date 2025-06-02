@@ -42,6 +42,7 @@ from pilot.common.exception import (
     FileHandlingFailure,
     PilotException,
 )
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.info import (
     infosys,
     InfoService,
@@ -133,20 +134,22 @@ from pilot.util.timing import (
     add_to_pilot_timing,
     get_postgetjob_time,
     get_time_since,
+    get_time_since_start,
     time_stamp,
     timing_report,
 )
 from pilot.util.workernode import (
     collect_workernode_info,
-    get_cpu_arch,
     get_cpu_info,
     get_cpu_model,
     get_disk_space,
     get_node_name,
+    update_modelstring
 )
 
-logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+logger = logging.getLogger(__name__)
+pilot_cache = get_pilot_cache()
 
 
 def control(queues: namedtuple, traces: Any, args: object):
@@ -508,8 +511,16 @@ def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, i
             # open connection
             ret = https.request2(f'{pandaserver}/server/panda/getStatus', data=data)
             logger.debug(f"request2 response: {ret}")
-            if not ret:
+            if not ret or isinstance(ret, str):
                 ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
+
+            if isinstance(ret, str):  # string response in case of time-out
+                logger.warning(f"dispatcher did not return allowed values: {ret}")
+                status = "unknown"
+                attempt_nr = -1
+                status_code = 20
+                continue
+
             response = ret[1]
             logger.info(f"response: {response}")
             if response:
@@ -754,8 +765,10 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if constime and constime != -1:
         data['cpuConsumptionTime'] = constime
         data['cpuConversionFactor'] = job.cpuconversionfactor
+    number_of_cores, ht, sockets, cpu_mhz, _, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
-    cpumodel, cpu_mhz = get_cpu_info(cpumodel)  # add the CPU cores if not present
+    if number_of_cores:
+        cpumodel = update_modelstring(cpumodel, number_of_cores, ht, sockets)  # add the CPU cores if not present
     data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
     logger.debug(f"got CPU MHz: {cpu_mhz}")
     if cpu_mhz:
@@ -773,13 +786,11 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         #if product and vendor:
         #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
 
-    # CPU architecture
-    cpu_arch = get_cpu_arch()
-    if cpu_arch:
-        logger.debug(f'cpu arch={cpu_arch}')
-        data['cpu_architecture_level'] = cpu_arch
+    # CPU architecture level
+    if cpu_arch_level:
+        data['cpu_architecture_level'] = cpu_arch_level
         # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
-        if cpu_arch.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
+        if cpu_arch_level.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
             data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available
@@ -1233,6 +1244,19 @@ def validate(queues: namedtuple, traces: Any, args: object):
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
 
+            # make sure the queue is correctly configured for containers if needed
+            if job.usecontainer:
+                if "pilot" in pilot_cache.queuedata.container_type:
+                    pass
+                else:
+                    logger.debug(f"pilot_cache.queuedata={pilot_cache.queuedata}")
+                    msg = "container_type must be set in CRIC"
+                    logger.error(msg)
+                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.QUEUENOTSETUPFORCONTAINERS,
+                                                                                     msg=msg)
+                    job.usecontainer = False
+                    put_in_queue(job, queues.failed_jobs)
+
         else:
             logger.debug(f'failed to validate job={job.jobid}')
             put_in_queue(job, queues.failed_jobs)
@@ -1449,6 +1473,39 @@ def get_job_label(args: Any) -> str:
     return job_label
 
 
+def get_remaining_time(args: Any) -> int:
+    """
+    Return the remaining time for the pilot.
+
+    The remaining time is taken as the minimum of the remaining proxy lifetime and the remaining time
+    before the time limit set by the site kills the job.
+
+    Args:
+        args (Any): Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc)
+
+    Returns:
+        int: remaining time in seconds.
+    """
+    # get the remaining time from the proxy
+    remaining_time = pilot_cache.proxy_lifetime
+    logger.info(f"remaining proxy life time = {pilot_cache.proxy_lifetime} s")
+    if not remaining_time:
+        logger.warning('failed to get remaining time from proxy')
+        return 0
+
+    # get the remaining time from the site
+    # e.g. maxtime = 345600, i.e. pilot is allowed to run for a maximum of 345600 s
+    # the remaining time is therefore 345600 - time since pilot started
+    site_remaining_time = infosys.queuedata.maxtime - get_time_since_start(args)
+    logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining_time} s")
+    if not site_remaining_time:
+        logger.warning('failed to get remaining time from site')
+        return 0
+
+    # return the minimum of the two
+    return min(remaining_time, site_remaining_time)
+
+
 def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     """
     Return a dictionary with required fields for the dispatcher getJob operation.
@@ -1471,6 +1528,7 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     _diskspace = get_disk_space(infosys.queuedata)
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
+    #_remaining_time = get_remaining_time(args)
 
     data = {
         'siteName': infosys.queuedata.resource,
@@ -1482,6 +1540,10 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         'mem': _mem,
         'node': _nodename
     }
+
+    # include remaining time
+    #if _remaining_time:
+    #    data['remaining_time'] = _remaining_time
 
     if args.jobtype != "":
         data['jobType'] = args.jobtype
@@ -1520,8 +1582,8 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     return data
 
 
-def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_requests: int, max_getjob_requests: int,
-                        should_update_server: bool, submitmode: str, harvester: bool, verify_proxy: bool, traces: Any) -> bool:
+def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_requests: int, max_getjob_requests: int,  # noqa: C901
+                        should_update_server: bool, submitmode: str, harvester: bool, verify_proxy: bool, traces: Any) -> bool:  # noqa: C901
     """
     Check if we can proceed with getJob.
 
@@ -1558,7 +1620,13 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         # is the proxy still valid? at pilot startup, the proxy lifetime must be at least 72h
         exit_code, diagnostics = userproxy.verify_proxy(test=False, pilotstartup=True)
         if traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
-            traces.pilot['error_code'] = exit_code
+            # only set the traces error code if there is still time to run more jobs
+            if currenttime - starttime > timefloor and exit_code:
+                # we have run out of time to start new jobs, do not report any error (which would have been returned to the
+                # wrapper and Harvester would pick it up)
+                logger.warning("proxy verification failed, but we will not report it since we have anyway run out of time to start new jobs")
+            else:
+                traces.pilot['error_code'] = exit_code
         if exit_code == errors.ARCPROXYLIBFAILURE:
             logger.warning("currently ignoring arcproxy library failure")
         if exit_code in {errors.NOPROXY, errors.NOVOMSPROXY, errors.CERTIFICATEHASEXPIRED, errors.PROXYTOOSHORT}:
@@ -1694,7 +1762,7 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
         else:
             res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
             logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
-            if not res:  # fallback to curl solution
+            if not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
     return res
@@ -1737,13 +1805,13 @@ def locate_job_definition(args: Any) -> str:
     return path
 
 
-def get_job_definition(queues: namedtuple, args: object) -> dict:
+def get_job_definition(queues: namedtuple, args: object) -> dict or str:
     """
     Get a job definition from a source (server or pre-placed local file).
 
     :param queues: queues object (namedtuple)
     :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :return: job definition (dict).
+    :return: job definition (dict or str).
     """
     res = {}
     path = locate_job_definition(args)
@@ -2129,6 +2197,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
         # get a job definition from a source (file or server)
         res = get_job_definition(queues, args)
+        if isinstance(res, str):
+            logger.warning(f"get_job_definition() returned a string (setting it to None): {res}")
+            res = None
+
         #res['debug'] = True
         if res:
             dump_job_definition(res)

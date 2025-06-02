@@ -115,6 +115,10 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
                 logger.error(f"unable to get proxy with role '{voms_role}' from panda server using curl method")
                 return False, proxy_outfile_name
 
+        if isinstance(res, str):
+            logger.error(f"panda server returned a string instead of a dictionary: {res}")
+            return False, proxy_outfile_name
+
         if res['StatusCode'] != 0:
             logger.error(f"panda server returned: \'{res['errorDialog']}\' for proxy role \'{voms_role}\'")
             return False, proxy_outfile_name
