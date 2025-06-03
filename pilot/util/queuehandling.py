@@ -167,12 +167,14 @@ def get_queuedata_from_job(queues: namedtuple) -> object or None:
     return queuedata
 
 
-def abort_jobs_in_queues(queues: namedtuple, sig: int):
+def abort_jobs_in_queues(queues: namedtuple, sig: str):
     """
     Find all jobs in the queues and abort them.
 
+    `sig` is the detected kill signal, string representation of the signal name (e.g. 'SIGTERM').
+
     :param queues: queues object (namedtuple)
-    :param sig: detected kill signal (int)
+    :param sig: detected kill signal (str)
     """
     jobs_list = []
 
