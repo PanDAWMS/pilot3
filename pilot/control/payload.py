@@ -274,7 +274,10 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C9
                 logger.warning(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
             else:
-                job.transexitcode = exit_code % 255
+                if exit_code > 0:
+                    job.transexitcode = exit_code % 255
+                else:
+                    logger.warning(f'pilot error code received negative trf exist code={exit_code}')
 
             logger.debug(f'run() returned exit_code={exit_code}')
             set_cpu_consumption_time(job)
@@ -321,6 +324,11 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C9
                         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
                 else:
                     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.INTERNALPILOTPROBLEM, msg=error)
+
+            if exit_code < 0 and not job.piloterrorcodes:
+                # exit code < 0 means that the payload was killed, e.g. by a signal
+                logger.warning("it seems the payload was killed but no error code was assigned yet - setting SIGTERM error")
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.SIGTERM)
 
             if job.piloterrorcodes:
                 exit_code_interpret = 1
