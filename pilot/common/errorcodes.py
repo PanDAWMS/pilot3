@@ -344,11 +344,11 @@ class ErrorCodes:
         ErrorCodes.pilot_error_codes = []
         ErrorCodes.pilot_error_diags = []
 
-    def get_kill_signal_error_code(self, signal: str) -> int:
+    def get_kill_signal_error_code(self, signal_name: str) -> int:
         """
         Match a kill signal with a corresponding Pilot error code.
 
-        :param signal: signal name (str).
+        :param signal_name: signal name (str).
         :return: Pilot error code (int).
         """
         signals_dictionary = {
@@ -358,9 +358,10 @@ class ErrorCodes:
             "SIGXCPU": self.SIGXCPU,
             "SIGUSR1": self.SIGUSR1,
             "SIGBUS": self.SIGBUS,
+            "SIGINT": self.SIGINT,
         }
 
-        return signals_dictionary.get(signal, self.KILLSIGNAL)
+        return signals_dictionary.get(signal_name, self.KILLSIGNAL)
 
     def get_error_message(self, errorcode: int) -> str:
         """
