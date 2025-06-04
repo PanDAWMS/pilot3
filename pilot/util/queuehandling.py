@@ -52,7 +52,7 @@ def get_signal_name(sig_num: int) -> str:
         return None
 
 
-def declare_failed_by_kill(job: object, queue: Queue, sig: int):
+def declare_failed_by_kill(job: object, queue: Queue, signal_name: str):
     """
     Declare the job failed by a kill signal and put it in a suitable failed queue.
 
@@ -60,13 +60,9 @@ def declare_failed_by_kill(job: object, queue: Queue, sig: int):
 
     :param job: job object (object)
     :param queue: queue object (Queue)
-    :param sig: signal (int).
+    :param signal_name: signal (str).
     """
     set_pilot_state(job=job, state="failed")
-    signal_name = get_signal_name(sig)
-    if not signal_name:
-        logger.warning(f'could not find signal name for signal number {sig} - using SIGTERM')
-        signal_name = 'SIGTERM'
     error_code = errors.get_kill_signal_error_code(signal_name)
     job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error_code)
 
