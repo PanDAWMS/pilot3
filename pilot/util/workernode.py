@@ -604,7 +604,7 @@ def get_gpu_info() -> list:
                 ).decode('utf-8').strip()
 
                 nvidia_gpus = nvidia_output.split('\n')
-                logger.debug(nvidia_output)
+                logger.info(nvidia_output)
 
                 # Update matching NVIDIA entries with detailed names
                 nvidia_idx = 0
