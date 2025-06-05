@@ -1114,7 +1114,7 @@ def generate_fileinfo(job: JobData) -> dict:
                 f'{checksum_type}': entry.checksum.get(config.File.checksum_type),
                 'surl': entry.turl
             }
-            if entry.is_altstaged:
+            if True or entry.is_altstaged:  # always report output RSE (ATLASPANDA-604)
                 dat['endpoint'] = entry.ddmendpoint
 
             fileinfo[entry.lfn] = dat
