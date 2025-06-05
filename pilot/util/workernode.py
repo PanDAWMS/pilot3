@@ -390,6 +390,7 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
                 number = int(_number[0])
         except Exception as exc:
             logger.warning(f'exception caught: {exc}')
+            logger.warning(f'failed to extract number for pattern: {pattern} from line: {line}')
 
         return number
 
@@ -422,7 +423,8 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
     ht = "HT" if threads_per_core == 2 else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
+        _cores_per_socket = '1 core' if cores_per_socket == 1 else f'{cores_per_socket} cores'
+        logger.info(f'found {number_of_cores} cores ({_cores_per_socket} per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
     else:
         number_of_cores = 0
 
