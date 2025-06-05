@@ -961,7 +961,7 @@ def send_workernode_map(
     try:
         data = get_workernode_map(site)
     except Exception as e:
-        logger.warning(f"exception caught: {e}")
+        logger.warning(f"exception caught when calling get_workernode_map(): {e}")
     else:
         send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
 
