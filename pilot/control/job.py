@@ -807,7 +807,8 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         try:
             readfrac = data.get('totRBYTES') / _totalsize
         except (TypeError, ZeroDivisionError) as exc:
-            logger.warning(f"failed to calculate {data.get('totRBYTES')}/{_totalsize}: {exc}")
+            logger.warning(f"failed to calculate totRBYTES / total size of input files = {data.get('totRBYTES')}/{_totalsize}: {exc}")
+            logger.warning('will not report readbyterate')
             readfrac = None
         else:
             readfrac = float_to_rounded_string(readfrac, precision=2)
