@@ -424,7 +424,8 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
         _cores_per_socket = '1 core' if cores_per_socket == 1 else f'{cores_per_socket} cores'
-        logger.info(f'found {number_of_cores} cores ({_cores_per_socket} per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
+        _sockets = '1 socket' if sockets == 1 else f'{sockets} sockets'
+        logger.info(f'found {number_of_cores} cores ({_cores_per_socket} per socket, {_sockets}) {ht}, CPU MHz: {clock_speed}')
     else:
         number_of_cores = 0
 
