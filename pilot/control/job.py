@@ -1791,9 +1791,70 @@ def get_job_definition(queues: namedtuple, args: object) -> dict:
         if abort:
             res = None  # None will trigger 'fatal' error and will finish the pilot
         else:
-            res = get_job_definition_from_server(args, taskid=taskid)
+            if delay_to_get_job():
+                res = None
+            else:
+                res = get_job_definition_from_server(args, taskid=taskid)
 
     return res
+
+
+def get_load_factor() -> float:
+    """
+    Get the pilot load factor.
+    """
+    try:
+        load_factor = os.environ.get('PILOT_LOAD_FACTOR', None)
+        if load_factor:
+            try:
+                load_factor = float(load_factor)
+            except Exception as exc:      # NOQA F841
+                load_factor = None
+        if not load_factor:
+            load_factor = float(config.Pilot.load_factory)
+        return load_factor
+    except Exception as exc:
+        logger.warning(f'delay_to_get_job caught exception: {exc}')
+    return 1.2
+
+
+def is_delay_to_get_job_enabled() -> bool:
+    """
+    To check if it's enabled to delay to get jobs based on load.
+    """
+    try:
+        enabled = os.environ.get('PILOT_ENABLE_DELAY_TO_GET_JOB', 'false').lower() == 'true'
+        if enabled:
+            return enabled
+        enabled = bool(config.Pilot.enable_delay_to_get_job)
+        return enabled
+    except Exception as exc:
+        logger.warning(f'is_delay_to_get_job_enabled caught exception: {exc}')
+    return False
+
+
+def delay_to_get_job() -> bool:
+    """
+    Delay to get job if the machine load is too high.
+
+    :return: bool.
+    """
+    try:
+        if not is_delay_to_get_job_enabled():
+            return False
+
+        load1, load5, load15 = os.getloadavg()
+        num_cores = os.cpu_count()
+        load_factor = get_load_factor()
+        max_load = num_cores * load_factor
+        logger.info(f"num_cores: {num_cores}, load_factor: {load_factor}, load1: {load1}, load5: {load5}, load15: {load15}")
+        if load1 > max_load:
+            logger.info(f"load1 ({load1}) > max_load ({max_load}) (num_cores * load_factor). delay to getjob.")
+            return True
+        return False
+    except Exception as exc:
+        logger.warning(f'delay_to_get_job caught exception: {exc}')
+    return False
 
 
 def get_message_from_mb(args: Any) -> dict:
