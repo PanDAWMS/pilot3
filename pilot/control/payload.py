@@ -274,10 +274,10 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C9
                 logger.warning(f'pilot error code received (code={exit_code}, diagnostics=\n{diagnostics})')
                 job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code, msg=diagnostics)
             else:
-                if exit_code > 0:
+                if exit_code >= 0:
                     job.transexitcode = exit_code % 255
                 else:
-                    logger.warning(f'pilot error code received negative trf exist code={exit_code} - will not set transexitcode')
+                    logger.warning(f'pilot error code received a negative transform exit code={exit_code} - will not set transexitcode')
 
             logger.debug(f'run() returned exit_code={exit_code}')
             set_cpu_consumption_time(job)
