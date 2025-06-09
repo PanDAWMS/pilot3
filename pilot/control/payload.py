@@ -676,7 +676,7 @@ def set_cpu_consumption_time(job: JobData):
     logger.info(f'CPU consumption time: {cpuconsumptiontime} {job.cpuconsumptionunit} (rounded to {job.cpuconsumptiontime} {job.cpuconsumptionunit})')
 
 
-def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
+def perform_initial_payload_error_analysis(job: JobData, exit_code: int):  # noqa: C901
     """
     Perform an initial analysis of the payload.
 
@@ -711,7 +711,13 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int):
     path = os.path.join(job.workdir, config.Payload.payloadstderr)
     if os.path.exists(path):
         stderr = read_file(path)
-        exit_code = errors.resolve_transform_error(exit_code, stderr)
+        _exit_code, error_message = errors.resolve_transform_error(exit_code, stderr)
+        if error_message:
+            logger.warning(f"found apptainer error in stderr: {error_message}")
+            if exit_code == 0 and _exit_code != 0:
+                logger.warning("will overwrite trf exit code 0 due to previous error")
+        exit_code = _exit_code
+
     else:
         stderr = ''
         logger.info(f'file does not exist: {path}')

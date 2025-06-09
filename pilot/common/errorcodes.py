@@ -446,13 +446,17 @@ class ErrorCodes:
 
         return report
 
-    def resolve_transform_error(self, exit_code: int, stderr: str) -> int:
+    def resolve_transform_error(self, exit_code: int, stderr: str) -> tuple[int, str]:
         """
         Assign a pilot error code to a specific transform error.
 
-        :param exit_code: transform exit code (int)
-        :param stderr: transform stderr (str)
-        :return: pilot error code (int).
+        Args:
+            exit_code (int): Transform exit code.
+            stderr (str): Transform stderr.
+
+        Returns:
+            int: Pilot error code.
+            str: Error message if extracted from stderr, otherwise an empty string.
         """
         error_map = {
             "Not mounting requested bind point": self.SINGULARITYBINDPOINTFAILURE,
@@ -468,26 +472,48 @@ class ErrorCodes:
             "No such file or directory": self.NOSUCHFILE,
         }
 
+        def get_key_by_value(d: dict, value: str) -> str:
+            """Return the key corresponding to a given value."""
+            for k, v in d.items():
+                if v == value:
+                    return k
+            return ""
+
         # Check if stderr contains any known error messages
+        apptainer_codes = {
+            self.SINGULARITYBINDPOINTFAILURE,
+            self.SINGULARITYNOLOOPDEVICES,
+            self.SINGULARITYIMAGEMOUNTFAILURE,
+            self.SINGULARITYIMAGEMOUNTFAILURE,
+            self.SINGULARITYGENERALFAILURE,
+            self.SINGULARITYFAILEDUSERNAMESPACE,
+            self.SINGULARITYNOTINSTALLED,
+            self.APPTAINERNOTINSTALLED
+        }
         for error_message, error_code in error_map.items():
             if error_message in stderr:
-                return error_code
+                # only allow overwriting exit code 0 for specific errors (read: apptainer)
+                if exit_code == 0 and error_code in apptainer_codes:
+                    return error_code, error_message
+                else:
+                    continue
 
         # Handle specific exit codes
+        key = get_key_by_value(error_map, exit_code)
         if exit_code == 2:
-            return self.LSETUPTIMEDOUT
+            return self.LSETUPTIMEDOUT, key
         if exit_code == 3:
-            return self.REMOTEFILEOPENTIMEDOUT
+            return self.REMOTEFILEOPENTIMEDOUT, key
         if exit_code == 251:
-            return self.UNKNOWNTRFFAILURE
+            return self.UNKNOWNTRFFAILURE, key
         if exit_code == -1:
-            return self.UNKNOWNTRFFAILURE
+            return self.UNKNOWNTRFFAILURE, key
         if exit_code == self.COMMANDTIMEDOUT:
-            return exit_code
+            return exit_code, key
         if exit_code != 0:
-            return self.PAYLOADEXECUTIONFAILURE
+            return self.PAYLOADEXECUTIONFAILURE, key
 
-        return exit_code  # Return original exit code if no specific error is found
+        return exit_code, key  # Return original exit code if no specific error is found
 
     def extract_stderr_error(self, stderr: str) -> str:
         """

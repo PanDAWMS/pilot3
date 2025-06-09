@@ -860,7 +860,13 @@ class Executor:
                         else "General payload setup verification error (check setup logs)"
                     )
                     # check for special errors in the output
-                    exit_code = errors.resolve_transform_error(exit_code, diagnostics)
+                    _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
+                    if error_message:
+                        logger.warning(f"found apptainer error in stderr: {error_message}")
+                        if exit_code == 0 and _exit_code != 0:
+                            logger.warning("will overwrite trf exit code 0 due to previous error")
+                    exit_code = _exit_code
+
                     diagnostics = errors.format_diagnostics(exit_code, diagnostics)
                     return exit_code, diagnostics
                 if out:
