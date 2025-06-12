@@ -1649,6 +1649,9 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
 
     maximum_getjob_requests = 60 if harvester else max_getjob_requests  # 1 s apart (if harvester)
     if getjob_requests > int(maximum_getjob_requests):
+        if max_getjob_requests >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
+            logger.warning(f'too many failed getJob requests ({maximum_getjob_requests}) on HPC resource -- will abort pilot')
+            traces.pilot['error_code'] = errors.NOJOBSINPANDA
         return wrap_up_quickly(f'reached maximum number of getjob requests ({maximum_getjob_requests}) -- will abort pilot')
 
     if timefloor == 0 and jobnumber > 0:
