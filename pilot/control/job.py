@@ -2287,7 +2287,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
                     logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
                     traces.pilot['error_code'] = errors.NOJOBSINPANDA
-                logger.debug(f"resource type: {pilot_cache.queuedata.resource_type}")
+
                 args.graceful_stop.set()
                 break
 
@@ -2305,6 +2305,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             getjob_failures += 1
             if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
+                if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
+                    logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
+                    traces.pilot['error_code'] = errors.NOJOBSINPANDA
+
                 args.graceful_stop.set()
                 break
 
