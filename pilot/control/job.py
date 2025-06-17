@@ -807,7 +807,8 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         try:
             readfrac = data.get('totRBYTES') / _totalsize
         except (TypeError, ZeroDivisionError) as exc:
-            logger.warning(f"failed to calculate {data.get('totRBYTES')}/{_totalsize}: {exc}")
+            logger.warning(f"failed to calculate totRBYTES / total size of input files = {data.get('totRBYTES')}/{_totalsize}: {exc}")
+            logger.warning('will not report readbyterate')
             readfrac = None
         else:
             readfrac = float_to_rounded_string(readfrac, precision=2)
@@ -1880,7 +1881,7 @@ def get_load_factor() -> float:
             except Exception as exc:      # NOQA F841
                 load_factor = None
         if not load_factor:
-            load_factor = float(config.Pilot.load_factory)
+            load_factor = float(config.Pilot.load_factor)
         return load_factor
     except Exception as exc:
         logger.warning(f'delay_to_get_job caught exception: {exc}')
@@ -1905,6 +1906,10 @@ def is_delay_to_get_job_enabled() -> bool:
 def delay_to_get_job() -> bool:
     """
     Delay to get job if the machine load is too high.
+
+    This code checks the system's load average and compares it to a calculated maximum load based on the number
+    of CPU cores and a configurable load factor. If the 1-minute load average exceeds the maximum load, it logs
+    the condition and delays job retrieval.
 
     :return: bool.
     """
@@ -2283,6 +2288,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             getjob_failures += 1
             if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
+                if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
+                    logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
+                    traces.pilot['error_code'] = errors.NOJOBSINPANDA
+
                 args.graceful_stop.set()
                 break
 
@@ -2300,6 +2309,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             getjob_failures += 1
             if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
+                if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
+                    logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
+                    traces.pilot['error_code'] = errors.NOJOBSINPANDA
+
                 args.graceful_stop.set()
                 break
 

@@ -33,7 +33,7 @@ def get_pilot_cache():
             self.use_cgroups = None  # for process management
             self.cgroups = {}  # for process management
             self.proxy_lifetime = 0
-            self.queuedata = {}
+            self.queuedata = None
             self.pilot_version = None
             self.pilot_work_dir = None
             self.pilot_source_dir = None

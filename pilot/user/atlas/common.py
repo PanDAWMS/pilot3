@@ -297,8 +297,11 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
         # error handling
         if exitcode:
             # first check for apptainer errors
-            _exitcode = errors.resolve_transform_error(exitcode, stdout)
+            _exitcode, error_message = errors.resolve_transform_error(exitcode, stdout)
             if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
+                if error_message:
+                    logger.warning(f"found apptainer error in stderr: {error_message}")
+                    logger.warning(f"will overwrite trf exit code {exitcode} due to previous error")
                 return _exitcode, stdout, not_opened, lsetup_time
 
             # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT

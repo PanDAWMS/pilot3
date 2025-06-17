@@ -794,6 +794,7 @@ def check_payload_stdout(job: JobData) -> tuple[int, str]:
         # kill the job
         set_pilot_state(job=job, state="failed")
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
+        logger.warning(f"process {job.pid} will be killed due to oversized payload stdout file(s)")
         kill_processes(job.pid)  # will not return
 
     return exit_code, diagnostics

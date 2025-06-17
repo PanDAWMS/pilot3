@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-25
 
 """Default grid resources."""
 
@@ -52,7 +52,12 @@ def verify_setup_command(cmd: str) -> (int, str):
             exit_code = errors.NORELEASEFOUND
             diagnostics = stdout + stderr
         elif stderr != '':
-            exit_code = errors.resolve_transform_error(exit_code, stderr)
+            _exit_code, error_message = errors.resolve_transform_error(exit_code, stderr)
+            if error_message:
+                logger.warning(f"found apptainer error in stderr: {error_message}")
+                if exit_code == 0 and _exit_code != 0:
+                    logger.warning("will overwrite trf exit code 0 due to previous error")
+            exit_code = _exit_code
             diagnostics = errors.format_diagnostics(exit_code, stderr)
 
     return exit_code, diagnostics
