@@ -1086,8 +1086,8 @@ class StageOutClient(StagingClient):
         :param alt_exclude: global list of destinations that should be excluded / not used for alternative stage-out
         :return: updated fspec entries (list).
         """
-        if alt_exclude is None:  # to bypass pylint complaint if declared as [] above
-            alt_exclude = []
+
+        alt_exclude = list(alt_exclude or [])
 
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
             return files
@@ -1120,7 +1120,7 @@ class StageOutClient(StagingClient):
 
             cur = storages.index(primary) if primary in storages else 0
             inext = (cur + 1) % len(storages)  # cycle storages, take the first elem when reach end
-            exclude = set([primary] + list(exclude if exclude is not None else []))
+            exclude = set([primary] + list(exclude or []))
             alt = None
             for attempt in range(len(exclude) or 1):  # apply several tries to jump exclude entries (in case of dublicated data will stack)
                 inext = (cur + 1) % len(storages)  # cycle storages, start from the beginning when reach end

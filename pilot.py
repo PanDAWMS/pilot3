@@ -45,7 +45,7 @@ from pilot.util.auxiliary import (
     shell_exit_code,
 )
 from pilot.util.batchsystem import is_htcondor_version_sufficient
-# from pilot.util.cgroups import create_cgroup
+from pilot.util.cgroups import create_cgroup
 from pilot.util.config import config
 from pilot.util.constants import (
     get_pilot_version,
@@ -811,8 +811,7 @@ def set_environment_variables():
 
     # create a cgroup for the pilot
     if pilot_cache.use_cgroups:
-        pass
-        # _ = create_cgroup()
+        _ = create_cgroup()
 
 
 def wrap_up() -> int:
@@ -961,7 +960,7 @@ def send_workernode_map(
     try:
         data = get_workernode_map(site)
     except Exception as e:
-        logger.warning(f"exception caught: {e}")
+        logger.warning(f"exception caught when calling get_workernode_map(): {e}")
     else:
         send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
 

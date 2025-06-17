@@ -155,7 +155,6 @@ def run(args: object) -> Traces or None:
                       signal.SIGBUS],
                      args)
 
-    logger.info('setting up queues')
     queues = namedtuple('queues', ['jobs', 'payloads', 'data_in', 'data_out', 'current_data_in',
                                    'validated_jobs', 'validated_payloads', 'monitored_payloads',
                                    'finished_jobs', 'finished_payloads', 'finished_data_in', 'finished_data_out',
@@ -189,7 +188,6 @@ def run(args: object) -> Traces or None:
 
     # queues.interceptor_messages = queue.Queue()
 
-    logger.info('setting up tracing')
     # Initialize traces with default values
     traces = Traces(pilot={"state": SUCCESS, "nr_jobs": 0, "error_code": 0, "command": None})
 
@@ -212,14 +210,12 @@ def run(args: object) -> Traces or None:
                                             "error_code": exit_code})
             #traces.pilot['error_code'] = exit_code
             return traces
-        logger.info('passed sanity check')
 
     # define the threads
     targets = {'job': job.control, 'payload': payload.control, 'data': data.control, 'monitor': monitor.control}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 
-    logger.info('starting threads')
     _ = [thread.start() for thread in threads]
 
     logger.info('waiting for interrupts')

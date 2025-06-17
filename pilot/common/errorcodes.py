@@ -186,6 +186,7 @@ class ErrorCodes:
     PROXYTOOSHORT = 1382  # used at the beginning of the pilot to indicate that the proxy is too short
     STAGEOUTAUTHENTICATIONFAILURE = 1383
     QUEUENOTSETUPFORCONTAINERS = 1384
+    NOJOBSINPANDA = 1385  # internally used code
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -333,7 +334,7 @@ class ErrorCodes:
         PROXYTOOSHORT: "Proxy is too short",
         STAGEOUTAUTHENTICATIONFAILURE: "Authentication failure during stage-out",
         QUEUENOTSETUPFORCONTAINERS: "Queue is not set up for containers",
-
+        NOJOBSINPANDA: "No jobs in PanDA",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -344,11 +345,11 @@ class ErrorCodes:
         ErrorCodes.pilot_error_codes = []
         ErrorCodes.pilot_error_diags = []
 
-    def get_kill_signal_error_code(self, signal: str) -> int:
+    def get_kill_signal_error_code(self, signal_name: str) -> int:
         """
         Match a kill signal with a corresponding Pilot error code.
 
-        :param signal: signal name (str).
+        :param signal_name: signal name (str).
         :return: Pilot error code (int).
         """
         signals_dictionary = {
@@ -358,9 +359,10 @@ class ErrorCodes:
             "SIGXCPU": self.SIGXCPU,
             "SIGUSR1": self.SIGUSR1,
             "SIGBUS": self.SIGBUS,
+            "SIGINT": self.SIGINT,
         }
 
-        return signals_dictionary.get(signal, self.KILLSIGNAL)
+        return signals_dictionary.get(signal_name, self.KILLSIGNAL)
 
     def get_error_message(self, errorcode: int) -> str:
         """
@@ -445,13 +447,17 @@ class ErrorCodes:
 
         return report
 
-    def resolve_transform_error(self, exit_code: int, stderr: str) -> int:
+    def resolve_transform_error(self, exit_code: int, stderr: str) -> tuple[int, str]:
         """
         Assign a pilot error code to a specific transform error.
 
-        :param exit_code: transform exit code (int)
-        :param stderr: transform stderr (str)
-        :return: pilot error code (int).
+        Args:
+            exit_code (int): Transform exit code.
+            stderr (str): Transform stderr.
+
+        Returns:
+            int: Pilot error code.
+            str: Error message if extracted from stderr, otherwise an empty string.
         """
         error_map = {
             "Not mounting requested bind point": self.SINGULARITYBINDPOINTFAILURE,
@@ -464,28 +470,51 @@ class ErrorCodes:
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
             "General payload setup verification error": self.SETUPFAILURE,
+            "No such file or directory": self.NOSUCHFILE,
         }
 
+        def get_key_by_value(d: dict, value: str) -> str:
+            """Return the key corresponding to a given value."""
+            for k, v in d.items():
+                if v == value:
+                    return k
+            return ""
+
         # Check if stderr contains any known error messages
+        apptainer_codes = {
+            self.SINGULARITYBINDPOINTFAILURE,
+            self.SINGULARITYNOLOOPDEVICES,
+            self.SINGULARITYIMAGEMOUNTFAILURE,
+            self.SINGULARITYIMAGEMOUNTFAILURE,
+            self.SINGULARITYGENERALFAILURE,
+            self.SINGULARITYFAILEDUSERNAMESPACE,
+            self.SINGULARITYNOTINSTALLED,
+            self.APPTAINERNOTINSTALLED
+        }
         for error_message, error_code in error_map.items():
             if error_message in stderr:
-                return error_code
+                # only allow overwriting exit code 0 for specific errors (read: apptainer)
+                if exit_code == 0 and error_code in apptainer_codes:
+                    return error_code, error_message
+                else:
+                    continue
 
         # Handle specific exit codes
+        key = get_key_by_value(error_map, exit_code)
         if exit_code == 2:
-            return self.LSETUPTIMEDOUT
+            return self.LSETUPTIMEDOUT, key
         if exit_code == 3:
-            return self.REMOTEFILEOPENTIMEDOUT
+            return self.REMOTEFILEOPENTIMEDOUT, key
         if exit_code == 251:
-            return self.UNKNOWNTRFFAILURE
+            return self.UNKNOWNTRFFAILURE, key
         if exit_code == -1:
-            return self.UNKNOWNTRFFAILURE
+            return self.UNKNOWNTRFFAILURE, key
         if exit_code == self.COMMANDTIMEDOUT:
-            return exit_code
+            return exit_code, key
         if exit_code != 0:
-            return self.PAYLOADEXECUTIONFAILURE
+            return self.PAYLOADEXECUTIONFAILURE, key
 
-        return exit_code  # Return original exit code if no specific error is found
+        return exit_code, key  # Return original exit code if no specific error is found
 
     def extract_stderr_error(self, stderr: str) -> str:
         """

@@ -63,6 +63,7 @@ class QueueData(BaseData):
     platform = ""     # cmtconfig value
     container_options = ""  # singularity only options? to be reviewed and forced to be a dict (support options for other containers?)
     container_type = {}  # dict of container names by user as a key
+    resource_type = ""  # type of resource, e.g. 'grid', 'hpc'
     copytools = None
     acopytools = None
 
@@ -104,7 +105,7 @@ class QueueData(BaseData):
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
                    'corecount', 'maxrss', 'maxtime', 'maxinputsize', 'memkillgrace'],
              str: ['name', 'type', 'appdir', 'catchall', 'platform', 'container_options', 'container_type',
-                   'resource', 'state', 'status', 'site', 'environ'],
+                   'resource', 'state', 'status', 'site', 'environ', 'resource_type'],
              dict: ['copytools', 'acopytools', 'astorages', 'aprotocols', 'acopytools_schemas', 'params'],
              bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'is_cvmfs', 'use_pcache']
              }

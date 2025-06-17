@@ -390,6 +390,7 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
                 number = int(_number[0])
         except Exception as exc:
             logger.warning(f'exception caught: {exc}')
+            logger.warning(f'failed to extract number for pattern: {pattern} from line: {line}')
 
         return number
 
@@ -422,7 +423,9 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
     ht = "HT" if threads_per_core == 2 else ""
     if cores_per_socket and sockets:
         number_of_cores = cores_per_socket * sockets
-        logger.info(f'found {number_of_cores} cores ({cores_per_socket} cores per socket, {sockets} sockets) {ht}, CPU MHz: {clock_speed}')
+        _cores_per_socket = '1 core' if cores_per_socket == 1 else f'{cores_per_socket} cores'
+        _sockets = '1 socket' if sockets == 1 else f'{sockets} sockets'
+        logger.info(f'found {number_of_cores} cores ({_cores_per_socket} per socket, {_sockets}) {ht}, CPU MHz: {clock_speed}')
     else:
         number_of_cores = 0
 
@@ -601,14 +604,14 @@ def get_gpu_info() -> list:
                 ).decode('utf-8').strip()
 
                 nvidia_gpus = nvidia_output.split('\n')
-                logger.debug(nvidia_output)
+                logger.info(nvidia_output)
 
                 # Update matching NVIDIA entries with detailed names
                 nvidia_idx = 0
                 for gpu in gpu_info:
                     if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
                         gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
-                        gpu['cuda_version'] = os.environ['CUDA_VERSION', 'unknown']
+                        gpu['cuda_version'] = os.environ.get('CUDA_VERSION', 'unknown')
                         nvidia_idx += 1
             else:
                 logger.warning("nvidia-smi command not found - cannot get detailed GPU information")

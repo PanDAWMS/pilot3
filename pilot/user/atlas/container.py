@@ -1186,7 +1186,7 @@ def get_middleware_container(label: str = None) -> str:
     :return: path (str).
     """
     if label and label == 'general':
-        return 'CentOS7'
+        return 'el9'  #'CentOS7'
 
     if label == 'setup':
         path = '$thePlatform'
@@ -1196,7 +1196,10 @@ def get_middleware_container(label: str = None) -> str:
         path = config.Container.middleware_container
         if path.startswith('/') and not os.path.exists(path):
             logger.warning(f'requested middleware container path does not exist: {path} (switching to default value)')
-            path = 'CentOS7'
+            path = 'el9'  #'CentOS7'
+
+    if not path:
+        path = 'el9'  #'CentOS7'  # default value
     logger.info(f'using image: {path} for middleware container')
 
     return path
