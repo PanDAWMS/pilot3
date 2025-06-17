@@ -73,7 +73,7 @@ def is_htcondor_version_sufficient() -> bool:
     Returns:
         bool: True if the version is sufficient, False otherwise.
     """
-    required_htcondor_version = "24.0.7"
+    required_htcondor_version = "99.9.9"  #"24.0.7"
     htcondor_version = get_htcondor_version()
     if not htcondor_version:
         logger.warning("unable to determine HTCondor version (will not use cgroups for process management)")
