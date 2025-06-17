@@ -1881,7 +1881,7 @@ def get_load_factor() -> float:
             except Exception as exc:      # NOQA F841
                 load_factor = None
         if not load_factor:
-            load_factor = float(config.Pilot.load_factory)
+            load_factor = float(config.Pilot.load_factor)
         return load_factor
     except Exception as exc:
         logger.warning(f'delay_to_get_job caught exception: {exc}')
@@ -1906,6 +1906,10 @@ def is_delay_to_get_job_enabled() -> bool:
 def delay_to_get_job() -> bool:
     """
     Delay to get job if the machine load is too high.
+
+    This code checks the system's load average and compares it to a calculated maximum load based on the number
+    of CPU cores and a configurable load factor. If the 1-minute load average exceeds the maximum load, it logs
+    the condition and delays job retrieval.
 
     :return: bool.
     """
