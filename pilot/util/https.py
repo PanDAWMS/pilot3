@@ -184,7 +184,7 @@ def https_setup(args: object = None, version: str = ""):
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
     except Exception as exc:
-        logger.warning(f'SSL communication is impossible due to SSL error: {exc} -- falling back to curl')
+        logger.warning(f'SSL communication is impossible due to SSL error: {exc}')
         _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
