@@ -22,7 +22,13 @@
 
 import logging
 import os
-import psutil
+try:
+    import psutil
+except ImportError:
+    print('FAILED; psutil module could not be imported')
+    _is_psutil_available = False
+else:
+    _is_psutil_available = True
 import subprocess
 from pathlib import Path
 
@@ -391,7 +397,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
     return True
 
 
-def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
+def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> bool:
     """
     Moves the given PID and all of its descendants into the specified cgroup
     by invoking 'echo <pid> > cgroup.procs' using a subprocess shell command.
@@ -400,9 +406,12 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
         cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
         root_pid (int): The PID of the root process to move.
 
-    Raises:
-        RuntimeError: If moving any PID fails.
+    Returns:
+        bool: True if all processes were successfully moved, False otherwise.
     """
+    if not _is_psutil_available:
+        logger.warning("psutil module is not available, cannot move processes to cgroup.")
+        return False
     procs_file = f"{cgroup_path}/cgroup.procs"
     root_process = psutil.Process(root_pid)
     all_pids = [root_process.pid] + [p.pid for p in root_process.children(recursive=True)]
