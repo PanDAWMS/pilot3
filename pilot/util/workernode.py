@@ -508,6 +508,27 @@ def get_hepspec_per_core() -> str:
     return stdout
 
 
+def get_glidein_site() -> str or None:
+    """
+    Reads the HTCondor .machine.ad file and extracts the value of GLIDEIN_Site.
+
+    Returns:
+        str: The value of GLIDEIN_Site (e.g., 'Alabama-CHPC'), or None if not found.
+    """
+    ad_path = os.environ.get("_CONDOR_MACHINE_AD")
+    if not ad_path or not os.path.isfile(ad_path):
+        logger.warning("Environment variable _CONDOR_MACHINE_AD is not set or file does not exist.")
+
+    with open(ad_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            match = re.match(r'^GLIDEIN_Site\s*=\s*"([^"]+)"', line)
+            if match:
+                return match.group(1)
+
+    return None
+
+
 def get_total_local_disk_size() -> int:
     """
     Run the lsblk command and capture the output.
