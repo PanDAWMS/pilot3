@@ -948,7 +948,7 @@ def send_workernode_map(
         logger: Any,
 ):
     """
-    Send worker node map to the server.
+    Send worker node map and GPU info to the server.
 
     :param site: ATLAS site name (str)
     :param url: server url (str)
