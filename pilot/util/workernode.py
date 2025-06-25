@@ -22,6 +22,7 @@
 import logging
 import os
 import re
+import socket
 import subprocess
 from shutil import which
 
@@ -580,8 +581,72 @@ def get_cpu_frequency() -> float:
     return 0.0
 
 
+def get_gpu_info(site: str) -> dict:
+    """
+    Get GPU information using nvidia-smi command.
+
+    This function will return a dictionary with the GPU information found on the system.
+
+    Args:
+        site (str): ATLAS site name from PQ.resource.
+
+    Returns:
+        dict: A dictionary containing GPU information such as vendor, model, architecture, VRAM, CUDA version, driver version, and count.
+    """
+    try:
+        # Capture full nvidia-smi output to parse CUDA version
+        full_output = subprocess.run(
+            ['nvidia-smi'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            universal_newlines=True
+        ).stdout
+
+        # Extract CUDA Version from header
+        cuda_match = re.search(r'CUDA Version:\s+([\d.]+)', full_output)
+        cuda_version = cuda_match.group(1) if cuda_match else "Unknown"
+
+        # Query specific GPU properties
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name,memory.total,driver_version', '--format=csv,noheader,nounits'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            universal_newlines=True
+        )
+
+        lines = result.stdout.strip().split('\n')
+        count = len(lines)
+        name, vram, driver_version = lines[0].split(', ')
+
+        architecture_map = {
+            'A100': 'Ampere',
+            'V100': 'Volta',
+            'T4': 'Turing',
+            'H100': 'Hopper'
+        }
+        arch = next((arch for key, arch in architecture_map.items() if key in name), 'Unknown')
+
+        return {
+            "site": site,
+            "hostname": socket.gethostname(),
+            "vendor": "NVIDIA",
+            "model": name,
+            "architecture": arch,
+            "vram": int(vram) // 1024,  # Convert MB to GB
+            "framework": "CUDA",
+            "framework_version": cuda_version,
+            "driver_version": driver_version,
+            "count": count
+        }
+
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to run nvidia-smi: {e.stderr}")
+
+
 # deprecated
-def get_gpu_info() -> list:
+def get_gpu_info_old() -> list:
     """
     Get GPU information using lspci command.
 
@@ -643,12 +708,37 @@ def get_gpu_info() -> list:
     return gpu_info
 
 
+def get_gpu_map(site: str, cache: bool = True) -> dict:
+    """
+    Return a dictionary with the GPU map.
+
+    The GPU map is a dictionary with the local GPU specs collected by the pilot.
+    It gets reported to the PanDA server with the getJob call.
+
+    The dictionary is to be sent to {api_url_ssl}/pilot/update_gpu_map.
+
+    :param site: Site name from PQ.resource (str)
+    :param cache: should the gpu map be cached? (bool)
+    :return: gpu map (dict).
+    """
+    gpu_info = get_gpu_info(site)
+
+    # store the gpu map for caching
+    if cache:
+        try:
+            filename = os.path.join(os.getcwd(), config.Workernode.gpu_map)
+            write_json(filename, gpu_info)
+        except Exception as exc:
+            logger.warning(f'failed to write gpu map: {exc}')
+
+    return gpu_info
+
+
 def get_workernode_map(site: str, cache: bool = True) -> dict:
     """
     Return a dictionary with the worker node map.
 
     The worker node map is a dictionary with the local hardware specs collected by the pilot.
-    It gets reported to the PanDA server with the getJob call.
 
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
@@ -663,13 +753,6 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
         total_local_disk = convert_b_to_gb(get_total_local_disk_size())
     except ValueError:
         total_local_disk = 0
-
-    gpu_info = get_gpu_info()
-    if gpu_info:
-        gpu_info_str = ', '.join([gpu['vendor_info'] for gpu in gpu_info])
-        logger.info(f'found GPUs: {gpu_info_str}')
-    else:
-        logger.info('no GPUs found')
 
     data = {
         "site": site,
