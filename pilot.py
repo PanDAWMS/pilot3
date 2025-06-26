@@ -82,7 +82,8 @@ from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.workernode import (
     get_node_name,
-    get_workernode_map
+    get_workernode_map,
+    get_workernode_gpu_map
 )
 
 errors = ErrorCodes()
@@ -963,6 +964,17 @@ def send_workernode_map(
         logger.warning(f"exception caught when calling get_workernode_map(): {e}")
     try:
         send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
+    except Exception as e:
+        logger.warning(f"exception caught when sending worker node map to server: {e}")
+
+    # GPU info
+    try:
+        data = get_workernode_gpu_map(site)
+    except Exception as e:
+        logger.warning(f"exception caught when calling get_workernode_gpu_map(): {e}")
+    try:
+        if data:  # only send if data is not empty
+            send_update("api/v1/pilot/update_worker_node_gpu", data, url, port, ipv=internet_protocol_version, max_attempts=1)
     except Exception as e:
         logger.warning(f"exception caught when sending worker node map to server: {e}")
 
