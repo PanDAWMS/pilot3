@@ -250,9 +250,19 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
 
     logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
 
+    cmd = f"ps -o pid,user,cmd -p {pid}"
+    logger.debug(f"{cmd}")
+    result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+    logger.debug(f"Command output: {result.stdout}")
+
+    cmd = f"cat /proc/{pid}/cgroup"
+    logger.debug(f"{cmd}")
+    result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+    logger.debug(f"Command output: {result.stdout}")
+
     try:
         logger.debug(f"ls -lF {parent_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
+        result = subprocess.run(['ls', '-lF', os.path.dirname(parent_cgroup_path)], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
