@@ -250,46 +250,6 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
 
     logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
 
-    cmd = f"ps -o pid,user,cmd -p {pid}"
-    logger.debug(f"{cmd}")
-    result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-    logger.debug(f"Command output: {result.stdout}")
-
-    cmd = f"cat /proc/{pid}/cgroup"
-    logger.debug(f"{cmd}")
-    result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-    logger.debug(f"Command output: {result.stdout}")
-
-    try:
-        logger.debug(f"ls -lF {parent_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', os.path.dirname(parent_cgroup_path)], check=True, capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
-        return False
-    try:
-        path = os.path.join(parent_cgroup_path, "cgroup.procs")
-        #cmd = f"cat {path}"
-        #logger.debug(f"Executing command: {cmd}")
-        #result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-        #                        capture_output=True, text=True)
-        #logger.debug(f"Command output: {result.stdout}")
-        moved = move_procs_to_parent(path)
-        print(f"Moved PIDs: {moved}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
-        return False
-    else:
-        if not moved:
-            logger.warning(f"failed to move processes to parent cgroup: {parent_cgroup_path}")
-            return False
-    # should be here; but it fails since there are already processes added to the cgroup
-    # Enable memory and pid controllers in the parent cgroup
-    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    #if not status:
-    #    logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
-    #    return False
-
     # Create a "controller" cgroup for the parent process
     controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
     logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
@@ -298,6 +258,61 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     except Exception as e:
         logger.warning(f"failed to create cgroup: {e}")
         return False
+
+    try:  #it doesn't work to move the main pid
+        path = os.path.join(controller_cgroup_path, "cgroup.procs")
+        moved = move_procs_to_parent(path)
+        logger.debug(f"Moved PIDs: {moved}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
+        return False
+    else:
+        if not moved:
+            logger.warning(f"failed to move processes to parent cgroup: {parent_cgroup_path}")
+            return False
+
+    #cmd = f"ps -o pid,user,cmd -p {pid}"
+    #logger.debug(f"{cmd}")
+    #result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+    #logger.debug(f"Command output: {result.stdout}")
+
+    #cmd = f"cat /proc/{pid}/cgroup"
+    #logger.debug(f"{cmd}")
+    #result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
+    #logger.debug(f"Command output: {result.stdout}")
+
+    try:
+        logger.debug(f"ls -lF {parent_cgroup_path}")
+        result = subprocess.run(['ls', '-lF', os.path.dirname(parent_cgroup_path)], check=True, capture_output=True, text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
+        return False
+
+    try:
+        logger.debug(f"cat {parent_cgroup_path}/cgroup.subtree_control")
+        result = subprocess.run(['cat', os.path.join(parent_cgroup_path, "cgroup.subtree_control")], check=True, capture_output=True,
+                                text=True)
+        logger.debug(f"Command output: {result.stdout}")
+    except Exception as e:
+        logger.warning(f"failed to run command: {e}")
+        return False
+
+    # should be here; but it fails since there are already processes added to the cgroup
+    # Enable memory and pid controllers in the parent cgroup
+    status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    if not status:
+        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+        return False
+
+    # Create a "controller" cgroup for the parent process
+    #controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
+    #logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
+    #try:
+    #    mkdirs(controller_cgroup_path, chmod=0o755)
+    #except Exception as e:
+    #    logger.warning(f"failed to create cgroup: {e}")
+    #    return False
 
     #
     try:
@@ -318,10 +333,10 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         logger.warning(f"failed to run command: {e}")
 
     # Enable memory and pid controllers in the parent controller cgroup
-    status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    if not status:
-        logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
-        return False
+    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
+    #if not status:
+    #    logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
+    #    return False
 
     # Move the parent process (and any existing child processes) to the controller cgroup
     status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
@@ -356,10 +371,13 @@ def move_procs_to_parent(path: str):
     if not procs_file.exists():
         raise FileNotFoundError(f"{procs_file} does not exist")
 
-    logger.debug("Moving PIDs to parent cgroup: {parent_procs_file}")
+    logger.debug(f"Moving PIDs to parent cgroup: {parent_procs_file}")
     try:
+        logger.debug(f"cat {str(procs_file)}:")
         result = subprocess.run(["cat", str(procs_file)], check=True, capture_output=True, text=True)
+        logger.debug(f"result={result.stdout}")
         pids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        logger.debug(f"pids={pids}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to read {procs_file}: {e}")
 
@@ -422,6 +440,7 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> b
     if not _is_psutil_available:
         logger.warning("psutil module is not available, cannot move processes to cgroup.")
         return False
+
     procs_file = f"{cgroup_path}/cgroup.procs"
     root_process = psutil.Process(root_pid)
     all_pids = [root_process.pid] + [p.pid for p in root_process.children(recursive=True)]

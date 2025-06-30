@@ -34,12 +34,14 @@ from subprocess import PIPE
 from typing import Any, TextIO
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.control.job import send_state
 from pilot.info import JobData
 from pilot.util.auxiliary import (
     set_pilot_state,  # , show_memory_usage
     list_items
 )
+from pilot.util.cgroups import move_process_and_descendants_to_cgroup
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
@@ -72,6 +74,7 @@ from pilot.common.exception import PilotException
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 
 
 class Executor:
@@ -612,6 +615,18 @@ class Executor:
         job.pgrp = os.getpgid(job.pid)
         set_pilot_state(job=job, state="running")
 
+        # move the payload process to the cgroup if cgroups are used
+        if pilot_cache.use_cgroups:
+            controller_cgroup_path = pilot_cache.get_cgroup(os.getpid())
+            if controller_cgroup_path:
+                logger.info(
+                    f"moving payload process (pid={job.pid}) to cgroup: {controller_cgroup_path}"
+                )
+                status = move_process_and_descendants_to_cgroup(controller_cgroup_path, job.pid)
+                if not status:
+                    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
+            else:
+                logger.warning("cannot move process to cgroup - no cgroup path found")
         # _cmd = self.utility_with_payload(job)
 
         self.utility_after_payload_started(job)
