@@ -261,14 +261,13 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
 
     try:  #it doesn't work to move the main pid
         path = os.path.join(controller_cgroup_path, "cgroup.procs")
-        moved = move_procs_to_parent(path)
-        logger.debug(f"Moved PIDs: {moved}")
+        status = move_process_to_cgroup(path, os.getpid())
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
     else:
-        if not moved:
-            logger.warning(f"failed to move processes to parent cgroup: {parent_cgroup_path}")
+        if not status:
+            logger.warning(f"failed to move process to controller_cgroup_path: {controller_cgroup_path}")
             return False
 
     #cmd = f"ps -o pid,user,cmd -p {pid}"
