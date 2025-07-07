@@ -93,7 +93,7 @@ args = None
 trace = None
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """
     Prepare for and execute the requested workflow.
 
@@ -130,11 +130,12 @@ def main() -> int:
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
 
-    # check cvmfs if available
-    ec = check_cvmfs(logger)
-    if ec:
-        cvmfs_diagnostics()
-        return ec
+    # check cvmfs if available (skip test if either NO_CVMFS_OK env var is set or pilot option --nocvmfs is used)
+    if args.cvmfs:
+        ec = check_cvmfs(logger)
+        if ec:
+            cvmfs_diagnostics()
+            return ec
 
     if not args.rucio_host:
         args.rucio_host = config.Rucio.host
@@ -359,6 +360,16 @@ def get_args() -> Any:
         required=False,
         type=int,
         help="Pilot leasetime seconds (default: 3600 s)",
+    )
+
+    # Disabe cvmfs checks
+    arg_parser.add_argument(
+        "-b",
+        "--nocvmfs",
+        dest="cvmfs",
+        action="store_false",
+        default=True,
+        help="Disable cvmfs checks",
     )
 
     # set the appropriate site, resource and queue

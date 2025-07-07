@@ -653,13 +653,13 @@ def get_gpu_info(site: str) -> dict:
 
         return {
             "site": site,
-            "hostname": socket.gethostname(),
+            "host_name": socket.gethostname(),
             "vendor": "NVIDIA",
             "model": name,
             "architecture": architecture,
             "vram": int(vram),  # MB
             "framework": "CUDA",
-            "cuda_version": cuda_version,
+            "framework_version": cuda_version,
             "driver_version": driver_version,
             "count": count
         }
