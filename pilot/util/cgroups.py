@@ -260,8 +260,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
 
     try:  #it doesn't work to move the main pid
-        path = os.path.join(controller_cgroup_path, "cgroup.procs")
-        status = move_process_to_cgroup(path, os.getpid())
+        status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
