@@ -488,7 +488,7 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
     """
     subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
-        with open(subtree_control_path, "a") as f:
+        with open(subtree_control_path, "w") as f:
             f.write(f"{controllers}")
     except IOError as e:
         logger.warning(f"Failed to enable controllers: {e}")
