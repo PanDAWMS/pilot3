@@ -137,6 +137,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     logger.info(f'using max running time = {max_running_time}s')
 
             # if start_time for the current job is known (push queues), a more detailed check can be performed
+            start_time_ok = False
             if start_time and queuedata:  # in epoch seconds
                 time_since_job_start = int(time.time()) - start_time
                 # in this case, max_running_time is the max job walltime
@@ -147,11 +148,12 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     reached_maxtime_abort(args)
                     break
                 else:
-                    logger.debug(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
+                    logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
                     logger.debug(f'max running time = {max_running_time}s, queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
+                    start_time_ok = True
 
             # fallback to max_running_time if start_time is not known
-            if time_since_start > max_running_time - grace_time:
+            if (time_since_start > max_running_time - grace_time) and not start_time_ok:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
