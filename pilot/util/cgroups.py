@@ -288,8 +288,8 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         return False
 
     try:
-        logger.debug(f"cat {parent_cgroup_path}/cgroup.subtree_control")
-        result = subprocess.run(['cat', os.path.join(parent_cgroup_path, "cgroup.subtree_control")], check=True, capture_output=True,
+        logger.debug(f"cat {parent_cgroup_path}/cgroup.procs")
+        result = subprocess.run(['cat', os.path.join(parent_cgroup_path, "cgroup.procs")], check=True, capture_output=True,
                                 text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
@@ -311,24 +311,6 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     #except Exception as e:
     #    logger.warning(f"failed to create cgroup: {e}")
     #    return False
-
-    #
-    try:
-        logger.debug(f"ls -lF {controller_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
-        return False
-    try:
-        path = os.path.join(controller_cgroup_path, "cgroup.procs")
-        cmd = f"cat {path}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
 
     # Enable memory and pid controllers in the parent controller cgroup
     #status = enable_controllers(parent_cgroup_path, "+memory +pids")
