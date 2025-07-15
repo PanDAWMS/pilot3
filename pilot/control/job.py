@@ -145,8 +145,7 @@ from pilot.util.workernode import (
     get_disk_space,
     get_node_name,
     update_modelstring,
-    get_glidein_site,
-    get_remote_schedd_name
+    extract_site_and_schedd
 )
 
 errors = ErrorCodes()
@@ -838,8 +837,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     # glidein information, currently only relevant for EIC and generic pilots
     if args.pilot_user.lower() == 'eic' or args.pilot_user.lower() == 'generic':
-        glidein_site = get_glidein_site()
-        remote_schedd_name = get_remote_schedd_name()
+        glidein_site, remote_schedd_name = extract_site_and_schedd()
         if glidein_site and remote_schedd_name:
             data['sourceSite'] = remote_schedd_name
             data['destinationSite'] = glidein_site

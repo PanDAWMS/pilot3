@@ -25,7 +25,10 @@ import re
 import socket
 import subprocess
 from shutil import which
-from typing import Optional
+from typing import (
+    Optional,
+    Tuple
+)
 
 #from subprocess import getoutput
 
@@ -510,51 +513,50 @@ def get_hepspec_per_core() -> str:
     return stdout
 
 
-def get_glidein_site() -> str or None:
+def extract_site_and_schedd() -> Tuple[Optional[str], Optional[str]]:
     """
-    Reads the HTCondor .machine.ad file and extracts the value of GLIDEIN_Site.
+    Extract the values of 'GLIDEIN_Site' and 'RemoteScheddName' from the .machine.ad file.
 
     Returns:
-        str: The value of GLIDEIN_Site (e.g., 'Alabama-CHPC'), or None if not found.
+        Tuple[Optional[str], Optional[str]]: A tuple containing the GLIDEIN_Site
+        and RemoteScheddName values, respectively. Each will be None if not found.
     """
-    ad_path = os.environ.get("_CONDOR_MACHINE_AD")
-    if not ad_path or not os.path.isfile(ad_path):
-        logger.warning("Environment variable _CONDOR_MACHINE_AD is not set or file does not exist.")
+    ad_path = os.environ.get('_CONDOR_MACHINE_AD')
+    if not ad_path:
+        logger.warning("Environment variable _CONDOR_MACHINE_AD is not set.")
+        return None, None
 
-    with open(ad_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            match = re.match(r'^GLIDEIN_Site\s*=\s*"([^"]+)"', line)
-            if match:
-                return match.group(1)
+    site = None
+    schedd = None
 
-    return None
-
-
-def get_remote_schedd_name(file_path: str) -> Optional[str]:
-    """
-    Extracts the value of 'RemoteScheddName' from a .machine.ad file.
-
-    Args:
-        file_path (str): The path to the .machine.ad file.
-
-    Returns:
-        Optional[str]: The value of RemoteScheddName if found, otherwise None.
-    """
-    pattern = re.compile(r'^RemoteScheddName\s*=\s*"([^"]+)"')
+    site_pattern = re.compile(r'^GLIDEIN_Site\s*=\s*"([^"]+)"')
+    schedd_pattern = re.compile(r'^RemoteScheddName\s*=\s*"([^"]+)"')
 
     try:
-        with open(file_path, 'r') as file:
+        with open(ad_path, 'r') as file:
             for line in file:
-                match = pattern.match(line.strip())
-                if match:
-                    return match.group(1)
+                stripped = line.strip()
+                if site is None:
+                    site_match = site_pattern.match(stripped)
+                    if site_match:
+                        site = site_match.group(1)
+                if schedd is None:
+                    schedd_match = schedd_pattern.match(stripped)
+                    if schedd_match:
+                        schedd = schedd_match.group(1)
+                if site and schedd:
+                    break
     except FileNotFoundError:
-        logger.warning(f"file not found: {file_path}")
+        logger.warning(f"File not found: {ad_path}")
     except IOError as e:
-        logger.warning(f"error reading file {file_path}: {e}")
+        logger.warning(f"Error reading file {ad_path}: {e}")
 
-    return None
+    if site is None:
+        logger.warning("failed to extract GLIDEIN_Site from .machine.ad file")
+    if schedd is None:
+        logger.warning("failed to extract RemoteScheddName from .machine.ad file")
+
+    return site, schedd
 
 
 def get_total_local_disk_size() -> int:
