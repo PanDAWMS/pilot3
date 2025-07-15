@@ -25,6 +25,7 @@ import re
 import socket
 import subprocess
 from shutil import which
+from typing import Optional
 
 #from subprocess import getoutput
 
@@ -526,6 +527,32 @@ def get_glidein_site() -> str or None:
             match = re.match(r'^GLIDEIN_Site\s*=\s*"([^"]+)"', line)
             if match:
                 return match.group(1)
+
+    return None
+
+
+def get_remote_schedd_name(file_path: str) -> Optional[str]:
+    """
+    Extracts the value of 'RemoteScheddName' from a .machine.ad file.
+
+    Args:
+        file_path (str): The path to the .machine.ad file.
+
+    Returns:
+        Optional[str]: The value of RemoteScheddName if found, otherwise None.
+    """
+    pattern = re.compile(r'^RemoteScheddName\s*=\s*"([^"]+)"')
+
+    try:
+        with open(file_path, 'r') as file:
+            for line in file:
+                match = pattern.match(line.strip())
+                if match:
+                    return match.group(1)
+    except FileNotFoundError:
+        logger.warning(f"file not found: {file_path}")
+    except IOError as e:
+        logger.warning(f"error reading file {file_path}: {e}")
 
     return None
 
