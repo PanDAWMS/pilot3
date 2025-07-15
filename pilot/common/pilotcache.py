@@ -40,6 +40,8 @@ def get_pilot_cache():
             self.pilot_home_dir = None
             self.current_job_id = None
             self.current_job_state = None
+            self.source_site = None
+            self.destination_site = None
 
         def get_pids(self):
             """
