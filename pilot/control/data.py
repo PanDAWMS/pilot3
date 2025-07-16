@@ -861,7 +861,11 @@ def copy_special_files(tardir: str):
     # store the workernode map
     try:
         path = os.path.join(pilot_home, config.Workernode.map)
-        copy(path, tardir)
+        if os.path.exists(path):
+            copy(path, tardir)
+        path = os.path.join(pilot_home, config.Workernode.gpu_map)
+        if os.path.exists(path):
+            copy(path, tardir)
     except (NoSuchFile, FileHandlingFailure) as exc:
         logger.warning(f'failed to copy workernode map: {exc}')
 
