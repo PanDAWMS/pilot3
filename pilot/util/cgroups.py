@@ -218,7 +218,7 @@ def parse_cgroup_path_old(size: int) -> str:
     return None
 
 
-def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bool:  # noqa: C901
+def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> bool:  # noqa: C901
     """
     Create a cgroup for the current process.
 
@@ -268,6 +268,9 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
         if not status:
             logger.warning(f"failed to move process to controller_cgroup_path: {controller_cgroup_path}")
             return False
+
+    # move all processes in the parent cgroup to the control subgroup
+    pids = move_procs_to_control_subgroup(parent_cgroup_path)
 
     #cmd = f"ps -o pid,user,cmd -p {pid}"
     #logger.debug(f"{cmd}")
@@ -319,16 +322,57 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     #    return False
 
     # Move the parent process (and any existing child processes) to the controller cgroup
-    status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
-    if not status:
-        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-        return False
+    #status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
+    #if not status:
+    #    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
+    #    return False
 
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
         pilot_cache.add_cgroup(pid, controller_cgroup_path)
 
     return True
+
+
+def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = "control") -> list:
+    """
+    Moves all PIDs from the parent cgroup's cgroup.procs file to a control subgroup.
+
+    Args:
+        parent_cgroup_path (str): Path to the parent cgroup directory (e.g.,
+            /sys/fs/cgroup/system.slice/htcondor/condor_var_lib_condor_execute_slot1_23@...).
+        control_name (str): Name of the control subgroup to create and move PIDs into.
+
+    Returns:
+        list: List of PIDs that were moved to the control subgroup.
+    """
+    parent_path = Path(parent_cgroup_path)
+    procs_file = parent_path / "cgroup.procs"
+    control_path = parent_path / control_name
+    control_procs_file = control_path / "cgroup.procs"
+
+    # Create control subgroup if it doesn't exist
+    if not control_path.exists():
+        control_path.mkdir(parents=True)
+
+    # Read PIDs from the parent cgroup.procs
+    try:
+        with open(procs_file, "r") as f:
+            pids = [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        logger.warning(f"Failed to read {procs_file}: {e}")
+        pids = []
+
+    # Move each PID to control subgroup
+    for pid in pids:
+        try:
+            with open(control_procs_file, "w") as f:
+                f.write(pid)
+        except Exception as e:
+            logger.warning(f"Failed to move PID {pid} to {control_procs_file}: {e}")
+            pids = []
+
+    return pids
 
 
 def move_procs_to_parent(path: str):
