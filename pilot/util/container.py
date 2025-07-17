@@ -41,7 +41,7 @@ from typing import Any, TextIO
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 #from pilot.util.loggingsupport import flush_handler
-#from pilot.util.cgroups import add_process_to_cgroup
+from pilot.util.cgroups import move_process_and_descendants_to_cgroup
 from pilot.util.processgroups import kill_process_group
 
 errors = ErrorCodes()
@@ -105,9 +105,22 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
             if kwargs.get('returnproc', False):
                 return process
 
-        # Use communicate() to read stdout and stderr reliably
+        # move the process to the cgroup if cgroups are used
         try:
-            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
+            if pilot_cache.use_cgroups:
+                cgroup_path = pilot_cache.get_cgroup("subprocesses")
+                if cgroup_path:
+                    logger.info(
+                        f"moving payload process (pid={process.pid}) to cgroup: {cgroup_path}"
+                    )
+                    _ = move_process_and_descendants_to_cgroup(cgroup_path, process.pid)
+                else:
+                    logger.warning("cannot move process to cgroup - no cgroup path found")
+        except Exception as e:
+            logger.warning(f"exception caught when moving process to cgroup: {e}")
+
+        # use communicate() to read stdout and stderr reliably
+        try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             # Timeout handling

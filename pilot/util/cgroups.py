@@ -33,7 +33,6 @@ import subprocess
 from pathlib import Path
 
 from pilot.common.pilotcache import get_pilot_cache
-from pilot.util.filehandling import mkdirs
 
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
@@ -311,12 +310,13 @@ def create_subgroup(parent_path: str, subgroup_name: str) -> str:
     Returns:
         str: The path to the created subgroup, or an empty string if creation failed.
     """
-    subgroup_path = os.path.join(parent_path, subgroup_name)
+    subgroup_path = Path(parent_path) / subgroup_name
     try:
-        mkdirs(subgroup_path, chmod=0o755)
+        subgroup_path.mkdir(parents=True)
+        # mkdirs(subgroup_path, chmod=0o755)
         logger.info(f"created cgroup at: {subgroup_path}")
         return subgroup_path
-    except Exception as e:
+    except (FileExistsError, PermissionError, OSError) as e:
         logger.warning(f"failed to create cgroup {subgroup_name} at {parent_path}: {e}")
         return ""
 
@@ -461,23 +461,13 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> b
             with open(procs_file, "a") as f:
                 f.write(f"{pid}")
         except IOError as e:
-            logger.warning(f"Failed to move process to cgroup: {e}")
-
+            logger.warning(f"failed to move process to cgroup: {e}")
             cmd = f"echo {pid} > {procs_file}"
             try:
                 subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
             except subprocess.CalledProcessError as e:
-                logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
+                logger.warning(f"failed to move PID {pid} to cgroup: {e}")
                 return False
-
-        cmd = f"ls -l {procs_file}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        if result:
-            logger.debug(result.stdout)
-        else:
-            logger.warning("failed to run command: ls? no output")
 
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
     return True

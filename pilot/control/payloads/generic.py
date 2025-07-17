@@ -616,19 +616,20 @@ class Executor:
         set_pilot_state(job=job, state="running")
 
         # move the payload process to the cgroup if cgroups are used
-        if pilot_cache.use_cgroups:
-            controller_cgroup_path = pilot_cache.get_cgroup(os.getpid())
-            if controller_cgroup_path:
-                logger.info(
-                    f"moving payload process (pid={job.pid}) to cgroup: {controller_cgroup_path}"
-                )
-                status = move_process_and_descendants_to_cgroup(controller_cgroup_path, job.pid)
-                if not status:
-                    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-            else:
-                logger.warning("cannot move process to cgroup - no cgroup path found")
-        # _cmd = self.utility_with_payload(job)
+        try:
+            if pilot_cache.use_cgroups:
+                cgroup_path = pilot_cache.get_cgroup("subprocesses")
+                if cgroup_path:
+                    logger.info(
+                        f"moving payload process (pid={job.pid}) to cgroup: {cgroup_path}"
+                    )
+                    _ = move_process_and_descendants_to_cgroup(cgroup_path, job.pid)
+                else:
+                    logger.warning("cannot move process to cgroup - no cgroup path found")
+        except Exception as e:
+            logger.warning(f"failed to move process to cgroup: {e}")
 
+        # _cmd = self.utility_with_payload(job)
         self.utility_after_payload_started(job)
 
         return proc

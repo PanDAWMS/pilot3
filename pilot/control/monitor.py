@@ -103,6 +103,10 @@ async def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
     # set up the periodic cgroup monitor task
     task = asyncio.create_task(periodic_cgroup_monitor(args))
+    if task:
+        logger.debug("created asynchronous cgroup monitor task")
+    else:
+        logger.warning("failed to create asynchronous cgroup monitor task - will not monitor cgroups")
 
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
@@ -236,10 +240,12 @@ async def periodic_cgroup_monitor(args):
     try:
         while not args.graceful_stop.is_set():
             pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
+            logger.debug(f"monitoring pilot cgroup at path: {pilot_cgroup_path}")
             if pilot_cgroup_path:
                 monitor_cgroup(pilot_cgroup_path)
 
             subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
+            logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
             if subprocesses_cgroup_path:
                 monitor_cgroup(subprocesses_cgroup_path)
 
