@@ -104,8 +104,6 @@ async def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     # set up the periodic cgroup monitor task
     task = asyncio.create_task(periodic_cgroup_monitor(args))
 
-    logger.debug("created asynchronous cgroup monitor task")
-
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
         n_iterations = 0
