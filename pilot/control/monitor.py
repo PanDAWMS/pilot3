@@ -26,6 +26,7 @@
 """Functions for monitoring of pilot and threads."""
 
 import logging
+import os
 import threading
 import time
 import re
@@ -39,10 +40,12 @@ from subprocess import (
 from typing import Any
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.util.auxiliary import (
     check_for_final_server_update,
     set_pilot_state
 )
+from pilot.util.cgroups import monitor_cgroup
 from pilot.util.common import is_pilot_check
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
@@ -61,6 +64,7 @@ from pilot.util.queuehandling import (
 )
 from pilot.util.timing import get_time_since_start
 
+pilot_cache = get_pilot_cache()
 logger = logging.getLogger(__name__)
 
 
@@ -89,9 +93,12 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     tcpu = t_0
     last_minute_check = t_0
 
-    queuedata = get_queuedata_from_job(queues)
+    queuedata = pilot_cache.queuedata
     if not queuedata:
-        logger.warning('queuedata could not be extracted from queues')
+        logger.warning("no queuedata in pilot cache, will try to extract it from queues")
+        queuedata = get_queuedata_from_job(queues)
+    if not queuedata:
+        logger.warning('queuedata could not be extracted from queues either')
 
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
@@ -171,6 +178,15 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         reached_maxtime_abort(args)
                         break
                     last_minute_check = time.time()
+
+            # every minute check memory and pids from cgroups if available
+            if pilot_cache.use_cgroups and (time.time() - last_minute_check) > 60:
+                pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
+                if pilot_cgroup_path:
+                    monitor_cgroup(pilot_cgroup_path)
+                subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
+                if subprocesses_cgroup_path:
+                    monitor_cgroup(subprocesses_cgroup_path)
 
             # test max
             #time.sleep(120)

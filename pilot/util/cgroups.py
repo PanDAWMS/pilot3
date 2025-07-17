@@ -222,7 +222,12 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     """
     Create a cgroup for the current process.
 
-    This function creates a cgroup for the current process and returns its path.
+    This function creates a cgroup for the current process and returns its path. It also creates a controller
+    and moves the current process into that cgroup. Additionally, it moves all processes in the parent cgroup
+    to the control subgroup. Finally, it enables memory and pid controllers in the parent cgroup.
+
+    It also creates a cgroup for the subprocess that will be created by the main process, so that the subprocess
+    can be monitored and controlled as well.
 
     Args:
         pid (int): The process ID to create the cgroup for. Default is the current process ID.
@@ -231,7 +236,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     Returns:
         bool: True if the cgroup was successfully created, False otherwise.
     """
-    # First make sure that the cgroup was not already created for this pid
+    # make sure that the cgroup was not already created for this pid
     if pilot_cache:
         pids = pilot_cache.get_pids()
         if pid in pids:
@@ -247,19 +252,14 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
 
     # Construct the full path to the parent cgroup
     parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
-
     logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
 
     # Create a "controller" cgroup for the parent process
-    controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
-    logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
-    try:
-        mkdirs(controller_cgroup_path, chmod=0o755)
-    except Exception as e:
-        logger.warning(f"failed to create cgroup: {e}")
+    controller_cgroup_path = create_subgroup(parent_cgroup_path, controller)
+    if not controller_cgroup_path:
         return False
 
-    try:  #it doesn't work to move the main pid
+    try:
         status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
@@ -270,17 +270,13 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
             return False
 
     # move all processes in the parent cgroup to the control subgroup
-    pids = move_procs_to_control_subgroup(parent_cgroup_path)
+    _ = move_procs_to_control_subgroup(parent_cgroup_path)
 
-    #cmd = f"ps -o pid,user,cmd -p {pid}"
-    #logger.debug(f"{cmd}")
-    #result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-    #logger.debug(f"Command output: {result.stdout}")
-
-    #cmd = f"cat /proc/{pid}/cgroup"
-    #logger.debug(f"{cmd}")
-    #result = subprocess.run(cmd.split(), check=True, capture_output=True, text=True)
-    #logger.debug(f"Command output: {result.stdout}")
+    # create a new cgroup for future subprocesses
+    subprocesses_cgroup_path = create_subgroup(parent_cgroup_path, "subprocesses")
+    if not subprocesses_cgroup_path:
+        logger.warning(f"failed to create subprocesses cgroup at {parent_cgroup_path}")
+        return False
 
     try:
         logger.debug(f"ls -lF {parent_cgroup_path}")
@@ -290,48 +286,39 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
         logger.warning(f"failed to run command: {e}")
         return False
 
-    try:
-        logger.debug(f"cat {parent_cgroup_path}/cgroup.procs")
-        result = subprocess.run(['cat', os.path.join(parent_cgroup_path, "cgroup.procs")], check=True, capture_output=True,
-                                text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
-        return False
-
-    # should be here; but it fails since there are already processes added to the cgroup
-    # Enable memory and pid controllers in the parent cgroup
+    # enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
         return False
 
-    # Create a "controller" cgroup for the parent process
-    #controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
-    #logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
-    #try:
-    #    mkdirs(controller_cgroup_path, chmod=0o755)
-    #except Exception as e:
-    #    logger.warning(f"failed to create cgroup: {e}")
-    #    return False
-
-    # Enable memory and pid controllers in the parent controller cgroup
-    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    #if not status:
-    #    logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
-    #    return False
-
-    # Move the parent process (and any existing child processes) to the controller cgroup
-    #status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
-    #if not status:
-    #    logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-    #    return False
-
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
         pilot_cache.add_cgroup(pid, controller_cgroup_path)
+        pilot_cache.add_cgroup("subprocesses", subprocesses_cgroup_path)
 
     return True
+
+
+def create_subgroup(parent_path: str, subgroup_name: str) -> str:
+    """
+    Creates an additional cgroup for subprocesses under the specified parent cgroup path.
+
+    Args:
+        parent_path (str): Path to the parent cgroup directory.
+        subgroup_name (str): Name of the subgroup to create.
+
+    Returns:
+        str: The path to the created subgroup, or an empty string if creation failed.
+    """
+    subgroup_path = os.path.join(parent_path, subgroup_name)
+    try:
+        mkdirs(subgroup_path, chmod=0o755)
+        logger.info(f"created cgroup at: {subgroup_path}")
+        return subgroup_path
+    except Exception as e:
+        logger.warning(f"failed to create cgroup {subgroup_name} at {parent_path}: {e}")
+        return ""
 
 
 def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = "control") -> list:
@@ -547,3 +534,52 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
         return False
 
     return True
+
+
+def get_pids_for_cgroup(cgroup_path: str) -> list:
+    """
+    Get the PIDs of all processes in the specified cgroup.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+
+    Returns:
+        list: List of PIDs in the cgroup.
+    """
+    procs_file = os.path.join(cgroup_path, "cgroup.procs")
+    try:
+        with open(procs_file, "r") as f:
+            pids = [int(line.strip()) for line in f if line.strip()]
+        return pids
+    except IOError as e:
+        logger.warning(f"Failed to read {procs_file}: {e}")
+        return []
+
+
+def monitor_cgroup(cgroup_path: str) -> None:
+    """
+    Monitor the specified cgroup by printing its PIDs and memory usage.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+    """
+    pids = get_pids_for_cgroup(cgroup_path)
+    if not pids:
+        logger.info(f"no processes found in cgroup {cgroup_path}")
+        return
+
+    logger.info(f"processes in cgroup {cgroup_path}: {pids}")
+
+    cmds = [
+        f"cat {cgroup_path}/memory.current",
+        f"cat {cgroup_path}/memory.events",
+        f"cat {cgroup_path}/pids.current",
+    ]
+    for cmd in cmds:
+        # Execute the command to get memory usage
+        try:
+            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            output = result.stdout.strip()
+            logger.info(f'{cmd.split("/")[-1]}: {output}')
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to read {cmd}: {e}")
