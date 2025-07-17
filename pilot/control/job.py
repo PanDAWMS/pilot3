@@ -839,8 +839,8 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if args.pilot_user.lower() == 'eic' or args.pilot_user.lower() == 'generic':
         glidein_site, remote_schedd_name = extract_site_and_schedd()
         if glidein_site and remote_schedd_name:
-            data['sourceSite'] = remote_schedd_name
-            data['destinationSite'] = glidein_site
+            data['source_site'] = remote_schedd_name
+            data['destination_site'] = glidein_site
 
     return data
 
