@@ -134,9 +134,10 @@ def get_valid_base_urls(base_urls: list, order: str = None):
     """
     valid_base_urls = []
     if not base_urls:
-        base_urls = ["https://storage.googleapis.com/drp-us-central1-containers",
-                     "https://pandaserver-doma.cern.ch/trf/user"]
-
+        base_urls = [
+            "pandaserver.cern.ch",
+            "pandaserver-tb.cern.ch",
+        ]
     for base_url in base_urls:
         if not base_url.startswith(("http://", "https://")):
             valid_base_urls.append(f"http://{base_url}")
