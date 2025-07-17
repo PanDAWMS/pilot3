@@ -25,6 +25,7 @@
 
 """Functions for monitoring of pilot and threads."""
 
+import asyncio
 import logging
 import os
 import threading
@@ -68,7 +69,7 @@ pilot_cache = get_pilot_cache()
 logger = logging.getLogger(__name__)
 
 
-def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
+async def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Monitor threads.
 
@@ -99,6 +100,9 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         queuedata = get_queuedata_from_job(queues)
     if not queuedata:
         logger.warning('queuedata could not be extracted from queues either')
+
+    # set up the periodic cgroup monitor task
+    task = asyncio.create_task(periodic_cgroup_monitor(args))
 
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
@@ -179,15 +183,6 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         break
                     last_minute_check = time.time()
 
-            # every minute check memory and pids from cgroups if available
-            if pilot_cache.use_cgroups and (time.time() - last_minute_check) > 60:
-                pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
-                if pilot_cgroup_path:
-                    monitor_cgroup(pilot_cgroup_path)
-                subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
-                if subprocesses_cgroup_path:
-                    monitor_cgroup(subprocesses_cgroup_path)
-
             # test max
             #time.sleep(120)
             #reached_maxtime_abort(args)
@@ -224,7 +219,33 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         print((f"monitor: exception caught: {error}"))
         raise PilotException(error) from error
 
+    # shut down the cgroups monitoring task
+    logger.info("[monitor] waiting for cgroup monitor task to finish")
+    await task
+
     logger.info('[monitor] control thread has ended')
+
+
+async def periodic_cgroup_monitor(args):
+    """
+    Periodically monitor the pilot and subprocess cgroups every 60 seconds.
+
+    Args:
+        args: An object with a .graceful_stop attribute (must be threading.Event or similar).
+    """
+    try:
+        while not args.graceful_stop.is_set():
+            pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
+            if pilot_cgroup_path:
+                monitor_cgroup(pilot_cgroup_path)
+
+            subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
+            if subprocesses_cgroup_path:
+                monitor_cgroup(subprocesses_cgroup_path)
+
+            await asyncio.sleep(60)
+    except asyncio.CancelledError:
+        logger.info("cgroup monitor task cancelled")
 
 
 def get_oidc_check_time() -> int or None:
