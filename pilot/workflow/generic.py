@@ -213,7 +213,10 @@ def run(args: object) -> Traces or None:
             return traces
 
     def run_async_in_thread(async_func, *args, **kwargs):
-        asyncio.run(async_func(*args, **kwargs))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(async_func(*args, **kwargs))
+        loop.close()
 
     # define the threads
     targets = {
