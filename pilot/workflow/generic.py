@@ -22,6 +22,7 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
+import asyncio
 import functools
 import logging
 import signal
@@ -211,8 +212,16 @@ def run(args: object) -> Traces or None:
             #traces.pilot['error_code'] = exit_code
             return traces
 
+    def run_async_in_thread(async_func, *args, **kwargs):
+        asyncio.run(async_func(*args, **kwargs))
+
     # define the threads
-    targets = {'job': job.control, 'payload': payload.control, 'data': data.control, 'monitor': monitor.control}
+    targets = {
+        'job': job.control,
+        'payload': payload.control,
+        'data': data.control,
+        'monitor': lambda **kwargs: run_async_in_thread(monitor.control, **kwargs)
+    }
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 
