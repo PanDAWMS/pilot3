@@ -111,7 +111,7 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                 cgroup_path = pilot_cache.get_cgroup("subprocesses")
                 if cgroup_path:
                     logger.info(
-                        f"moving payload process (pid={process.pid}) to cgroup: {cgroup_path}"
+                        f"moving process (pid={process.pid}) to cgroup: {cgroup_path}"
                     )
                     _ = move_process_and_descendants_to_cgroup(cgroup_path, process.pid)
                 else:
