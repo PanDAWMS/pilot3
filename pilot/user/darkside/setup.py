@@ -95,6 +95,7 @@ def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int
 
     if original_base_url == "":
         diagnostics = f"invalid base URL: {transform}"
+        logger.warning(diagnostics)
         return errors.TRFDOWNLOADFAILURE, diagnostics, ""
 
     # try to download from the required location, if not - switch to backup
