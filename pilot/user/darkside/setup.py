@@ -136,6 +136,7 @@ def get_valid_base_urls(base_urls: list, order: str = None):
     if not base_urls:
         base_urls = [
             "pandaserver.cern.ch",
+            "pandaserver-doma.cern.ch"
             "pandaserver-tb.cern.ch",
         ]
     for base_url in base_urls:
