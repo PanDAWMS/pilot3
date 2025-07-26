@@ -1255,6 +1255,7 @@ def get_resource_types(url: str, port: int) -> dict:
 
     _resource_types = response.get('resourceTypes', {})
     # Convert Python-style string to JSON-style string for parsing
+    logger.debug(f"_resource_types = {_resource_types}")
     resource_types_str = _resource_types.get('ResourceTypes')
     logger.debug("resource_types_str: {}".format(resource_types_str))
     if resource_types_str:
