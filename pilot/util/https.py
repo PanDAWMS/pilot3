@@ -1243,13 +1243,30 @@ def get_resource_types(url: str, port: int) -> dict:
     """
     cmd = get_server_command(url, port, cmd="getResourceTypes")
     try:
-        resource_types = request2(cmd, panda=True)  # will be a dictionary
+        response = request2(cmd, panda=True)  # will be a dictionary
     except Exception as exc:
         logger.warning(f'exception caught in request2() while getting resource types: {exc}')
         return {}
+    logger.debug(f"response from {cmd} = {response}")
 
-    if not resource_types:
+    if not response:
         logger.warning(f'failed to get resource types from {cmd}')
         return {}
+
+    _resource_types = response.get('resourceTypes', {})
+    resource_types_list = ast.literal_eval(_resource_types.get('ResourceTypes'))
+    resource_types = {}
+    for entry in resource_types_list:
+        resource_name = entry.get('resource_name')
+        mincore = entry.get('mincore')
+        maxcore = entry.get('maxcore')
+        minrampercore = entry.get('minrampercore')
+        maxrampercore = entry.get('maxrampercore')
+        resource_types[resource_name] = {
+            'mincore': mincore,
+            'maxcore': maxcore,
+            'minrampercore': minrampercore,
+            'maxrampercore': maxrampercore
+        }
 
     return resource_types
