@@ -1261,17 +1261,9 @@ def get_resource_types(url: str, port: int) -> dict:
             logger.warning(f'failed to parse response as JSON: {exc}')
             return {}
 
-    _resource_types = response.get('ResourceTypes', {})
+    resource_types_list = response.get('ResourceTypes', {})
     # Convert Python-style string to JSON-style string for parsing
-    logger.debug(f"_resource_types = {_resource_types}")
-    resource_types_str = _resource_types.get('ResourceTypes')
-    logger.debug("resource_types_str: {}".format(resource_types_str))
-    if resource_types_str:
-        resource_types_str = resource_types_str.replace("None", "null").replace("'", '"')
-        resource_types_list = json.loads(resource_types_str)
-    else:
-        resource_types_list = []
-    logger.debug("resource_types_list: {}".format(resource_types_list))
+    logger.debug(f"resource_types_list = {resource_types_list}")
     resource_types = {}
     for entry in resource_types_list:
         resource_name = entry.get('resource_name')
