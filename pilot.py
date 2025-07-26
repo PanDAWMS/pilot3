@@ -174,6 +174,8 @@ def main() -> int:  # noqa: C901
             logger.warning(f"exception caught when getting resource types: {error}")
         else:
             logger.debug(f"resource types: {resource_types}")
+            if resource_types:
+                pilot_cache.resource_types = resource_types
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
