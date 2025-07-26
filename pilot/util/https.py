@@ -1275,4 +1275,23 @@ def get_resource_types(url: str, port: int) -> dict:
     else:
         resource_types_list = []
 
-    return {"ResourceTypes": resource_types_list}
+    # create the final dictionary
+    resource_types = {}
+    try:
+        for entry in resource_types_list:
+            resource_name = entry.get('resource_name', '')
+            mincore = entry.get('mincore', 0)
+            maxcore = entry.get('maxcore', 0)
+            minrampercore = entry.get('minrampercore', 0)
+            maxrampercore = entry.get('maxrampercore', 0)
+            resource_types[resource_name] = {
+                'mincore': mincore,
+                'maxcore': maxcore,
+                'minrampercore': minrampercore,
+                'maxrampercore': maxrampercore
+            }
+    except Exception as exc:
+        logger.warning(f'failed to parse resource types: {exc}')
+        resource_types = {}
+
+    return resource_types
