@@ -21,8 +21,10 @@
 
 import ast
 import logging
+import math
 
 from pilot.common.errorcodes import ErrorCodes
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.info.jobdata import JobData
 from pilot.util.auxiliary import set_pilot_state
 from pilot.util.config import config
@@ -32,6 +34,7 @@ from .utilities import get_memory_values
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 
 
 def allow_memory_usage_verifications() -> bool:
@@ -88,7 +91,7 @@ def get_memkillgrace(memkillgrace: int) -> float:
     return memkillgrace / 100 if memkillgrace > 1 else 1.0
 
 
-def get_memory_limit(resource_type: str) -> int:
+def get_memory_limit_old(resource_type: str) -> int:
     """
     Get the memory limit for the relevant resource type.
 
@@ -117,7 +120,123 @@ def get_memory_limit(resource_type: str) -> int:
     return memory_limit
 
 
+def get_memory_limit(resource_type: str) -> int or None:
+    """
+    Get the memory limit for the relevant resource type.
+
+    :param resource_type: resource type (str)
+    :return: memory limit in MB (int) or None if not set.
+    """
+    try:
+        memory_limits = pilot_cache.get("memory_limits")
+    except AttributeError as e:
+        logger.warning(f"memory_limits not set in config, using defaults: {e}")
+        memory_limits = {'MCORE': 2000,
+                         'MCORE_HIMEM': 3000,
+                         'MCORE_LOMEM': 1000,
+                         'MCORE_VHIMEM': None,
+                         'SCORE': 2000,
+                         'SCORE_HIMEM': 3000,
+                         'SCORE_LOMEM': 1000,
+                         'SCORE_VHIMEM': None}
+
+    limit_dict = memory_limits.get(resource_type)
+    if not limit_dict:
+        logger.warning(f"memory limit not set for resource type {resource_type} - using default 4001")
+        return 4001
+    limit = limit_dict.get("maxrampercore")
+    if not limit:
+        logger.warning(f"maxrampercore not set for resource type {resource_type} - using default 4001")
+        return 4001
+
+    return limit
+
+
+def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
+    """
+    Calculate the memory kill threshold in kB.
+
+    :param job: job object
+    :param resource_type: subresource type name
+    :return: memory limit in kB or None if it cannot be determined
+    """
+    pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
+    maxram_per_core = get_memory_limit.get(resource_type)
+
+    if maxram_per_core:
+        memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
+        logger.debug(f"Memory limit from resource_type {resource_type}: {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+
+    # Fallbacks
+    if hasattr(job, "minramcount") and job.minramcount:
+        is_push_queue = job.infosys.queuedata.jobtype == "push"
+        minram = job.minramcount
+        if not is_push_queue:
+            minram = int(math.ceil(minram / 1000.0)) * 1000  # round up to nearest 1000
+        memory_limit_kb = pilot_rss_grace * minram * 1024
+        logger.debug(f"Fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+
+    # Final fallback to maxrss
+    maxrss = job.infosys.queuedata.maxrss
+    scale = get_ucore_scale_factor(job)
+    try:
+        memory_limit_kb = pilot_rss_grace * int(maxrss * scale) * 1024
+        logger.debug(f"Fallback using PQ.maxrss: {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+    except (ValueError, TypeError) as exc:
+        logger.warning(f"Unexpected value for maxRSS: {exc}")
+        return None
+
+
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
+    """
+    Perform memory usage verification.
+
+    :param job: job object (JobData)
+    :param resource_type: resource type (str)
+    :return: exit code (int), diagnostics (str)
+    """
+    exit_code = 0
+    diagnostics = ""
+
+    summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
+    if not summary_dictionary:
+        exit_code = errors.BADMEMORYMONITORJSON
+        diagnostics = "Memory monitor output could not be read"
+        return exit_code, diagnostics
+
+    maxdict = summary_dictionary.get("Max", {})
+    maxpss_int = maxdict.get("maxPSS", -1)
+    memory_limit_kb = calculate_memory_limit_kb(job, resource_type)
+
+    if maxpss_int != -1 and memory_limit_kb:
+        if maxpss_int > memory_limit_kb:
+            diagnostics = (
+                f"job has exceeded the memory limit {maxpss_int} kB > {memory_limit_kb} kB "
+                f"(subresource={resource_type}, corecount={job.corecount})"
+            )
+            logger.warning(diagnostics)
+
+            # Create a lockfile? Depends on rest of pilot framework
+            set_pilot_state(job=job, state="failed")
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
+            kill_processes(job.pid)
+        else:
+            logger.info(
+                f"max memory (maxPSS) used by the payload is within the allowed limit: "
+                f"{maxpss_int} B ≤ {memory_limit_kb} B (subresource={resource_type})"
+            )
+    elif memory_limit_kb is None:
+        logger.warning("Could not determine memory limit – memory check skipped")
+    elif maxpss_int == -1:
+        logger.warning("maxPSS not found in memory monitor output")
+
+    return exit_code, diagnostics
+
+
+def memory_usage_old(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
