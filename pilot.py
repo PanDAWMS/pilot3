@@ -74,7 +74,8 @@ from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
-    update_local_oidc_token_info
+    update_local_oidc_token_info,
+    get_resource_types
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
@@ -167,6 +168,12 @@ def main() -> int:  # noqa: C901
             send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
+        try:
+            resource_types = get_resource_types(args.url, args.port)
+        except Exception as error:
+            logger.warning(f"exception caught when getting resource types: {error}")
+        else:
+            logger.debug(f"resource types: {resource_types}")
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
