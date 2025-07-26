@@ -1241,24 +1241,15 @@ def get_resource_types(url: str, port: int) -> dict:
     Returns:
         dict: A dictionary of resource types.
     """
-    resource_types = {}
+    cmd = get_server_command(url, port, cmd="getResourceTypes")
     try:
-        pandaserver = get_panda_server(url, port, update_server=False)
-        response = request2(f'{pandaserver}/server/panda/getResourceTypes')
-        if isinstance(response, dict):
-            resource_types = response.get('resourceTypes', {})
-        elif isinstance(response, str):
-            qs = parse_qs(response)
-            resource_types_str = qs.get('ResourceTypes', [None])[0]
-            if resource_types_str:
-                # URL decode and safely evaluate the list of dicts
-                decoded = urllib.parse.unquote_plus(resource_types_str)
-                resource_types = ast.literal_eval(decoded)
-            else:
-                logger.warning(f'failed to get resource types from {pandaserver}: response={response}')
-        else:
-            logger.warning(f'failed to get resource types from {pandaserver}: response={response}')
+        resource_types = request2(cmd, panda=True)  # will be a dictionary
     except Exception as exc:
-        logger.warning(f'exception caught in get_resource_types(): {exc}')
+        logger.warning(f'exception caught in request2() while getting resource types: {exc}')
+        return {}
+
+    if not resource_types:
+        logger.warning(f'failed to get resource types from {cmd}')
+        return {}
 
     return resource_types
