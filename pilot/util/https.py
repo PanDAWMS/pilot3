@@ -1247,6 +1247,15 @@ def get_resource_types(url: str, port: int) -> dict:
         response = request2(f'{pandaserver}/server/panda/getResourceTypes')
         if isinstance(response, dict):
             resource_types = response.get('resourceTypes', {})
+        elif isinstance(response, str):
+            qs = parse_qs(response)
+            resource_types_str = qs.get('ResourceTypes', [None])[0]
+            if resource_types_str:
+                # URL decode and safely evaluate the list of dicts
+                decoded = urllib.parse.unquote_plus(resource_types_str)
+                resource_types = ast.literal_eval(decoded)
+            else:
+                logger.warning(f'failed to get resource types from {pandaserver}: response={response}')
         else:
             logger.warning(f'failed to get resource types from {pandaserver}: response={response}')
     except Exception as exc:
