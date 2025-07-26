@@ -1774,6 +1774,10 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
             if not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
+    cmd = https.get_server_command(args.url, args.port, cmd="getResourceTypes")
+    _res = https.request2(cmd, panda=True)  # will be a dictionary
+    logger.debug(f"request2 response: {_res}")
+
     return res
 
 
