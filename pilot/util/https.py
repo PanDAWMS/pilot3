@@ -1228,3 +1228,28 @@ def get_base_urls(args_base_urls: str) -> list:
             base_urls = urls.split(",") if urls else []
 
     return base_urls
+
+
+def get_resource_types(url: str, port: int) -> dict:
+    """
+    Get the resource types from the server.
+
+    Args:
+        url (str): The URL of the server.
+        port (int): The port number of the server.
+
+    Returns:
+        dict: A dictionary of resource types.
+    """
+    resource_types = {}
+    try:
+        pandaserver = get_panda_server(url, port, update_server=False)
+        response = request2(f'{pandaserver}/server/panda/getResourceTypes')
+        if isinstance(response, dict):
+            resource_types = response.get('resourceTypes', {})
+        else:
+            logger.warning(f'failed to get resource types from {pandaserver}: response={response}')
+    except Exception as exc:
+        logger.warning(f'exception caught in get_resource_types(): {exc}')
+
+    return resource_types
