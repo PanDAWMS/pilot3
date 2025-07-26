@@ -1262,26 +1262,17 @@ def get_resource_types(url: str, port: int) -> dict:
             return {}
 
     resource_types_pre = response.get('ResourceTypes', {})
-    # Convert Python-style string to JSON-style string for parsing
-    resource_types_str = resource_types_pre.get('ResourceTypes')
-    if resource_types_str:
-        resource_types_str = resource_types_str.replace("None", "null").replace("'", '"')
-        resource_types_list = json.loads(resource_types_str)
+    # Handle if resource_types_pre is a string (legacy server response)
+    if isinstance(resource_types_pre, str):
+        resource_types_str = resource_types_pre.replace("None", "null").replace("'", '"')
+        try:
+            resource_types_list = json.loads(resource_types_str)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'failed to parse ResourceTypes as JSON: {exc}')
+            resource_types_list = []
+    elif isinstance(resource_types_pre, dict):
+        resource_types_list = resource_types_pre.get('ResourceTypes', [])
     else:
         resource_types_list = []
-    logger.debug(f"resource_types_list = {resource_types_list}")
-    resource_types = {}
-    for entry in resource_types_list:
-        resource_name = entry.get('resource_name')
-        mincore = entry.get('mincore')
-        maxcore = entry.get('maxcore')
-        minrampercore = entry.get('minrampercore')
-        maxrampercore = entry.get('maxrampercore')
-        resource_types[resource_name] = {
-            'mincore': mincore,
-            'maxcore': maxcore,
-            'minrampercore': minrampercore,
-            'maxrampercore': maxrampercore
-        }
 
-    return resource_types
+    return {"ResourceTypes": resource_types_list}
