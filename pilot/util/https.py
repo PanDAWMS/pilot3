@@ -1253,6 +1253,14 @@ def get_resource_types(url: str, port: int) -> dict:
         logger.warning(f'failed to get resource types from {cmd}')
         return {}
 
+    # convert the response to a dictionary in case it is a string
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'failed to parse response as JSON: {exc}')
+            return {}
+
     _resource_types = response.get('ResourceTypes', {})
     # Convert Python-style string to JSON-style string for parsing
     logger.debug(f"_resource_types = {_resource_types}")
