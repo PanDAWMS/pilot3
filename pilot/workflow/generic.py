@@ -217,7 +217,7 @@ def run(args: object) -> Traces or None:
         'payload': payload.control,
         'data': data.control,
         'monitor': monitor.control,
-        'cgroup_monitor': monitor.cgroup_monitor
+        'cgroup_monitor': monitor.cgroup_control
     }
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
