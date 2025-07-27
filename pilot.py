@@ -75,7 +75,7 @@ from pilot.util.https import (
     https_setup,
     send_update,
     update_local_oidc_token_info,
-    get_resource_types
+    get_memory_limits
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
@@ -169,13 +169,13 @@ def main() -> int:  # noqa: C901
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
         try:
-            resource_types = get_resource_types(args.url, args.port)
+            memory_limits = get_memory_limits(args.url, args.port)
         except Exception as error:
             logger.warning(f"exception caught when getting resource types: {error}")
         else:
-            logger.debug(f"resource types: {resource_types}")
-            if resource_types:
-                pilot_cache.resource_types = resource_types
+            logger.debug(f"resource types: {memory_limits}")
+            if memory_limits:
+                pilot_cache.resource_types = memory_limits
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version

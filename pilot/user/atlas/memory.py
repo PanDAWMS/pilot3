@@ -128,23 +128,26 @@ def get_memory_limit(resource_type: str) -> int or None:
     :return: memory limit in MB (int) or None if not set.
     """
     try:
-        memory_limits = pilot_cache.get("memory_limits")
+        memory_limits = pilot_cache.resource_types
+        logger.debug(f"memory_limits from pilot_cache: {memory_limits}")
+        limit_dict = memory_limits.get(resource_type)
     except AttributeError as e:
         logger.warning(f"memory_limits not set in config, using defaults: {e}")
-        memory_limits = {'MCORE': 2000,
-                         'MCORE_HIMEM': 3000,
-                         'MCORE_LOMEM': 1000,
-                         'MCORE_VHIMEM': None,
-                         'SCORE': 2000,
-                         'SCORE_HIMEM': 3000,
-                         'SCORE_LOMEM': 1000,
-                         'SCORE_VHIMEM': None}
-
-    limit_dict = memory_limits.get(resource_type)
+        limits = {'MCORE': 2000,
+                  'MCORE_HIMEM': 3000,
+                  'MCORE_LOMEM': 1000,
+                  'MCORE_VHIMEM': None,
+                  'SCORE': 2000,
+                  'SCORE_HIMEM': 3000,
+                  'SCORE_LOMEM': 1000,
+                  'SCORE_VHIMEM': None}
+        return limits.get(resource_type, 4001)
+    logger.debug(f"memory_limits for resource_type {resource_type}: {limit_dict}")
     if not limit_dict:
         logger.warning(f"memory limit not set for resource type {resource_type} - using default 4001")
         return 4001
     limit = limit_dict.get("maxrampercore")
+    logger.debug(f"maxrampercore for resource_type {resource_type}: {limit}")
     if not limit:
         logger.warning(f"maxrampercore not set for resource type {resource_type} - using default 4001")
         return 4001
@@ -161,7 +164,7 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
     :return: memory limit in kB or None if it cannot be determined
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
-    maxram_per_core = get_memory_limit.get(resource_type)
+    maxram_per_core = get_memory_limit(resource_type)
 
     if maxram_per_core:
         memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024

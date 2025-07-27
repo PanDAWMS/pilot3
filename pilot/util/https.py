@@ -1230,7 +1230,7 @@ def get_base_urls(args_base_urls: str) -> list:
     return base_urls
 
 
-def get_resource_types(url: str, port: int) -> dict:
+def get_memory_limits(url: str, port: int) -> dict:
     """
     Get the resource types from the server.
 
@@ -1250,7 +1250,7 @@ def get_resource_types(url: str, port: int) -> dict:
     logger.debug(f"response from {cmd} = {response}")
 
     if not response:
-        logger.warning(f'failed to get resource types from {cmd}')
+        logger.warning(f'failed to get memory limits from {cmd}')
         return {}
 
     # convert the response to a dictionary in case it is a string
