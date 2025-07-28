@@ -101,7 +101,7 @@ def get_memory_limit_old(resource_type: str) -> int:
     try:
         memory_limits = ast.literal_eval(config.Payload.memory_limits)
     except AttributeError as e:
-        logger.warning(f"memory_limits not set in config, using defaults: {e}")
+        logger.warning(f"memory limits not set in config, using defaults: {e}")
         memory_limits = {'MCORE': 1001,
                          'MCORE_HIMEM': 2001,
                          'MCORE_LOMEM': None,
@@ -129,10 +129,10 @@ def get_memory_limit(resource_type: str) -> int or None:
     """
     try:
         memory_limits = pilot_cache.resource_types
-        logger.debug(f"memory_limits from pilot_cache: {memory_limits}")
+        logger.debug(f"memory limits from pilot_cache: {memory_limits}")
         limit_dict = memory_limits.get(resource_type)
     except AttributeError as e:
-        logger.warning(f"memory_limits not set in config, using defaults: {e}")
+        logger.warning(f"memory limits not set in config, using defaults: {e}")
         limits = {'MCORE': 2000,
                   'MCORE_HIMEM': 3000,
                   'MCORE_LOMEM': 1000,
@@ -142,12 +142,12 @@ def get_memory_limit(resource_type: str) -> int or None:
                   'SCORE_LOMEM': 1000,
                   'SCORE_VHIMEM': None}
         return limits.get(resource_type, 4001)
-    logger.debug(f"memory_limits for resource_type {resource_type}: {limit_dict}")
+    logger.debug(f"memory limits for resource type {resource_type}: {limit_dict}")
     if not limit_dict:
         logger.warning(f"memory limit not set for resource type {resource_type} - using default 4001")
         return 4001
     limit = limit_dict.get("maxrampercore")
-    logger.debug(f"maxrampercore for resource_type {resource_type}: {limit}")
+    logger.debug(f"maxrampercore for resource type {resource_type}: {limit}")
     if not limit:
         logger.warning(f"maxrampercore not set for resource type {resource_type} - using default 4001")
         return 4001
@@ -168,7 +168,9 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
 
     if maxram_per_core:
         memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
-        logger.debug(f"memory limit from resource_type {resource_type}: {memory_limit_kb} kB")
+        logger.debug(f"memory limit for resource type {resource_type}: {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * maxram_per_core * job.corecount * 1024 = "
+                     f"{pilot_rss_grace} * {maxram_per_core} * {job.corecount} * 1024) = {memory_limit_kb} kB")
         return int(memory_limit_kb)
 
     # Fallbacks
@@ -179,6 +181,9 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
             minram = int(math.ceil(minram / 1000.0)) * 1000  # round up to nearest 1000
         memory_limit_kb = pilot_rss_grace * minram * 1024
         logger.info(f"fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
+                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
+        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
         return int(memory_limit_kb)
 
     # Final fallback to maxrss
@@ -187,6 +192,8 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
     try:
         memory_limit_kb = pilot_rss_grace * int(maxrss * scale) * 1024
         logger.info(f"fallback using PQ.maxrss: {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * maxrss * scale * 1024 = "
+                     f"{pilot_rss_grace} * {maxrss} * {scale} * 1024) = {memory_limit_kb} kB")
         return int(memory_limit_kb)
     except (ValueError, TypeError) as exc:
         logger.warning(f"unexpected value for maxRSS: {exc}")
