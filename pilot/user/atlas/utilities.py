@@ -730,6 +730,8 @@ def get_memory_values(workdir: str, name: str = "") -> dict:
     In case the summary JSON file has not yet been produced, create a summary dictionary with the same format
     using the output text file (produced by the memory monitor and which is updated once per minute).
 
+    The unit of memory values reported by prmon should be in bytes.
+
     FORMAT:
        {"Max":{"maxVMEM":40058624,"maxPSS":10340177,"maxRSS":16342012,"maxSwap":16235568},
         "Avg":{"avgVMEM":19384236,"avgPSS":5023500,"avgRSS":6501489,"avgSwap":5964997},
