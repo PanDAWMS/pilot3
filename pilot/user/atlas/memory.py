@@ -168,7 +168,7 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
 
     if maxram_per_core:
         memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
-        logger.debug(f"Memory limit from resource_type {resource_type}: {memory_limit_kb} kB")
+        logger.debug(f"memory limit from resource_type {resource_type}: {memory_limit_kb} kB")
         return int(memory_limit_kb)
 
     # Fallbacks
@@ -178,7 +178,7 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
         if not is_push_queue:
             minram = int(math.ceil(minram / 1000.0)) * 1000  # round up to nearest 1000
         memory_limit_kb = pilot_rss_grace * minram * 1024
-        logger.debug(f"Fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.info(f"fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
         return int(memory_limit_kb)
 
     # Final fallback to maxrss
@@ -186,10 +186,10 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
     scale = get_ucore_scale_factor(job)
     try:
         memory_limit_kb = pilot_rss_grace * int(maxrss * scale) * 1024
-        logger.debug(f"Fallback using PQ.maxrss: {memory_limit_kb} kB")
+        logger.info(f"fallback using PQ.maxrss: {memory_limit_kb} kB")
         return int(memory_limit_kb)
     except (ValueError, TypeError) as exc:
-        logger.warning(f"Unexpected value for maxRSS: {exc}")
+        logger.warning(f"unexpected value for maxRSS: {exc}")
         return None
 
 
@@ -207,7 +207,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
     if not summary_dictionary:
         exit_code = errors.BADMEMORYMONITORJSON
-        diagnostics = "Memory monitor output could not be read"
+        diagnostics = "memory monitor output could not be read"
         return exit_code, diagnostics
 
     maxdict = summary_dictionary.get("Max", {})
@@ -229,10 +229,10 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
         else:
             logger.info(
                 f"max memory (maxPSS) used by the payload is within the allowed limit: "
-                f"{maxpss_int} B ≤ {memory_limit_kb} B (subresource={resource_type})"
+                f"{maxpss_int} B <= {memory_limit_kb} B (subresource={resource_type})"
             )
     elif memory_limit_kb is None:
-        logger.warning("Could not determine memory limit – memory check skipped")
+        logger.warning("could not determine memory limit - memory check skipped")
     elif maxpss_int == -1:
         logger.warning("maxPSS not found in memory monitor output")
 
