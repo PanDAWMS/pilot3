@@ -43,6 +43,7 @@ def get_pilot_cache():
             self.source_site = None
             self.destination_site = None
             self.resource_types = None
+            self.harvester_submitmode = None
 
         def get_pids(self):
             """

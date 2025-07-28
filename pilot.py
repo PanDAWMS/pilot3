@@ -145,6 +145,7 @@ def main() -> int:  # noqa: C901
     try:
         infosys.init(args.queue)
         pilot_cache.queuedata = infosys.queuedata
+        pilot_cache.harvester_submitmode = args.harvester_submitmode.lower()
 
         # check if queue is ACTIVE
         if infosys.queuedata.state != "ACTIVE":

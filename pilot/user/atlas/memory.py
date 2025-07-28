@@ -22,6 +22,7 @@
 import ast
 import logging
 import math
+from typing import Optional
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
@@ -155,7 +156,63 @@ def get_memory_limit(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
+def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
+    """
+    Calculate the memory kill threshold in kB based on resource type and fallback logic.
+
+    :param job: job object
+    :param resource_type: subresource type name (e.g. SCORE_LOMEM, MCORE)
+    :return: memory limit in kB or None if it cannot be determined
+    """
+    pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
+    maxram_per_core = get_memory_limit(resource_type)  # in MB
+
+    # use getResourceTypes static map if available
+    if maxram_per_core:
+        memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
+        logger.debug(f"memory limit for resource type {resource_type}: {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * maxram_per_core * job.corecount * 1024 = "
+                     f"{pilot_rss_grace} * {maxram_per_core} * {job.corecount} * 1024) = {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+
+    # fallback to job.minramcount
+    if hasattr(job, "minramcount") and job.minramcount:
+        is_push_queue = pilot_cache.harvester_submitmode == "push"
+        minram = job.minramcount
+        if not is_push_queue:
+            minram = int(math.ceil(minram / 1000.0)) * 1000  # Round up for pull PQs
+        memory_limit_kb = pilot_rss_grace * minram * 1024
+        logger.info(f"fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
+                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
+        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
+        return int(memory_limit_kb)
+
+    # final fallback to PQ.maxrss with SCORE/MCORE logic
+    maxrss = job.infosys.queuedata.maxrss
+    try:
+        maxrss = int(maxrss)
+        pq_corecount = int(job.infosys.queuedata.corecount or 1)
+        job_corecount = int(job.corecount or 1)
+
+        # logic per JIRA: scale maxrss for SCORE, use full for MCORE
+        if resource_type.startswith("SCORE"):
+            scaled_maxrss = (maxrss / pq_corecount) * job_corecount
+        else:
+            scaled_maxrss = maxrss
+
+        memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
+        logger.debug(f"Fallback using adjusted PQ.maxrss: {memory_limit_kb} kB")
+        logger.info(f"fallback using adjusted PQ.maxrss: {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * maxrss * scale * 1024 = "
+                     f"{pilot_rss_grace} * {maxrss} * {scaled_maxrss} * 1024) = {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+    except (ValueError, TypeError) as exc:
+        logger.warning(f"Could not determine memory limit from maxrss: {exc}")
+        return None
+
+
+def calculate_memory_limit_kb_old(job, resource_type: str) -> Optional[int]:
     """
     Calculate the memory kill threshold in kB.
 
@@ -164,7 +221,7 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
     :return: memory limit in kB or None if it cannot be determined
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
-    maxram_per_core = get_memory_limit(resource_type)
+    maxram_per_core = get_memory_limit(resource_type)  # in MB
 
     if maxram_per_core:
         memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
@@ -236,7 +293,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
         else:
             logger.info(
                 f"max memory (maxPSS) used by the payload is within the allowed limit: "
-                f"{maxpss_int} B <= {memory_limit_kb} B (subresource={resource_type})"
+                f"{maxpss_int} kB <= {memory_limit_kb} kB (subresource={resource_type})"
             )
     elif memory_limit_kb is None:
         logger.warning("could not determine memory limit - memory check skipped")
