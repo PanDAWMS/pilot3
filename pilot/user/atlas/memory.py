@@ -22,7 +22,6 @@
 import ast
 import logging
 import math
-from typing import Optional
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
@@ -156,13 +155,16 @@ def get_memory_limit(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
+def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
     """
     Calculate the memory kill threshold in kB based on resource type.
 
-    :param job: job object
-    :param resource_type: subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM)
-    :return: memory limit in kB or None if it cannot be determined
+    Args:
+        job (JobData): job object containing job information.
+        resource_type (str): subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM).
+
+    Returns:
+        int or None: memory limit in kB, or None if it cannot be determined.
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
     SCORE_RESOURCE_TYPES = {"SCORE", "SCORE_LOMEM", "SCORE_HIMEM", "SCORE_VHIMEM"}
@@ -211,113 +213,16 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
     return None
 
 
-def calculate_memory_limit_kb_old2(job, resource_type: str) -> int or None:
-    """
-    Calculate the memory kill threshold in kB based on resource type and fallback logic.
-
-    :param job: job object
-    :param resource_type: subresource type name (e.g. SCORE_LOMEM, MCORE)
-    :return: memory limit in kB or None if it cannot be determined
-    """
-    pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
-    maxram_per_core = get_memory_limit(resource_type)  # in MB
-    pq_corecount = int(job.infosys.queuedata.corecount or 1)
-    job_corecount = int(job.corecount or 1)
-
-    # use getResourceTypes static map if available
-    if maxram_per_core:
-        memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
-        logger.debug(f"memory limit for resource type {resource_type}: {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * maxram_per_core * job.corecount * 1024 = "
-                     f"{pilot_rss_grace} * {maxram_per_core} * {job.corecount} * 1024) = {memory_limit_kb} kB")
-        return int(memory_limit_kb)
-
-    # fallback to job.minramcount
-    if hasattr(job, "minramcount") and job.minramcount:
-        is_push_queue = pilot_cache.harvester_submitmode == "push"
-        minram = job.minramcount
-        if not is_push_queue:
-            minram = int(math.ceil(minram / 1000.0)) * 1000  # Round up for pull PQs
-        memory_limit_kb = pilot_rss_grace * minram * 1024
-        logger.info(f"fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
-                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
-        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
-        return int(memory_limit_kb)
-
-    # final fallback to PQ.maxrss with SCORE/MCORE logic
-    maxrss = job.infosys.queuedata.maxrss
-    try:
-        maxrss = int(maxrss)
-
-        # logic per JIRA: scale maxrss for SCORE, use full for MCORE
-        if resource_type.startswith("SCORE"):
-            scaled_maxrss = (maxrss / pq_corecount) * job_corecount
-        else:
-            scaled_maxrss = maxrss
-
-        memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
-        logger.info(f"fallback using adjusted PQ.maxrss: {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * maxrss * scale * 1024 = "
-                     f"{pilot_rss_grace} * {maxrss} * {scaled_maxrss} * 1024) = {memory_limit_kb} kB")
-        return int(memory_limit_kb)
-    except (ValueError, TypeError) as exc:
-        logger.warning(f"Could not determine memory limit from maxrss: {exc}")
-        return None
-
-
-def calculate_memory_limit_kb_old(job, resource_type: str) -> Optional[int]:
-    """
-    Calculate the memory kill threshold in kB.
-
-    :param job: job object
-    :param resource_type: subresource type name
-    :return: memory limit in kB or None if it cannot be determined
-    """
-    pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
-    maxram_per_core = get_memory_limit(resource_type)  # in MB
-
-    if maxram_per_core:
-        memory_limit_kb = pilot_rss_grace * maxram_per_core * job.corecount * 1024
-        logger.debug(f"memory limit for resource type {resource_type}: {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * maxram_per_core * job.corecount * 1024 = "
-                     f"{pilot_rss_grace} * {maxram_per_core} * {job.corecount} * 1024) = {memory_limit_kb} kB")
-        return int(memory_limit_kb)
-
-    # Fallbacks
-    if hasattr(job, "minramcount") and job.minramcount:
-        is_push_queue = job.infosys.queuedata.jobtype == "push"
-        minram = job.minramcount
-        if not is_push_queue:
-            minram = int(math.ceil(minram / 1000.0)) * 1000  # round up to nearest 1000
-        memory_limit_kb = pilot_rss_grace * minram * 1024
-        logger.info(f"fallback using minramcount ({minram} MB): {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
-                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
-        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
-        return int(memory_limit_kb)
-
-    # Final fallback to maxrss
-    maxrss = job.infosys.queuedata.maxrss
-    scale = get_ucore_scale_factor(job)
-    try:
-        memory_limit_kb = pilot_rss_grace * int(maxrss * scale) * 1024
-        logger.info(f"fallback using PQ.maxrss: {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * maxrss * scale * 1024 = "
-                     f"{pilot_rss_grace} * {maxrss} * {scale} * 1024) = {memory_limit_kb} kB")
-        return int(memory_limit_kb)
-    except (ValueError, TypeError) as exc:
-        logger.warning(f"unexpected value for maxRSS: {exc}")
-        return None
-
-
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
-    :param job: job object (JobData)
-    :param resource_type: resource type (str)
-    :return: exit code (int), diagnostics (str)
+    Args:
+        job (JobData): job object containing job information.
+        resource_type (str): subresource type string (e.g. SCORE_HIMEM,
+
+    Returns:
+        tuple: exit code (int), diagnostics (str).
     """
     exit_code = 0
     diagnostics = ""
