@@ -555,6 +555,42 @@ def monitor_cgroup(cgroup_path: str) -> None:
     """
     pids = get_pids_for_cgroup(cgroup_path)
     if not pids:
+        logger.info(f"[cgroup: {cgroup_path}]\n  No processes found.")
+        return
+
+    output_lines = [f"[cgroup: {cgroup_path}]", f"  PIDs: {', '.join(map(str, pids))}"]
+
+    files_to_read = {
+        "Memory Usage": f"{cgroup_path}/memory.current",
+        "Memory Events": f"{cgroup_path}/memory.events",
+        "Process Count": f"{cgroup_path}/pids.current"
+    }
+
+    for label, filepath in files_to_read.items():
+        try:
+            result = subprocess.run(f"cat {filepath}", shell=True, check=True, capture_output=True, text=True)
+            content = result.stdout.strip()
+            # Indent multi-line output for readability
+            if '\n' in content:
+                indented = "\n    ".join(content.splitlines())
+                output_lines.append(f"  {label}:\n    {indented}")
+            else:
+                output_lines.append(f"  {label}: {content}")
+        except subprocess.CalledProcessError as e:
+            output_lines.append(f"  {label}: <error reading {filepath}> ({e})")
+
+    logger.info("\n" + "\n".join(output_lines))
+
+
+def monitor_cgroup_old(cgroup_path: str) -> None:
+    """
+    Monitor the specified cgroup by printing its PIDs and memory usage.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+    """
+    pids = get_pids_for_cgroup(cgroup_path)
+    if not pids:
         logger.info(f"no processes found in cgroup {cgroup_path}")
         return
 
