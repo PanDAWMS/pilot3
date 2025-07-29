@@ -156,7 +156,7 @@ def get_memory_limit(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
+def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
     """
     Calculate the memory kill threshold in kB based on resource type.
 
