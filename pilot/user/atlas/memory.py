@@ -156,7 +156,62 @@ def get_memory_limit(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
+def calculate_memory_limit_kb(job, resource_type: str) -> int | None:
+    """
+    Calculate the memory kill threshold in kB based on resource type.
+
+    :param job: job object
+    :param resource_type: subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM)
+    :return: memory limit in kB or None if it cannot be determined
+    """
+    pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
+    SCORE_RESOURCE_TYPES = {"SCORE", "SCORE_LOMEM", "SCORE_HIMEM", "SCORE_VHIMEM"}
+    MCORE_RESOURCE_TYPES = {"MCORE", "MCORE_LOMEM", "MCORE_HIMEM", "MCORE_VHIMEM"}
+
+    try:
+        maxrss = int(job.infosys.queuedata.maxrss)
+        pq_corecount = int(job.infosys.queuedata.corecount or 1)
+        job_corecount = int(job.corecount or 1)
+
+        if resource_type in SCORE_RESOURCE_TYPES:
+            # SCALE DOWN: jobs share pilot memory
+            scaled_maxrss = (maxrss / pq_corecount) * job_corecount
+            logger.debug(f"SCORE logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
+        elif resource_type in MCORE_RESOURCE_TYPES:
+            # FULL maxrss for MCORE jobs
+            scaled_maxrss = maxrss
+            logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
+        else:
+            scaled_maxrss = None  # trigger fallback
+    except (ValueError, TypeError) as exc:
+        logger.warning(f"error determining maxrss or corecount: {exc}")
+        scaled_maxrss = None
+
+    if scaled_maxrss:
+        memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
+        logger.debug(f"memory limit using maxrss-based calculation: pilot_rss_grace * scaled_maxrss * 1024 = "
+                     f"{pilot_rss_grace} * {scaled_maxrss} * 1024 = {memory_limit_kb} kB")
+        return int(memory_limit_kb)
+
+    # fallback to job.minramcount
+    if hasattr(job, "minramcount") and job.minramcount:
+        is_push_queue = pilot_cache.harvester_submitmode == "push"
+        minram = job.minramcount
+        if not is_push_queue:
+            minram = int(math.ceil(minram / 1000.0)) * 1000  # Round up for pull PQs
+        memory_limit_kb = pilot_rss_grace * minram * 1024
+        logger.debug(f"fallback using job.minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
+                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
+        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
+
+        return int(memory_limit_kb)
+
+    logger.warning("no valid memory limit source found (maxrss or minramcount)")
+    return None
+
+
+def calculate_memory_limit_kb_old2(job, resource_type: str) -> int or None:
     """
     Calculate the memory kill threshold in kB based on resource type and fallback logic.
 
@@ -166,6 +221,8 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
     maxram_per_core = get_memory_limit(resource_type)  # in MB
+    pq_corecount = int(job.infosys.queuedata.corecount or 1)
+    job_corecount = int(job.corecount or 1)
 
     # use getResourceTypes static map if available
     if maxram_per_core:
@@ -192,8 +249,6 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
     maxrss = job.infosys.queuedata.maxrss
     try:
         maxrss = int(maxrss)
-        pq_corecount = int(job.infosys.queuedata.corecount or 1)
-        job_corecount = int(job.corecount or 1)
 
         # logic per JIRA: scale maxrss for SCORE, use full for MCORE
         if resource_type.startswith("SCORE"):
@@ -202,7 +257,6 @@ def calculate_memory_limit_kb(job, resource_type: str) -> int or None:
             scaled_maxrss = maxrss
 
         memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
-        logger.debug(f"Fallback using adjusted PQ.maxrss: {memory_limit_kb} kB")
         logger.info(f"fallback using adjusted PQ.maxrss: {memory_limit_kb} kB")
         logger.debug(f"(pilot_rss_grace * maxrss * scale * 1024 = "
                      f"{pilot_rss_grace} * {maxrss} * {scaled_maxrss} * 1024) = {memory_limit_kb} kB")
