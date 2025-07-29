@@ -470,6 +470,12 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> b
                 return False
 
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
+    if "subprocesses" in cgroup_path:
+        try:
+            set_memory_limit(cgroup_path, 100000)
+        except (OSError, FileNotFoundError, PermissionError, ValueError) as e:
+            logger.warning(f"failed to set memory limit for cgroup {cgroup_path}: {e}")
+
     return True
 
 
@@ -582,30 +588,39 @@ def monitor_cgroup(cgroup_path: str) -> None:
     logger.info("\n" + "\n".join(output_lines))
 
 
-def monitor_cgroup_old(cgroup_path: str) -> None:
+def set_memory_limit(cgroup_path: str, memory_bytes: int):
     """
-    Monitor the specified cgroup by printing its PIDs and memory usage.
+    Set the maximum memory usage limit for a given cgroup v2.
+
+    This function writes the specified memory limit (in bytes) to the cgroup's
+    `memory.max` file. If the limit is exceeded by processes in the cgroup,
+    the kernel will trigger an out-of-memory (OOM) kill.
 
     Args:
-        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+        cgroup_path (str): Full path to the cgroup (e.g., /sys/fs/cgroup/mygroup).
+        memory_bytes (int): The maximum allowed memory usage in bytes. Use -1 or
+            a large value (e.g., 9223372036854771712) to disable the limit.
+
+    Raises:
+        FileNotFoundError: If the memory.max file is missing.
+        PermissionError: If the script lacks permission to write to the cgroup.
+        ValueError: If the memory_bytes is invalid or negative (other than -1).
+        OSError: For other OS-level errors.
     """
-    pids = get_pids_for_cgroup(cgroup_path)
-    if not pids:
-        logger.info(f"no processes found in cgroup {cgroup_path}")
-        return
+    memory_max_path = os.path.join(cgroup_path, "memory.max")
 
-    logger.info(f"processes in cgroup {cgroup_path}: {pids}")
+    if memory_bytes < -1:
+        raise ValueError(f"Invalid memory limit: {memory_bytes}")
 
-    cmds = [
-        f"cat {cgroup_path}/memory.current",
-        f"cat {cgroup_path}/memory.events",
-        f"cat {cgroup_path}/pids.current",
-    ]
-    for cmd in cmds:
-        # Execute the command to get memory usage
-        try:
-            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-            output = result.stdout.strip()
-            logger.info(f'{cmd.split("/")[-1]}: {output}')
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Failed to read {cmd}: {e}")
+    # cgroup expects "max" for unlimited
+    value = "max" if memory_bytes == -1 else str(memory_bytes)
+
+    try:
+        with open(memory_max_path, "w") as f:
+            f.write(value)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{memory_max_path} does not exist.")
+    except PermissionError:
+        raise PermissionError(f"Permission denied to write to {memory_max_path}. Are you root or delegated?")
+    except OSError as e:
+        raise OSError(f"Error writing memory limit to {memory_max_path}: {e}")
