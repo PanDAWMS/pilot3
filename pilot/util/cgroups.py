@@ -470,11 +470,12 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> b
                 return False
 
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
-    if "subprocesses" in cgroup_path:
-        try:
-            set_memory_limit(cgroup_path, 100000)
-        except (OSError, FileNotFoundError, PermissionError, ValueError) as e:
-            logger.warning(f"failed to set memory limit for cgroup {cgroup_path}: {e}")
+    # test test BS kills
+    #if "subprocesses" in str(cgroup_path):
+    #    try:
+    #        set_memory_limit(cgroup_path, 100000)
+    #    except (OSError, FileNotFoundError, PermissionError, ValueError) as e:
+    #        logger.warning(f"failed to set memory limit for cgroup {cgroup_path}: {e}")
 
     return True
 
@@ -624,3 +625,5 @@ def set_memory_limit(cgroup_path: str, memory_bytes: int):
         raise PermissionError(f"Permission denied to write to {memory_max_path}. Are you root or delegated?")
     except OSError as e:
         raise OSError(f"Error writing memory limit to {memory_max_path}: {e}")
+
+    logger.info(f"[cgroup: {cgroup_path}]\n  Max memory usage: {value}")
