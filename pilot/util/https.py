@@ -184,7 +184,8 @@ def https_setup(args: object = None, version: str = ""):
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
     except Exception as exc:
-        logger.warning(f'SSL communication is impossible due to SSL error: {exc} -- falling back to curl')
+        logger.info(f"capath={_ctx.capath}, cacert={_ctx.cacert}")
+        logger.warning(f'SSL communication is impossible due to SSL error: {exc}')
         _ctx.ssl_context = None
 
     # anisyonk: clone `_ctx` to avoid logic break since ssl_context is reset inside the request() -- FIXME
@@ -1227,3 +1228,70 @@ def get_base_urls(args_base_urls: str) -> list:
             base_urls = urls.split(",") if urls else []
 
     return base_urls
+
+
+def get_memory_limits(url: str, port: int) -> dict:
+    """
+    Get the resource types from the server.
+
+    Args:
+        url (str): The URL of the server.
+        port (int): The port number of the server.
+
+    Returns:
+        dict: A dictionary of resource types.
+    """
+    cmd = get_server_command(url, port, cmd="getResourceTypes")
+    try:
+        response = request2(cmd, panda=True)  # will be a dictionary
+    except Exception as exc:
+        logger.warning(f'exception caught in request2() while getting resource types: {exc}')
+        return {}
+    logger.debug(f"response from {cmd} = {response}")
+
+    if not response:
+        logger.warning(f'failed to get memory limits from {cmd}')
+        return {}
+
+    # convert the response to a dictionary in case it is a string
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'failed to parse response as JSON: {exc}')
+            return {}
+
+    resource_types_pre = response.get('ResourceTypes', {})
+    # Handle if resource_types_pre is a string (legacy server response)
+    if isinstance(resource_types_pre, str):
+        resource_types_str = resource_types_pre.replace("None", "null").replace("'", '"')
+        try:
+            resource_types_list = json.loads(resource_types_str)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'failed to parse ResourceTypes as JSON: {exc}')
+            resource_types_list = []
+    elif isinstance(resource_types_pre, dict):
+        resource_types_list = resource_types_pre.get('ResourceTypes', [])
+    else:
+        resource_types_list = []
+
+    # create the final dictionary
+    resource_types = {}
+    try:
+        for entry in resource_types_list:
+            resource_name = entry.get('resource_name', '')
+            mincore = entry.get('mincore', 0)
+            maxcore = entry.get('maxcore', 0)
+            minrampercore = entry.get('minrampercore', 0)
+            maxrampercore = entry.get('maxrampercore', 0)
+            resource_types[resource_name] = {
+                'mincore': mincore,
+                'maxcore': maxcore,
+                'minrampercore': minrampercore,
+                'maxrampercore': maxrampercore
+            }
+    except Exception as exc:
+        logger.warning(f'failed to parse resource types: {exc}')
+        resource_types = {}
+
+    return resource_types

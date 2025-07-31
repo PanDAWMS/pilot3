@@ -74,7 +74,8 @@ from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
-    update_local_oidc_token_info
+    update_local_oidc_token_info,
+    get_memory_limits
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
@@ -82,7 +83,8 @@ from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.workernode import (
     get_node_name,
-    get_workernode_map
+    get_workernode_map,
+    get_workernode_gpu_map
 )
 
 errors = ErrorCodes()
@@ -92,7 +94,7 @@ args = None
 trace = None
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     """
     Prepare for and execute the requested workflow.
 
@@ -129,11 +131,12 @@ def main() -> int:
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
 
-    # check cvmfs if available
-    ec = check_cvmfs(logger)
-    if ec:
-        cvmfs_diagnostics()
-        return ec
+    # check cvmfs if available (skip test if either NO_CVMFS_OK env var is set or pilot option --nocvmfs is used)
+    if args.cvmfs:
+        ec = check_cvmfs(logger)
+        if ec:
+            cvmfs_diagnostics()
+            return ec
 
     if not args.rucio_host:
         args.rucio_host = config.Rucio.host
@@ -142,6 +145,7 @@ def main() -> int:
     try:
         infosys.init(args.queue)
         pilot_cache.queuedata = infosys.queuedata
+        pilot_cache.harvester_submitmode = args.harvester_submitmode.lower()
 
         # check if queue is ACTIVE
         if infosys.queuedata.state != "ACTIVE":
@@ -165,6 +169,14 @@ def main() -> int:
             send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
+        try:
+            memory_limits = get_memory_limits(args.url, args.port)
+        except Exception as error:
+            logger.warning(f"exception caught when getting resource types: {error}")
+        else:
+            logger.debug(f"resource types: {memory_limits}")
+            if memory_limits:
+                pilot_cache.resource_types = memory_limits
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
@@ -358,6 +370,16 @@ def get_args() -> Any:
         required=False,
         type=int,
         help="Pilot leasetime seconds (default: 3600 s)",
+    )
+
+    # Disabe cvmfs checks
+    arg_parser.add_argument(
+        "-b",
+        "--nocvmfs",
+        dest="cvmfs",
+        action="store_false",
+        default=True,
+        help="Disable cvmfs checks",
     )
 
     # set the appropriate site, resource and queue
@@ -948,7 +970,7 @@ def send_workernode_map(
         logger: Any,
 ):
     """
-    Send worker node map to the server.
+    Send worker node map and GPU info to the server.
 
     :param site: ATLAS site name (str)
     :param url: server url (str)
@@ -961,8 +983,21 @@ def send_workernode_map(
         data = get_workernode_map(site)
     except Exception as e:
         logger.warning(f"exception caught when calling get_workernode_map(): {e}")
-    else:
+    try:
         send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
+    except Exception as e:
+        logger.warning(f"exception caught when sending worker node map to server: {e}")
+
+    # GPU info
+    try:
+        data = get_workernode_gpu_map(site)
+    except Exception as e:
+        logger.warning(f"exception caught when calling get_workernode_gpu_map(): {e}")
+    try:
+        if data:  # only send if data is not empty
+            send_update("api/v1/pilot/update_worker_node_gpu", data, url, port, ipv=internet_protocol_version, max_attempts=1)
+    except Exception as e:
+        logger.warning(f"exception caught when sending worker node map to server: {e}")
 
 
 def set_lifetime():

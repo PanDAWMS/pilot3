@@ -22,8 +22,13 @@
 import logging
 import os
 import re
+import socket
 import subprocess
 from shutil import which
+from typing import (
+    Optional,
+    Tuple
+)
 
 #from subprocess import getoutput
 
@@ -95,11 +100,11 @@ def get_total_memory() -> float:
     return 0.0
 
 
-def get_cpu_flags(sorted=True):
+def get_cpu_flags(_sorted: bool = True) -> str:
     """
     Return the CPU flags.
 
-    :param sorted: should the CPU flags be sorted? (Boolean)
+    :param _sorted: should the CPU flags be sorted? (Boolean)
     :return: cpu flags (string).
     """
 
@@ -114,8 +119,9 @@ def get_cpu_flags(sorted=True):
                     logger.warning(f'exception caught while trying to convert cpuinfo: {error}')
                 break  # command info is the same for all cores, so break here
 
-    if flags and sorted:
+    if flags and _sorted:
         flags = sort_words(flags)
+
     return flags
 
 
@@ -234,7 +240,6 @@ def get_node_name():
     elif hasattr(os, 'uname'):
         host = os.uname()[1]
     else:
-        import socket
         host = socket.gethostname()
 
     return get_condor_node_name(host)
@@ -508,6 +513,52 @@ def get_hepspec_per_core() -> str:
     return stdout
 
 
+def extract_site_and_schedd() -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract the values of 'GLIDEIN_Site' and 'RemoteScheddName' from the .machine.ad file.
+
+    Returns:
+        Tuple[Optional[str], Optional[str]]: A tuple containing the GLIDEIN_Site
+        and RemoteScheddName values, respectively. Each will be None if not found.
+    """
+    ad_path = os.environ.get('_CONDOR_MACHINE_AD')
+    if not ad_path:
+        logger.warning("Environment variable _CONDOR_MACHINE_AD is not set.")
+        return None, None
+
+    site = None
+    schedd = None
+
+    site_pattern = re.compile(r'^GLIDEIN_Site\s*=\s*"([^"]+)"')
+    schedd_pattern = re.compile(r'^RemoteScheddName\s*=\s*"([^"]+)"')
+
+    try:
+        with open(ad_path, 'r') as file:
+            for line in file:
+                stripped = line.strip()
+                if site is None:
+                    site_match = site_pattern.match(stripped)
+                    if site_match:
+                        site = site_match.group(1)
+                if schedd is None:
+                    schedd_match = schedd_pattern.match(stripped)
+                    if schedd_match:
+                        schedd = schedd_match.group(1)
+                if site and schedd:
+                    break
+    except FileNotFoundError:
+        logger.warning(f"File not found: {ad_path}")
+    except IOError as e:
+        logger.warning(f"Error reading file {ad_path}: {e}")
+
+    if site is None:
+        logger.warning("failed to extract GLIDEIN_Site from .machine.ad file")
+    if schedd is None:
+        logger.warning("failed to extract RemoteScheddName from .machine.ad file")
+
+    return site, schedd
+
+
 def get_total_local_disk_size() -> int:
     """
     Run the lsblk command and capture the output.
@@ -559,64 +610,149 @@ def get_cpu_frequency() -> float:
     return 0.0
 
 
-def get_gpu_info() -> list:
+def detect_architecture(model_name: str) -> str:
     """
-    Get GPU information using lspci command.
+    Try to infer architecture from known mappings; fallback to 'Unknown'.
 
-    This function will return a list of GPU devices found on the system.
+    Args:
+        model_name (str): The GPU model name to check.
 
-    :return: List of GPU devices (list).
+    Returns:
+        str: The architecture name if found, otherwise 'Unknown'.
     """
-    gpu_info = []
+    # Extensible architecture mapping
+    architecture_map = {
+        'K80': 'Kepler',
+        'P100': 'Pascal',
+        'V100': 'Volta',
+        'T4': 'Turing',
+        'A100': 'Ampere',
+        'L40': 'Ada Lovelace',
+        'RTX 6000': 'Ada Lovelace',
+        'H100': 'Hopper',
+        'GH200': 'Grace Hopper'
+    }
 
-    # Detect all GPUs using lspci
+    for key, arch in architecture_map.items():
+        if key in model_name:
+            return arch
+
+    logger.warning(f"Unknown architecture for GPU model: '{model_name}'")
+    return "Unknown"
+
+
+def get_gpu_info(site: str) -> dict:
+    """
+    Get GPU information using nvidia-smi command.
+
+    This function will return a dictionary with the GPU information found on the system.
+
+    Args:
+        site (str): ATLAS site name from PQ.resource.
+
+    Returns:
+        dict: A dictionary containing GPU information such as vendor, model, architecture, VRAM, CUDA version, driver version, and count.
+    """
     try:
-        if which('lspci'):
-            lspci_output = subprocess.check_output(['lspci', '-nnk']).decode('utf-8')
-            gpu_lines = re.findall(r'^(.*(?:VGA|3D controller).*)$', lspci_output, re.MULTILINE | re.IGNORECASE)
+        # Full nvidia-smi output for CUDA version
+        full_output = subprocess.run(
+            ['nvidia-smi'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            universal_newlines=True
+        ).stdout
 
-            has_nvidia_gpu = False
-            for line in gpu_lines:
-                if any(keyword in line for keyword in ['Virtio', 'Matrox', 'ASPEED', 'Cirrus', 'QEMU', 'VMware',
-                                                       'Intel']):  # Skip virtual GPUs and non-modern VGA controllers
-                    # logger.debug(f"Ignoring virtual GPU: {line.strip()}")
-                    continue
+        cuda_match = re.search(r'CUDA Version:\s+([\d.]+)', full_output)
+        cuda_version = cuda_match.group(1) if cuda_match else "Unknown"
 
-                gpu_entry = {'vendor_info': line.strip(), 'detailed_name': None}
-                gpu_info.append(gpu_entry)
-                if 'NVIDIA' in line:
-                    has_nvidia_gpu = True
-        else:
-            logger.warning("lspci command not found - cannot get GPU information that way")
-            has_nvidia_gpu = True  # Assume NVIDIA GPU might still be present
+        # Query key GPU parameters
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name,memory.total,driver_version', '--format=csv,noheader,nounits'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            universal_newlines=True
+        )
 
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        logger.warning("Error running lspci:", e.output.decode())
-        has_nvidia_gpu = True  # Assume NVIDIA GPU might still be present
+        lines = result.stdout.strip().split('\n')
+        count = len(lines)
+        name, vram, driver_version = lines[0].split(', ')
+        architecture = detect_architecture(name)
 
-    # Only query detailed NVIDIA info if an NVIDIA GPU is detected
-    if has_nvidia_gpu:
+        return {
+            "site": site,
+            "host_name": socket.gethostname(),
+            "vendor": "NVIDIA",
+            "model": name,
+            "architecture": architecture,
+            "vram": int(vram),  # MB
+            "framework": "CUDA",
+            "framework_version": cuda_version,
+            "driver_version": driver_version,
+            "count": count
+        }
+
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"failed to run nvidia-smi: {e.stderr}")
+        return {}
+
+
+def has_gpu() -> bool:
+    """
+    Check whether the system has a GPU recognized as a '3D controller' by lspci.
+
+    Returns:
+        bool: True if a '3D controller' is found in the lspci output, False otherwise.
+    """
+    if not which('lspci'):
+        logger.warning('lspci command not found - cannot check for GPU presence')
+        return False
+    try:
+        result = subprocess.run(
+            ["lspci", "-nn"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return any("3D controller" in line for line in result.stdout.splitlines())
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
+    """
+    Return a dictionary with the GPU map.
+
+    The GPU map is a dictionary with the local GPU specs collected by the pilot.
+    It gets reported to the PanDA server with the getJob call.
+
+    The dictionary is to be sent to {api_url_ssl}/pilot/update_gpu_map.
+
+    :param site: Site name from PQ.resource (str)
+    :param cache: should the gpu map be cached? (bool)
+    :return: gpu map (dict).
+    """
+    # first confirm that the workernode actually has a GPU (relies on lspci)
+    has_any_gpu = has_gpu()
+    if not has_any_gpu:
+        logger.info('no GPU detected via lspci')
+        return {}
+    else:
+        logger.info('GPU detected via lspci')
+    if not which('nvidia-smi'):
+        logger.warning('nvidia-smi command not found - can currently only handle NVIDIA GPUs')
+        return {}
+
+    gpu_info = get_gpu_info(site)
+
+    # store the gpu map for caching
+    if cache and gpu_info:
         try:
-            if which('nvidia-smi'):
-                nvidia_output = subprocess.check_output(
-                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                    stderr=subprocess.DEVNULL
-                ).decode('utf-8').strip()
-
-                nvidia_gpus = nvidia_output.split('\n')
-                logger.info(nvidia_output)
-
-                # Update matching NVIDIA entries with detailed names
-                nvidia_idx = 0
-                for gpu in gpu_info:
-                    if 'NVIDIA' in gpu['vendor_info'] and nvidia_idx < len(nvidia_gpus):
-                        gpu['detailed_name'] = nvidia_gpus[nvidia_idx]
-                        gpu['cuda_version'] = os.environ.get('CUDA_VERSION', 'unknown')
-                        nvidia_idx += 1
-            else:
-                logger.warning("nvidia-smi command not found - cannot get detailed GPU information")
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            logger.warning(f"nvidia-smi command failed or NVIDIA drivers not properly installed: {e}")
+            filename = os.path.join(os.getcwd(), config.Workernode.gpu_map)
+            write_json(filename, gpu_info)
+        except Exception as exc:
+            logger.warning(f'failed to write gpu map: {exc}')
 
     return gpu_info
 
@@ -626,7 +762,6 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
     Return a dictionary with the worker node map.
 
     The worker node map is a dictionary with the local hardware specs collected by the pilot.
-    It gets reported to the PanDA server with the getJob call.
 
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
@@ -641,13 +776,6 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
         total_local_disk = convert_b_to_gb(get_total_local_disk_size())
     except ValueError:
         total_local_disk = 0
-
-    gpu_info = get_gpu_info()
-    if gpu_info:
-        gpu_info_str = ', '.join([gpu['vendor_info'] for gpu in gpu_info])
-        logger.info(f'found GPUs: {gpu_info_str}')
-    else:
-        logger.info('no GPUs found')
 
     data = {
         "site": site,

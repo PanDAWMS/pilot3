@@ -22,12 +22,17 @@
 
 import logging
 import os
-import psutil
+try:
+    import psutil
+except ImportError:
+    print('FAILED; psutil module could not be imported')
+    _is_psutil_available = False
+else:
+    _is_psutil_available = True
 import subprocess
 from pathlib import Path
 
 from pilot.common.pilotcache import get_pilot_cache
-from pilot.util.filehandling import mkdirs
 
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
@@ -212,11 +217,16 @@ def parse_cgroup_path_old(size: int) -> str:
     return None
 
 
-def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bool:  # noqa: C901
+def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> bool:  # noqa: C901
     """
     Create a cgroup for the current process.
 
-    This function creates a cgroup for the current process and returns its path.
+    This function creates a cgroup for the current process and returns its path. It also creates a controller
+    and moves the current process into that cgroup. Additionally, it moves all processes in the parent cgroup
+    to the control subgroup. Finally, it enables memory and pid controllers in the parent cgroup.
+
+    It also creates a cgroup for the subprocess that will be created by the main process, so that the subprocess
+    can be monitored and controlled as well.
 
     Args:
         pid (int): The process ID to create the cgroup for. Default is the current process ID.
@@ -225,7 +235,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
     Returns:
         bool: True if the cgroup was successfully created, False otherwise.
     """
-    # First make sure that the cgroup was not already created for this pid
+    # make sure that the cgroup was not already created for this pid
     if pilot_cache:
         pids = pilot_cache.get_pids()
         if pid in pids:
@@ -241,83 +251,115 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller0") -> bo
 
     # Construct the full path to the parent cgroup
     parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
-
     logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
 
-    try:
-        logger.debug(f"ls -lF {parent_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', parent_cgroup_path], check=True, capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
+    # Create a "controller" cgroup for the parent process
+    controller_cgroup_path = create_subgroup(parent_cgroup_path, controller)
+    if not controller_cgroup_path:
         return False
+
     try:
-        path = os.path.join(parent_cgroup_path, "cgroup.procs")
-        #cmd = f"cat {path}"
-        #logger.debug(f"Executing command: {cmd}")
-        #result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-        #                        capture_output=True, text=True)
-        #logger.debug(f"Command output: {result.stdout}")
-        moved = move_procs_to_parent(path)
-        print(f"Moved PIDs: {moved}")
+        status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
     else:
-        if not moved:
-            logger.warning(f"failed to move processes to parent cgroup: {parent_cgroup_path}")
+        if not status:
+            logger.warning(f"failed to move process to controller_cgroup_path: {controller_cgroup_path}")
             return False
-    # should be here; but it fails since there are already processes added to the cgroup
-    # Enable memory and pid controllers in the parent cgroup
-    #status = enable_controllers(parent_cgroup_path, "+memory +pids")
-    #if not status:
-    #    logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
-    #    return False
 
-    # Create a "controller" cgroup for the parent process
-    controller_cgroup_path = os.path.join(parent_cgroup_path, controller)
-    logger.info(f"Creating controller cgroup directory at: {controller_cgroup_path}")
-    try:
-        mkdirs(controller_cgroup_path, chmod=0o755)
-    except Exception as e:
-        logger.warning(f"failed to create cgroup: {e}")
+    # move all processes in the parent cgroup to the control subgroup
+    _ = move_procs_to_control_subgroup(parent_cgroup_path)
+
+    # create a new cgroup for future subprocesses
+    subprocesses_cgroup_path = create_subgroup(parent_cgroup_path, "subprocesses")
+    if not subprocesses_cgroup_path:
+        logger.warning(f"failed to create subprocesses cgroup at {parent_cgroup_path}")
         return False
 
-    #
     try:
-        logger.debug(f"ls -lF {controller_cgroup_path}")
-        result = subprocess.run(['ls', '-lF', controller_cgroup_path], check=True, capture_output=True, text=True)
+        logger.debug(f"ls -lF {parent_cgroup_path}")
+        result = subprocess.run(['ls', '-lF', os.path.dirname(parent_cgroup_path)], check=True, capture_output=True, text=True)
         logger.debug(f"Command output: {result.stdout}")
     except Exception as e:
         logger.warning(f"failed to run command: {e}")
         return False
-    try:
-        path = os.path.join(controller_cgroup_path, "cgroup.procs")
-        cmd = f"cat {path}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        logger.debug(f"Command output: {result.stdout}")
-    except Exception as e:
-        logger.warning(f"failed to run command: {e}")
 
-    # Enable memory and pid controllers in the parent controller cgroup
+    # enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
         return False
 
-    # Move the parent process (and any existing child processes) to the controller cgroup
-    status = move_process_and_descendants_to_cgroup(controller_cgroup_path, pid)
-    if not status:
-        logger.warning(f"failed to move process to cgroup: {controller_cgroup_path}")
-        return False
-
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
         pilot_cache.add_cgroup(pid, controller_cgroup_path)
+        pilot_cache.add_cgroup("subprocesses", subprocesses_cgroup_path)
 
     return True
+
+
+def create_subgroup(parent_path: str, subgroup_name: str) -> str:
+    """
+    Creates an additional cgroup for subprocesses under the specified parent cgroup path.
+
+    Args:
+        parent_path (str): Path to the parent cgroup directory.
+        subgroup_name (str): Name of the subgroup to create.
+
+    Returns:
+        str: The path to the created subgroup, or an empty string if creation failed.
+    """
+    subgroup_path = Path(parent_path) / subgroup_name
+    try:
+        subgroup_path.mkdir(parents=True)
+        # mkdirs(subgroup_path, chmod=0o755)
+        logger.info(f"created cgroup at: {subgroup_path}")
+        return subgroup_path
+    except (FileExistsError, PermissionError, OSError) as e:
+        logger.warning(f"failed to create cgroup {subgroup_name} at {parent_path}: {e}")
+        return ""
+
+
+def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = "control") -> list:
+    """
+    Moves all PIDs from the parent cgroup's cgroup.procs file to a control subgroup.
+
+    Args:
+        parent_cgroup_path (str): Path to the parent cgroup directory (e.g.,
+            /sys/fs/cgroup/system.slice/htcondor/condor_var_lib_condor_execute_slot1_23@...).
+        control_name (str): Name of the control subgroup to create and move PIDs into.
+
+    Returns:
+        list: List of PIDs that were moved to the control subgroup.
+    """
+    parent_path = Path(parent_cgroup_path)
+    procs_file = parent_path / "cgroup.procs"
+    control_path = parent_path / control_name
+    control_procs_file = control_path / "cgroup.procs"
+
+    # Create control subgroup if it doesn't exist
+    if not control_path.exists():
+        control_path.mkdir(parents=True)
+
+    # Read PIDs from the parent cgroup.procs
+    try:
+        with open(procs_file, "r") as f:
+            pids = [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        logger.warning(f"Failed to read {procs_file}: {e}")
+        pids = []
+
+    # Move each PID to control subgroup
+    for pid in pids:
+        try:
+            with open(control_procs_file, "w") as f:
+                f.write(pid)
+        except Exception as e:
+            logger.warning(f"Failed to move PID {pid} to {control_procs_file}: {e}")
+            pids = []
+
+    return pids
 
 
 def move_procs_to_parent(path: str):
@@ -340,10 +382,13 @@ def move_procs_to_parent(path: str):
     if not procs_file.exists():
         raise FileNotFoundError(f"{procs_file} does not exist")
 
-    logger.debug("Moving PIDs to parent cgroup: {parent_procs_file}")
+    logger.debug(f"Moving PIDs to parent cgroup: {parent_procs_file}")
     try:
+        logger.debug(f"cat {str(procs_file)}:")
         result = subprocess.run(["cat", str(procs_file)], check=True, capture_output=True, text=True)
+        logger.debug(f"result={result.stdout}")
         pids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        logger.debug(f"pids={pids}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to read {procs_file}: {e}")
 
@@ -391,7 +436,7 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
     return True
 
 
-def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
+def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> bool:
     """
     Moves the given PID and all of its descendants into the specified cgroup
     by invoking 'echo <pid> > cgroup.procs' using a subprocess shell command.
@@ -400,9 +445,13 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
         cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
         root_pid (int): The PID of the root process to move.
 
-    Raises:
-        RuntimeError: If moving any PID fails.
+    Returns:
+        bool: True if all processes were successfully moved, False otherwise.
     """
+    if not _is_psutil_available:
+        logger.warning("psutil module is not available, cannot move processes to cgroup.")
+        return False
+
     procs_file = f"{cgroup_path}/cgroup.procs"
     root_process = psutil.Process(root_pid)
     all_pids = [root_process.pid] + [p.pid for p in root_process.children(recursive=True)]
@@ -412,25 +461,22 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int):
             with open(procs_file, "a") as f:
                 f.write(f"{pid}")
         except IOError as e:
-            logger.warning(f"Failed to move process to cgroup: {e}")
-
+            logger.warning(f"failed to move process to cgroup: {e}")
             cmd = f"echo {pid} > {procs_file}"
             try:
                 subprocess.run(cmd, shell=True, check=True, executable="/bin/bash")
             except subprocess.CalledProcessError as e:
-                logger.warning(f"Failed to move PID {pid} to cgroup: {e}")
+                logger.warning(f"failed to move PID {pid} to cgroup: {e}")
                 return False
 
-        cmd = f"ls -l {procs_file}"
-        logger.debug(f"Executing command: {cmd}")
-        result = subprocess.run(cmd, shell=True, check=True, executable="/bin/bash",
-                                capture_output=True, text=True)
-        if result:
-            logger.debug(result.stdout)
-        else:
-            logger.warning("failed to run command: ls? no output")
-
     logger.info(f"moved process {root_pid} to cgroup {cgroup_path} (process list= {all_pids})")
+    # test test BS kills
+    #if "subprocesses" in str(cgroup_path):
+    #    try:
+    #        set_memory_limit(cgroup_path, 100000)
+    #    except (OSError, FileNotFoundError, PermissionError, ValueError) as e:
+    #        logger.warning(f"failed to set memory limit for cgroup {cgroup_path}: {e}")
+
     return True
 
 
@@ -452,7 +498,7 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
     """
     subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
-        with open(subtree_control_path, "a") as f:
+        with open(subtree_control_path, "w") as f:
             f.write(f"{controllers}")
     except IOError as e:
         logger.warning(f"Failed to enable controllers: {e}")
@@ -485,3 +531,99 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
         return False
 
     return True
+
+
+def get_pids_for_cgroup(cgroup_path: str) -> list:
+    """
+    Get the PIDs of all processes in the specified cgroup.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+
+    Returns:
+        list: List of PIDs in the cgroup.
+    """
+    procs_file = os.path.join(cgroup_path, "cgroup.procs")
+    try:
+        with open(procs_file, "r") as f:
+            pids = [int(line.strip()) for line in f if line.strip()]
+        return pids
+    except IOError as e:
+        logger.warning(f"Failed to read {procs_file}: {e}")
+        return []
+
+
+def monitor_cgroup(cgroup_path: str) -> None:
+    """
+    Monitor the specified cgroup by printing its PIDs and memory usage.
+
+    Args:
+        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+    """
+    pids = get_pids_for_cgroup(cgroup_path)
+    if not pids:
+        logger.info(f"[cgroup: {cgroup_path}]\n  No processes found.")
+        return
+
+    output_lines = [f"[cgroup: {cgroup_path}]", f"  PIDs: {', '.join(map(str, pids))}"]
+
+    files_to_read = {
+        "Memory Usage": f"{cgroup_path}/memory.current",
+        "Memory Events": f"{cgroup_path}/memory.events",
+        "Process Count": f"{cgroup_path}/pids.current"
+    }
+
+    for label, filepath in files_to_read.items():
+        try:
+            result = subprocess.run(f"cat {filepath}", shell=True, check=True, capture_output=True, text=True)
+            content = result.stdout.strip()
+            # Indent multi-line output for readability
+            if '\n' in content:
+                indented = "\n    ".join(content.splitlines())
+                output_lines.append(f"  {label}:\n    {indented}")
+            else:
+                output_lines.append(f"  {label}: {content}")
+        except subprocess.CalledProcessError as e:
+            output_lines.append(f"  {label}: <error reading {filepath}> ({e})")
+
+    logger.info("\n" + "\n".join(output_lines))
+
+
+def set_memory_limit(cgroup_path: str, memory_bytes: int):
+    """
+    Set the maximum memory usage limit for a given cgroup v2.
+
+    This function writes the specified memory limit (in bytes) to the cgroup's
+    `memory.max` file. If the limit is exceeded by processes in the cgroup,
+    the kernel will trigger an out-of-memory (OOM) kill.
+
+    Args:
+        cgroup_path (str): Full path to the cgroup (e.g., /sys/fs/cgroup/mygroup).
+        memory_bytes (int): The maximum allowed memory usage in bytes. Use -1 or
+            a large value (e.g., 9223372036854771712) to disable the limit.
+
+    Raises:
+        FileNotFoundError: If the memory.max file is missing.
+        PermissionError: If the script lacks permission to write to the cgroup.
+        ValueError: If the memory_bytes is invalid or negative (other than -1).
+        OSError: For other OS-level errors.
+    """
+    memory_max_path = os.path.join(cgroup_path, "memory.max")
+
+    if memory_bytes < -1:
+        raise ValueError(f"Invalid memory limit: {memory_bytes}")
+
+    # cgroup expects "max" for unlimited
+    value = "max" if memory_bytes == -1 else str(memory_bytes)
+
+    try:
+        with open(memory_max_path, "w") as f:
+            f.write(value)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"{memory_max_path} does not exist.")
+    except PermissionError:
+        raise PermissionError(f"Permission denied to write to {memory_max_path}. Are you root or delegated?")
+    except OSError as e:
+        raise OSError(f"Error writing memory limit to {memory_max_path}: {e}")
+
+    logger.info(f"[cgroup: {cgroup_path}]\n  Max memory usage: {value}")
