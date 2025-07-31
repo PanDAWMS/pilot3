@@ -91,7 +91,7 @@ def get_memkillgrace(memkillgrace: int) -> float:
     return memkillgrace / 100 if memkillgrace > 1 else 1.0
 
 
-def get_memory_limit_old(resource_type: str) -> int:
+def get_memory_limit(resource_type: str) -> int:
     """
     Get the memory limit for the relevant resource type.
 
@@ -120,7 +120,7 @@ def get_memory_limit_old(resource_type: str) -> int:
     return memory_limit
 
 
-def get_memory_limit(resource_type: str) -> int or None:
+def get_memory_limit_new(resource_type: str) -> int or None:
     """
     Get the memory limit for the relevant resource type.
 
