@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
 import functools
@@ -212,7 +212,13 @@ def run(args: object) -> Traces or None:
             return traces
 
     # define the threads
-    targets = {'job': job.control, 'payload': payload.control, 'data': data.control, 'monitor': monitor.control}
+    targets = {
+        'job': job.control,
+        'payload': payload.control,
+        'data': data.control,
+        'monitor': monitor.control,
+        'cgroup_monitor': monitor.cgroup_control
+    }
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'queues': queues, 'traces': traces, 'args': args},
                          name=name) for name, target in list(targets.items())]
 

@@ -26,6 +26,7 @@
 """Functions for monitoring of pilot and threads."""
 
 import logging
+import os
 import threading
 import time
 import re
@@ -39,10 +40,12 @@ from subprocess import (
 from typing import Any
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.util.auxiliary import (
     check_for_final_server_update,
     set_pilot_state
 )
+from pilot.util.cgroups import monitor_cgroup
 from pilot.util.common import is_pilot_check
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
@@ -61,7 +64,39 @@ from pilot.util.queuehandling import (
 )
 from pilot.util.timing import get_time_since_start
 
+pilot_cache = get_pilot_cache()
 logger = logging.getLogger(__name__)
+
+
+def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
+    """
+    Control function for the cgroup monitor.
+
+    This function is called from the main control thread to set up the cgroup monitor task.
+
+    Args:
+        queues: internal queues for job handling (namedtuple)
+        traces: tuple containing internal pilot states (Any)
+        args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
+    """
+    if queues or traces:  # to bypass pylint warning
+        pass
+
+    # set up the periodic cgroup monitor task
+    while not args.graceful_stop.is_set():
+        pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
+        logger.debug(f"monitoring pilot cgroup at path: {pilot_cgroup_path}")
+        if pilot_cgroup_path:
+            monitor_cgroup(pilot_cgroup_path)
+
+        subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
+        logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
+        if subprocesses_cgroup_path:
+            monitor_cgroup(subprocesses_cgroup_path)
+
+        time.sleep(60)
+
+    logger.info("[monitor] cgroup control has ended")
 
 
 def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
@@ -89,9 +124,12 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     tcpu = t_0
     last_minute_check = t_0
 
-    queuedata = get_queuedata_from_job(queues)
+    queuedata = pilot_cache.queuedata
     if not queuedata:
-        logger.warning('queuedata could not be extracted from queues')
+        logger.warning("no queuedata in pilot cache, will try to extract it from queues")
+        queuedata = get_queuedata_from_job(queues)
+    if not queuedata:
+        logger.warning('queuedata could not be extracted from queues either')
 
     try:
         # overall loop counter (ignoring the fact that more than one job may be running)
@@ -137,6 +175,7 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     logger.info(f'using max running time = {max_running_time}s')
 
             # if start_time for the current job is known (push queues), a more detailed check can be performed
+            start_time_ok = False
             if start_time and queuedata:  # in epoch seconds
                 time_since_job_start = int(time.time()) - start_time
                 # in this case, max_running_time is the max job walltime
@@ -147,11 +186,12 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     reached_maxtime_abort(args)
                     break
                 else:
-                    logger.debug(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
+                    logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
                     logger.debug(f'max running time = {max_running_time}s, queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
+                    start_time_ok = True
 
             # fallback to max_running_time if start_time is not known
-            if time_since_start > max_running_time - grace_time:
+            if (time_since_start > max_running_time - grace_time) and not start_time_ok:
                 logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
                              f'exceeded - time to abort pilot')
                 reached_maxtime_abort(args)
@@ -205,6 +245,10 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     except Exception as error:
         print((f"monitor: exception caught: {error}"))
         raise PilotException(error) from error
+
+    # shut down the cgroups monitoring task
+    # logger.info("[monitor] waiting for cgroup monitor task to finish")
+    # await task
 
     logger.info('[monitor] control thread has ended')
 

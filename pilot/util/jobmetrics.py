@@ -67,10 +67,9 @@ def get_job_metrics(job: Any, extra: dict = None) -> str:
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
     try:
         job_metrics_module = __import__(f'pilot.user.{user}.jobmetrics', globals(), locals(), [user], 0)
+        job_metrics = job_metrics_module.get_job_metrics(job, extra=extra)
     except (AttributeError, NotImplementedError) as exc:
         job_metrics = None
         logger.warning(f'function not implemented in jobmetrics module: {exc}')
-    else:
-        job_metrics = job_metrics_module.get_job_metrics(job, extra=extra)
 
     return job_metrics

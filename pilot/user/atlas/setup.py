@@ -367,6 +367,7 @@ def get_valid_base_urls(base_urls: list, order: str = None) -> list:
         base_urls = [
             "www.usatlas.bnl.gov",
             "pandaserver.cern.ch",
+            "pandaserver-tb.cern.ch",
             "atlpan.web.cern.ch/atlpan",
             "classis01.roma1.infn.it",
             "atlas-install.roma1.infn.it"
