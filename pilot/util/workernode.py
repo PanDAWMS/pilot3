@@ -621,7 +621,7 @@ def detect_architecture(model_name: str) -> str:
         str: The architecture name if found, otherwise 'Unknown'.
     """
     # Extensible architecture mapping
-    ARCHITECTURE_MAP = {
+    architecture_map = {
         'K80': 'Kepler',
         'P100': 'Pascal',
         'V100': 'Volta',
@@ -633,7 +633,7 @@ def detect_architecture(model_name: str) -> str:
         'GH200': 'Grace Hopper'
     }
 
-    for key, arch in ARCHITECTURE_MAP.items():
+    for key, arch in architecture_map.items():
         if key in model_name:
             return arch
 

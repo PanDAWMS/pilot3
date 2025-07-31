@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 import ast
 import logging
@@ -167,19 +167,19 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
         int or None: memory limit in kB, or None if it cannot be determined.
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
-    SCORE_RESOURCE_TYPES = {"SCORE", "SCORE_LOMEM", "SCORE_HIMEM", "SCORE_VHIMEM"}
-    MCORE_RESOURCE_TYPES = {"MCORE", "MCORE_LOMEM", "MCORE_HIMEM", "MCORE_VHIMEM"}
+    score_resource_types = {"SCORE", "SCORE_LOMEM", "SCORE_HIMEM", "SCORE_VHIMEM"}
+    mcore_resource_types = {"MCORE", "MCORE_LOMEM", "MCORE_HIMEM", "MCORE_VHIMEM"}
 
     try:
         maxrss = int(job.infosys.queuedata.maxrss)
         pq_corecount = int(job.infosys.queuedata.corecount or 1)
         job_corecount = int(job.corecount or 1)
 
-        if resource_type in SCORE_RESOURCE_TYPES:
+        if resource_type in score_resource_types:
             # SCALE DOWN: jobs share pilot memory
             scaled_maxrss = (maxrss / pq_corecount) * job_corecount
             logger.debug(f"SCORE logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
-        elif resource_type in MCORE_RESOURCE_TYPES:
+        elif resource_type in mcore_resource_types:
             # FULL maxrss for MCORE jobs
             scaled_maxrss = maxrss
             logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
