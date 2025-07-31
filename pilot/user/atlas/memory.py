@@ -213,7 +213,7 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
     return None
 
 
-def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
+def memory_usage_new(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
@@ -262,7 +262,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     return exit_code, diagnostics
 
 
-def memory_usage_old(job: object, resource_type: str) -> tuple[int, str]:
+def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
