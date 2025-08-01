@@ -17,16 +17,18 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
 import logging
 
+from pilot.info.jobdata import JobData
+
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: object, extra: dict = None) -> str:
+def get_job_metrics(job: JobData, extra: dict = None):
     """
     Return a properly formatted job metrics string.
 
@@ -37,9 +39,9 @@ def get_job_metrics(job: object, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (object)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job (JobData): job object containing job information.
+        extra (dict, optional): any extra information to be added to the job metrics. Defaults to None.
     """
     if job or extra:  # to bypass pylint score 0
         pass

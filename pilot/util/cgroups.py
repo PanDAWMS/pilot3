@@ -277,7 +277,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
 
     # Keep track of the cgroup path in the pilot cache
     if pilot_cache:
-        pilot_cache.add_cgroup(pid, controller_cgroup_path)
+        pilot_cache.add_cgroup(str(pid), controller_cgroup_path)
         pilot_cache.add_cgroup("subprocesses", subprocesses_cgroup_path)
 
     return True
