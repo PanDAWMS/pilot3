@@ -26,4 +26,4 @@ jobs:
         run: pip install vericode
 
       - name: Run vericode (pylint)
-        run: vericode -t pylint -s . --scores-less-than 8
+        run: vericode -t pylint -s . --scores-less-than 9
