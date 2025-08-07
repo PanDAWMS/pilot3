@@ -236,8 +236,11 @@ def check_cvmfs(logger: Any) -> int:
     """
     Check if cvmfs is available.
 
-    :param logger: logging object.
-    :return: exit code (int).
+    Args:
+        logger (Any): Logging object.
+
+    Returns:
+        int: Exit code.
     """
     # skip all tests if required
     if os.environ.get("NO_CVMFS_OK", False):
@@ -265,8 +268,11 @@ def str2bool(var: str) -> bool:
     """
     Convert string to bool.
 
-    :param var: string to be converted to bool (str)
-    :return: converted string (bool).
+    Args:
+        var (str): String to be converted to bool.
+
+    Returns:
+        bool: Converted boolean value.
     """
     if isinstance(var, bool):  # does this ever happen?
         return var
@@ -285,9 +291,14 @@ def validate_resource_type(value: str) -> str:
     """
     Validate the resource type.
 
-    :param value: resource type (str)
-    :return: resource type (str)
-    :raises: argparse.ArgumentTypeError if the resource type is invalid.
+    Args:
+        value (str): Resource type.
+
+    Returns:
+        str: Validated resource type.
+
+    Raises:
+        argparse.ArgumentTypeError: If the resource type is invalid.
     """
     # Define the allowed patterns
     allowed_patterns = ["", "SCORE", "MCORE", "SCORE_*", "MCORE_*"]
@@ -304,7 +315,8 @@ def get_args() -> Any:
     """
     Return the args from the arg parser.
 
-    :return: args (arg parser object - type <class 'argparse.Namespace'>).
+    Returns:
+        argparse.Namespace: Parsed command-line arguments.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -742,7 +754,8 @@ def create_main_work_dir() -> (int, str):
     The function also sets args.mainworkdir and cd's into this directory.
     Note: args, used in this function, is defined in outer scope.
 
-    :return: exit code (int), main work directory (string).
+    Returns:
+        tuple: exit code (int), main work directory (str).
     """
     exitcode = 0
 
@@ -842,7 +855,8 @@ def wrap_up() -> int:
 
     Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :return: exit code (int).
+    Returns:
+        int: exit code.
     """
     # cleanup pilot workdir if created
     if args.sourcedir != mainworkdir and args.cleanup:
@@ -869,7 +883,8 @@ def get_proper_exit_code() -> (int, int):
     """
     Return the proper exit code.
 
-    :return: exit code (int), shell exit code (int).
+    Returns:
+        Tuple[int, int]: A tuple containing the exit code and the shell exit code.
     """
     try:
         exitcode = trace.pilot["error_code"]
@@ -915,7 +930,8 @@ def get_pilot_source_dir() -> str:
     """
     Return the pilot source directory.
 
-    :return: full path to pilot source directory (string).
+    Returns:
+        str: Full path to pilot source directory.
     """
     cwd = getcwd()
     if exists(
@@ -938,12 +954,13 @@ def send_worker_status(
 
     Note: the function can fail, but if it does, it will be ignored.
 
-    :param status: 'started' or 'finished' (str)
-    :param queue: PanDA queue name (str)
-    :param url: server url (str)
-    :param port: server port (int)
-    :param logger: logging object (object)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
+    Args:
+        status (str): 'started' or 'finished'.
+        queue (str): PanDA queue name.
+        url (str): Server URL.
+        port (int): Server port.
+        logger (Any): Logging object.
+        internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
     """
     # worker node structure to be sent to the server
     data = {}
@@ -972,11 +989,12 @@ def send_workernode_map(
     """
     Send worker node map and GPU info to the server.
 
-    :param site: ATLAS site name (str)
-    :param url: server url (str)
-    :param port: server port (int)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str)
-    :param logger: logging object (object).
+    Args:
+        site (str): ATLAS site name.
+        url (str): Server URL.
+        port (int): Server port.
+        internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
+        logger (Any): Logging object.
     """
     # worker node structure to be sent to the server
     try:
