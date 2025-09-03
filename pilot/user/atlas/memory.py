@@ -216,17 +216,16 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
     return None
 
 
-def set_cgroups_limit(pid: int, memory_limit_kb: int):
+def set_cgroups_limit(memory_limit_kb: int):
     """
     Set the cgroups memory limit for a given process ID.
 
     Args:
-        pid (int): Process ID.
         memory_limit_kb (int): Memory limit in kB.
     """
-    cgroup_path = pilot_cache.get_cgroup(pid)
+    cgroup_path = pilot_cache.get_cgroup("payload")
     if not cgroup_path:
-        logger.warning(f"no cgroup found for pid {pid} - cannot set memory limit")
+        logger.warning("no cgroup found for payload cgroup - cannot set memory limit")
         return
 
     if pilot_cache.set_memory_limits and cgroup_path in pilot_cache.set_memory_limits:
@@ -273,9 +272,9 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     maxpss_int = maxdict.get("maxPSS", -1)
     memory_limit_kb = calculate_memory_limit_kb(job, resource_type, memory_limit_panda)
 
-    # set the cgroups memory limit if applicable and not set already
+    # set the cgroups memory limit for the payload process if applicable and in case it is not set already
     if pilot_cache.use_cgroups and memory_limit_kb:
-        set_cgroups_limit(str(job.pid), memory_limit_kb)
+        set_cgroups_limit(memory_limit_kb)
 
     if maxpss_int != -1 and memory_limit_kb:
         if maxpss_int > memory_limit_kb:
