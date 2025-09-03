@@ -32,6 +32,7 @@ def get_pilot_cache():
             """ Define standard initialization for the cache. """
             self.use_cgroups = None  # for process management
             self.cgroups = {}  # for process management
+            self.set_memory_limits = []
             self.proxy_lifetime = 0
             self.queuedata = None
             self.pilot_version = None

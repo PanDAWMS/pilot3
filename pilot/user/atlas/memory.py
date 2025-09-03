@@ -27,6 +27,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 from pilot.info.jobdata import JobData
 from pilot.util.auxiliary import set_pilot_state
+from pilot.util.cgroups import set_memory_limit
 from pilot.util.config import config
 from pilot.util.processes import kill_processes
 
@@ -215,6 +216,32 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
     return None
 
 
+def set_cgroups_limit(pid: int, memory_limit_kb: int):
+    """
+    Set the cgroups memory limit for a given process ID.
+
+    Args:
+        pid (int): Process ID.
+        memory_limit_kb (int): Memory limit in kB.
+    """
+    cgroup_path = pilot_cache.get_cgroup(pid)
+    if not cgroup_path:
+        logger.warning(f"no cgroup found for pid {pid} - cannot set memory limit")
+        return
+
+    if pilot_cache.set_memory_limits and cgroup_path in pilot_cache.set_memory_limits:
+        logger.debug(f"memory limit already set for cgroup {cgroup_path}")
+        return
+
+    try:
+        set_memory_limit(cgroup_path, memory_limit_kb)
+    except (ValueError, FileNotFoundError, PermissionError, OSError) as exc:
+        logger.warning(f"could not set cgroup memory limit: {exc}")
+    else:
+        pilot_cache.set_memory_limits.append(cgroup_path)
+        logger.info(f"memory limit set for cgroup {cgroup_path}: {memory_limit_kb} kB")
+
+
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
@@ -246,6 +273,10 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     maxpss_int = maxdict.get("maxPSS", -1)
     memory_limit_kb = calculate_memory_limit_kb(job, resource_type, memory_limit_panda)
 
+    # set the cgroups memory limit if applicable and not set already
+    if pilot_cache.use_cgroups and memory_limit_kb:
+        set_cgroups_limit(str(job.pid), memory_limit_kb)
+
     if maxpss_int != -1 and memory_limit_kb:
         if maxpss_int > memory_limit_kb:
             diagnostics = (
@@ -256,8 +287,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
 
-            # cgroups logic here?
-            kill_processes(job.pid)
+            kill_processes(job.pid)  # explicitly kill also when using cgroups?
         else:
             logger.info(
                 f"max memory (maxPSS) used by the payload is within the allowed limit: "
