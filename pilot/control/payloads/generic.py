@@ -745,7 +745,11 @@ class Executor:
             self.__job.piloterrorcodes, self.__job.piloterrordiags = errors.add_error_code(
                 error.get_error_code()
             )
-            self.__traces.pilot["error_code"] = self.__job.piloterrorcodes[0]
+            # check for exceptions to ignore (otherwise the pilot itself will be marked as failed)
+            if "Remote file open timed out" in traceback.format_exc():
+                logger.info("non-fatal error - will not set traces error code")
+            else:
+                self.__traces.pilot["error_code"] = self.__job.piloterrorcodes[0]
             logger.fatal(
                 f"could not define payload command (traces error set to: {self.__traces.pilot['error_code']})"
             )
