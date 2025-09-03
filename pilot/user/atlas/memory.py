@@ -233,7 +233,7 @@ def set_cgroups_limit(memory_limit_kb: int):
         return
 
     try:
-        set_memory_limit(cgroup_path, memory_limit_kb)
+        set_memory_limit(cgroup_path, memory_limit_kb * 1024)  # convert to bytes
     except (ValueError, FileNotFoundError, PermissionError, OSError) as exc:
         logger.warning(f"could not set cgroup memory limit: {exc}")
     else:
