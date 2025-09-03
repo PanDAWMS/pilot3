@@ -120,12 +120,12 @@ def get_memory_limit_old(resource_type: str) -> int:
     return memory_limit
 
 
-def get_memory_limit(resource_type: str) -> int or None:
+def get_memory_limit(resource_type: str) -> int:
     """
     Get the memory limit for the relevant resource type.
 
     :param resource_type: resource type (str)
-    :return: memory limit in MB (int) or None if not set.
+    :return: memory limit in MB (int), 0 if not set.
     """
     try:
         memory_limits = pilot_cache.resource_types
@@ -136,11 +136,11 @@ def get_memory_limit(resource_type: str) -> int or None:
         limits = {'MCORE': 2000,
                   'MCORE_HIMEM': 3000,
                   'MCORE_LOMEM': 1000,
-                  'MCORE_VHIMEM': None,
+                  'MCORE_VHIMEM': 0,
                   'SCORE': 2000,
                   'SCORE_HIMEM': 3000,
                   'SCORE_LOMEM': 1000,
-                  'SCORE_VHIMEM': None}
+                  'SCORE_VHIMEM': 0}
         return limits.get(resource_type, 4001)
     logger.debug(f"memory limits for resource type {resource_type}: {limit_dict}")
     if not limit_dict:
@@ -155,13 +155,14 @@ def get_memory_limit(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
+def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_panda: int) -> int or None:
     """
     Calculate the memory kill threshold in kB based on resource type.
 
     Args:
         job (JobData): job object containing job information.
         resource_type (str): subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM).
+        memory_limit_panda (int): memory limit from PanDA in MB.
 
     Returns:
         int or None: memory limit in kB, or None if it cannot be determined.
@@ -175,12 +176,13 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
         pq_corecount = int(job.infosys.queuedata.corecount or 1)
         job_corecount = int(job.corecount or 1)
 
-        if resource_type in score_resource_types:
-            # SCALE DOWN: jobs share pilot memory
+        if "VHIMEM" not in resource_type:
+            scaled_maxrss = memory_limit_panda * job_corecount
+            logger.debug(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
+        elif resource_type in score_resource_types:
             scaled_maxrss = (maxrss / pq_corecount) * job_corecount
-            logger.debug(f"SCORE logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
+            logger.debug(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
         elif resource_type in mcore_resource_types:
-            # FULL maxrss for MCORE jobs
             scaled_maxrss = maxrss
             logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
         else:
@@ -219,7 +221,7 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
 
     Args:
         job (JobData): job object containing job information.
-        resource_type (str): subresource type string (e.g. SCORE_HIMEM,
+        resource_type (str): subresource type string (e.g. SCORE_HIMEM)
 
     Returns:
         tuple: exit code (int), diagnostics (str).
@@ -233,9 +235,16 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
         diagnostics = "memory monitor output could not be read"
         return exit_code, diagnostics
 
+    # get the memory limit from PanDA
+    memory_limit_panda = get_memory_limit(resource_type)
+    if memory_limit_panda:
+        logger.debug(f'memory_limit for {resource_type}: {memory_limit_panda} MB')
+    else:
+        logger.debug(f'memory_limit for {resource_type}: {memory_limit_panda}' '(not set)')
+
     maxdict = summary_dictionary.get("Max", {})
     maxpss_int = maxdict.get("maxPSS", -1)
-    memory_limit_kb = calculate_memory_limit_kb(job, resource_type)
+    memory_limit_kb = calculate_memory_limit_kb(job, resource_type, memory_limit_panda)
 
     if maxpss_int != -1 and memory_limit_kb:
         if maxpss_int > memory_limit_kb:
@@ -244,10 +253,10 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
                 f"(subresource={resource_type}, corecount={job.corecount})"
             )
             logger.warning(diagnostics)
-
-            # Create a lockfile? Depends on rest of pilot framework
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
+
+            # cgroups logic here?
             kill_processes(job.pid)
         else:
             logger.info(
