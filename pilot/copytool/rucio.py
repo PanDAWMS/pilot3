@@ -708,7 +708,7 @@ def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace
 
     # upload client raises an exception if any file failed
     for attempt in range(pilot_cache.stageout_attempts):
-        logger.info(f'stage-out attempt #{attempt + 1}/{pilot_cache.stageout_attempts}')
+        logger.info(f'stage-out attempt {attempt + 1}/{pilot_cache.stageout_attempts}')
 
         try:
             result = upload_client.upload([_file], summary_file_path=summary_file_path, traces_copy_out=trace_report_out, ignore_availability=True)

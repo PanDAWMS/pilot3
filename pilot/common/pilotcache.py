@@ -34,7 +34,7 @@ def get_pilot_cache():
             self.cgroups = {}  # for process management
             self.set_memory_limits = []
             self.proxy_lifetime = 0
-            self.stageout_attempts = 1
+            self.stageout_attempts = None
             self.queuedata = None
             self.pilot_version = None
             self.pilot_work_dir = None

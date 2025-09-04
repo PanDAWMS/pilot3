@@ -162,6 +162,8 @@ def main() -> int:  # noqa: C901
     else:
         update_local_oidc_token_info(args.url, args.port)
 
+    logger.debug(f'stageout_attempts: {pilot_cache.stageout_attempts}')
+
     # create and report the worker node map
     if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
         try:
