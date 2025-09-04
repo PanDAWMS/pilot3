@@ -298,6 +298,13 @@ def add_queue_args(parser: argparse.ArgumentParser) -> None:
         default=True,
         help="Disable cvmfs checks",
     )
+    parser.add_argument(
+        "--stageout-attempts",
+        dest="stageout_attempts",
+        type=int,
+        default=1,
+        help="Number of stage-out attempts per output file (default: 1)",
+    )
 
 
 def add_harvester_args(parser: argparse.ArgumentParser) -> None:
