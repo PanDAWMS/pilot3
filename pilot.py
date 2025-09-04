@@ -193,22 +193,20 @@ def main() -> int:  # noqa: C901
     )
     logger.debug(f'PILOT_RUCIO_SITENAME={os.environ.get("PILOT_RUCIO_SITENAME")}')
 
-    #os.environ['RUCIO_ACCOUNT'] = 'atlpilo1'
-    #logger.warning(f"enforcing RUCIO_ACCOUNT={os.environ.get('RUCIO_ACCOUNT')}")
-
     # store the site name as set with a pilot option
     environ[
         "PILOT_SITENAME"
     ] = infosys.queuedata.resource  # args.site  # TODO: replace with singleton
 
-    # set requested workflow
     logger.info(f"pilot arguments: {args}")
-    workflow = __import__(
-        f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
-    )
 
     # update the pilot heartbeat file
     update_pilot_heartbeat(time.time())
+
+    # set requested workflow
+    workflow = __import__(
+        f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
+    )
 
     # execute workflow
     try:
@@ -310,6 +308,9 @@ def set_environment_variables():
     # main work directory (e.g. /scratch/PanDA_Pilot3_3908_1537173670)
     environ["PILOT_HOME"] = mainworkdir  # TODO: replace with singleton
     pilot_cache.pilot_home_dir = mainworkdir
+
+    # how many stage-out attempts should be made per file?
+    pilot_cache.stageout_attempts = args.stageout_attempts
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
     if not environ.get("PILOT_SOURCE_DIR", None):
