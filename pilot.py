@@ -162,8 +162,6 @@ def main() -> int:  # noqa: C901
     else:
         update_local_oidc_token_info(args.url, args.port)
 
-    logger.debug(f'stageout_attempts: {pilot_cache.stageout_attempts}')
-
     # create and report the worker node map
     if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
         try:
@@ -312,7 +310,9 @@ def set_environment_variables():
     pilot_cache.pilot_home_dir = mainworkdir
 
     # how many stage-out attempts should be made per file?
-    pilot_cache.stageout_attempts = args.stageout_attempts
+    # NOTE: do not use the pilot cache for this since it complicates middleware containerization
+    # pilot_cache.stageout_attempts = args.stageout_attempts
+    os.environ['PILOT_STAGEOUT_ATTEMPTS'] = str(args.stageout_attempts)
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
     if not environ.get("PILOT_SOURCE_DIR", None):
