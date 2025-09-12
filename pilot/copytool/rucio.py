@@ -704,17 +704,10 @@ def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace
     logger.info(f'rucio API stage-out dictionary: {_file}')
     logger.info('*** rucio API uploading file (taking over logging) ***')
     logger.debug(f'trace_report_out={trace_report_out}')
-
-    try:
-        stageout_attempts = os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1)
-        logger.info(f'stageout_attempts={stageout_attempts}')
-        logger.info(f'environment variable PILOT_STAGEOUT_ATTEMPTS={os.getenv("PILOT_STAGEOUT_ATTEMPTS")}')
-    except Exception as error:
-        logger.warning(f"exception caught: {error}")
-        stageout_attempts = 1
+    stageout_attempts = os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1)
 
     # upload client raises an exception if any file failed
-    for attempt in range(stageout_attempts):
+    for attempt in range(int(stageout_attempts)):
         logger.info(f'stage-out attempt {attempt + 1}/{stageout_attempts}')
 
         try:
