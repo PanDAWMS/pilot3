@@ -24,10 +24,12 @@
 """Functions for https interactions."""
 
 import ast
+import base64
 try:
     import certifi
 except ImportError:
     certifi = None
+import datetime
 import http.client as http_client
 import json
 import logging
@@ -55,6 +57,7 @@ from re import (
     sub
 )
 from time import (
+    ctime,
     sleep,
     time
 )
@@ -70,6 +73,7 @@ from .config import config
 from .constants import get_pilot_version
 from .container import execute
 from .filehandling import (
+    get_modification_time,
     read_file,
     rename,
     write_file,
@@ -1186,10 +1190,16 @@ def handle_file_content(content: bytes or str, auth_token: str) -> bool:
                 # proceed with renaming the refreshed token to that of the original one (i.e. overwrite)
                 status = rename(path, auth_token)
                 if status:
-                    logger.info(f'saved token data in file {path}, length={len(content) / 1024.:.1f} kB')
+                    logger.info(f'saved token data in file {auth_token}, length={len(content) / 1024.:.1f} kB')
                     os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = auth_token
                 else:
                     logger.warning(f'failed to rename {path} to {auth_token}')
+
+                mtime = get_modification_time(auth_token)
+                if mtime:
+                    logger.info(f'{os.path.basename(auth_token)} modification time: {ctime(mtime)}')
+                else:
+                    logger.warning(f'failed to get modification time for {auth_token}')
 
     return status
 
@@ -1209,8 +1219,75 @@ def update_local_oidc_token_info(url: str, port: int):
             logger.warning('failed to refresh OIDC token')
         else:
             logger.info('OIDC token has been refreshed')
+
+            # print out the token expiry time and issue time
+            path = locate_token(auth_token)
+            try:
+                _ = decode_jwt_payload(path, return_times=True)
+            except ValueError as exc:
+                logger.warning(f'failed to decode JWT payload: {exc}')
     else:
         logger.debug('no OIDC token info to update')
+
+
+def decode_jwt_payload(token_or_path: str, return_times: bool = True):
+    """
+    Decode the payload of a JWT (OIDC token) and return its content.
+
+    Args:
+        token_or_path (str): The JWT string or path to file containing the token.
+        return_times (bool): If True, print the 'iat' and 'exp' times in human-readable format.
+
+    Returns:
+        dict: Decoded JWT payload as a Python dictionary.
+
+    Raises:
+        ValueError: If the token format is invalid or decoding fails.
+    """
+    # Load token from file if needed
+    if os.path.exists(token_or_path):
+        with open(token_or_path, "r") as f:
+            token = f.read().strip()
+    else:
+        token = token_or_path.strip()
+
+    # Split into header.payload.signature
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            raise ValueError("invalid JWT format (expecting 3 segments)")
+        payload_b64url = parts[1]
+    except Exception as e:
+        raise ValueError(f"failed to split JWT token: {e}")
+
+    # Convert base64url to base64
+    payload_b64 = payload_b64url.replace('-', '+').replace('_', '/')
+    padding = '=' * ((4 - len(payload_b64) % 4) % 4)
+    payload_b64 += padding
+
+    # Decode the payload
+    try:
+        decoded_bytes = base64.b64decode(payload_b64)
+        decoded_str = decoded_bytes.decode('utf-8')
+        payload = json.loads(decoded_str)
+    except Exception as e:
+        raise ValueError(f"failed to decode JWT payload: {e}")
+
+    # Optionally print iat and exp
+    if return_times:
+        if 'iat' in payload:
+            iat = datetime.datetime.utcfromtimestamp(payload['iat'])
+            logger.info(f"Token was issued at (iat):   {iat} UTC")
+        else:
+            logger.info("no 'iat' field found in token")
+
+        if 'exp' in payload:
+            exp = datetime.datetime.utcfromtimestamp(payload['exp'])
+            logger.info(f"Token expires at (exp):  {exp} UTC")
+        else:
+            logger.info("No 'exp' field found in token")
+
+    return payload
 
 
 def get_base_urls(args_base_urls: str) -> list:

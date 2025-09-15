@@ -160,7 +160,10 @@ def main() -> int:  # noqa: C901
     if 'no_token_renewal' in infosys.queuedata.catchall or args.token_renewal is False:
         logger.info("OIDC token will not be renewed by the pilot")
     else:
-        update_local_oidc_token_info(args.url, args.port)
+        try:
+            update_local_oidc_token_info(args.url, args.port)
+        except Exception as exc:
+            logger.warning(f"failed to update local OIDC token: {exc}")
 
     # create and report the worker node map
     if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
