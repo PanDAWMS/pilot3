@@ -149,6 +149,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
                                                                                        use_pcache, rucio_host)
         except Exception as error:
             error_msg = str(error)
+            logger.warning(f"exception caught during stage-in: {error_msg}")
             error_details = handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=True)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -412,7 +413,11 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
         trace_report_out = []
         transfer_timeout = get_timeout(fspec.filesize)
         ctimeout = transfer_timeout + 10  # give the API a chance to do the time-out first
-        logger.info(f'overall transfer timeout={ctimeout}')
+        stageout_attempts = get_number_of_attempts()
+        if stageout_attempts > 1:
+            ctimeout *= stageout_attempts
+
+        logger.info(f'overall transfer timeout={ctimeout} (stageout attempts: {stageout_attempts})')
 
         error_msg = ""
         ec = 0
@@ -421,6 +426,7 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                                                                                   trace_report_out, transfer_timeout,
                                                                                   rucio_host)
         except PilotException as error:
+            logger.warning(f"exception caught during stage-in: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -429,6 +435,7 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                 msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         except Exception as error:
+            logger.warning(f"exception caught during stage-in: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -650,6 +657,21 @@ def _stage_in_bulk(dst: str, files: list, trace_report_out: list = None, trace_c
         logger.debug(f'client returned {result}')
 
 
+def get_number_of_attempts() -> int:
+    """
+    Get the number of stage-out attempts.
+
+    :return: number of attempts (int).
+    """
+    try:
+        stageout_attempts = int(os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1))
+    except ValueError as exc:
+        logger.warning(f'failed to parse PILOT_STAGEOUT_ATTEMPTS, defaulting to 1: {exc}')
+        stageout_attempts = 1
+
+    return stageout_attempts
+
+
 def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,  # noqa: C901
                    transfer_timeout: int, rucio_host: str) -> (int, list):
     """
@@ -704,11 +726,7 @@ def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace
     logger.info(f'rucio API stage-out dictionary: {_file}')
     logger.info('*** rucio API uploading file (taking over logging) ***')
     logger.debug(f'trace_report_out={trace_report_out}')
-    try:
-        stageout_attempts = int(os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1))
-    except ValueError as exc:
-        logger.warning(f'failed to parse PILOT_STAGEOUT_ATTEMPTS, defaulting to 1: {exc}')
-        stageout_attempts = 1
+    stageout_attempts = get_number_of_attempts()
 
     # upload client raises an exception if any file failed
     for attempt in range(stageout_attempts):
