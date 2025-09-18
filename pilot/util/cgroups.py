@@ -268,11 +268,12 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     if not subprocesses_cgroup_path:
         logger.warning(f"failed to create subprocesses cgroup at {parent_cgroup_path}")
         return False
+
     # also create a new cgroup for the payload
-    payload_cgroup_path = create_subgroup(parent_cgroup_path, "payload")
-    if not payload_cgroup_path:
-        logger.warning(f"failed to create payload cgroup at {parent_cgroup_path}")
-        return False
+    # payload_cgroup_path = create_subgroup(parent_cgroup_path, "payload")
+    # if not payload_cgroup_path:
+    #     logger.warning(f"failed to create payload cgroup at {parent_cgroup_path}")
+    #     return False
 
     # enable memory and pid controllers in the parent cgroup
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
@@ -284,7 +285,7 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     if pilot_cache:
         pilot_cache.add_cgroup(str(pid), controller_cgroup_path)
         pilot_cache.add_cgroup("subprocesses", subprocesses_cgroup_path)
-        pilot_cache.add_cgroup("payload", payload_cgroup_path)
+        # pilot_cache.add_cgroup("payload", payload_cgroup_path)
 
     return True
 

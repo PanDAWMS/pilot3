@@ -223,9 +223,10 @@ def set_cgroups_limit(memory_limit_kb: int):
     Args:
         memory_limit_kb (int): Memory limit in kB.
     """
-    cgroup_path = pilot_cache.get_cgroup("payload")
+    # cgroup_path = pilot_cache.get_cgroup("payload")
+    cgroup_path = pilot_cache.get_cgroup("subprocesses")  # use subprocesses cgroup which should include the payload
     if not cgroup_path:
-        logger.warning("no cgroup found for payload cgroup - cannot set memory limit")
+        logger.warning("no cgroup found for subprocesses cgroup - cannot set memory limit")
         return
 
     if pilot_cache.set_memory_limits and cgroup_path in pilot_cache.set_memory_limits:
