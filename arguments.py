@@ -302,7 +302,7 @@ def add_queue_args(parser: argparse.ArgumentParser) -> None:
         "--stageout-attempts",
         dest="stageout_attempts",
         type=int,
-        default=2,
+        default=1,
         help="Number of stage-out attempts per output file (default: 1)",
     )
 
