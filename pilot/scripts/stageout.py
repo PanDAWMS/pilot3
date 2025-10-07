@@ -162,6 +162,11 @@ def get_args() -> argparse.Namespace:
                             required=False,
                             default='',
                             help='Optional rucio host')
+    arg_parser.add_argument('--stageout-attempts',
+                            dest='stageout_attempts',
+                            required=False,
+                            default='1',
+                            help='Optional number of stage-out attempts (default: 1)')
 
     return arg_parser.parse_args()
 
@@ -319,6 +324,9 @@ if __name__ == '__main__':  # noqa: C901
     kwargs = {"workdir": args.workdir, "cwd": args.workdir, "usecontainer": False, "job": job,
               "output_dir": args.outputdir, "catchall": args.catchall, "rucio_host": args.rucio_host}  # , "mode"='stage-out'}
     xfiles = []
+
+    # number of stage-out attempts
+    os.environ['PILOT_STAGEOUT_ATTEMPTS'] = str(args.stageout_attempts)
 
     for lfn, scope, dataset, ddmendpoint, guid in list(zip(lfns, scopes, datasets, ddmendpoints, guids)):
 

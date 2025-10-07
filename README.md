@@ -1,3 +1,5 @@
+![Vericode Pylint Check](https://github.com/PalNilsson/pilot3/actions/workflows/vericode-check.yml/badge.svg)
+
 # PanDA Pilot 3
 
 ## Contributions

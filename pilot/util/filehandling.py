@@ -970,6 +970,23 @@ def find_latest_modified_file(list_of_files: list) -> (str, int):
     return latest_file, mtime
 
 
+def get_modification_time(path: str) -> int:
+    """
+    Get the modification time for the given file.
+
+    :param path: file path (str)
+    :return: modification time (int).
+    """
+    mtime = None
+    if os.path.exists(path):
+        try:
+            mtime = int(os.path.getmtime(path))
+        except OSError as exc:
+            logger.warning(f"int conversion failed for mod time: {exc}")
+
+    return mtime
+
+
 def list_mod_files(file_list: list):
     """
     List file names along with the mod times.

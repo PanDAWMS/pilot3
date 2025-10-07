@@ -23,7 +23,6 @@
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
-import argparse
 import logging
 import os
 import sys
@@ -31,10 +30,10 @@ import threading
 import time
 from os import getcwd, chdir, environ
 from os.path import exists, join
-from re import match
 from shutil import rmtree
 from typing import Any
 
+from arguments import get_args
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException
 from pilot.common.pilotcache import get_pilot_cache
@@ -161,7 +160,10 @@ def main() -> int:  # noqa: C901
     if 'no_token_renewal' in infosys.queuedata.catchall or args.token_renewal is False:
         logger.info("OIDC token will not be renewed by the pilot")
     else:
-        update_local_oidc_token_info(args.url, args.port)
+        try:
+            update_local_oidc_token_info(args.url, args.port)
+        except Exception as exc:
+            logger.warning(f"failed to update local OIDC token: {exc}")
 
     # create and report the worker node map
     if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
@@ -194,22 +196,20 @@ def main() -> int:  # noqa: C901
     )
     logger.debug(f'PILOT_RUCIO_SITENAME={os.environ.get("PILOT_RUCIO_SITENAME")}')
 
-    #os.environ['RUCIO_ACCOUNT'] = 'atlpilo1'
-    #logger.warning(f"enforcing RUCIO_ACCOUNT={os.environ.get('RUCIO_ACCOUNT')}")
-
     # store the site name as set with a pilot option
     environ[
         "PILOT_SITENAME"
     ] = infosys.queuedata.resource  # args.site  # TODO: replace with singleton
 
-    # set requested workflow
     logger.info(f"pilot arguments: {args}")
-    workflow = __import__(
-        f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
-    )
 
     # update the pilot heartbeat file
     update_pilot_heartbeat(time.time())
+
+    # set requested workflow
+    workflow = __import__(
+        f"pilot.workflow.{args.workflow}", globals(), locals(), [args.workflow], 0
+    )
 
     # execute workflow
     try:
@@ -236,8 +236,11 @@ def check_cvmfs(logger: Any) -> int:
     """
     Check if cvmfs is available.
 
-    :param logger: logging object.
-    :return: exit code (int).
+    Args:
+        logger (Any): Logging object.
+
+    Returns:
+        int: Exit code.
     """
     # skip all tests if required
     if os.environ.get("NO_CVMFS_OK", False):
@@ -261,480 +264,6 @@ def check_cvmfs(logger: Any) -> int:
     return 0
 
 
-def str2bool(var: str) -> bool:
-    """
-    Convert string to bool.
-
-    :param var: string to be converted to bool (str)
-    :return: converted string (bool).
-    """
-    if isinstance(var, bool):  # does this ever happen?
-        return var
-
-    if var.lower() in {"yes", "true", "t", "y", "1"}:
-        ret = True
-    elif var.lower() in {"no", "false", "f", "n", "0"}:
-        ret = False
-    else:
-        raise argparse.ArgumentTypeError(f"boolean value expected (var={var})")
-
-    return ret
-
-
-def validate_resource_type(value: str) -> str:
-    """
-    Validate the resource type.
-
-    :param value: resource type (str)
-    :return: resource type (str)
-    :raises: argparse.ArgumentTypeError if the resource type is invalid.
-    """
-    # Define the allowed patterns
-    allowed_patterns = ["", "SCORE", "MCORE", "SCORE_*", "MCORE_*"]
-    if value in allowed_patterns:
-        return value
-    # Check for pattern matching
-    for pattern in allowed_patterns:
-        if pattern.endswith('*') and match(f"^{pattern[:-1]}", value):
-            return value
-    raise argparse.ArgumentTypeError(f"Invalid resource type: {value}")
-
-
-def get_args() -> Any:
-    """
-    Return the args from the arg parser.
-
-    :return: args (arg parser object - type <class 'argparse.Namespace'>).
-    """
-    arg_parser = argparse.ArgumentParser()
-
-    # pilot log creation
-    arg_parser.add_argument(
-        "--no-pilot-log",
-        dest="nopilotlog",
-        action="store_true",
-        default=False,
-        help="Do not write the pilot log to file",
-    )
-
-    # pilot work directory
-    arg_parser.add_argument(
-        "-a", "--workdir", dest="workdir", default="", help="Pilot work directory"
-    )
-
-    # debug option to enable more log messages
-    arg_parser.add_argument(
-        "-d",
-        "--debug",
-        dest="debug",
-        action="store_true",
-        default=False,
-        help="Enable debug mode for logging messages",
-    )
-
-    # the choices must match in name the python module in pilot/workflow/
-    arg_parser.add_argument(
-        "-w",
-        "--workflow",
-        dest="workflow",
-        default="generic",
-        choices=[
-            "generic",
-            "generic_hpc",
-            "production",
-            "production_hpc",
-            "analysis",
-            "analysis_hpc",
-            "eventservice_hpc",
-            "stager",
-            "payload_stageout",
-        ],
-        help="Pilot workflow (default: generic)",
-    )
-
-    # graciously stop pilot process after hard limit
-    arg_parser.add_argument(
-        "-l",
-        "--lifetime",
-        dest="lifetime",
-        default=324000,
-        required=False,
-        type=int,
-        help="Pilot lifetime seconds (default: 324000 s)",
-    )
-    arg_parser.add_argument(
-        "-L",
-        "--leasetime",
-        dest="leasetime",
-        default=3600,
-        required=False,
-        type=int,
-        help="Pilot leasetime seconds (default: 3600 s)",
-    )
-
-    # Disabe cvmfs checks
-    arg_parser.add_argument(
-        "-b",
-        "--nocvmfs",
-        dest="cvmfs",
-        action="store_false",
-        default=True,
-        help="Disable cvmfs checks",
-    )
-
-    # set the appropriate site, resource and queue
-    arg_parser.add_argument(
-        "-q",
-        "--queue",
-        dest="queue",
-        required=True,
-        help="MANDATORY: queue name (e.g., AGLT2_TEST-condor)",
-    )
-    arg_parser.add_argument(
-        "-r",
-        "--resource",
-        dest="resource",
-        required=False,  # From v 2.2.0 the resource name is internally set
-        help="OBSOLETE: resource name (e.g., AGLT2_TEST)",
-    )
-    arg_parser.add_argument(
-        "-s",
-        "--site",
-        dest="site",
-        required=False,  # From v 2.2.1 the site name is internally set
-        help="OBSOLETE: site name (e.g., AGLT2_TEST)",
-    )
-    arg_parser.add_argument(
-        "-j",
-        "--joblabel",
-        dest="job_label",
-        default="ptest",
-        help="Job prod/source label (default: ptest)",
-    )
-    arg_parser.add_argument(
-        "-g",
-        "--baseurls",
-        dest="baseurls",
-        default="",
-        help="Comma separated list of base URLs for validation of trf download",
-    )
-
-    # pilot version tag; PR or RC
-    arg_parser.add_argument(
-        "-i",
-        "--versiontag",
-        dest="version_tag",
-        default="PR",
-        help="Version tag (default: PR, optional: RC)",
-    )
-
-    arg_parser.add_argument(
-        "-z",
-        "--noserverupdate",
-        dest="update_server",
-        action="store_false",
-        default=True,
-        help="Disable server updates",
-    )
-
-    arg_parser.add_argument(
-        "-k",
-        "--noworkerpilotstatusupdate",
-        dest="workerpilotstatusupdate",
-        action="store_false",
-        default=True,
-        help="Disable updates to updateWorkerPilotStatus",
-    )
-
-    arg_parser.add_argument(
-        "-t",
-        "--noproxyverification",
-        dest="verify_proxy",
-        action="store_false",
-        default=True,
-        help="Disable proxy verification",
-    )
-
-    arg_parser.add_argument(
-        "-u",
-        "--verifypayloadproxy",
-        dest="verify_payload_proxy",
-        action="store_false",
-        default=True,
-        help="Disable payload proxy verification",
-    )
-
-    # graciously stop pilot process after hard limit
-    arg_parser.add_argument(
-        "-v",
-        "--getjobrequests",
-        dest="getjob_requests",
-        default=2,
-        required=False,
-        type=int,
-        help="Number of getjob requests",
-    )
-
-    arg_parser.add_argument(
-        "-x",
-        "--getjobfailures",
-        dest="getjob_failures",
-        default=5,
-        required=False,
-        type=int,
-        help="Maximum number of getjob request failures in Harvester mode",
-    )
-
-    # no_token_renewal
-    arg_parser.add_argument(
-        "-y",
-        "--notokenrenewal",
-        dest="token_renewal",
-        action="store_false",
-        default=True,
-        help="Disable token renewal",
-    )
-
-    arg_parser.add_argument(
-        "--subscribe-to-msgsvc",
-        dest="subscribe_to_msgsvc",
-        action="store_true",
-        default=False,
-        required=False,
-        help="Ask Pilot to receive job/task info from ActiveMQ",
-    )
-
-    # SSL certificates
-    arg_parser.add_argument(
-        "--cacert",
-        dest="cacert",
-        default=None,
-        help="CA certificate to use with HTTPS calls to server, commonly X509 proxy",
-        metavar="path/to/your/certificate",
-    )
-    arg_parser.add_argument(
-        "--capath",
-        dest="capath",
-        default=None,
-        help="CA certificates path",
-        metavar="path/to/certificates/",
-    )
-
-    # Server URLs and ports
-    arg_parser.add_argument(
-        "--url",
-        dest="url",
-        default="",  # the proper default is stored in default.cfg
-        help="PanDA server URL",
-    )
-    arg_parser.add_argument(
-        "-p",
-        "--port",
-        dest="port",
-        type=int,
-        default=25443,
-        help="PanDA server port"
-    )
-    arg_parser.add_argument(
-        "--queuedata-url",
-        dest="queuedata_url",
-        default="",
-        help="Queuedata server URL"
-    )
-    arg_parser.add_argument(
-        "--storagedata-url",
-        dest="storagedata_url",
-        default="",
-        help="URL for downloading DDM end points data",
-    )
-    arg_parser.add_argument(
-        "--rucio-host",
-        dest="rucio_host",
-        default="",
-        help="URL for the Rucio host (optional)",
-    )
-    arg_parser.add_argument(
-        "--redirect-stdout",
-        dest="redirectstdout",
-        default="",
-        help="Redirect all stdout to given file, or /dev/null (optional)",
-    )
-
-    # Country group
-    arg_parser.add_argument(
-        "--country-group",
-        dest="country_group",
-        default="",
-        help="Country group option for getjob request",
-    )
-
-    # Working group
-    arg_parser.add_argument(
-        "--working-group",
-        dest="working_group",
-        default="",
-        help="Working group option for getjob request",
-    )
-
-    # Allow other country
-    arg_parser.add_argument(
-        "--allow-other-country",
-        dest="allow_other_country",
-        type=str2bool,
-        default=False,
-        help="Is the resource allowed to be used outside the privileged group?",
-    )
-
-    # Allow same user
-    arg_parser.add_argument(
-        "--allow-same-user",
-        dest="allow_same_user",
-        type=str2bool,
-        default=True,
-        help="Multi-jobs will only come from same taskID (and thus same user)",
-    )
-
-    # Experiment
-    arg_parser.add_argument(
-        "--pilot-user",
-        dest="pilot_user",
-        default="generic",
-        required=True,
-        help="Pilot user (e.g. name of experiment corresponding to pilot plug-in)",
-    )
-
-    # Kubernetes (pilot running in a pod)
-    arg_parser.add_argument(
-        "--pod",
-        dest="pod",
-        action="store_true",
-        default=False,
-        help="Pilot running in a Kubernetes pod",
-    )
-
-    # Harvester specific options (if any of the following options are used, args.harvester will be set to True)
-    arg_parser.add_argument(
-        "--harvester-workdir",
-        dest="harvester_workdir",
-        default="",
-        help="Harvester work directory",
-    )
-    arg_parser.add_argument(
-        "--harvester-datadir",
-        dest="harvester_datadir",
-        default="",
-        help="Harvester data directory",
-    )
-    arg_parser.add_argument(
-        "--harvester-eventstatusdump",
-        dest="harvester_eventstatusdump",
-        default="",
-        help="Harvester event status dump json file containing processing status",
-    )
-    arg_parser.add_argument(
-        "--harvester-workerattributes",
-        dest="harvester_workerattributes",
-        default="",
-        help="Harvester worker attributes json file containing job status",
-    )
-    arg_parser.add_argument(
-        "--harvester-submit-mode",
-        dest="harvester_submitmode",
-        default="PULL",
-        help="Harvester submit mode (PUSH or PULL [default])",
-    )
-    arg_parser.add_argument(
-        "--resource-type",
-        dest="resource_type",
-        default="",
-        type=validate_resource_type,
-        help="Resource type; MCORE, SCORE or patterns like SCORE_* and MCORE_*",
-    )
-    arg_parser.add_argument(
-        "--use-https",
-        dest="use_https",
-        type=str2bool,
-        default=True,
-        help="Use HTTPS protocol for communications with server",
-    )
-    arg_parser.add_argument(
-        "--cleanup",
-        dest="cleanup",
-        type=str2bool,
-        default=True,
-        help="Cleanup work directory after pilot has finished",
-    )
-    arg_parser.add_argument(
-        "--use-realtime-logging",
-        dest="use_realtime_logging",
-        action="store_true",
-        default=False,
-        help="Use near real-time logging, default=False",
-    )
-    arg_parser.add_argument(
-        "--realtime-logging-server",
-        dest="realtime_logging_server",
-        default=None,
-        help="Realtime logging server [type:host:port]; e.g. logstash:12.23.34.45:80",
-    )
-    # arg_parser.add_argument('--realtime-logfiles',
-    #                         dest='realtime_logfiles',
-    #                         default=None,
-    #                         help='The log filenames to be sent to the realtime logging server')
-    arg_parser.add_argument(
-        "--realtime-logname",
-        dest="realtime_logname",
-        default=None,
-        help="The log name in the realtime logging server",
-    )
-
-    # Harvester and Nordugrid specific options
-    arg_parser.add_argument(
-        "--input-dir", dest="input_dir", default="", help="Input directory"
-    )
-    arg_parser.add_argument(
-        "--input-destination-dir",
-        dest="input_destination_dir",
-        default="",
-        help="Input destination directory",
-    )
-    arg_parser.add_argument(
-        "--output-dir", dest="output_dir", default="", help="Output directory"
-    )
-    arg_parser.add_argument(
-        "--job-type", dest="jobtype", default="", help="Job type (managed, user)"
-    )
-    arg_parser.add_argument(
-        "--use-rucio-traces",
-        dest="use_rucio_traces",
-        type=str2bool,
-        default=True,
-        help="Use rucio traces",
-    )
-
-    # HPC options
-    arg_parser.add_argument(
-        "--hpc-resource",
-        dest="hpc_resource",
-        default="",
-        help="Name of the HPC (e.g. Titan)",
-    )
-    arg_parser.add_argument(
-        "--hpc-mode",
-        dest="hpc_mode",
-        default="manytoone",
-        help="HPC mode (manytoone, jumbojobs)",
-    )
-    arg_parser.add_argument(
-        "--es-executor-type",
-        dest="executor_type",
-        default="generic",
-        help="Event service executor type (generic, raythena)",
-    )
-
-    return arg_parser.parse_args()
-
-
 def create_main_work_dir() -> (int, str):
     """
     Create and return the pilot's main work directory.
@@ -742,7 +271,8 @@ def create_main_work_dir() -> (int, str):
     The function also sets args.mainworkdir and cd's into this directory.
     Note: args, used in this function, is defined in outer scope.
 
-    :return: exit code (int), main work directory (string).
+    Returns:
+        tuple: exit code (int), main work directory (str).
     """
     exitcode = 0
 
@@ -781,6 +311,11 @@ def set_environment_variables():
     # main work directory (e.g. /scratch/PanDA_Pilot3_3908_1537173670)
     environ["PILOT_HOME"] = mainworkdir  # TODO: replace with singleton
     pilot_cache.pilot_home_dir = mainworkdir
+
+    # how many stage-out attempts should be made per file?
+    # NOTE: do not use the pilot cache for this since it complicates middleware containerization
+    # pilot_cache.stageout_attempts = args.stageout_attempts
+    os.environ['PILOT_STAGEOUT_ATTEMPTS'] = str(args.stageout_attempts)
 
     # pilot source directory (e.g. /cluster/home/usatlas1/gram_scratch_hHq4Ns/condorg_oqmHdWxz)
     if not environ.get("PILOT_SOURCE_DIR", None):
@@ -842,7 +377,8 @@ def wrap_up() -> int:
 
     Note: args and mainworkdir, used in this function, are defined in outer scope.
 
-    :return: exit code (int).
+    Returns:
+        int: exit code.
     """
     # cleanup pilot workdir if created
     if args.sourcedir != mainworkdir and args.cleanup:
@@ -869,7 +405,8 @@ def get_proper_exit_code() -> (int, int):
     """
     Return the proper exit code.
 
-    :return: exit code (int), shell exit code (int).
+    Returns:
+        Tuple[int, int]: A tuple containing the exit code and the shell exit code.
     """
     try:
         exitcode = trace.pilot["error_code"]
@@ -915,7 +452,8 @@ def get_pilot_source_dir() -> str:
     """
     Return the pilot source directory.
 
-    :return: full path to pilot source directory (string).
+    Returns:
+        str: Full path to pilot source directory.
     """
     cwd = getcwd()
     if exists(
@@ -938,12 +476,13 @@ def send_worker_status(
 
     Note: the function can fail, but if it does, it will be ignored.
 
-    :param status: 'started' or 'finished' (str)
-    :param queue: PanDA queue name (str)
-    :param url: server url (str)
-    :param port: server port (int)
-    :param logger: logging object (object)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str).
+    Args:
+        status (str): 'started' or 'finished'.
+        queue (str): PanDA queue name.
+        url (str): Server URL.
+        port (int): Server port.
+        logger (Any): Logging object.
+        internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
     """
     # worker node structure to be sent to the server
     data = {}
@@ -972,11 +511,12 @@ def send_workernode_map(
     """
     Send worker node map and GPU info to the server.
 
-    :param site: ATLAS site name (str)
-    :param url: server url (str)
-    :param port: server port (int)
-    :param internet_protocol_version: internet protocol version, IPv4 or IPv6 (str)
-    :param logger: logging object (object).
+    Args:
+        site (str): ATLAS site name.
+        url (str): Server URL.
+        port (int): Server port.
+        internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
+        logger (Any): Logging object.
     """
     # worker node structure to be sent to the server
     try:

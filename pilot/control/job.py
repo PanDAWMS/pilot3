@@ -2382,6 +2382,12 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     set_pilot_state(state='')
                     purge_queue(queues.finished_data_in)
 
+                    # make sure there proxy does not contain any traces of unified proxy
+                    if args.verify_proxy:
+                        if "unified" in os.environ.get("X509_USER_PROXY", ""):
+                            logging.warning("removing -unified from X509_USER_PROXY")
+                            os.environ["X509_USER_PROXY"] = os.environ.get("X509_USER_PROXY", "").replace("-unified", "")
+
                     args.job_aborted.clear()
                     args.abort_job.clear()
                     logger.info('ready for new job')

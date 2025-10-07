@@ -67,6 +67,10 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     diagnostics = ""
 
     x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy' if proxy_type else x509
+    # remove the .proxy suffix if it is not present in the original x509
+    if not x509.endswith('.proxy'):
+        x509_payload = re.sub('.proxy$', '', x509_payload)
+
     # for unified proxies, store it in the workdir
     if proxy_type == 'unified':
         x509_payload = os.path.join(workdir, os.path.basename(x509_payload))

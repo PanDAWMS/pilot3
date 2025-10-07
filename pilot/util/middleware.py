@@ -129,6 +129,7 @@ def containerise_middleware(
     )
 
     try:
+        stage_attempts = 1 if label == "stage-in" else args.stageout_attempts
         cmd = get_command(
             job,
             xdata,
@@ -141,6 +142,7 @@ def containerise_middleware(
             label=label,
             container_type=container_type,
             rucio_host=args.rucio_host,
+            stage_attempts=stage_attempts,
         )
     except PilotException as exc:
         raise exc
@@ -224,6 +226,7 @@ def get_command(
     label: str = "stage-in",
     container_type: str = "container",
     rucio_host: str = "",
+    stage_attempts: int = 1,
 ):
     """
     Get the middleware container execution command.
@@ -241,6 +244,7 @@ def get_command(
     :param label: optional 'stage-[in|out]' (str)
     :param container_type: optional 'container/bash' (str)
     :param rucio_host: optional rucio host (str)
+    :param stage_attempts: number of stage-in/out attempts (int)
     :return: stage-in/out command (str)
     :raises PilotException: for stage-in/out related failures.
     """
@@ -304,7 +308,7 @@ def get_command(
         cmd += (
             f" --lfns={filedata_dictionary['lfns']} --scopes={filedata_dictionary['scopes']} "
             f"--datasets={filedata_dictionary['datasets']} --ddmendpoints={filedata_dictionary['ddmendpoints']} "
-            f"--guids={filedata_dictionary['guids']}"
+            f"--guids={filedata_dictionary['guids']} --stageout-attempts={stage_attempts} "
         )
         if external_dir:
             cmd += f" --outputdir={external_dir}"

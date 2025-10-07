@@ -32,7 +32,9 @@ def get_pilot_cache():
             """ Define standard initialization for the cache. """
             self.use_cgroups = None  # for process management
             self.cgroups = {}  # for process management
+            self.set_memory_limits = []
             self.proxy_lifetime = 0
+            self.stageout_attempts = None
             self.queuedata = None
             self.pilot_version = None
             self.pilot_work_dir = None
@@ -54,7 +56,7 @@ def get_pilot_cache():
             """
             return list(self.cgroups.keys())
 
-        def add_cgroup(self, key, value):
+        def add_cgroup(self, key: str, value: str):
             """
             Add an entry to the cgroups dictionary.
 
@@ -67,11 +69,11 @@ def get_pilot_cache():
 
             Args:
                 key (str): Key for the cgroups entry.
-                value: Value for the cgroups entry.
+                value (str): Value for the cgroups entry.
             """
             self.cgroups[key] = value
 
-        def get_cgroup(self, key, default=None):
+        def get_cgroup(self, key: str, default: str = None):
             """
             Get an entry from the cgroups dictionary.
 
