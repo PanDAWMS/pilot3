@@ -27,6 +27,7 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 from pilot.info.jobdata import JobData
 from pilot.util.auxiliary import set_pilot_state
+from pilot.util.cgroups import set_memory_limit
 from pilot.util.config import config
 from pilot.util.processes import kill_processes
 
@@ -91,7 +92,7 @@ def get_memkillgrace(memkillgrace: int) -> float:
     return memkillgrace / 100 if memkillgrace > 1 else 1.0
 
 
-def get_memory_limit(resource_type: str) -> int:
+def get_memory_limit_old(resource_type: str) -> int:
     """
     Get the memory limit for the relevant resource type.
 
@@ -120,12 +121,12 @@ def get_memory_limit(resource_type: str) -> int:
     return memory_limit
 
 
-def get_memory_limit_new(resource_type: str) -> int or None:
+def get_memory_limit(resource_type: str) -> int:
     """
     Get the memory limit for the relevant resource type.
 
     :param resource_type: resource type (str)
-    :return: memory limit in MB (int) or None if not set.
+    :return: memory limit in MB (int), 0 if not set.
     """
     try:
         memory_limits = pilot_cache.resource_types
@@ -136,11 +137,11 @@ def get_memory_limit_new(resource_type: str) -> int or None:
         limits = {'MCORE': 2000,
                   'MCORE_HIMEM': 3000,
                   'MCORE_LOMEM': 1000,
-                  'MCORE_VHIMEM': None,
+                  'MCORE_VHIMEM': 0,
                   'SCORE': 2000,
                   'SCORE_HIMEM': 3000,
                   'SCORE_LOMEM': 1000,
-                  'SCORE_VHIMEM': None}
+                  'SCORE_VHIMEM': 0}
         return limits.get(resource_type, 4001)
     logger.debug(f"memory limits for resource type {resource_type}: {limit_dict}")
     if not limit_dict:
@@ -155,13 +156,14 @@ def get_memory_limit_new(resource_type: str) -> int or None:
     return limit
 
 
-def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
+def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_panda: int) -> int or None:
     """
     Calculate the memory kill threshold in kB based on resource type.
 
     Args:
         job (JobData): job object containing job information.
         resource_type (str): subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM).
+        memory_limit_panda (int): memory limit from PanDA in MB.
 
     Returns:
         int or None: memory limit in kB, or None if it cannot be determined.
@@ -175,12 +177,13 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
         pq_corecount = int(job.infosys.queuedata.corecount or 1)
         job_corecount = int(job.corecount or 1)
 
-        if resource_type in score_resource_types:
-            # SCALE DOWN: jobs share pilot memory
+        if "VHIMEM" not in resource_type:
+            scaled_maxrss = memory_limit_panda * job_corecount
+            logger.debug(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
+        elif resource_type in score_resource_types:
             scaled_maxrss = (maxrss / pq_corecount) * job_corecount
-            logger.debug(f"SCORE logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
+            logger.debug(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
         elif resource_type in mcore_resource_types:
-            # FULL maxrss for MCORE jobs
             scaled_maxrss = maxrss
             logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
         else:
@@ -213,13 +216,39 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str) -> int or None:
     return None
 
 
-def memory_usage_new(job: object, resource_type: str) -> tuple[int, str]:
+def set_cgroups_limit(memory_limit_kb: int):
+    """
+    Set the cgroups memory limit for a given process ID.
+
+    Args:
+        memory_limit_kb (int): Memory limit in kB.
+    """
+    # cgroup_path = pilot_cache.get_cgroup("payload")
+    cgroup_path = pilot_cache.get_cgroup("subprocesses")  # use subprocesses cgroup which should include the payload
+    if not cgroup_path:
+        logger.warning("no cgroup found for subprocesses cgroup - cannot set memory limit")
+        return
+
+    if pilot_cache.set_memory_limits and cgroup_path in pilot_cache.set_memory_limits:
+        logger.debug(f"memory limit already set for cgroup {cgroup_path}")
+        return
+
+    try:
+        set_memory_limit(cgroup_path, memory_limit_kb * 1024)  # convert to bytes
+    except (ValueError, FileNotFoundError, PermissionError, OSError) as exc:
+        logger.warning(f"could not set cgroup memory limit: {exc}")
+    else:
+        pilot_cache.set_memory_limits.append(cgroup_path)
+        logger.info(f"memory limit set for cgroup {cgroup_path}: {memory_limit_kb} kB")
+
+
+def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 
     Args:
         job (JobData): job object containing job information.
-        resource_type (str): subresource type string (e.g. SCORE_HIMEM,
+        resource_type (str): subresource type string (e.g. SCORE_HIMEM)
 
     Returns:
         tuple: exit code (int), diagnostics (str).
@@ -233,9 +262,20 @@ def memory_usage_new(job: object, resource_type: str) -> tuple[int, str]:
         diagnostics = "memory monitor output could not be read"
         return exit_code, diagnostics
 
+    # get the memory limit from PanDA
+    memory_limit_panda = get_memory_limit(resource_type)
+    if memory_limit_panda:
+        logger.debug(f'memory_limit for {resource_type}: {memory_limit_panda} MB')
+    else:
+        logger.debug(f'memory_limit for {resource_type}: {memory_limit_panda}' '(not set)')
+
     maxdict = summary_dictionary.get("Max", {})
     maxpss_int = maxdict.get("maxPSS", -1)
-    memory_limit_kb = calculate_memory_limit_kb(job, resource_type)
+    memory_limit_kb = calculate_memory_limit_kb(job, resource_type, memory_limit_panda)
+
+    # set the cgroups memory limit for the payload process if applicable and in case it is not set already
+    if pilot_cache.use_cgroups and memory_limit_kb:
+        set_cgroups_limit(memory_limit_kb)
 
     if maxpss_int != -1 and memory_limit_kb:
         if maxpss_int > memory_limit_kb:
@@ -244,11 +284,10 @@ def memory_usage_new(job: object, resource_type: str) -> tuple[int, str]:
                 f"(subresource={resource_type}, corecount={job.corecount})"
             )
             logger.warning(diagnostics)
-
-            # Create a lockfile? Depends on rest of pilot framework
             set_pilot_state(job=job, state="failed")
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
-            kill_processes(job.pid)
+
+            kill_processes(job.pid)  # explicitly kill also when using cgroups?
         else:
             logger.info(
                 f"max memory (maxPSS) used by the payload is within the allowed limit: "
@@ -262,7 +301,7 @@ def memory_usage_new(job: object, resource_type: str) -> tuple[int, str]:
     return exit_code, diagnostics
 
 
-def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
+def memory_usage_old(job: object, resource_type: str) -> tuple[int, str]:
     """
     Perform memory usage verification.
 

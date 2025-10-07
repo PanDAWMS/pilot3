@@ -906,6 +906,7 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
 
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
+    # use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware")) if title != 'log' else False
 
     # switch the X509_USER_PROXY on unified dispatch queues (restore later in this function)
     x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')

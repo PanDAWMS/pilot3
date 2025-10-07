@@ -705,6 +705,10 @@ def has_gpu() -> bool:
     Returns:
         bool: True if a '3D controller' is found in the lspci output, False otherwise.
     """
+    # make sure that /usr/sbin is in the PATH
+    if ':/usr/sbin' not in os.environ.get('PATH', ''):
+        os.environ['PATH'] += os.pathsep + '/usr/sbin'
+
     if not which('lspci'):
         logger.warning('lspci command not found - cannot check for GPU presence')
         return False

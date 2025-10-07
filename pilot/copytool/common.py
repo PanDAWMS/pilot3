@@ -47,7 +47,7 @@ def get_timeout(filesize: int, add: int = 0) -> int:
     :return: time-out in seconds (int).
     """
     timeout_max = 3 * 3600  # 3 hours
-    timeout_min = 300  # self.timeout
+    timeout_min = 400  # self.timeout
 
     timeout = timeout_min + int(filesize / 0.1e7) + add  # approx < 1 Mb/sec
 

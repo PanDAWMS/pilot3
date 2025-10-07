@@ -18,9 +18,9 @@
 # under the License.
 #
 # Authors:
-# - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
+# - Tobias Wegner, tobias.wegner@cern.ch, 2017-18
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - Tomas Javurek, tomas.javurek@cern.ch, 2019
 # - David Cameron, david.cameron@cern.ch, 2019
@@ -30,6 +30,7 @@
 import json
 import logging
 import os
+import traceback
 from copy import deepcopy
 from time import time
 from typing import Any
@@ -38,6 +39,7 @@ from pilot.common.exception import (
     PilotException,
     ErrorCodes,
 )
+# from pilot.common.pilotcache import get_pilot_cache - do not use pilot cache here (complicated container if used)
 from pilot.util.timer import (
     timeout,
     TimedThread,
@@ -147,6 +149,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
                                                                                        use_pcache, rucio_host)
         except Exception as error:
             error_msg = str(error)
+            logger.warning(f"exception caught during stage-in: {error_msg}")
             error_details = handle_rucio_error(error_msg, trace_report, trace_report_out, fspec, stagein=True)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -410,7 +413,11 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
         trace_report_out = []
         transfer_timeout = get_timeout(fspec.filesize)
         ctimeout = transfer_timeout + 10  # give the API a chance to do the time-out first
-        logger.info(f'overall transfer timeout={ctimeout}')
+        stageout_attempts = get_number_of_attempts()
+        if stageout_attempts > 1:
+            ctimeout *= stageout_attempts
+
+        logger.info(f'overall transfer timeout={ctimeout} (stageout attempts: {stageout_attempts})')
 
         error_msg = ""
         ec = 0
@@ -418,8 +425,8 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
             ec, trace_report_out = timeout(ctimeout, TimedThread)(_stage_out_api)(fspec, summary_file_path, trace_report,
                                                                                   trace_report_out, transfer_timeout,
                                                                                   rucio_host)
-            #_stage_out_api(fspec, summary_file_path, trace_report, trace_report_out)
         except PilotException as error:
+            logger.warning(f"exception caught during stage-in: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -428,6 +435,7 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                 msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         except Exception as error:
+            logger.warning(f"exception caught during stage-in: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -649,7 +657,22 @@ def _stage_in_bulk(dst: str, files: list, trace_report_out: list = None, trace_c
         logger.debug(f'client returned {result}')
 
 
-def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,
+def get_number_of_attempts() -> int:
+    """
+    Get the number of stage-out attempts.
+
+    :return: number of attempts (int).
+    """
+    try:
+        stageout_attempts = int(os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1))
+    except ValueError as exc:
+        logger.warning(f'failed to parse PILOT_STAGEOUT_ATTEMPTS, defaulting to 1: {exc}')
+        stageout_attempts = 1
+
+    return stageout_attempts
+
+
+def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,  # noqa: C901
                    transfer_timeout: int, rucio_host: str) -> (int, list):
     """
     Stage-out files using the Rucio API.
@@ -701,29 +724,41 @@ def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace
         _file['guid'] = fspec.guid
 
     logger.info(f'rucio API stage-out dictionary: {_file}')
+    logger.info('*** rucio API uploading file (taking over logging) ***')
+    logger.debug(f'trace_report_out={trace_report_out}')
+    stageout_attempts = get_number_of_attempts()
 
     # upload client raises an exception if any file failed
-    try:
-        logger.info('*** rucio API uploading file (taking over logging) ***')
-        logger.debug(f'summary_file_path={summary_file_path}')
-        logger.debug(f'trace_report_out={trace_report_out}')
-        result = upload_client.upload([_file], summary_file_path=summary_file_path, traces_copy_out=trace_report_out, ignore_availability=True)
-    except UnboundLocalError:
-        logger.warning('*** rucio API upload client failed ***')
-        logger.warning('rucio still needs a bug fix of the summary in the uploadclient')
-    except Exception as error:
-        logger.warning('*** rucio API upload client failed ***')
-        logger.warning(f'caught exception: {error}')
-        import traceback
-        logger.error(traceback.format_exc())
-        logger.debug(f'trace_report_out={trace_report_out}')
-        if not trace_report_out:
-            raise error
-        if not trace_report_out[0].get('stateReason'):
-            raise error
-        ec = -1
-    else:
-        logger.warning('*** rucio API upload client finished ***')
-        logger.debug(f'client returned {result}')
+    for attempt in range(stageout_attempts):
+        logger.info(f'stage-out attempt {attempt + 1}/{stageout_attempts}')
+
+        try:
+            result = upload_client.upload([_file], summary_file_path=summary_file_path, traces_copy_out=trace_report_out, ignore_availability=True)
+        except UnboundLocalError:
+            logger.warning('*** rucio API upload client failed ***')
+            logger.warning('rucio still needs a bug fix of the summary in the uploadclient')
+            if attempt == stageout_attempts - 1:  # last attempt
+                ec = -1
+            else:
+                continue
+        except Exception as error:
+            logger.warning('*** rucio API upload client failed ***')
+            logger.warning(f'caught exception: {error}')
+            logger.error(traceback.format_exc())
+            logger.debug(f'trace_report_out={trace_report_out}')
+
+            if attempt == stageout_attempts - 1:  # last attempt
+                # only raise an exception if the error info cannot be extracted
+                if not trace_report_out:
+                    raise error
+                if not trace_report_out[0].get('stateReason'):
+                    raise error
+                ec = -1
+            else:
+                continue
+        else:
+            logger.warning('*** rucio API upload client finished ***')
+            logger.debug(f'client returned {result}')
+            break
 
     return ec, trace_report_out

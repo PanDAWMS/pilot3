@@ -84,14 +84,14 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
     # set up the periodic cgroup monitor task
     while not args.graceful_stop.is_set():
-        pilot_cgroup_path = pilot_cache.get_cgroup(os.getpid())
-        logger.debug(f"monitoring pilot cgroup at path: {pilot_cgroup_path}")
+        pilot_cgroup_path = pilot_cache.get_cgroup(str(os.getpid()))
         if pilot_cgroup_path:
+            logger.debug(f"monitoring pilot cgroup at path: {pilot_cgroup_path}")
             monitor_cgroup(pilot_cgroup_path)
 
         subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
-        logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
         if subprocesses_cgroup_path:
+            logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
             monitor_cgroup(subprocesses_cgroup_path)
 
         time.sleep(60)
