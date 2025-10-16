@@ -855,9 +855,9 @@ def find_condor_chirp() -> str:
         return "Error: condor_config_val not found in PATH."
 
 
-def update_condor_classad(pandaid: int, state: str) -> bool:
+def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
     """
-    Update the condor classad with PanDA information using condor_chirp.
+    Update the Condor ClassAd with PanDA information using condor_chirp.
 
     Params:
         pandaid: PanDA job id (int).
@@ -866,29 +866,29 @@ def update_condor_classad(pandaid: int, state: str) -> bool:
     Returns:
         bool: True if condor_chirp is available and was used, False otherwise.
     """
-    logger.debug('updating condor classad with PanDA job id')
+    logger.debug('updating condor ClassAd with PanDA job id')
     path = find_condor_chirp()
     if not path.startswith("/"):
         logger.warning(path)
         return False
 
-    # update the classad
-    cmd = f'{path} set_job_attr_delayed ChirpPandaID "{pandaid}"'
-    ec, stdout, stderr = execute(cmd)
-    if not ec and not stderr:
-        if state:
-            cmd = f'{path} set_job_attr_delayed ChirpPandaJobState "{state}"'
-            ec, stdout, stderr = execute(cmd)
-            if ec:
-                logger.warning(f'failed to set PandaJobState={state} for job classad with PandaID={pandaid}')
-                logger.debug(stdout)
-                logger.debug(stderr)
-                return False
+    # update the ClassAd
+    if pandaid:
+        cmd = f'{path} set_job_attr PandaID "{pandaid}"'
+        ec, stdout, stderr = execute(cmd)
+        if ec:
+            logger.warning(f'failed to set attribute PandaID={pandaid} for job ClassAd')
+            logger.debug(stdout)
+            logger.debug(stderr)
+            return False
+    if state:
+        cmd = f'{path} set_job_attr PandaJobState "{state}"'
+        ec, stdout, stderr = execute(cmd)
+        if ec:
+            logger.warning(f'failed to set attribute PandaJobState={state} for job ClassAd')
+            logger.debug(stdout)
+            logger.debug(stderr)
+            return False
 
-        logger.info(f'successfully updated job classad with PandaID={pandaid}')
-        return True
-
-    logger.warning(f'failed to update job classad with PandaID={pandaid}')
-    logger.debug(stdout)
-    logger.debug(stderr)
-    return False
+    logger.debug('successfully updated job ClassAd')
+    return True

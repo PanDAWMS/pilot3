@@ -256,7 +256,8 @@ def verify_error_code(job: Any):
     if job.piloterrorcode != 0 and job.is_analysis():
         if errors.is_recoverable(code=job.piloterrorcode):
             job.piloterrorcode = -abs(job.piloterrorcode)
-            job.state = 'failed'
+
+            set_pilot_state(job=job, state='failed')
             logger.info(f'failed user job is recoverable (error code={job.piloterrorcode})')
         else:
             logger.info('failed user job is not recoverable')
@@ -382,8 +383,7 @@ def is_final_update(job: Any, state: str, tag: str = 'sending') -> bool:
         # make sure that job.state is 'failed' if there's a set error code
         if job.piloterrorcode or job.piloterrorcodes:
             logger.warning('making sure that job.state is set to failed since a pilot error code is set')
-            state = 'failed'
-            job.state = state
+            set_pilot_state(job=job, state='failed')
         # make sure an error code is properly set
         elif state != 'finished':
             verify_error_code(job)
@@ -414,16 +414,15 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         msg = 'the max batch system time limit has been reached'
         logger.warning(msg)
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
-        state = 'failed'
-        job.state = state
+        set_pilot_state(job=job, state='failed')
 
     state = get_proper_state(job, state)
     if state in {'finished', 'holding', 'failed'}:
         logger.info(f'this job has now completed (state={state})')
         # job.completed = True  - do not set that here (only after the successful final server update)
     elif args.pod and args.workflow == 'stager':
-        state = 'running'  # stager pods should only send 'running' since harvester already has set the 'starting' state
-        job.state = state
+        # stager pods should only send 'running' since harvester already has set the 'starting' state
+        set_pilot_state(job=job, state='running')
 
     # should the pilot make any server updates?
     if not args.update_server:
@@ -2368,7 +2367,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             # (only proceed if there is a condor class ad)
             if os.environ.get('_CONDOR_JOB_AD', None):
                 htcondor_envvar(job.jobid)
-                update_condor_classad(job.jobid, "starting")
+                update_condor_classad(pandaid=job.jobid, state='retrieved')
 
             # add the job definition to the jobs queue and increase the job counter,
             # and wait until the job has finished
@@ -2893,7 +2892,7 @@ def get_finished_or_failed_job(args: object, queues: namedtuple) -> Any:
         job = get_job_from_queue(queues, "failed")
         if job:
             logger.debug('get_finished_or_failed_job: job has failed')
-            job.state = 'failed'
+            set_pilot_state(job=job, state='failed')
             args.job_aborted.set()
 
             # get the current log transfer status
@@ -3199,7 +3198,7 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                         error_code = errors.REACHEDMAXTIME
 
                     if error_code:
-                        jobs[i].state = 'failed'
+                        set_pilot_state(job=jobs[i], state='failed')
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
                         jobs[i].completed = True
                         #if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
