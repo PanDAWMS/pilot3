@@ -808,3 +808,87 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
             logger.warning(f'failed to write workernode map: {exc}')
 
     return data
+
+
+def find_condor_chirp() -> str:
+    """
+    Find the full path to condor_chirp using condor_config_val.
+
+    Returns:
+        str: Full path to condor_chirp if found, otherwise an error message.
+    """
+    path = which("condor_chirp")
+    if path:
+        return path
+    logger.warning(f'condor_chirp not found in standard $PATH={os.environ["PATH"]}')
+    path = os.path.join('/usr/bin', 'condor_chirp')
+    if os.path.isfile(path):
+        return path
+    logger.warning('condor_chirp not found in /usr/bin - trying condor_config_val to locate it}')
+    path = os.path.join('/usr/bin', 'condor_config_val')
+    if not os.path.isfile(path):
+        logger.warning(f'condor_config_val not found in {path} - cannot locate condor_chirp')
+        return "Error: condor_chirp not found"
+
+    try:
+        # Run condor_config_val to get the LIBEXEC path
+        result = subprocess.run(
+            ["condor_config_val", "-quiet", "LIBEXEC"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        libexec_path = result.stdout.strip()
+
+        # Construct full path to condor_chirp
+        chirp_path = os.path.join(libexec_path, "condor_chirp")
+
+        # Verify it actually exists
+        if os.path.isfile(chirp_path):
+            return chirp_path
+        else:
+            return f"Error: condor_chirp not found in {libexec_path}"
+    except subprocess.CalledProcessError:
+        return "Error: condor_config_val command failed or HTCondor not installed."
+    except FileNotFoundError:
+        return "Error: condor_config_val not found in PATH."
+
+
+def update_condor_classad(pandaid: int, state: str) -> bool:
+    """
+    Update the condor classad with PanDA information using condor_chirp.
+
+    Params:
+        pandaid: PanDA job id (int).
+        state: current job state (string).
+
+    Returns:
+        bool: True if condor_chirp is available and was used, False otherwise.
+    """
+    logger.debug('updating condor classad with PanDA job id')
+    path = find_condor_chirp()
+    if not path.startswith("/"):
+        logger.warning(path)
+        return False
+
+    # update the classad
+    cmd = f'{path} set_job_attr_delayed ChirpPandaID "{pandaid}"'
+    ec, stdout, stderr = execute(cmd)
+    if not ec and not stderr:
+        if state:
+            cmd = f'{path} set_job_attr_delayed ChirpPandaJobState "{state}"'
+            ec, stdout, stderr = execute(cmd)
+            if ec:
+                logger.warning(f'failed to set PandaJobState={state} for job classad with PandaID={pandaid}')
+                logger.debug(stdout)
+                logger.debug(stderr)
+                return False
+
+        logger.info(f'successfully updated job classad with PandaID={pandaid}')
+        return True
+
+    logger.warning(f'failed to update job classad with PandaID={pandaid}')
+    logger.debug(stdout)
+    logger.debug(stderr)
+    return False

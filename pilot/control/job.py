@@ -140,12 +140,13 @@ from pilot.util.timing import (
 )
 from pilot.util.workernode import (
     collect_workernode_info,
+    extract_site_and_schedd,
     get_cpu_info,
     get_cpu_model,
     get_disk_space,
     get_node_name,
+    update_condor_classad,
     update_modelstring,
-    extract_site_and_schedd
 )
 
 errors = ErrorCodes()
@@ -2367,6 +2368,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             # (only proceed if there is a condor class ad)
             if os.environ.get('_CONDOR_JOB_AD', None):
                 htcondor_envvar(job.jobid)
+                update_condor_classad(job.jobid, "starting")
 
             # add the job definition to the jobs queue and increase the job counter,
             # and wait until the job has finished
