@@ -152,6 +152,14 @@ def main() -> int:  # noqa: C901
                 f"specified queue is NOT ACTIVE: {infosys.queuedata.name} -- aborting"
             )
             return errors.PANDAQUEUENOTACTIVE
+
+        # make sure the queue is online
+        if infosys.queuedata.status.lower() != "online":
+            logger.critical(
+                f"specified queue is NOT ONLINE: {infosys.queuedata.name} -- aborting"
+            )
+            return errors.PANDAQUEUENOTONLINE
+
     except PilotException as error:
         logger.fatal(error)
         return error.get_error_code()
