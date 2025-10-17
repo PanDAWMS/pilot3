@@ -146,8 +146,7 @@ from pilot.util.workernode import (
     get_disk_space,
     get_node_name,
     update_condor_classad,
-    update_modelstring,
-)
+    update_modelstring)
 
 errors = ErrorCodes()
 logger = logging.getLogger(__name__)
