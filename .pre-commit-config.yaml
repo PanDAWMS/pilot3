@@ -18,7 +18,7 @@ repos:
         entry: circular-import-precommit
         language: python
         additional_dependencies:
-          - circular-import-detector==1.0.4   # pin the version you just released
+          - circular-import-detector==1.0.15   # pin the version you just released
         pass_filenames: false
         stages: [pre-commit]
 
