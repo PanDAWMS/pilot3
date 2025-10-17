@@ -867,6 +867,7 @@ def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
         bool: True if condor_chirp is available and was used, False otherwise.
     """
     logger.debug('updating condor ClassAd with PanDA job id')
+
     path = find_condor_chirp()
     if not path.startswith("/"):
         logger.warning(path)
