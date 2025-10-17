@@ -365,7 +365,6 @@ def set_pilot_state(job: Any = None, state: str = '') -> None:
 
     if job and job.state != 'failed':
         job.state = state
-
     update_condor_classad(state=state)
 
 
