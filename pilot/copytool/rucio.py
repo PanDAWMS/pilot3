@@ -426,7 +426,7 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                                                                                   trace_report_out, transfer_timeout,
                                                                                   rucio_host)
         except PilotException as error:
-            logger.warning(f"exception caught during stage-in: {str(error)}")
+            logger.warning(f"PilotException caught during stage-out: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -435,7 +435,7 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                 msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
         except Exception as error:
-            logger.warning(f"exception caught during stage-in: {str(error)}")
+            logger.warning(f"Exception caught during stage-out: {str(error)}")
             error_details = handle_rucio_error(str(error), trace_report, trace_report_out, fspec, stagein=False)
             protocol = get_protocol(trace_report_out)
             trace_report.update(protocol=protocol)
@@ -748,11 +748,12 @@ def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace
             logger.debug(f'trace_report_out={trace_report_out}')
 
             if attempt == stageout_attempts - 1:  # last attempt
-                # only raise an exception if the error info cannot be extracted
                 if not trace_report_out:
                     raise error
                 if not trace_report_out[0].get('stateReason'):
                     raise error
+                if "None of the given files have been uploaded" in str(error):
+                    raise PilotException(f"Rucio upload failed: {error}")
                 ec = -1
             else:
                 continue
