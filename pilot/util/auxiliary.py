@@ -25,7 +25,6 @@ import logging
 import os
 import re
 import shlex
-import socket
 import sys
 
 from collections.abc import Set, Mapping
@@ -44,12 +43,15 @@ from pilot.util.constants import (
     get_pilot_version,
 )
 from pilot.common.errorcodes import ErrorCodes
+from pilot.util.condor import (
+    get_globaljobid,
+    update_condor_classad
+)
 from pilot.util.container import execute
 from pilot.util.filehandling import (
     dump,
     grep
 )
-from pilot.util.workernode import update_condor_classad
 
 zero_depth_bases = (str, bytes, Number, range, bytearray)
 iteritems = 'items'
@@ -129,27 +131,6 @@ def get_batchsystem_jobid() -> (str, int):
         else:
             return "Condor", ret
     return None, ""
-
-
-def get_globaljobid() -> str:
-    """
-    Return the GlobalJobId value from the condor class ad.
-
-    :return: GlobalJobId value (str).
-    """
-    ret = ""
-    with open(os.environ.get("_CONDOR_JOB_AD"), 'r', encoding='utf-8') as _fp:
-        for line in _fp:
-            res = re.search(r'^GlobalJobId\s*=\s*"(.*)"', line)
-            if res is None:
-                continue
-            try:
-                ret = res.group(1)
-            except IndexError as exc:
-                logger.warning(f'failed to interpret GlobalJobId: {exc}')
-            break
-
-    return ret
 
 
 def get_job_scheduler_id() -> str:
@@ -696,69 +677,6 @@ def sort_words(input_str: str) -> str:
         logger.warning(f'failed to sort input string: {input_str}, exc={exc}')
 
     return output_str
-
-
-def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
-    """
-    Encode the global job id on HTCondor.
-
-    To be used as an environmental variable on HTCondor nodes to facilitate debugging.
-
-    Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
-
-    NEW FORMAT: WN hostname, process and user id
-
-    Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
-    characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
-    to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
-
-    :param jobid: panda job id (str)
-    :param maxsize: max length allowed (int)
-    :return: encoded global job id (str).
-    """
-    def get_host_name():
-        # spool1462.sdcc.bnl.gov -> spool1462
-        if 'PANDA_HOSTNAME' in os.environ:
-            host = os.environ.get('PANDA_HOSTNAME')
-        elif hasattr(os, 'uname'):
-            host = os.uname()[1]
-        else:
-            try:
-                host = socket.gethostname()
-            except socket.herror as e:
-                logger.warning(f'failed to get host name: {e}')
-                host = 'localhost'
-        return host.split('.')[0]
-
-    globaljobid = get_globaljobid()
-    if not globaljobid:
-        return ""
-
-    try:
-        _globaljobid = globaljobid.split('#')
-        # host = _globaljobid[0]
-        tmp = _globaljobid[1].split('.')
-        # timestamp = _globaljobid[2] - ignore this one
-        # clusterid = tmp[0]
-        processid = tmp[1]
-    except IndexError as exc:
-        logger.warning(exc)
-        return ""
-
-    host_name = get_host_name()
-    if processid and host_name:
-        global_name = f'{host_name}_{processid}_{jobid}'
-    else:
-        global_name = ''
-
-    if len(global_name) > maxsize:
-        logger.warning(f'HTCondor: global name is exceeding maxsize({maxsize}), will be truncated: {global_name}')
-        global_name = global_name[-maxsize:]
-        logger.debug(f'HTCondor: final global name={global_name}')
-    else:
-        logger.debug(f'HTCondor: global name is within limits: {global_name} (length={len(global_name)}, max size={maxsize})')
-
-    return global_name
 
 
 def grep_str(patterns: list, stdout: str) -> list:

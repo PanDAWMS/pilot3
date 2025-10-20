@@ -53,7 +53,6 @@ from pilot.util import https
 from pilot.util.activemq import ActiveMQ
 from pilot.util.auxiliary import (
     check_for_final_server_update,
-    encode_globaljobid,
     get_batchsystem_jobid,
     # get_display_info,
     get_job_scheduler_id,
@@ -64,10 +63,14 @@ from pilot.util.auxiliary import (
     pilot_version_banner,
     set_pilot_state,
 )
-from pilot.util.config import config
 from pilot.util.common import (
     should_abort,
     was_pilot_killed
+)
+from pilot.util.config import config
+from pilot.util.condor import (
+    encode_globaljobid,
+    update_condor_classad
 )
 from pilot.util.constants import (
     PILOT_MULTIJOB_START_TIME,
@@ -145,7 +148,6 @@ from pilot.util.workernode import (
     get_cpu_model,
     get_disk_space,
     get_node_name,
-    update_condor_classad,
     update_modelstring
 )
 
