@@ -23,7 +23,33 @@
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
-"""Control interface to data API."""
+"""
+Control interface to data API.
+
+This module manages all data transfer operations for pilot jobs, including stage-in of input files
+and stage-out of output files and logs. It operates as a control layer, orchestrating data transfers
+through a system of "copytools."
+
+The core of this module is a set of threads that continuously monitor queues for jobs that require
+data transfers:
+- `copytool_in`: This thread handles the stage-in of input files for jobs. It retrieves jobs from
+  the `data_in` queue, determines the appropriate copytool to use, and initiates the transfer.
+- `copytool_out`: This thread manages the stage-out of output files. Once a job has finished
+  execution, it is placed in the `data_out` queue, and this thread handles the upload of
+  output files to the appropriate storage elements.
+- `queue_monitoring`: This thread monitors the status of the data transfer queues and handles
+  jobs that have either completed or failed the transfer process.
+
+The actual data transfer logic is abstracted away into "copytools," which are individual modules
+located in the `pilot/copytool/` directory. Each copytool is responsible for a specific transfer
+protocol or technology, such as Rucio, xrdcp, etc. This module interacts with the copytools
+through the `StageInClient` and `StageOutClient` classes from the `pilot.api.data` module, which
+provide a unified interface for initiating transfers regardless of the underlying copytool used.
+
+The selection of which copytool to use is determined by the site configuration and the protocols
+supported by the storage elements involved in the transfer. This allows for a flexible and
+extensible data transfer framework that can be adapted to different computing environments.
+"""
 
 import logging
 import os
