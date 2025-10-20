@@ -916,6 +916,39 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
     """
     Use the `StageOutClient` in the Data API to perform stage-out.
 
+    This function orchestrates the stage-out process, including a fallback mechanism known as
+    "alternative stage-out." This allows the pilot to attempt transferring output files to a
+    secondary storage element (RSE) if the primary one fails.
+
+    The alternative stage-out logic is as follows:
+    1.  **Initial Transfer Attempt**: The function first calls `client.transfer()` to attempt
+        uploading all files to their primary destination RSEs. Crucially, if alternative
+        stage-out is enabled for the job (`job.allow_altstageout()` is True), the `transfer`
+        method is called with `raise_exception=False`. This ensures that if a transfer fails,
+        the function does not immediately exit but continues execution, allowing for a retry.
+
+    2.  **Failure Detection**: After the initial attempt, the code checks for any files that
+        were not successfully transferred by creating a `remain_files` list.
+
+    3.  **Conditions for Retry**: An alternative stage-out is attempted only if all of the
+        following conditions are met:
+        a. The job is configured to allow alternative stage-out (`altstageout` is True).
+        b. There are files remaining that failed the first transfer attempt (`remain_files` is not empty).
+        c. Every file that failed has an alternative destination defined (`has_altstorage` is True).
+           The alternative destination is stored in the `ddmendpoint_alt` attribute of the file spec.
+
+    4.  **Executing the Alternative Transfer**: If the conditions are met, the function iterates
+        through the list of failed files. For each file, it swaps the primary destination
+        (`entry.ddmendpoint`) with the alternative one (`entry.ddmendpoint_alt`).
+
+    5.  **Second Transfer Attempt**: The `client.transfer()` method is called a second time.
+        The `StageOutClient` will now attempt to transfer the previously failed files to their
+        newly assigned alternative destinations. Files that were successfully transferred in the
+        first attempt are ignored.
+
+    The function returns `True` only if all files are successfully transferred after these
+    attempts.
+
     The rucio host is internally set by Rucio via the client config file. This can be set directly as a pilot option
     --rucio-host.
 
