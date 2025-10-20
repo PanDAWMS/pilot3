@@ -293,16 +293,33 @@ class JobData(BaseData):
             if self.accessmode:  ## Job input options (job params) overwrite any other settings
                 accessmode = self.accessmode
 
+            # idat['accessmode'] = accessmode
+            # # init access setting from queuedata
+            # if self.infosys and self.infosys.queuedata:
+            #    for key in access_keys:
+            #         idat[key] = getattr(self.infosys.queuedata, key)
+
+            # finfo = FileSpec(filetype='input', **idat)
+            # logger.info(f'added file \'{lfn}\' with accessmode \'{accessmode}\'')
+            # ret.append(finfo)
+
             idat['accessmode'] = accessmode
             # init access setting from queuedata
             if self.infosys and self.infosys.queuedata:
                 for key in access_keys:
                     idat[key] = getattr(self.infosys.queuedata, key)
+                # If the queue catchall contains `allow_wan_for_lib` in PQ.catchall, force allow_wan for lib files
+                try:
+                    catchall = getattr(self.infosys.queuedata, 'catchall', None)
+                    if catchall and 'allow_wan_for_lib' in catchall and '.lib.' in lfn:
+                        idat['allow_wan'] = True
+                except Exception:
+                    # defensive: don't break on unexpected catchall types
+                    pass
 
             finfo = FileSpec(filetype='input', **idat)
             logger.info(f'added file \'{lfn}\' with accessmode \'{accessmode}\'')
             ret.append(finfo)
-
         return ret
 
     def set_accessmode(self):
