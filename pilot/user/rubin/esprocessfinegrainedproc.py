@@ -170,7 +170,9 @@ class ESProcessFineGrainedProc(threading.Thread):
 
     def get_transformation(self):
         if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].transformation:
-            return self.__payload['job'].transformation
+            base_transform = os.path.basename(self.__payload['job'].transformation)
+            transform = os.path.join(self.__payload['job'].workdir, base_transform)
+            return transform
         return None
 
     def get_corecount(self):
@@ -478,9 +480,9 @@ class ESProcessFineGrainedProc(threading.Thread):
         # executable = "cd  " + event_dir + "; " + executable
 
         transformation = self.get_transformation()
-        base_transformation = os.path.basename(transformation)
+        # base_transformation = os.path.basename(transformation)
 
-        executable = "cp -f " + base_transformation + " " + event_dir + "; cd  " + event_dir + "; " + executable
+        executable = "cp -f " + transformation + " " + event_dir + "; cd  " + event_dir + "; " + executable
 
         stdout_filename = os.path.join(event_dir, "payload.stdout")
         stderr_filename = os.path.join(event_dir, "payload.stderr")
@@ -704,7 +706,8 @@ class ESProcessFineGrainedProc(threading.Thread):
                     logger.warning(f"found apptainer error in stderr: {error_message}")
                     if exit_code == 0 and _exit_code != 0:
                         logger.warning("will overwrite trf exit code 0 due to previous error")
-                exit_code = _exit_code
+                # need to pass the exit_code to the job.
+                # exit_code = _exit_code
                 # diagnostics = errors.format_diagnostics(exit_code, diagnostics)
 
                 diagnostics = errors.format_diagnostics(exit_code, err_msg)

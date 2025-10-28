@@ -89,9 +89,9 @@ class BaseExecutor(threading.Thread, PluginFactory):
 
     def start(self):
         """Start the BaseExecutor."""
-        super().start()
         self.communication_manager = CommunicationManager()
         self.communication_manager.start()
+        super().start()
 
     def stop(self):
         """Stop the BaseExecutor."""
