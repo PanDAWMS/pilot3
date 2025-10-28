@@ -481,7 +481,7 @@ class ESProcessFineGrainedProc(threading.Thread):
 
         transformation = self.get_transformation()
         # base_transformation = os.path.basename(transformation)
-        
+
         executable = "cp -f " + transformation + " " + event_dir + "; cd  " + event_dir + "; " + executable
 
         stdout_filename = os.path.join(event_dir, "payload.stdout")
