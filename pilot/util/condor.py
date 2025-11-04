@@ -27,13 +27,26 @@ import re
 import socket
 import subprocess
 from shutil import which
+from pathlib import Path
 
 from pilot.util.container import execute
 
 logger = logging.getLogger(__name__)
 
+COMMON_CONDOR_BINS = [
+    "/usr/bin/condor_config_val",
+    "/usr/sbin/condor_config_val",
+    "/opt/condor/bin/condor_config_val",
+    "/opt/condor/sbin/condor_config_val",
+]
+COMMON_LIBEXEC_DIRS = [
+    "/usr/libexec/condor",
+    "/usr/lib/condor",
+    "/opt/condor/libexec",
+]
 
-def find_condor_chirp() -> str:
+
+def find_condor_chirp_old() -> str:
     """
     Find the full path to condor_chirp using condor_config_val.
 
@@ -72,8 +85,8 @@ def find_condor_chirp() -> str:
             return chirp_path
         else:
             return f"Error: condor_chirp not found in {libexec_path}"
-    except subprocess.CalledProcessError:
-        return "Error: condor_config_val command failed or HTCondor not installed."
+    except subprocess.CalledProcessError as exc:
+        return f"Error: condor_config_val command failed or HTCondor not installed: {exc}"
     except FileNotFoundError:
         return "Error: condor_config_val not found in PATH."
 
@@ -213,3 +226,85 @@ def get_condor_node_name(nodename):
         nodename = "%s@%s" % (os.environ.get("_CONDOR_SLOT"), nodename)
 
     return nodename
+
+
+def _expand_macros(v, defs):
+    return re.sub(r"\$\(([^)]+)\)", lambda m: defs.get(m.group(1), m.group(0)), v)
+
+
+def _parse_condor_config(path):
+    defs = {}
+    try:
+        for raw in Path(path).read_text().splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if not line or "=" not in line:
+                continue
+            k, v = [x.strip() for x in line.split("=", 1)]
+            v = _expand_macros(v, defs)
+            defs[k] = v
+    except Exception:
+        pass
+    return defs
+
+
+def find_condor_chirp():
+    # 0) If caller already hints the libexec dir, use it.
+    if "_CONDOR_LIBEXEC" in os.environ:
+        p = Path(os.environ["_CONDOR_LIBEXEC"]) / "condor_chirp"
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p)
+
+    # 1) Try condor_config_val (PATH or common locations)
+    exe = which("condor_config_val")
+    if not exe:
+        for p in COMMON_CONDOR_BINS:
+            if Path(p).is_file() and os.access(p, os.X_OK):
+                exe = p
+                break
+
+    condor_cfg_err = None
+    if exe:
+        # Helpful diagnostic: where configs are expected
+        _ = subprocess.run([exe, "-config"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run([exe, "-quiet", "LIBEXEC"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode == 0:
+            libexec = proc.stdout.strip()
+            p = Path(libexec) / "condor_chirp"
+            if p.is_file() and os.access(p, os.X_OK):
+                return str(p)
+            else:
+                condor_cfg_err = f"LIBEXEC reported as '{libexec}', but condor_chirp not found there."
+        else:
+            condor_cfg_err = proc.stderr.strip() or "condor_config_val exited with code 1 without stderr."
+
+    # 2) If a specific config is pointed to, parse it for LIBEXEC
+    cfg = os.environ.get("CONDOR_CONFIG")
+    if cfg and Path(cfg).is_file():
+        defs = _parse_condor_config(cfg)
+        libexec = defs.get("LIBEXEC")
+        if libexec:
+            p = Path(libexec) / "condor_chirp"
+            if p.is_file() and os.access(p, os.X_OK):
+                return str(p)
+
+    # 3) Directly in PATH?
+    cp = which("condor_chirp")
+    if cp:
+        return cp
+
+    # 4) Common install dirs
+    for d in COMMON_LIBEXEC_DIRS:
+        p = Path(d) / "condor_chirp"
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p)
+
+    # Final, informative error
+    tips = [
+        "If you're on a worker node/container, HTCondor may not expose configs to your env.",
+        "Try: export CONDOR_CONFIG=/etc/condor/condor_config  (or your site's path).",
+        "Or set: export _CONDOR_LIBEXEC=/usr/libexec/condor   (or /opt/condor/libexec).",
+        "Verify tool: which condor_config_val; condor_config_val -config",
+    ]
+    detail = f"condor_config_val diagnostics: {condor_cfg_err}" if condor_cfg_err else "condor_config_val not found."
+    return "condor_chirp not found. " + detail + " | " + " ".join(tips)
