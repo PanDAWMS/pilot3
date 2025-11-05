@@ -68,7 +68,10 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
 from pilot.info.jobdata import JobData
 
-from .auxiliary import is_kubernetes_resource
+from .auxiliary import (
+    is_kubernetes_resource,
+    set_pilot_state
+)
 from .config import config
 from .constants import get_pilot_version
 from .container import execute
@@ -525,7 +528,7 @@ def send_update(update_function: str, data: dict, url: str, port: int, job: JobD
     if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
         data['state'] = 'failed'
         if job:
-            job.state = 'failed'
+            set_pilot_state(job=job, state='failed')
             job.completed = True
             msg = 'the max batch system time limit has been reached'
             logger.warning(msg)

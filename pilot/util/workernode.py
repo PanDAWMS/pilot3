@@ -38,6 +38,7 @@ from pilot.common.exception import (
 )
 from pilot.info import infosys
 from pilot.util.auxiliary import sort_words
+from pilot.util.condor import get_condor_node_name
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.disk import disk_usage
@@ -243,20 +244,6 @@ def get_node_name():
         host = socket.gethostname()
 
     return get_condor_node_name(host)
-
-
-def get_condor_node_name(nodename):
-    """
-    On a condor system, add the SlotID to the nodename
-
-    :param nodename:
-    :return:
-    """
-
-    if "_CONDOR_SLOT" in os.environ:
-        nodename = "%s@%s" % (os.environ.get("_CONDOR_SLOT"), nodename)
-
-    return nodename
 
 
 def get_cpu_model() -> str:
