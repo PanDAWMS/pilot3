@@ -154,9 +154,9 @@ def main() -> int:  # noqa: C901
             return errors.PANDAQUEUENOTACTIVE
 
         # make sure the queue is online
-        if infosys.queuedata.status.lower() != "online":
+        if infosys.queuedata.status.lower() == "offline":
             logger.critical(
-                f"specified queue is NOT ONLINE: {infosys.queuedata.name} -- aborting"
+                f"specified queue is OFFLINE: {infosys.queuedata.name} -- aborting"
             )
             return errors.PANDAQUEUENOTONLINE
 
