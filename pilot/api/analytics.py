@@ -22,8 +22,7 @@
 """Functions for performing analytics including fitting of data."""
 
 import logging
-from typing import Any
-
+from typing import Any, Union
 from .services import Services
 from pilot.common.exception import NotDefined, NotSameLength, UnknownException
 from pilot.util.filehandling import get_table_from_file
@@ -51,11 +50,16 @@ class Analytics(Services):
 
         For a linear model: y(x) = slope * x + intersect
 
-        :param x: list of input data (list of floats or ints) (list)
-        :param y: list of input data (list of floats or ints) (list)
-        :param model: model name (str)
-        :raises UnknownException: in case Fit() fails
-        :return: fit (Any).
+        Args:
+            x (list[float] | list[int]): Input x data points.
+            y (list[float] | list[int]): Input y data points.
+            model (str): Model name. Defaults to "linear".
+
+        Raises:
+            UnknownException: If constructing the Fit object fails.
+
+        Returns:
+            Fit: Fit object containing the fitted parameters and diagnostics.
         """
         try:
             self._fit = Fit(x=x, y=y, model=model)
@@ -64,24 +68,29 @@ class Analytics(Services):
 
         return self._fit
 
-    def slope(self) -> float:
+    def slope(self) -> Union[float, None]:
         """
-        Return the slope of a linear fit, y(x) = slope * x + intersect.
+        Return the slope of a linear fit y(x) = slope * x + intersect.
 
-        :raises NotDefined: exception thrown if fit is not defined.
-        :return: slope (float).
+        Raises:
+            NotDefined: If the fit has not been defined.
+
+        Returns:
+            float | None: The slope value if available, otherwise None.
         """
         if not self._fit:
             raise NotDefined("Fit has not been defined")
 
         return self._fit.slope()
 
-    def intersect(self) -> float:
+    def intersect(self) -> Union[float, None]:
         """
-        Return the intersect of a linear fit, y(x) = slope * x + intersect.
+        Return the intersect of a linear fit y(x) = slope * x + intersect.
 
-        :raises NotDefined: exception thrown if fit is not defined
-        :return: intersect (float).
+        Raises:
+            NotDefined: If the fit has not been defined.
+
+        Returns:
         """
         if not self._fit:
             raise NotDefined("Fit has not been defined")
@@ -397,9 +406,9 @@ class Fit():
         """
         Calculate and set the intersect of the linear fit.
         """
-        if self._ym and self._slope and self._xm:
+        if self._ym is not None and self._slope is not None and self._xm is not None:
             self._intersect = self._ym - self._slope * self._xm
-            logger.info("-- intersect: %s", self._intersect)
+            logger.debug(f"{self._ym} - {self._slope} * {self._xm} = {self._intersect}")
         else:
             self._intersect = None
             logger.info("could not calculate intersect")

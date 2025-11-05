@@ -22,7 +22,71 @@
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
 
-"""API for data transfers."""
+"""
+API for data transfers.
+
+This module provides a high-level API for managing data transfers (stage-in and stage-out)
+within the Pilot framework. It serves as an abstraction layer over various underlying transfer
+protocols and tools, collectively known as "copytools." The primary goal is to provide a
+unified interface for staging data, regardless of the specific technology used for the transfer.
+
+Core Classes:
+- `StagingClient`: This is the base class that provides the common framework for data staging.
+  It handles the dynamic selection of copytools based on site configuration and the type of
+  activity (e.g., 'read_lan', 'write_wan'). It includes methods for resolving file replicas
+  from catalogs like Rucio, sorting them based on priority (e.g., LAN vs. WAN), and
+  orchestrating the transfer process through the `transfer` method. It also manages tracing
+  and logging for transfers.
+
+- `StageInClient`: This class inherits from `StagingClient` and specializes in handling the
+  stage-in of input files. It contains logic to resolve the best replica for input files,
+  considering factors like direct access modes (LAN/WAN), allowed schemas (e.g., 'root', 'https'),
+  and site-specific storage configurations. It is also responsible for checking available
+  disk space and verifying that input file sizes are within configured limits.
+
+- `StageOutClient`: This class, also inheriting from `StagingClient`, is responsible for
+  staging out output files. Its key functionality includes preparing destinations by resolving
+  the correct output storage element (RSE) based on the activity. It constructs the final
+  destination SURL (Storage URL) for the output files, calculates checksums for verification,
+  and ensures that output files exist and have a non-zero size before initiating the transfer.
+
+Key Concepts:
+- Copytools: The actual file transfers are delegated to specific "copytool" modules, which
+  are located in the `pilot/copytool/` directory (e.g., `rucio`, `xrdcp`, `gfal`). The
+  `StagingClient` dynamically imports and uses the appropriate copytool based on the
+  `acopytools` configuration for a given activity. This design makes the system extensible
+  to new transfer protocols.
+
+- Replica Resolution: For stage-in, the client queries a catalog (like Rucio) to find all
+  available replicas (copies) of a file. These replicas are then sorted by priority
+  (e.g., network proximity, site preference) to select the most efficient source for the
+  transfer.
+
+- Protocol and Destination Resolution: For stage-out, the client determines the correct
+  destination storage and the protocol to use for the transfer based on site and experiment
+  configurations stored in `ddmconf` and `astorages`.
+
+- Direct Access: The `StageInClient` supports a "direct access" or "remote I/O" mode, where
+  files are not physically copied to the worker node but are accessed remotely by the payload.
+  The client identifies when this mode is applicable and sets the file status accordingly,
+  providing the payload with the correct remote TURL (Transport URL).
+
+Workflow:
+1. A `StageInClient` or `StageOutClient` is instantiated with site-specific information.
+2. The `transfer` method is called with a list of `FileSpec` objects that represent the
+   files to be transferred.
+3. The client determines the appropriate copytool(s) for the given activity.
+4. For each copytool, the client prepares the files:
+   - Stage-in: Resolves replicas, selects the best source URL, and checks for direct
+     access possibilities.
+   - Stage-out: Resolves the destination URL and prepares the source file by checking for
+     its existence and calculating its checksum.
+5. The client calls the `copy_in` or `copy_out` function of the selected copytool module,
+   passing the list of files to be transferred.
+6. The copytool executes the transfer.
+7. The client updates the status of the `FileSpec` objects and handles any errors. If one
+   copytool fails, it can try the next one in the configured list.
+"""
 
 import os
 import hashlib
