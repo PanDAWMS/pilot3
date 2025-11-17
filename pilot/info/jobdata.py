@@ -89,6 +89,7 @@ class JobData(BaseData):
     pandasecrets = ""              # User defined secrets
     pilotsecrets = {}              # Real-time logging secrets
     requestid = None               # Request ID
+    resourcetype = None  # resource type (SCORE, MCORE, etc)
 
     # set by the pilot (not from job definition)
     workdir = ""                   # working directory for this job
@@ -199,7 +200,7 @@ class JobData(BaseData):
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
                    'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
-                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus'],
+                   'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus', 'resourcetype'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata', 'cpufrequencies'],
              dict: ['status', 'fileinfo', 'metadata', 'utilities', 'overwrite_queuedata', 'sizes', 'preprocess',
@@ -553,7 +554,8 @@ class JobData(BaseData):
             'dask_scheduler_ip': 'scheduler_ip',
             'jupyter_session_ip': 'session_ip',
             'minramcount': 'minRamCount',
-            'altstageout': 'altStageOut'
+            'altstageout': 'altStageOut',
+            'resourcetype': 'resource_type'
         } if use_kmap else {}
 
         self._load_data(data, kmap)
