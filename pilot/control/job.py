@@ -1110,7 +1110,8 @@ def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
                          config.Container.container_script, config.Container.release_setup,
                          config.Container.stagein_status_dictionary, config.Container.stagein_replica_dictionary,
                          'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot',
-                         f'curl_updateJob_{jobid}.config', config.Pilot.pilot_heartbeat_file]
+                         f'curl_updateJob_{jobid}.config', config.Pilot.pilot_heartbeat_file,
+                         './panda_token', 'panda_token']
     except Exception as error:
         logger.warning(f'exception caught: {error}')
         to_be_removed = []
