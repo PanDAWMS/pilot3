@@ -500,8 +500,19 @@ def send_worker_status(
     data["site"] = queue
     data["node_id"] = get_node_name()
 
+    data_new = {}
+    data_new["worker_id"] = os.environ.get("HARVESTER_WORKER_ID", None)
+    data_new["harvester_id"] = os.environ.get("HARVESTER_ID", None)
+    data_new["status"] = status
+    # data_new["site"] = queue
+    data_new["node_id"] = get_node_name()
+
     # attempt to send the worker info to the server
+    # if data_new["worker_id"] and data_new["harvester_id"]:
     if data["workerID"] and data["harvesterID"]:
+        # send_update(
+        #   "update_worker_status", data_new, url, port, ipv=internet_protocol_version, max_attempts=2
+        # )
         send_update(
             "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version, max_attempts=2
         )

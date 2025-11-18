@@ -164,6 +164,8 @@ class ExtInfoProvider(DataLoader):
 
             return {pandaqueue: _dat}
 
+        x509_org = os.environ.get('X509_USER_PROXY', '')
+        logger.debug(f"x509_org='{x509_org}'")
         _url = os.environ.get('QUEUEDATA_SERVER_URL')
         queuedata_url = (_url or getattr(config.Information, 'queuedata_url', '')).format(**{'pandaqueue': pandaqueues[0]})
         logger.debug(f'xxx queuedata url={queuedata_url}')
