@@ -36,7 +36,6 @@ from pilot.common.exception import (
     PilotException,
     ErrorCodes
 )
-from pilot.info import infosys
 from pilot.util.auxiliary import sort_words
 from pilot.util.condor import get_condor_node_name
 from pilot.util.config import config
@@ -255,11 +254,7 @@ def get_disk_space(queuedata):
 
     # --- non Job related queue data
     # jobinfo provider is required to consider overwriteAGIS data coming from Job
-    _maxinputsize = infosys.queuedata.maxwdir
-    logger.debug(f'resolved value from global infosys.queuedata instance: infosys.queuedata.maxwdir={_maxinputsize} B')
     _maxinputsize = queuedata.maxwdir
-    logger.debug(f'resolved value: queuedata.maxwdir={_maxinputsize} B')
-
     try:
         _du = disk_usage(os.path.abspath("."))
         _diskspace = int(_du[2] / (1024 * 1024))  # need to convert from B to MB
