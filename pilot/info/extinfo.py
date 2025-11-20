@@ -164,17 +164,10 @@ class ExtInfoProvider(DataLoader):
 
             return {pandaqueue: _dat}
 
-        x509_org = os.environ.get('X509_USER_PROXY', '')
-        logger.debug(f"x509_org='{x509_org}'")
         _url = os.environ.get('QUEUEDATA_SERVER_URL')
         queuedata_url = (_url or getattr(config.Information, 'queuedata_url', '')).format(**{'pandaqueue': pandaqueues[0]})
-        logger.debug(f'xxx queuedata url={queuedata_url}')
-        logger.debug(f'xxx QUEUEDATA_SERVER_URL={_url}')
         _inf = getattr(config.Information, 'queuedata_url', '')
-        logger.debug(f'xxx config.Information={_inf}')
-        logger.debug(f'xxx queuename={pandaqueues[0]}')
         cric_url = getattr(config.Information, 'queues_url', None)
-        logger.debug(f'xxx cric url={cric_url}')
         cric_url = cric_url.format(pandaqueue=pandaqueues[0] if len(pandaqueues) == 1 else 'pandaqueues')
         cvmfs_path = cls.get_cvmfs_path(getattr(config.Information, 'queuedata_cvmfs', None), 'cric_pandaqueues.json')
 
