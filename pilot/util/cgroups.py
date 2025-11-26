@@ -290,6 +290,80 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     return True
 
 
+def get_writable_cgroup_parent(raw_cgroup_path: str or Path) -> Path:
+    """
+    Given the cgroup path HTCondor puts the job in, return the cgroup
+    where we are allowed to create a child cgroup.
+
+    For HTCondor 24+ with cgroup v2:
+      job processes: .../job.slice/job.scope
+      writable for pilot: .../job.slice
+    """
+    p = Path(raw_cgroup_path)
+
+    # If we are inside the .scope node, go up to the .slice parent
+    if p.name.endswith(".scope"):
+        slice_path = p.parent
+        logger.debug(f"Detected .scope cgroup; using parent slice {slice_path}")
+        return slice_path
+
+    # If we’re already at the .slice (or some older layout), just return it
+    return p
+
+
+def create_subgroup(parent_path: str or Path, subgroup_name: str) -> str:
+    """
+    Create a cgroup v2 subgroup for the pilot / controller.
+
+    This function normalizes the provided `parent_path` to a writable parent
+    (handles `.scope` -> `.slice`), creates the requested subgroup directory
+    under that writable parent, and returns the path to the created subgroup.
+    On failure it logs a warning and returns an empty string to match existing
+    caller expectations.
+
+    Args:
+        parent_path (str or Path): Path to the parent cgroup (may be a job
+            cgroup or a `.scope` node).
+        subgroup_name (str): Name of the subgroup to create.
+
+    Returns:
+        str: Absolute path to the created subgroup on success, or an empty
+            string on failure.
+
+    Notes:
+        - Uses `get_writable_cgroup_parent` to determine where creation is
+          permitted (e.g. move from `.scope` to `.slice`).
+        - Failure cases (permission denied, OS errors) are handled by logging
+          and returning an empty string.
+    """
+    # Normalize to the writable parent (handles .scope → .slice)
+    writable_parent = get_writable_cgroup_parent(parent_path)
+
+    subgroup_path = Path(writable_parent) / subgroup_name
+
+    try:
+        subgroup_path.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        logger.warning(
+            "failed to create cgroup %s at %s (permission denied): %s",
+            subgroup_name,
+            writable_parent,
+            e,
+        )
+        return ""
+    except OSError as e:
+        logger.warning(
+            "failed to create cgroup %s at %s: %s",
+            subgroup_name,
+            writable_parent,
+            e,
+        )
+        return ""
+
+    logger.info("created cgroup at: %s", subgroup_path)
+    return str(subgroup_path)
+
+
 def create_subgroup(parent_path: str, subgroup_name: str) -> str:
     """
     Creates an additional cgroup for subprocesses under the specified parent cgroup path.
