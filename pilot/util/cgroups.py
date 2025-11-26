@@ -170,50 +170,6 @@ def parse_cgroup_path(size: int) -> str:
     return None
 
 
-def parse_cgroup_path_old(size: int) -> str:
-    """
-    Parse the cgroup v2 path from /proc/self/cgroup.
-
-    Reads the contents of /proc/self/cgroup and extracts the path associated
-    with the cgroup v2 entry (entry with id 0 and empty controller field).
-
-    This function mimics the behavior of a C function using a fixed-size buffer.
-    It prints the contents of the file for debugging and returns the parsed path,
-    truncated to the given size (minus one character to allow for null-termination in C).
-
-    Translated from C code: https://github.com/arosberg/memory_allocator/blob/main/memory_allocator.c
-
-    Args:
-        size (int): The maximum allowed length of the returned path, simulating a buffer size.
-
-    Returns:
-        str: The parsed cgroup v2 path, truncated to (size - 1) characters if needed.
-    """
-    try:
-        with open(PROC_CGROUP_PATH, "r", encoding='utf-8') as f_cgroup:
-            logger.debug(f"parent: Contents of {PROC_CGROUP_PATH}:")
-            for line in f_cgroup:
-                logger.debug(f"parent: {line.strip()}")
-
-                # Attempt to parse line using the expected format: <id>::<path>
-                parts = line.strip().split("::")
-                if len(parts) == 2:
-                    try:
-                        id_ = int(parts[0])
-                        path = parts[1]
-                        if id_ == 0:
-                            # Ensure the path does not exceed the size limit
-                            return path[:size - 1]
-                    except ValueError:
-                        continue
-    except IOError:
-        logger.warning(f"failed to open {PROC_CGROUP_PATH}")
-        return None
-
-    logger.warning(f"error: failed to parse cgroup path from {PROC_CGROUP_PATH}")
-    return None
-
-
 def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> bool:  # noqa: C901
     """
     Create a cgroup for the current process.
@@ -293,11 +249,23 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
 def get_writable_cgroup_parent(raw_cgroup_path: str or Path) -> Path:
     """
     Given the cgroup path HTCondor puts the job in, return the cgroup
-    where we are allowed to create a child cgroup.
+    where a child cgroup may be created.
 
-    For HTCondor 24+ with cgroup v2:
-      job processes: .../job.slice/job.scope
-      writable for pilot: .../job.slice
+    This function normalizes the provided cgroup path so that if the process
+    is placed inside a `.scope` node (common in systemd/HTCondor layouts) it
+    returns the parent `.slice` directory which is writable for creating
+    child cgroups. If the supplied path is already writable (for example a
+    `.slice` or a legacy layout), it is returned unchanged.
+
+    Args:
+        raw_cgroup_path (str or Path): Path to the job's cgroup. May be a
+            string or a `pathlib.Path`, and may refer to a `.scope`, `.slice`
+            or other layout.
+
+    Returns:
+        Path: A `pathlib.Path` pointing to the writable parent cgroup where
+        child subgroups may be created (typically the `.slice` parent of a
+        `.scope`), or the original path if no normalization is required.
     """
     p = Path(raw_cgroup_path)
 
