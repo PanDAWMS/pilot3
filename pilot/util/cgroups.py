@@ -174,16 +174,17 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     """
     Create a cgroup for the current process.
 
-    This function creates a cgroup for the current process and returns its path. It also creates a controller
-    and moves the current process into that cgroup. Additionally, it moves all processes in the parent cgroup
-    to the control subgroup. Finally, it enables memory and pid controllers in the parent cgroup.
+    This function creates a cgroup for the current process and returns True on success.
+    It also creates a controller subgroup and moves the current process into that cgroup.
+    Additionally, it moves all processes in the parent cgroup to the control subgroup.
+    Finally, it enables memory and pid controllers in the parent cgroup.
 
-    It also creates a cgroup for the subprocess that will be created by the main process, so that the subprocess
-    can be monitored and controlled as well.
+    It also creates a cgroup for the subprocess that will be created by the main process,
+    so that the subprocess can be monitored and controlled as well.
 
     Args:
         pid (int): The process ID to create the cgroup for. Default is the current process ID.
-        controller (str, optional): The controller to create the cgroup for. Default is "controller0".
+        controller (str, optional): The controller to create the cgroup for. Default is "controller".
 
     Returns:
         bool: True if the cgroup was successfully created, False otherwise.
@@ -199,21 +200,29 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     current_cgroup_path = parse_cgroup_path(1024)  # ad hoc size
     if not current_cgroup_path:
         logger.warning(f"failed to parse cgroup path from {PROC_CGROUP_PATH}")
-        return ""
+        return False
     logger.debug(f"current_cgroup_path= {current_cgroup_path}")
 
-    # Construct the full path to the parent cgroup
-    parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])  # remove the initial / from current_cgroup_path
-    logger.debug(f"parent_cgroup_path= {parent_cgroup_path}")
+    # Construct the full path to the (raw) parent cgroup under /sys/fs/cgroup
+    # current_cgroup_path starts with '/', so skip the first char
+    raw_parent_cgroup_path = os.path.join(CGROUP_PATH, current_cgroup_path[1:])
+    logger.debug(f"raw_parent_cgroup_path= {raw_parent_cgroup_path}")
+
+    # 🟢 NEW: normalize .scope → .slice so we use the writable parent
+    parent_cgroup_path = get_writable_cgroup_parent(raw_parent_cgroup_path)
+    logger.debug(f"parent_cgroup_path (writable)= {parent_cgroup_path}")
 
     # Create a "controller" cgroup for the parent process
     controller_cgroup_path = create_subgroup(parent_cgroup_path, controller)
     if not controller_cgroup_path:
+        logger.warning(f"failed to create controller cgroup at {parent_cgroup_path}")
         return False
 
     status = move_process_to_cgroup(controller_cgroup_path, os.getpid())
     if not status:
-        logger.warning(f"failed to move process to controller_cgroup_path: {controller_cgroup_path}")
+        logger.warning(
+            f"failed to move process to controller_cgroup_path: {controller_cgroup_path}"
+        )
         return False
 
     # move all processes in the parent cgroup to the control subgroup
@@ -225,13 +234,13 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
         logger.warning(f"failed to create subprocesses cgroup at {parent_cgroup_path}")
         return False
 
-    # also create a new cgroup for the payload
+    # also create a new cgroup for the payload (still optional / commented)
     # payload_cgroup_path = create_subgroup(parent_cgroup_path, "payload")
     # if not payload_cgroup_path:
     #     logger.warning(f"failed to create payload cgroup at {parent_cgroup_path}")
     #     return False
 
-    # enable memory and pid controllers in the parent cgroup
+    # enable memory and pid controllers in the parent cgroup (the .slice)
     status = enable_controllers(parent_cgroup_path, "+memory +pids")
     if not status:
         logger.warning(f"failed to enable controllers in cgroup: {parent_cgroup_path}")
@@ -330,28 +339,6 @@ def create_subgroup(parent_path: str or Path, subgroup_name: str) -> str:
 
     logger.info("created cgroup at: %s", subgroup_path)
     return str(subgroup_path)
-
-
-def create_subgroup(parent_path: str, subgroup_name: str) -> str:
-    """
-    Creates an additional cgroup for subprocesses under the specified parent cgroup path.
-
-    Args:
-        parent_path (str): Path to the parent cgroup directory.
-        subgroup_name (str): Name of the subgroup to create.
-
-    Returns:
-        str: The path to the created subgroup, or an empty string if creation failed.
-    """
-    subgroup_path = Path(parent_path) / subgroup_name
-    try:
-        subgroup_path.mkdir(parents=True)
-        # mkdirs(subgroup_path, chmod=0o755)
-        logger.info(f"created cgroup at: {subgroup_path}")
-        return subgroup_path
-    except (FileExistsError, PermissionError) as e:
-        logger.warning(f"failed to create cgroup {subgroup_name} at {parent_path}: {e}")
-        return ""
 
 
 def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = "control") -> list:
