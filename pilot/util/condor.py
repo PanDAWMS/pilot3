@@ -228,10 +228,29 @@ def get_condor_node_name(nodename):
 
 
 def _expand_macros(v, defs):
+    """
+    Expand macros of the form $(KEY) in the string v using the definitions in defs.
+
+    Args:
+        v (str): The string containing macros to expand.
+        defs (Dict[str, str]): A dictionary of key-value pairs for macro expansion.
+
+    Returns:
+        str: The string with macros expanded.
+    """
     return re.sub(r"\$\(([^)]+)\)", lambda m: defs.get(m.group(1), m.group(0)), v)
 
 
 def _parse_condor_config(path):
+    """
+    Parse a Condor configuration file and return a dictionary of key-value pairs.
+
+    Args:
+        path (str): Path to the Condor configuration file.
+
+    Returns:
+        Dict[str, str]: A dictionary of configuration key-value pairs.
+    """
     defs = {}
     try:
         for raw in Path(path).read_text().splitlines():
@@ -247,6 +266,12 @@ def _parse_condor_config(path):
 
 
 def find_condor_chirp():
+    """
+    Locate the condor_chirp executable.
+
+    Returns:
+        str: The path to condor_chirp if found, otherwise an informative error message.
+    """
     # 0) If caller already hints the libexec dir, use it.
     if "_CONDOR_LIBEXEC" in os.environ:
         p = Path(os.environ["_CONDOR_LIBEXEC"]) / "condor_chirp"
