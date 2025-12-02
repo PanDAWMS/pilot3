@@ -47,13 +47,13 @@ COMMON_LIBEXEC_DIRS = [
 ]
 
 
-def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
+def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
     """
     Update the Condor ClassAd with PanDA information using condor_chirp.
 
     Params:
         pandaid: PanDA job id (int).
-        state: current job state (string).
+        pilotid: Pilot id (str).
 
     Returns:
         bool: True if condor_chirp is available and was used, False otherwise.
@@ -73,11 +73,11 @@ def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
             logger.debug(stdout)
             logger.debug(stderr)
             return False
-    if state:
-        cmd = f'{path} set_job_attr PandaJobState "{state}"'
+    if pilotid:
+        cmd = f'{path} set_job_attr PandaPilotId "{pilotid}"'
         ec, stdout, stderr = execute(cmd)
         if ec:
-            logger.warning(f'failed to set attribute PandaJobState={state} for job ClassAd')
+            logger.warning(f'failed to set attribute PandaPilotId={pilotid} for job ClassAd')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
