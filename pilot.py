@@ -176,7 +176,7 @@ def main() -> int:  # noqa: C901
     # create and report the worker node map
     if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
         try:
-            send_workernode_map(infosys.queuedata.site, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
+            send_workernode_map(infosys.queuedata.site, infosys.queuedata.name, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
         try:
@@ -500,8 +500,19 @@ def send_worker_status(
     data["site"] = queue
     data["node_id"] = get_node_name()
 
+    data_new = {}
+    data_new["worker_id"] = os.environ.get("HARVESTER_WORKER_ID", None)
+    data_new["harvester_id"] = os.environ.get("HARVESTER_ID", None)
+    data_new["status"] = status
+    # data_new["site"] = queue
+    data_new["node_id"] = get_node_name()
+
     # attempt to send the worker info to the server
+    # if data_new["worker_id"] and data_new["harvester_id"]:
     if data["workerID"] and data["harvesterID"]:
+        # send_update(
+        #   "update_worker_status", data_new, url, port, ipv=internet_protocol_version, max_attempts=2
+        # )
         send_update(
             "updateWorkerPilotStatus", data, url, port, ipv=internet_protocol_version, max_attempts=2
         )
@@ -511,6 +522,7 @@ def send_worker_status(
 
 def send_workernode_map(
         site: str,
+        queue: str,
         url: str,
         port: int,
         internet_protocol_version: str,
@@ -521,6 +533,7 @@ def send_workernode_map(
 
     Args:
         site (str): ATLAS site name.
+        queue (str): PanDA queue name.
         url (str): Server URL.
         port (int): Server port.
         internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
@@ -528,7 +541,7 @@ def send_workernode_map(
     """
     # worker node structure to be sent to the server
     try:
-        data = get_workernode_map(site)
+        data = get_workernode_map(site, queue)
     except Exception as e:
         logger.warning(f"exception caught when calling get_workernode_map(): {e}")
     try:

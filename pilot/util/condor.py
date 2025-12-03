@@ -26,8 +26,9 @@ import os
 import re
 import socket
 import subprocess
-from shutil import which
 from pathlib import Path
+from shutil import which
+from typing import Dict, Any
 
 from pilot.util.container import execute
 
@@ -46,58 +47,13 @@ COMMON_LIBEXEC_DIRS = [
 ]
 
 
-def find_condor_chirp_old() -> str:
-    """
-    Find the full path to condor_chirp using condor_config_val.
-
-    Returns:
-        str: Full path to condor_chirp if found, otherwise an error message.
-    """
-    path = which("condor_chirp")
-    if path:
-        return path
-    logger.warning(f'condor_chirp not found in standard $PATH={os.environ["PATH"]}')
-    path = os.path.join('/usr/bin', 'condor_chirp')
-    if os.path.isfile(path):
-        return path
-    logger.warning('condor_chirp not found in /usr/bin - trying condor_config_val to locate it}')
-    path = os.path.join('/usr/bin', 'condor_config_val')
-    if not os.path.isfile(path):
-        logger.warning(f'condor_config_val not found in {path} - cannot locate condor_chirp')
-        return "Error: condor_chirp not found"
-
-    try:
-        # Run condor_config_val to get the LIBEXEC path
-        result = subprocess.run(
-            ["condor_config_val", "-quiet", "LIBEXEC"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True
-        )
-        libexec_path = result.stdout.strip()
-
-        # Construct full path to condor_chirp
-        chirp_path = os.path.join(libexec_path, "condor_chirp")
-
-        # Verify it actually exists
-        if os.path.isfile(chirp_path):
-            return chirp_path
-        else:
-            return f"Error: condor_chirp not found in {libexec_path}"
-    except subprocess.CalledProcessError as exc:
-        return f"Error: condor_config_val command failed or HTCondor not installed: {exc}"
-    except FileNotFoundError:
-        return "Error: condor_config_val not found in PATH."
-
-
-def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
+def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
     """
     Update the Condor ClassAd with PanDA information using condor_chirp.
 
     Params:
         pandaid: PanDA job id (int).
-        state: current job state (string).
+        pilotid: Pilot id (str).
 
     Returns:
         bool: True if condor_chirp is available and was used, False otherwise.
@@ -117,16 +73,59 @@ def update_condor_classad(pandaid: int = 0, state: str = '') -> bool:
             logger.debug(stdout)
             logger.debug(stderr)
             return False
-    if state:
-        cmd = f'{path} set_job_attr PandaJobState "{state}"'
+    if pilotid:
+        cmd = f'{path} set_job_attr PandaPilotId "{pilotid}"'
         ec, stdout, stderr = execute(cmd)
         if ec:
-            logger.warning(f'failed to set attribute PandaJobState={state} for job ClassAd')
+            logger.warning(f'failed to set attribute PandaPilotId={pilotid} for job ClassAd')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
 
     logger.debug('successfully updated job ClassAd')
+    return True
+
+
+def update_condor_classad_bulk(attrs: Dict[str, Any]) -> bool:
+    """
+    Write multiple key/value pairs to the Condor ClassAd using `condor_chirp`.
+
+    Each key in *attrs* is written as a job attribute via:
+    `condor_chirp set_job_attr <key> "<value>"`. Values are converted to strings
+    and internal double quotes are escaped.
+
+    Args:
+        attrs (Dict[str, Any]): Mapping of attribute names to values to set.
+
+    Returns:
+        bool: True if `condor_chirp` was found and all attributes were set
+            successfully; False otherwise.
+    """
+    logger.debug('updating condor ClassAd with multiple attributes')
+    path = find_condor_chirp()
+    if not path.startswith("/"):
+        logger.warning(path)
+        return False
+
+    if not attrs:
+        logger.debug('no attributes provided to update_condor_classad_bulk')
+        return False
+
+    for key, value in attrs.items():
+        if not key:
+            logger.debug('skipping empty attribute name')
+            continue
+        # Convert value to string and escape double quotes
+        val_str = str(value).replace('"', '\\"')
+        cmd = f'{path} set_job_attr {key} "{val_str}"'
+        ec, stdout, stderr = execute(cmd)
+        if ec:
+            logger.warning(f'failed to set attribute {key}={value} for job ClassAd')
+            logger.debug(stdout)
+            logger.debug(stderr)
+            return False
+
+    logger.debug('successfully updated job ClassAd with provided attributes')
     return True
 
 
@@ -229,10 +228,29 @@ def get_condor_node_name(nodename):
 
 
 def _expand_macros(v, defs):
+    """
+    Expand macros of the form $(KEY) in the string v using the definitions in defs.
+
+    Args:
+        v (str): The string containing macros to expand.
+        defs (Dict[str, str]): A dictionary of key-value pairs for macro expansion.
+
+    Returns:
+        str: The string with macros expanded.
+    """
     return re.sub(r"\$\(([^)]+)\)", lambda m: defs.get(m.group(1), m.group(0)), v)
 
 
 def _parse_condor_config(path):
+    """
+    Parse a Condor configuration file and return a dictionary of key-value pairs.
+
+    Args:
+        path (str): Path to the Condor configuration file.
+
+    Returns:
+        Dict[str, str]: A dictionary of configuration key-value pairs.
+    """
     defs = {}
     try:
         for raw in Path(path).read_text().splitlines():
@@ -248,6 +266,12 @@ def _parse_condor_config(path):
 
 
 def find_condor_chirp():
+    """
+    Locate the condor_chirp executable.
+
+    Returns:
+        str: The path to condor_chirp if found, otherwise an informative error message.
+    """
     # 0) If caller already hints the libexec dir, use it.
     if "_CONDOR_LIBEXEC" in os.environ:
         p = Path(os.environ["_CONDOR_LIBEXEC"]) / "condor_chirp"

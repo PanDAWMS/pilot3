@@ -889,7 +889,7 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
 
     if os.path.exists(job.workdir):
         # get the limit of the workdir
-        maxwdirsize = get_max_allowed_work_dir_size()
+        maxwdirsize = get_max_allowed_work_dir_size(job.resourcetype, job.corecount, job.infosys.queuedata.pilot_maxwdir_grace)
 
         if os.path.exists(job.workdir):
             workdirsize = get_disk_usage(job.workdir)
@@ -930,27 +930,36 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
     return exit_code, diagnostics
 
 
-def get_max_allowed_work_dir_size() -> int:
+def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pilot_maxwdir_grace: float) -> int:
     """
     Return the maximum allowed size of the work directory.
 
     Note: input sizes need not be added to [..] when copytool=mv (ie on storm/NDGF).
 
+    :param resource_type: resource type (str)
+    :param corecount: number of cores (int)
+    :param pilot_maxwdir_grace: grace margin in percent (float)
     :return: max allowed work dir size in Bytes (int).
     """
+    logger.debug(f"getting max allowed work dir size for resource_type={resource_type}, corecount={corecount}")
+    # PQ.maxwdir is defined for MCORE jobs, so adjust for single core jobs
+    logger.debug(f"pilot_maxwdir_grace={pilot_maxwdir_grace}")
+    divider = 8 if corecount == 1 else 1
     try:
         maxwdirsize = convert_mb_to_b(get_maximum_input_sizes())  # from MB to B, e.g. 16336 MB -> 17,129,537,536 B
+        maxwdirsize = maxwdirsize // divider
     except Exception as error:
         max_input_size = get_max_input_size()
         maxwdirsize = max_input_size + config.Pilot.local_size_limit_stdout * 1024
+        maxwdirsize = maxwdirsize // divider
         logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (maxinputsize [{max_input_size}"
                     f"B] + local size limit for stdout [{config.Pilot.local_size_limit_stdout * 1024} B])")
         logger.warning(f'conversion caught exception: {error}')
     else:
         # grace margin, as discussed in https://its.cern.ch/jira/browse/ATLASPANDA-482
-        margin = 10.0  # percent, read later from somewhere
-        maxwdirsize = int(maxwdirsize * (1 + margin / 100.0))
-        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (10% grace limit added)")
+        maxwdirsize = int(maxwdirsize * pilot_maxwdir_grace)
+        percentage = round((pilot_maxwdir_grace - 1) * 100)
+        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit ({percentage}% grace limit added, divider={divider})")
 
     return maxwdirsize
 

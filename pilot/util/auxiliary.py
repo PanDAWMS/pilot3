@@ -45,7 +45,7 @@ from pilot.util.constants import (
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.condor import (
     get_globaljobid,
-    update_condor_classad
+    # update_condor_classad
 )
 from pilot.util.container import execute
 from pilot.util.filehandling import (
@@ -72,6 +72,23 @@ def pilot_version_banner() -> None:
 
     display_architecture_info()
     logger.info('*' * len(version))
+
+
+def get_pilot_id(version_tag: str) -> str:
+    """
+    Return a unique pilot id.
+
+    Used by CondorHT ClassAd.
+
+    Args:
+        version_tag: pilot version tag (string).
+
+    Returns:
+        pilot id (string).
+    """
+    unique_id = os.environ.get("GTAG", "unknown")
+    pilotversion = os.environ.get('PILOT_VERSION')
+    return f'{pilotversion}-{version_tag}-{unique_id}'
 
 
 def is_virtual_machine() -> bool:
@@ -346,7 +363,7 @@ def set_pilot_state(job: Any = None, state: str = '') -> None:
 
     if job and job.state != 'failed':
         job.state = state
-    update_condor_classad(state=state)
+    # update_condor_classad(state=state)
 
 
 def check_for_final_server_update(update_server: bool) -> None:

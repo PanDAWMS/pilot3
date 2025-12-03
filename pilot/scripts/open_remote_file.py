@@ -121,7 +121,7 @@ def get_file_lists(turls_string: str) -> dict:
 
 
 # pylint: disable=useless-param-doc
-def try_open_file(turl_str: str, _queues: namedtuple):
+def try_open_file_old(turl_str: str, _queues: namedtuple):
     """
     Attempt to open a remote file.
 
@@ -150,6 +150,60 @@ def try_open_file(turl_str: str, _queues: namedtuple):
         _queues.opened.put(turl_str)
     else:
         _queues.unopened.put(turl_str)
+    _queues.result.put(turl_str)
+
+
+# pylint: disable=useless-param-doc
+def try_open_file(turl_str: str, _queues: namedtuple):
+    """
+    Attempt to open a remote file.
+
+    Successfully opened turls will be put in the queues.opened queue.
+    Unsuccessful turls will be placed in the queues.unopened queue.
+
+    :param turl_str: turl (str)
+    :param _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
+    """
+
+    def attempt_open(path: str) -> bool:
+        """Return True if ROOT successfully opens the file."""
+        try:
+            message(f'opening {path}')
+            _ = ROOT.TFile.SetOpenTimeout(
+                30 * 1000)  # 30 seconds
+            in_file = ROOT.TFile.Open(path)
+        except Exception as exc:
+            message(f'caught exception: {exc}')
+            return False
+
+        if in_file and in_file.IsOpen():
+            in_file.Close()
+            message(f'closed {path}')
+            return True
+
+        return False
+
+    # --- First attempt (original TURL) ---
+    opened = attempt_open(turl_str)
+
+    # --- Retry logic for davs failures ---
+    if not opened:
+        # We only retry if the failure looks like the DAVS issue
+        retry_path = turl_str + "?filetype=raw"
+        message("Retrying with ?filetype=raw appended")
+
+        opened = attempt_open(retry_path)
+
+        # If the retry succeeds, report success with the modified TURL
+        if opened:
+            turl_str = retry_path
+
+    # --- Queue results ---
+    if opened:
+        _queues.opened.put(turl_str)
+    else:
+        _queues.unopened.put(turl_str)
+
     _queues.result.put(turl_str)
 
 

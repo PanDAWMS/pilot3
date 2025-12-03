@@ -100,6 +100,7 @@ class QueueData(BaseData):
     altstageout = None  # allow altstageout: force (True) or disable (False) or no preferences (None)
     pilot_walltime_grace = 1.0  # pilot walltime grace factor
     pilot_rss_grace = 2.0  # pilot rss grace factor
+    pilot_maxwdir_grace = 1.0  # pilot maxwdir grace factor
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['timefloor', 'maxwdir', 'pledgedcpu', 'es_stageout_gap',
@@ -189,7 +190,8 @@ class QueueData(BaseData):
     def set_pilot_walltime_grace(self):
         """Set pilot walltime grace factor based on the queuedata settings."""
         try:
-            _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 0))
+            # using a 1% grace by default, which corresponds to 14 minutes for a 24-hour limit
+            _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 1))
             self.pilot_walltime_grace = 1.0 + _pilot_walltime_grace / 100.0
         except (ValueError, TypeError) as e:
             logger.warning(f"failed to set pilot_walltime_grace: {e}")
@@ -203,6 +205,15 @@ class QueueData(BaseData):
         except (ValueError, TypeError) as e:
             logger.warning(f"failed to set pilot_rss_grace: {e}")
             self.pilot_rss_grace = 2.0
+
+    def set_pilot_maxwdir_grace(self):
+        """Set pilot maxwdir grace factor based on the queuedata settings."""
+        try:
+            _pilot_maxwdir_grace = float(self.params.get('pilot_maxwdir_grace', 20))
+            self.pilot_maxwdir_grace = 1.0 + _pilot_maxwdir_grace / 100.0
+        except (ValueError, TypeError) as e:
+            logger.warning(f"failed to set pilot_maxwdir_grace: {e}")
+            self.pilot_maxwdir_grace = 1.0
 
     def clean(self):
         """Validate and finally clean up required data values (required object properties) if needed."""
@@ -233,9 +244,10 @@ class QueueData(BaseData):
         # set altstageout settings
         self.altstageout = self.allow_altstageout()
 
-        # set pilot walltime and rss grace factors
+        # set pilot grace factors
         self.set_pilot_walltime_grace()
         self.set_pilot_rss_grace()
+        self.set_pilot_maxwdir_grace()
 
     ## custom function pattern to apply extra validation to the key values
     ##def clean__keyname(self, raw, value):
