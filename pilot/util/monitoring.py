@@ -958,7 +958,8 @@ def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pilot_maxw
     else:
         # grace margin, as discussed in https://its.cern.ch/jira/browse/ATLASPANDA-482
         maxwdirsize = int(maxwdirsize * pilot_maxwdir_grace)
-        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit (10% grace limit added, divider={divider})")
+        percentage = (pilot_maxwdir_grace - 1) * 100
+        logger.info(f"work directory size check will use {maxwdirsize} B as a max limit ({percentage}% grace limit added, divider={divider})")
 
     return maxwdirsize
 
