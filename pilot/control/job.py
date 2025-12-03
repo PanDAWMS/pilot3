@@ -56,6 +56,7 @@ from pilot.util.auxiliary import (
     get_batchsystem_jobid,
     # get_display_info,
     get_job_scheduler_id,
+    get_pilot_id,
     get_pilot_state,
     has_instruction_sets,
     is_virtual_machine,
@@ -1110,7 +1111,8 @@ def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
                          config.Container.container_script, config.Container.release_setup,
                          config.Container.stagein_status_dictionary, config.Container.stagein_replica_dictionary,
                          'eventLoopHeartBeat.txt', 'memory_monitor_output.txt', 'memory_monitor_summary.json_snapshot',
-                         f'curl_updateJob_{jobid}.config', config.Pilot.pilot_heartbeat_file]
+                         f'curl_updateJob_{jobid}.config', config.Pilot.pilot_heartbeat_file,
+                         './panda_token', 'panda_token']
     except Exception as error:
         logger.warning(f'exception caught: {error}')
         to_be_removed = []
@@ -2369,7 +2371,9 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             # (only proceed if there is a condor class ad)
             if os.environ.get('_CONDOR_JOB_AD', None):
                 htcondor_envvar(job.jobid)
-                update_condor_classad(pandaid=job.jobid, state='retrieved')
+                # update_condor_classad(pandaid=job.jobid, state='retrieved')
+                pilotid = get_pilot_id(args.version_tag)
+                update_condor_classad(pandaid=job.jobid, pilotid=pilotid)
 
             # add the job definition to the jobs queue and increase the job counter,
             # and wait until the job has finished

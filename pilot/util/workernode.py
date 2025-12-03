@@ -36,7 +36,6 @@ from pilot.common.exception import (
     PilotException,
     ErrorCodes
 )
-from pilot.info import infosys
 from pilot.util.auxiliary import sort_words
 from pilot.util.condor import get_condor_node_name
 from pilot.util.config import config
@@ -52,25 +51,70 @@ from pilot.util.psutils import get_clock_speed
 logger = logging.getLogger(__name__)
 
 
-def get_local_disk_space(path):
+def get_local_disk_space(path: Optional[str]) -> float:
     """
     Return remaining disk space for the disk in the given path.
-    Unit is MB.
 
-    :param path: path to disk (string). Can be None, if call to collect_workernode_info() doesn't specify it.
-    :return: disk space (float).
-    :raises: PilotException in case of failure to convert df output to float, or if getoutput() returns an empty string.
+    Uses `df -mP` to obtain the available space for the filesystem containing
+    *path* and returns the available space in megabytes (MB).
+
+    Args:
+        path (Optional[str]): Path to a file or directory on the target filesystem.
+            If ``None`` or empty, the current working directory is used.
+
+    Returns:
+        float: Available disk space in MB.
+
+    Raises:
+        PilotException: If the command produces no output or the output cannot be
+            parsed into a float value. The exception uses ``ErrorCodes.UNKNOWNEXCEPTION``.
     """
+    # first check for the new env vars (storageLimitMiB and storageRequestMiB) and, if present,
+    # use min(storageLimitMiB, site_heuristic) where site_heuristic=maxwdir * nCores * site_scale
+    # use heuristic as the fallback when the env vars aren’t set
+    storage_limit_mib = os.environ.get('storageLimitMiB')
+    storage_request_mib = os.environ.get('storageRequestMiB')
+    if storage_limit_mib and storage_request_mib:
+        try:
+            storage_limit_mib = float(storage_limit_mib)
+            storage_limit_mb = storage_limit_mib * 1.048576  # convert MiB to MB
+            logger.debug(f"storage_limit_mib={storage_limit_mib} MiB converted to storage_limit_mb={storage_limit_mb} MB")
+            return storage_limit_mb
+            #storage_scale = 1  # for now, could be made configurable later (site specific)
+            #site_heuristic = infosys.queuedata.maxwdir * infosys.queuedata.ncores * storage_scale
+            #disk = min(storage_limit_mib, site_heuristic)
+            #logger.debug(f"storage_limit_mib={storage_limit_mib} MiB, storage_limit_mb={storage_limit_mb} MB, "
+            #             f"site_heuristic={site_heuristic} MB")
+            #logger.info(f'using disk space from env vars: storageLimitMiB={storage_limit_mib} MiB, '
+            #            f'-> using {disk} MiB')
+            # return disk
+        except ValueError as error:
+            logger.warning(f'exception caught while converting storageLimitMiB/storageRequestMiB to float: {error} '
+                           f'(will use df command instead)')
+    else:
+        logger.debug('storageLimitMiB/storageRequestMiB not set - will use df command to get disk space')
+
+    # Default to current directory when no path is provided
+    if not path:
+        path = "."
 
     # -mP = blocks of 1024*1024 (MB) and POSIX format
     cmd = f"df -mP {path}"
-    #disks = getoutput(cmd)
     _, stdout, stderr = execute(cmd)
+
+    # Ensure stdout is a string
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="ignore")
+
     if stdout:
         logger.debug(f'stdout={stdout}')
         logger.debug(f'stderr={stderr}')
         try:
-            disk = float(stdout.splitlines()[1].split()[3])
+            lines = stdout.splitlines()
+            if len(lines) < 2:
+                raise ValueError("unexpected df output")
+            # Available field is the 4th column (index 3) on the second line
+            disk = float(lines[1].split()[3])
         except (IndexError, ValueError, TypeError, AttributeError) as error:
             msg = f'exception caught while trying to convert disk info: {error}'
             logger.warning(msg)
@@ -210,11 +254,7 @@ def get_disk_space(queuedata):
 
     # --- non Job related queue data
     # jobinfo provider is required to consider overwriteAGIS data coming from Job
-    _maxinputsize = infosys.queuedata.maxwdir
-    logger.debug(f'resolved value from global infosys.queuedata instance: infosys.queuedata.maxwdir={_maxinputsize} B')
     _maxinputsize = queuedata.maxwdir
-    logger.debug(f'resolved value: queuedata.maxwdir={_maxinputsize} B')
-
     try:
         _du = disk_usage(os.path.abspath("."))
         _diskspace = int(_du[2] / (1024 * 1024))  # need to convert from B to MB
@@ -748,7 +788,7 @@ def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
     return gpu_info
 
 
-def get_workernode_map(site: str, cache: bool = True) -> dict:
+def get_workernode_map(site: str, queue: str, cache: bool = True) -> dict:
     """
     Return a dictionary with the worker node map.
 
@@ -756,7 +796,8 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
 
     The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
 
-    :param site: ATLAS site name from PQ.resource (str)
+    :param site: site name from PQ.resource (str)
+    :param queue: queue name from PQ.name (str)
     :param cache: should the workernode map be cached? (bool)
     :return: worker node map (dict).
     """
@@ -770,6 +811,7 @@ def get_workernode_map(site: str, cache: bool = True) -> dict:
 
     data = {
         "site": site,
+        "panda_queue": queue,
         "host_name": get_node_name(),  # "slot1@wn1.cern.ch",
         "cpu_model": get_cpu_model(),  # "AMD EPYC 7B12",
         "n_logical_cpus": logical_cpus,
