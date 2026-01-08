@@ -889,7 +889,7 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
 
     if os.path.exists(job.workdir):
         # get the limit of the workdir
-        maxwdirsize = get_max_allowed_work_dir_size(job.resourcetype, job.corecount, job.infosys.queuedata.pilot_maxwdir_grace)
+        maxwdirsize = get_max_allowed_work_dir_size(job.resourcetype, job.corecount, job.infosys.queuedata.corecount, job.infosys.queuedata.pilot_maxwdir_grace)
 
         if os.path.exists(job.workdir):
             workdirsize = get_disk_usage(job.workdir)
@@ -930,7 +930,7 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
     return exit_code, diagnostics
 
 
-def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pilot_maxwdir_grace: float) -> int:
+def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pq_corecount: int or None, pilot_maxwdir_grace: float) -> int:
     """
     Return the maximum allowed size of the work directory.
 
@@ -938,13 +938,18 @@ def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pilot_maxw
 
     :param resource_type: resource type (str)
     :param corecount: number of cores (int)
+    :param pq_corecount: number of cores from PQ (int or None)
     :param pilot_maxwdir_grace: grace margin in percent (float)
     :return: max allowed work dir size in Bytes (int).
     """
     logger.debug(f"getting max allowed work dir size for resource_type={resource_type}, corecount={corecount}")
     # PQ.maxwdir is defined for MCORE jobs, so adjust for single core jobs
     logger.debug(f"pilot_maxwdir_grace={pilot_maxwdir_grace}")
-    divider = 8 if corecount == 1 else 1
+    if not pq_corecount:
+        logger.warning("PQ.corecount is None, setting to 1")
+        pq_corecount = 1
+
+    divider = pq_corecount if corecount == 1 else 1
     try:
         maxwdirsize = convert_mb_to_b(get_maximum_input_sizes())  # from MB to B, e.g. 16336 MB -> 17,129,537,536 B
         maxwdirsize = maxwdirsize // divider
