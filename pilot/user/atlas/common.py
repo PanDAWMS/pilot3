@@ -2850,3 +2850,12 @@ def get_pilot_id(jobid: str) -> str:
         pass
 
     return os.environ.get("GTAG", "unknown")
+
+
+def allow_send_workernode_map() -> bool:
+    """
+    Return True if the workernode map should be sent to the server.
+
+    :return: always True for ATLAS (bool).
+    """
+    return True

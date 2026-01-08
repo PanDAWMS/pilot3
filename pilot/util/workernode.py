@@ -784,6 +784,8 @@ def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
             write_json(filename, gpu_info)
         except Exception as exc:
             logger.warning(f'failed to write gpu map: {exc}')
+        else:
+            logger.info(f'gpu map written to {filename}')
 
     return gpu_info
 
@@ -835,5 +837,7 @@ def get_workernode_map(site: str, queue: str, cache: bool = True) -> dict:
             write_json(filename, data)
         except Exception as exc:
             logger.warning(f'failed to write workernode map: {exc}')
+        else:
+            logger.info(f'worker node map written to: {filename}')
 
     return data
