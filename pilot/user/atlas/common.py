@@ -2668,6 +2668,7 @@ def get_metadata(workdir: str) -> dict or None:
     :return: metadata (dict).
     """
     path = os.path.join(workdir, config.Payload.jobreport)
+    logger.info(f"reading metadata from: {path}")
     metadata = read_file(path) if os.path.exists(path) else None
     logger.debug(f'metadata={metadata}')
 
