@@ -2670,7 +2670,27 @@ def get_metadata(workdir: str) -> dict or None:
     path = os.path.join(workdir, config.Payload.jobreport)
     logger.info(f"reading metadata from: {path}")
     metadata = read_file(path) if os.path.exists(path) else None
-    logger.debug(f'metadata={metadata}')
+    if not os.path.exists(path):
+        logger.warning(f'path does not exist: {path}')
+        return None
+    if not metadata:
+        logger.warning('empty metadata')
+        return None
+
+    # the metadata can now be enhanced with the worker node map + GPU map for the case
+    # when the pilot is not sending the maps to the server directly. In this case, the maps
+    # are extracted on the server side at a later stage
+    pilot_home = os.environ.get('PILOT_HOME', '')
+    for fname, meta_key in (
+        (config.Workernode.map, 'worker_node'),
+        (config.Workernode.gpu_map, 'worker_node_gpus'),
+    ):
+        path = os.path.join(pilot_home, fname)
+        if os.path.exists(path):
+            data = read_json(path)
+            if data:
+                metadata[meta_key] = data
+                logger.info(f'added {meta_key} to metadata from {path}')
 
     return metadata
 
