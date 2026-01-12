@@ -184,14 +184,15 @@ def main() -> int:  # noqa: C901
             send_workernode_map(infosys.queuedata.site, infosys.queuedata.name, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
-        try:
-            memory_limits = get_memory_limits(args.url, args.port)
-        except Exception as error:
-            logger.warning(f"exception caught when getting resource types: {error}")
-        else:
-            logger.debug(f"resource types: {memory_limits}")
-            if memory_limits:
-                pilot_cache.resource_types = memory_limits
+        if args.update_server:
+            try:
+                memory_limits = get_memory_limits(args.url, args.port)
+            except Exception as error:
+                logger.warning(f"exception caught when getting resource types: {error}")
+            else:
+                logger.debug(f"resource types: {memory_limits}")
+                if memory_limits:
+                    pilot_cache.resource_types = memory_limits
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version

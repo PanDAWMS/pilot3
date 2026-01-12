@@ -31,6 +31,7 @@ import time
 from collections import defaultdict
 from functools import reduce
 from glob import glob
+from json import dumps
 from random import randint
 from signal import SIGTERM, SIGUSR1
 from typing import Any
@@ -2660,39 +2661,25 @@ def update_stagein(job: JobData):
             fspec.status = 'no_transfer'
 
 
-def get_metadata(workdir: str) -> dict or None:
+def get_metadata(workdir: str) -> str:
     """
     Return the metadata from file.
 
     :param workdir: work directory (str)
-    :return: metadata (dict).
+    :return: metadata (str).
     """
     path = os.path.join(workdir, config.Payload.jobreport)
     logger.info(f"reading metadata from: {path}")
-    metadata = read_file(path) if os.path.exists(path) else None
+    metadata = read_json(path) if os.path.exists(path) else None
     if not os.path.exists(path):
         logger.warning(f'path does not exist: {path}')
-        return None
+        return ""
     if not metadata:
         logger.warning('empty metadata')
-        return None
+        return ""
 
-    # the metadata can now be enhanced with the worker node map + GPU map for the case
-    # when the pilot is not sending the maps to the server directly. In this case, the maps
-    # are extracted on the server side at a later stage
-    pilot_home = os.environ.get('PILOT_HOME', '')
-    for fname, meta_key in (
-        (config.Workernode.map, 'worker_node'),
-        (config.Workernode.gpu_map, 'worker_node_gpus'),
-    ):
-        path = os.path.join(pilot_home, fname)
-        if os.path.exists(path):
-            data = read_json(path)
-            if data:
-                metadata[meta_key] = data
-                logger.info(f'added {meta_key} to metadata from {path}')
-
-    return metadata
+    # convert dictionary to string
+    return dumps(metadata)
 
 
 def should_update_logstash(frequency: int = 10) -> bool:

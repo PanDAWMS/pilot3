@@ -31,7 +31,10 @@ import logging
 import queue
 import random
 from collections import namedtuple
-from json import dumps
+from json import (
+    dumps,
+    loads
+)
 from glob import glob
 from typing import Any
 from urllib.parse import parse_qsl
@@ -94,6 +97,7 @@ from pilot.util.filehandling import (
     find_text_files,
     get_total_input_size,
     is_json,
+    read_json,
     remove,
     tail,
     write_file,
@@ -2856,11 +2860,44 @@ def update_server(job: Any, args: Any) -> None:
     # user specific actions
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-    metadata = user.get_metadata(job.workdir)
     try:
         user.update_server(job)
     except Exception as error:
         logger.warning('exception caught in update_server(): %s', error)
+
+    metadata = user.get_metadata(job.workdir)
+
+    # the metadata can now be enhanced with the worker node map + GPU map for the case
+    # when the pilot is not sending the maps to the server directly. In this case, the maps
+    # are extracted on the server side at a later stage
+
+    if not args.update_server and metadata:
+        # convert the metadata string to a dictionary
+        try:
+            metadata_dict = loads(metadata)
+        except Exception as error:
+            logger.warning(f'failed to convert metadata string to dictionary: {error}')
+        else:
+            pilot_home = os.environ.get('PILOT_HOME', '')
+            for fname, meta_key in (
+                (config.Workernode.map, 'worker_node'),
+                (config.Workernode.gpu_map, 'worker_node_gpus'),
+            ):
+                path = os.path.join(pilot_home, fname)
+                if os.path.exists(path):
+                    data = read_json(path)
+                    if data:
+                        metadata_dict[meta_key] = data
+                        logger.info(f'added {meta_key} to metadata from {path}')
+
+                # convert back to string
+                try:
+                    _metadata = dumps(metadata_dict)
+                except Exception as error:
+                    logger.warning(f'failed to convert metadata dictionary to string: {error}')
+                else:
+                    metadata = _metadata
+
     if job.fileinfo:
         send_state(job, args, job.state, xml=dumps(job.fileinfo), metadata=metadata)
     else:
