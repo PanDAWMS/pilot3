@@ -24,6 +24,8 @@
 
 """Job module with functions for job handling."""
 
+from __future__ import annotations
+
 import os
 import time
 import hashlib
@@ -36,7 +38,14 @@ from json import (
     loads
 )
 from glob import glob
-from typing import Any
+from typing import (
+    Any,
+    Callable,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple
+)
 from urllib.parse import parse_qsl
 
 from pilot.common.errorcodes import ErrorCodes
@@ -155,6 +164,9 @@ from pilot.util.workernode import (
     get_node_name,
     update_modelstring
 )
+
+JsonObject = MutableMapping[str, Any]
+ReadJsonFn = Callable[[str], Optional[Mapping[str, Any]]]
 
 errors = ErrorCodes()
 logger = logging.getLogger(__name__)
@@ -2846,6 +2858,97 @@ def queue_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     logger.info('[job] queue monitor thread has finished')
 
 
+def load_metadata_dict(metadata: Optional[str]) -> JsonObject:
+    """
+    Parse the metadata JSON string into a mutable dictionary.
+
+    Args:
+        metadata: Metadata as a JSON string (or None/empty).
+
+    Returns:
+        A mutable dictionary representation of the metadata. If `metadata` is
+        missing or invalid JSON, returns an empty dictionary.
+    """
+    if not metadata:
+        return {}
+
+    try:
+        parsed = loads(metadata)
+    except Exception as error:  # pragma: no cover (logger side-effect)
+        logger.warning(f"failed to convert metadata string to dictionary: {error}")
+        return {}
+
+    if not isinstance(parsed, dict):
+        logger.warning("metadata JSON is not an object; ignoring and starting fresh")
+        return {}
+
+    return parsed
+
+
+def dump_metadata(metadata_dict: Mapping[str, Any]) -> Optional[str]:
+    """
+    Serialize a metadata dictionary into a JSON string.
+
+    Args:
+        metadata_dict: Metadata dictionary to serialize.
+
+    Returns:
+        JSON string on success, otherwise None if serialization fails.
+    """
+    try:
+        return dumps(metadata_dict)
+    except Exception as error:  # pragma: no cover (logger side-effect)
+        logger.warning(f"failed to convert metadata dictionary to string: {error}")
+        return None
+
+
+def merge_worker_maps(
+        metadata_dict: JsonObject,
+        pilot_home: str,
+        mappings: Tuple[Tuple[str, str], ...],
+        read_json: ReadJsonFn,
+) -> bool:
+    """
+    Merge worker node maps (worker + GPU) into the metadata dictionary.
+
+    Reads JSON files from `pilot_home` and merges them into `metadata_dict` under
+    the provided metadata keys. Only counts as a change if the new value differs
+    from the existing value.
+
+    Args:
+        metadata_dict: Metadata dictionary to update in-place.
+        pilot_home: Base directory where pilot map files are located.
+        mappings: Tuples of (filename, metadata_key) to read and merge.
+        read_json: Function that reads a JSON file and returns a mapping (or None).
+
+    Returns:
+        True if metadata_dict was modified, otherwise False.
+    """
+    changed = False
+
+    for fname, meta_key in mappings:
+        path = os.path.join(pilot_home, fname)
+        if not os.path.exists(path):
+            continue
+
+        data = read_json(path)
+        if not data:
+            continue
+
+        # Ensure JSON-like (mapping) content.
+        if not isinstance(data, Mapping):
+            logger.warning(f"map file does not contain a JSON object: {path}")
+            continue
+
+        if metadata_dict.get(meta_key) != data:
+            metadata_dict[meta_key] = dict(data)  # make it JSON-serializable/mutable
+            changed = True
+
+        logger.info(f"added {meta_key} to metadata from {path}")
+
+    return changed
+
+
 def update_server(job: Any, args: Any) -> None:
     """
     Update the server (wrapper for send_state() that also prepares the metadata).
@@ -2865,38 +2968,33 @@ def update_server(job: Any, args: Any) -> None:
     except Exception as error:
         logger.warning('exception caught in update_server(): %s', error)
 
-    metadata = user.get_metadata(job.workdir)
-
     # the metadata can now be enhanced with the worker node map + GPU map for the case
     # when the pilot is not sending the maps to the server directly. In this case, the maps
     # are extracted on the server side at a later stage
+    # note: if the metadata does not exist, we should create it here
 
-    if not args.update_server and metadata:
-        # convert the metadata string to a dictionary
-        try:
-            metadata_dict = loads(metadata)
-        except Exception as error:
-            logger.warning(f'failed to convert metadata string to dictionary: {error}')
-        else:
-            pilot_home = os.environ.get('PILOT_HOME', '')
-            for fname, meta_key in (
-                (config.Workernode.map, 'worker_node'),
-                (config.Workernode.gpu_map, 'worker_node_gpus'),
-            ):
-                path = os.path.join(pilot_home, fname)
-                if os.path.exists(path):
-                    data = read_json(path)
-                    if data:
-                        metadata_dict[meta_key] = data
-                        logger.info(f'added {meta_key} to metadata from {path}')
+    metadata: Optional[str] = user.get_metadata(job.workdir)
 
-                # convert back to string
-                try:
-                    _metadata = dumps(metadata_dict)
-                except Exception as error:
-                    logger.warning(f'failed to convert metadata dictionary to string: {error}')
-                else:
-                    metadata = _metadata
+    if not args.update_server:
+        pilot_home: str = os.environ.get("PILOT_HOME", "")
+        mappings: Tuple[Tuple[str, str], ...] = (
+            (config.Workernode.map, "worker_node"),
+            (config.Workernode.gpu_map, "worker_node_gpus"),
+        )
+
+        metadata_dict: JsonObject = load_metadata_dict(metadata)
+        changed: bool = merge_worker_maps(
+            metadata_dict=metadata_dict,
+            pilot_home=pilot_home,
+            mappings=mappings,
+            read_json=read_json,
+        )
+
+        # Only dump if something changed, OR if metadata was missing and we added something.
+        if changed:
+            new_metadata = dump_metadata(metadata_dict)
+            if new_metadata is not None:
+                metadata = new_metadata
 
     if job.fileinfo:
         send_state(job, args, job.state, xml=dumps(job.fileinfo), metadata=metadata)
