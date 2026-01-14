@@ -31,6 +31,7 @@ import time
 from collections import defaultdict
 from functools import reduce
 from glob import glob
+from json import dumps
 from random import randint
 from signal import SIGTERM, SIGUSR1
 from typing import Any
@@ -2660,18 +2661,25 @@ def update_stagein(job: JobData):
             fspec.status = 'no_transfer'
 
 
-def get_metadata(workdir: str) -> dict or None:
+def get_metadata(workdir: str) -> str:
     """
     Return the metadata from file.
 
     :param workdir: work directory (str)
-    :return: metadata (dict).
+    :return: metadata (str).
     """
     path = os.path.join(workdir, config.Payload.jobreport)
-    metadata = read_file(path) if os.path.exists(path) else None
-    logger.debug(f'metadata={metadata}')
+    logger.info(f"reading metadata from: {path}")
+    metadata = read_json(path) if os.path.exists(path) else None
+    if not os.path.exists(path):
+        logger.warning(f'path does not exist: {path}')
+        return ""
+    if not metadata:
+        logger.warning('empty metadata')
+        return ""
 
-    return metadata
+    # convert dictionary to string
+    return dumps(metadata)
 
 
 def should_update_logstash(frequency: int = 10) -> bool:
@@ -2850,3 +2858,12 @@ def get_pilot_id(jobid: str) -> str:
         pass
 
     return os.environ.get("GTAG", "unknown")
+
+
+def allow_send_workernode_map() -> bool:
+    """
+    Return True if the workernode map should be sent to the server.
+
+    :return: always True for ATLAS (bool).
+    """
+    return True

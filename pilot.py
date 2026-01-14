@@ -174,19 +174,25 @@ def main() -> int:  # noqa: C901
             logger.warning(f"failed to update local OIDC token: {exc}")
 
     # create and report the worker node map
-    if args.update_server and args.pilot_user.lower() == "atlas":  # only send info for atlas for now
+    # note: the worker node map will always be created, but only sent to the server
+    # if the user plugin specifies it. For ATLAS there is a special case for Nordugrid (args.update_server == False)
+    # in which the map is not sent to the PanDA server in this function, but later when the jobReport is uploaded
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+    if user.allow_send_workernode_map():
         try:
             send_workernode_map(infosys.queuedata.site, infosys.queuedata.name, args.url, args.port, "IPv6", logger)  # note: assuming IPv6, fallback in place
         except Exception as error:
             logger.warning(f"exception caught when sending workernode map: {error}")
-        try:
-            memory_limits = get_memory_limits(args.url, args.port)
-        except Exception as error:
-            logger.warning(f"exception caught when getting resource types: {error}")
-        else:
-            logger.debug(f"resource types: {memory_limits}")
-            if memory_limits:
-                pilot_cache.resource_types = memory_limits
+        if args.update_server:
+            try:
+                memory_limits = get_memory_limits(args.url, args.port)
+            except Exception as error:
+                logger.warning(f"exception caught when getting resource types: {error}")
+            else:
+                logger.debug(f"resource types: {memory_limits}")
+                if memory_limits:
+                    pilot_cache.resource_types = memory_limits
 
     # handle special CRIC variables via params
     # internet protocol versions 'IPv4' or 'IPv6' can be set via CRIC PQ.params.internet_protocol_version
@@ -539,26 +545,30 @@ def send_workernode_map(
         internet_protocol_version (str): Internet protocol version, IPv4 or IPv6.
         logger (Any): Logging object.
     """
+    # should the worker node map be sent to the server at this point or later when the job report is sent?
+    send_now = True if args.update_server else False
+
     # worker node structure to be sent to the server
     try:
         data = get_workernode_map(site, queue)
     except Exception as e:
         logger.warning(f"exception caught when calling get_workernode_map(): {e}")
-    try:
-        send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
-    except Exception as e:
-        logger.warning(f"exception caught when sending worker node map to server: {e}")
+    if send_now:
+        try:
+            send_update("api/v1/pilot/update_worker_node", data, url, port, ipv=internet_protocol_version, max_attempts=1)
+        except Exception as e:
+            logger.warning(f"exception caught when sending worker node map to server: {e}")
 
     # GPU info
     try:
         data = get_workernode_gpu_map(site)
     except Exception as e:
         logger.warning(f"exception caught when calling get_workernode_gpu_map(): {e}")
-    try:
-        if data:  # only send if data is not empty
+    if send_now and data:  # only send if data is not empty
+        try:
             send_update("api/v1/pilot/update_worker_node_gpu", data, url, port, ipv=internet_protocol_version, max_attempts=1)
-    except Exception as e:
-        logger.warning(f"exception caught when sending worker node map to server: {e}")
+        except Exception as e:
+            logger.warning(f"exception caught when sending worker node map to server: {e}")
 
 
 def set_lifetime():

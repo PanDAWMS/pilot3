@@ -194,12 +194,10 @@ class ExtInfoProvider(DataLoader):
                              }
                    }
 
-        logger.debug(f'xxx sources={sources}')
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         user = __import__(f'pilot.user.{pilot_user}.setup', globals(), locals(), [pilot_user], 0)
         queuedata_source_priority = user.get_queuedata_priority()
         priority = priority or queuedata_source_priority
-        logger.debug(f'queuedata priority={priority}')
 
         return cls.load_data(sources, priority, cache_time)
 

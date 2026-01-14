@@ -503,3 +503,12 @@ def download_command(process: dict, workdir: str, base_urls: list) -> dict:
         process['command'] = './' + cmd
 
     return process
+
+
+def allow_send_workernode_map() -> bool:
+    """
+    Return True if the workernode map should be sent to the server.
+
+    :return: False unless requested (bool).
+    """
+    return False

@@ -199,7 +199,6 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
             if n_iterations % 60 == 0:
                 logger.info(f"{time_since_start}s have passed since pilot start - server update state is \'{environ['SERVER_UPDATE']}\'")
-                logger.debug(f"args.update_server={args.update_server}")
 
             # every minute run the following check
             if is_pilot_check(check='machinefeatures'):

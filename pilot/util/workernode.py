@@ -780,10 +780,12 @@ def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
     # store the gpu map for caching
     if cache and gpu_info:
         try:
-            filename = os.path.join(os.getcwd(), config.Workernode.gpu_map)
+            filename = os.path.join(os.environ.get('PILOT_HOME'), config.Workernode.gpu_map)
             write_json(filename, gpu_info)
         except Exception as exc:
             logger.warning(f'failed to write gpu map: {exc}')
+        else:
+            logger.info(f'gpu map written to {filename}')
 
     return gpu_info
 
@@ -831,9 +833,11 @@ def get_workernode_map(site: str, queue: str, cache: bool = True) -> dict:
     # store the workernode map for caching
     if cache:
         try:
-            filename = os.path.join(os.getcwd(), config.Workernode.map)
+            filename = os.path.join(os.environ.get('PILOT_HOME'), config.Workernode.map)
             write_json(filename, data)
         except Exception as exc:
             logger.warning(f'failed to write workernode map: {exc}')
+        else:
+            logger.info(f'worker node map written to: {filename}')
 
     return data
