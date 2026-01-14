@@ -361,3 +361,12 @@ def get_pilot_id(jobid: str) -> str:
         pilotid = pilotid.replace(_id[0], str(jobid))
 
     return pilotid
+
+
+def allow_send_workernode_map() -> bool:
+    """
+    Return True if the workernode map should be sent to the server.
+
+    :return: False unless requested (bool).
+    """
+    return False

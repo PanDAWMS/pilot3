@@ -521,3 +521,12 @@ def get_rtlogging_ssl() -> (bool, bool):
     :return: ssl_enable (bool), ssl_verify (bool).
     """
     return False, False
+
+
+def allow_send_workernode_map() -> bool:
+    """
+    Return True if the workernode map should be sent to the server.
+
+    :return: False unless requested (bool).
+    """
+    return False

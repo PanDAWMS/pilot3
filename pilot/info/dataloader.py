@@ -93,8 +93,6 @@ class DataLoader:
         :param sleep_time: sleep time (default is 60 s) between retry attempts (int)
         :return: data loaded from the url or file content if url passed is a filename (Any).
         """
-        logger.debug(f'xxx loading data url={url}')
-
         @timeout(seconds=20)
         def _readfile(url: str) -> str:
             """
