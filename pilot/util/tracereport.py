@@ -54,8 +54,10 @@ from pilot.util.filehandling import (
     append_to_file,
     write_file
 )
-from pilot.util.https import request2
-
+from pilot.util.https import (
+    extract_protocol,
+    request2
+)
 logger = logging.getLogger(__name__)
 
 
@@ -201,6 +203,11 @@ class TraceReport(dict):
 
         url = config.Rucio.url
         logger.info(f"tracing server: {url}")
+
+        # determine protocol in case it is not set (to prevent None values sent to server)
+        if not self['protocol'] and self['url']:
+            self['protocol'] = extract_protocol(self['url'])
+            logger.debug(f'setting protocol to {self["protocol"]}')
         logger.info(f"sending tracing report: {self}")
 
         if not self.verify_trace():
