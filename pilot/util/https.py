@@ -61,7 +61,10 @@ from time import (
     sleep,
     time
 )
-from typing import Any
+from typing import (
+    Any,
+    Optional
+)
 from urllib.parse import parse_qs
 
 from pilot.common.errorcodes import ErrorCodes
@@ -1375,3 +1378,19 @@ def get_memory_limits(url: str, port: int) -> dict:
         resource_types = {}
 
     return resource_types
+
+
+def extract_protocol(url: str) -> Optional[str]:
+    """Extract the protocol (scheme) from a URL.
+
+    This function uses ``urllib.parse.urlparse`` to safely parse the URL
+    and return its scheme component (e.g. ``http``, ``https``, ``root``).
+
+    Args:
+        url: The URL string to parse.
+
+    Returns:
+        The protocol (scheme) if present, otherwise ``None``.
+    """
+    parsed = urllib.parse.urlparse(url)
+    return parsed.scheme or None
