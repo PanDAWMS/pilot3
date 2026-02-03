@@ -1565,7 +1565,7 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         'disk_space': _diskspace,
         #'workingGroup': args.working_group,
         #'cpu': _cpu,
-        'memory': _mem,
+        'memory': int(_mem),
         'node': _nodename
     }
 
