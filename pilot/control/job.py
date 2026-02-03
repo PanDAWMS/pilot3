@@ -1555,6 +1555,77 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     :returns: dictionary prepared for the dispatcher getJob operation (str).
     """
     _diskspace = get_disk_space(infosys.queuedata)
+    _mem, _, _ = collect_workernode_info(os.getcwd())
+    _nodename = get_node_name()
+
+    data = {
+        'site_name': infosys.queuedata.resource,
+        'computing_element': args.queue,
+        'prod_source_label': get_job_label(args),
+        'disk_space': _diskspace,
+        #'workingGroup': args.working_group,
+        #'cpu': _cpu,
+        'memory': _mem,
+        'node': _nodename
+    }
+
+    if args.jobtype != "":
+        data['job_type'] = args.jobtype
+
+    #if args.allow_other_country != "":
+    #    data['allowOtherCountry'] = args.allow_other_country
+
+    #if args.country_group != "":
+    #    data['countryGroup'] = args.country_group
+
+    if args.job_label == 'self':
+        dn = get_distinguished_name()
+        data['prod_user_id'] = dn
+
+    # special handling for task id from message broker
+    if taskid:
+        data['task_id'] = taskid
+        if args.allow_same_user:
+            data['via_topic'] = True
+        logger.info(f"will download a new job belonging to task id: {data['task_id']}")
+    else:  # task id from env var
+        taskid = get_task_id()
+        if taskid != "" and args.allow_same_user:
+            data['task_id'] = taskid
+            logger.info(f"will download a new job belonging to task id: {data['task_id']}")
+
+    if args.resource_type != "":
+        data['resource_type'] = args.resource_type
+
+    # add harvester fields
+    if 'HARVESTER_ID' in os.environ:
+        data['scheduler_id'] = os.environ.get('HARVESTER_ID')
+    if 'HARVESTER_WORKER_ID' in os.environ:
+        data['worker_id'] = os.environ.get('HARVESTER_WORKER_ID')
+
+    return data
+
+
+def get_dispatcher_dictionary_old(args: Any, taskid: str = "") -> dict:
+    """
+    Return a dictionary with required fields for the dispatcher getJob operation.
+
+    The dictionary should contain the following fields: siteName, computingElement (queue name),
+    prodSourceLabel (e.g. user, test, ptest), diskSpace (available disk space for a job in MB),
+    workingGroup, countryGroup, cpu (float), mem (float) and node (worker node name).
+
+    workingGroup, countryGroup and allowOtherCountry
+    we add a new pilot setting allowOtherCountry=True to be used in conjunction with countryGroup=us for
+    US pilots. With these settings, the Panda server will produce the desired behaviour of dedicated X% of
+    the resource exclusively (so long as jobs are available) to countryGroup=us jobs. When allowOtherCountry=false
+    this maintains the behavior relied on by current users of the countryGroup mechanism -- to NOT allow
+    the resource to be used outside the privileged group under any circumstances.
+
+    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
+    :param taskid: task id from message broker, if any (str)
+    :returns: dictionary prepared for the dispatcher getJob operation (str).
+    """
+    _diskspace = get_disk_space(infosys.queuedata)
     _mem, _cpu, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
     #_remaining_time = get_remaining_time(args)
@@ -1783,7 +1854,7 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     data = get_dispatcher_dictionary(args, taskid=taskid)
 
     # get the getJob server command
-    cmd = https.get_server_command(args.url, args.port)
+    cmd = https.get_server_command(args.url, args.port, cmd="api/v1/pilot/acquire_jobs")
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
         if "curlgetjob" in infosys.queuedata.catchall:

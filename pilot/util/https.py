@@ -595,6 +595,8 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
         logger.warning(f'exception caught in https.request(): {exc}')
 
     if not res:
+        if "api/v" in update_function:
+            return None
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
             res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
@@ -739,9 +741,9 @@ def add_error_codes(data: dict, job: JobData):
     data['exeErrorDiag'] = job.exeerrordiag
 
 
-def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
+def get_server_command(url: str, port: int, cmd: str = 'api/v1/pilot/acquire_jobs') -> str:
     """
-    Prepare the getJob server command.
+    Prepare the acquire_jobs (a.k.a. getJob) server command.
 
     :param url: PanDA server URL (str)
     :param port: PanDA server port (int)
@@ -765,6 +767,8 @@ def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
     # randomize server name
     url = get_panda_server(url, port)
 
+    if "api/v" in cmd:
+        return f'{url}/{cmd}'
     return f'{url}/server/panda/{cmd}'
 
 
