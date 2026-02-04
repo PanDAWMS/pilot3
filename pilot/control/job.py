@@ -2633,7 +2633,7 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     logger.info(f'received job: {job.jobid} (sleep until the job has finished)')
 
     # payload environment wants the PANDAID to be set, also used below
-    os.environ['PANDAID'] = job.jobid
+    os.environ['PANDAID'] = str(job.jobid)
 
     # reset pilot errors at the beginning of each new job
     errors.reset_pilot_errors()

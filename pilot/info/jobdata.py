@@ -192,10 +192,10 @@ class JobData(BaseData):
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
                    'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
-                   'requestid', 'maxwalltime', 'minramcount', 'jobid'],
+                   'requestid', 'maxwalltime', 'minramcount', 'jobid', 'jobdefinitionid'],
              str: ['taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
-                   'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
+                   'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'writetofile',
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
