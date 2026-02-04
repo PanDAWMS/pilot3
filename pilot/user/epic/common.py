@@ -29,6 +29,7 @@ from signal import SIGTERM
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import TrfDownloadFailure
 from pilot.info.jobdata import JobData
+from pilot.util.auxiliary import get_resource_name
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_AFTER_PAYLOAD_FINISHED,
@@ -112,7 +113,12 @@ def get_payload_command(job: JobData, args: object = None) -> str:
         raise TrfDownloadFailure(diagnostics)
     logger.debug(f'user analysis trf: {trf_name}')
 
-    return get_analysis_run_command(job, trf_name)
+    resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
+    resource = __import__(f'pilot.user.epic.resource.{resource_name}', globals(), locals(), [resource_name], 0)
+
+    # get the general setup command
+    cmd = resource.get_setup_command(job, False)
+    return cmd + get_analysis_run_command(job, trf_name)
 
 
 def get_analysis_run_command(job: object, trf_name: str) -> str:
