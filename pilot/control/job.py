@@ -2624,8 +2624,30 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     :param queuename: queue name (str)
     :return: job object (Any)
     """
+    # check for sanity
+    if dispatcher_response:
+        if 'success' in dispatcher_response and dispatcher_response['success']:
+            try:
+                if 'data' in dispatcher_response and dispatcher_response['data']['StatusCode'] == 0:
+                    response = dispatcher_response['data']['jobs']
+                else:
+                    logger.warning("failed to extract data from dispatcher response")
+                    response = None
+            except Exception as exc:
+                logger.warning(f"exception caught when extracting data from dispatcher response: {exc}")
+                response = None
+        else:
+            logger.warning("dispatcher response indicates failure")
+            response = None
+    else:
+        logger.warning("empty dispatcher response")
+        response = None
+
+    if not response:
+        return None
+
     # initialize (job specific) InfoService instance
-    job = JobData(dispatcher_response)
+    job = JobData(response)
     jobinfosys = InfoService()
     jobinfosys.init(queuename, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
     job.init(jobinfosys)
