@@ -855,7 +855,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         https.add_error_codes(data, job)
 
     # glidein information, currently only relevant for EIC and generic pilots
-    if args.pilot_user.lower() == 'eic' or args.pilot_user.lower() == 'generic':
+    if args.pilot_user.lower() == 'epic' or args.pilot_user.lower() == 'generic':
         glidein_site, remote_schedd_name = extract_site_and_schedd()
         if glidein_site and remote_schedd_name:
             data['source_site'] = remote_schedd_name

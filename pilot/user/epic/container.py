@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Functions related to containerisation for eic user."""
+"""Functions related to containerisation for epic user."""
 
 import json
 import logging
@@ -38,7 +38,7 @@ from pilot.info import (
     #infosys,
     JobData
 )
-from pilot.user.eic.setup import (
+from pilot.user.epic.setup import (
     get_asetup,
     #get_file_system_root_path
 )

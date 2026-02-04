@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Functions related to proxy handling for eic user."""
+"""Functions related to proxy handling for epic user."""
 
 # from pilot.util.container import execute
 
