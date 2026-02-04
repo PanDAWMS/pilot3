@@ -67,7 +67,7 @@ class JobData(BaseData):
     # ## FIX ME LATER: use proper doc format
     # ## incomplete list of attributes .. to be extended once becomes used
 
-    jobid = None                   # unique Job identifier (forced to be a string)
+    jobid = None                   # unique Job identifier (forced to be an int)
     taskid = None                  # unique Task identifier, the task that this job belongs to (forced to be a string)
     batchid = None                 # batch system job id (should be removed from here)
     batchtype = None               # batch system type (should be removed from here)
@@ -192,8 +192,8 @@ class JobData(BaseData):
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['corecount', 'piloterrorcode', 'transexitcode', 'exitcode', 'cpuconversionfactor', 'exeerrorcode',
                    'attemptnr', 'nevents', 'neventsw', 'pid', 'cpuconsumptiontime', 'maxcpucount', 'actualcorecount',
-                   'requestid', 'maxwalltime', 'minramcount'],
-             str: ['jobid', 'taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
+                   'requestid', 'maxwalltime', 'minramcount', 'jobid'],
+             str: ['taskid', 'jobparams', 'transformation', 'destinationdblock', 'exeerrordiag'
                    'state', 'serverstate', 'workdir', 'stageout',
                    'platform', 'piloterrordiag', 'exitmsg', 'produserid', 'jobdefinitionid', 'writetofile',
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
