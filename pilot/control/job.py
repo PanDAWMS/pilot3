@@ -2637,8 +2637,8 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
                 logger.warning(f"exception caught when extracting data from dispatcher response: {exc}")
                 response = None
         else:
-            logger.warning("dispatcher response indicates failure")
-            response = None
+            logger.warning("assuming old data format")
+            response = dispatcher_response
     else:
         logger.warning("empty dispatcher response")
         response = None
