@@ -500,7 +500,10 @@ def send_worker_status(
     """
     # worker node structure to be sent to the server
     data = {}
-    data["worker_id"] = os.environ.get("HARVESTER_WORKER_ID", None)
+    try:
+        data["worker_id"] = int(os.environ.get("HARVESTER_WORKER_ID", None))
+    except (ValueError, TypeError):
+        logger.warning("failed to convert worker_id to int, worker_id will not be set in worker status update")
     data["harvester_id"] = os.environ.get("HARVESTER_ID", None)
     data["status"] = status
     data["node_id"] = get_node_name()

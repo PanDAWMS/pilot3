@@ -1603,83 +1603,10 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     if 'HARVESTER_ID' in os.environ:
         data['scheduler_id'] = os.environ.get('HARVESTER_ID')
     if 'HARVESTER_WORKER_ID' in os.environ:
-        data['worker_id'] = os.environ.get('HARVESTER_WORKER_ID')
-
-    return data
-
-
-def get_dispatcher_dictionary_old(args: Any, taskid: str = "") -> dict:
-    """
-    Return a dictionary with required fields for the dispatcher getJob operation.
-
-    The dictionary should contain the following fields: siteName, computingElement (queue name),
-    prodSourceLabel (e.g. user, test, ptest), diskSpace (available disk space for a job in MB),
-    workingGroup, countryGroup, cpu (float), mem (float) and node (worker node name).
-
-    workingGroup, countryGroup and allowOtherCountry
-    we add a new pilot setting allowOtherCountry=True to be used in conjunction with countryGroup=us for
-    US pilots. With these settings, the Panda server will produce the desired behaviour of dedicated X% of
-    the resource exclusively (so long as jobs are available) to countryGroup=us jobs. When allowOtherCountry=false
-    this maintains the behavior relied on by current users of the countryGroup mechanism -- to NOT allow
-    the resource to be used outside the privileged group under any circumstances.
-
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (Any)
-    :param taskid: task id from message broker, if any (str)
-    :returns: dictionary prepared for the dispatcher getJob operation (str).
-    """
-    _diskspace = get_disk_space(infosys.queuedata)
-    _mem, _cpu, _ = collect_workernode_info(os.getcwd())
-    _nodename = get_node_name()
-    #_remaining_time = get_remaining_time(args)
-
-    data = {
-        'siteName': infosys.queuedata.resource,
-        'computingElement': args.queue,
-        'prodSourceLabel': get_job_label(args),
-        'diskSpace': _diskspace,
-        'workingGroup': args.working_group,
-        'cpu': _cpu,
-        'mem': _mem,
-        'node': _nodename
-    }
-
-    # include remaining time
-    #if _remaining_time:
-    #    data['remaining_time'] = _remaining_time
-
-    if args.jobtype != "":
-        data['jobType'] = args.jobtype
-
-    if args.allow_other_country != "":
-        data['allowOtherCountry'] = args.allow_other_country
-
-    if args.country_group != "":
-        data['countryGroup'] = args.country_group
-
-    if args.job_label == 'self':
-        dn = get_distinguished_name()
-        data['prodUserID'] = dn
-
-    # special handling for task id from message broker
-    if taskid:
-        data['taskID'] = taskid
-        if args.allow_same_user:
-            data['viaTopic'] = True
-        logger.info(f"will download a new job belonging to task id: {data['taskID']}")
-    else:  # task id from env var
-        taskid = get_task_id()
-        if taskid != "" and args.allow_same_user:
-            data['taskID'] = taskid
-            logger.info(f"will download a new job belonging to task id: {data['taskID']}")
-
-    if args.resource_type != "":
-        data['resourceType'] = args.resource_type
-
-    # add harvester fields
-    if 'HARVESTER_ID' in os.environ:
-        data['harvester_id'] = os.environ.get('HARVESTER_ID')
-    if 'HARVESTER_WORKER_ID' in os.environ:
-        data['worker_id'] = os.environ.get('HARVESTER_WORKER_ID')
+        try:
+            data['worker_id'] = int(os.environ.get('HARVESTER_WORKER_ID'))
+        except (ValueError, TypeError) as error:
+            logger.warning(f'failed to get HARVESTER_WORKER_ID: {error}')
 
     return data
 
