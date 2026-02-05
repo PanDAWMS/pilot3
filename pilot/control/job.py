@@ -2616,7 +2616,114 @@ def print_node_info():
         logger.info("pilot is not running in a virtual machine")
 
 
-def create_job(dispatcher_response: dict, queuename: str) -> Any:
+def extract_job_definitions(dispatcher_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract job definition dictionaries from a dispatcher response.
+
+    This normalizes both the "new" response format:
+        {"success": True, "data": {"StatusCode": 0, "jobs": [ ... ]}}
+    and the "old" format where the response itself is a job dict.
+
+    Args:
+        dispatcher_response: Raw response dictionary from the dispatcher.
+
+    Returns:
+        A list of job definition dictionaries. Empty if extraction fails.
+    """
+    if not dispatcher_response:
+        logger.warning("empty dispatcher response")
+        return []
+
+    # New-ish format
+    if dispatcher_response.get("success"):
+        data = dispatcher_response.get("data") or {}
+        if data.get("StatusCode") != 0:
+            logger.warning("dispatcher returned non-zero StatusCode: %s", data.get("StatusCode"))
+            return []
+
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list):
+            logger.warning("dispatcher response 'jobs' is not a list")
+            return []
+
+        job_defs = [j for j in jobs if isinstance(j, dict)]
+        if not job_defs:
+            logger.warning("no valid job definition dicts found in 'jobs' list")
+        return job_defs
+
+    # Old format fallback
+    logger.warning("assuming old data format")
+    if isinstance(dispatcher_response, dict):
+        return [dispatcher_response]
+
+    logger.warning("old data format is not a dict")
+    return []
+
+
+def build_job_from_definition(job_definition: Dict[str, Any], queuename: str) -> Any:
+    """
+    Create and initialize a JobData job object from a single job definition dict.
+
+    Args:
+        job_definition: A single job definition dictionary.
+        queuename: Queue name.
+
+    Returns:
+        Initialized job object.
+    """
+    job = JobData(job_definition)
+
+    jobinfosys = InfoService()
+    jobinfosys.init(queuename, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
+    job.init(jobinfosys)
+
+    logger.info("received job: %s (sleep until the job has finished)", job.jobid)
+
+    # Payload environment wants PANDAID set.
+    os.environ["PANDAID"] = str(job.jobid)
+
+    # Reset pilot errors at the beginning of each new job.
+    errors.reset_pilot_errors()
+
+    return job
+
+
+# for the future, if multiple jobs are to be supported:
+#
+# def create_jobs(dispatcher_response: Dict[str, Any], queuename: str) -> List[Any]:
+#     job_defs = extract_job_definitions(dispatcher_response)
+#     return [build_job_from_definition(jd, queuename) for jd in job_defs]
+
+
+def create_job(dispatcher_response: Dict[str, Any], queuename: str) -> Optional[Any]:
+    """
+    Create a single job object out of the dispatcher response.
+
+    Note:
+        The dispatcher may return multiple job definitions. For now, the pilot
+        only constructs and returns the first job object.
+
+    Args:
+        dispatcher_response: Raw job dictionary from the dispatcher.
+        queuename: Queue name.
+
+    Returns:
+        A single initialized job object, or None if no job could be created.
+    """
+    job_definitions = extract_job_definitions(dispatcher_response)
+    if not job_definitions:
+        return None
+
+    if len(job_definitions) > 1:
+        logger.info(
+            "dispatcher returned %d jobs; pilot currently supports only one (using the first)",
+            len(job_definitions),
+        )
+
+    return build_job_from_definition(job_definitions[0], queuename)
+
+
+def create_job_old(dispatcher_response: dict, queuename: str) -> Any:
     """
     Create a job object out of the dispatcher response.
 
@@ -2629,7 +2736,7 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
         if 'success' in dispatcher_response and dispatcher_response['success']:
             try:
                 if 'data' in dispatcher_response and dispatcher_response['data']['StatusCode'] == 0:
-                    response = dispatcher_response['data']['jobs']
+                    response = dispatcher_response['data']['jobs'][0]  # only extract the first job
                 else:
                     logger.warning("failed to extract data from dispatcher response")
                     response = None
