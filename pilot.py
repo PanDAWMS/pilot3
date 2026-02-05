@@ -508,7 +508,7 @@ def send_worker_status(
     # attempt to send the worker info to the server
     if data["worker_id"] and data["harvester_id"]:
         send_update(
-            "api/v1/pilot/update_worker_status", data_new, url, port, ipv=internet_protocol_version, max_attempts=2
+            "api/v1/pilot/update_worker_status", data, url, port, ipv=internet_protocol_version, max_attempts=2
         )
     else:
         logger.warning("workerID/harvesterID not known, will not send worker status to server")
