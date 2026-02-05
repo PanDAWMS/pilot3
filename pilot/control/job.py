@@ -2363,20 +2363,20 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         time_pre_getjob = time.time()
 
         # get a job definition from a source (file or server)
-        res = get_job_definition(queues, args)
-        if isinstance(res, str):
-            logger.warning(f"get_job_definition() returned a string (setting it to None): {res}")
-            res = None
+        dispatcher_response = get_job_definition(queues, args)
+        if isinstance(dispatcher_response, str):
+            logger.warning(f"get_job_definition() returned a string (setting it to None): {dispatcher_response}")
+            dispatcher_response = None
 
-        #res['debug'] = True
-        if res:
-            dump_job_definition(res)
+        #dispatcher_response['debug'] = True
+        if dispatcher_response:
+            dump_job_definition(dispatcher_response)
 
         # only ATLAS wants to abort immediately in this case
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         jobdata = __import__(f'pilot.user.{pilot_user}.jobdata', globals(), locals(), [pilot_user], 0)
         fail_at_none = jobdata.fail_at_getjob_none()
-        if res is None and fail_at_none:
+        if dispatcher_response is None and fail_at_none:
             logger.fatal('fatal error in job download loop - cannot continue')
             # do not set graceful stop if pilot has not finished sending the final job update
             # i.e. wait until SERVER_UPDATE is DONE_FINAL
@@ -2385,7 +2385,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             args.graceful_stop.set()
             break
 
-        if not res:
+        if not dispatcher_response:
             getjob_failures += 1
             if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
                 logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
@@ -2403,8 +2403,10 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 if args.graceful_stop.is_set():
                     break
                 time.sleep(1)
-        elif ((isinstance(res, str) and res.startswith('StatusCode') and not res.startswith('StatusCode=0') or
-               (isinstance(res, dict) and 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0))):
+        elif ((isinstance(dispatcher_response, str) and dispatcher_response.startswith('StatusCode') and
+               not dispatcher_response.startswith('StatusCode=0') or
+               (isinstance(dispatcher_response, dict) and 'StatusCode' in dispatcher_response and
+                dispatcher_response['StatusCode'] != '0' and dispatcher_response['StatusCode'] != 0))):
             # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
             # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
             getjob_failures += 1
@@ -2418,7 +2420,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                 break
 
             delay = random.randint(60, 180)
-            logger.warning(f"did not get a job -- sleep {delay}s and repeat -- status: {res}")
+            logger.warning(f"did not get a job -- sleep {delay}s and repeat -- status: {dispatcher_response}")
             for _ in range(delay):
                 if args.graceful_stop.is_set():
                     break
@@ -2426,7 +2428,7 @@ def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         else:
             # create the job object out of the raw dispatcher job dictionary
             try:
-                job = create_job(res, queuename=args.queue)
+                job = create_job(dispatcher_response, queuename=args.queue)
             except PilotException as error:
                 raise error
 
