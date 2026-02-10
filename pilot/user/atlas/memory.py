@@ -244,7 +244,24 @@ def set_cgroups_limit(memory_limit_kb: int):
 
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
     """
-    Perform memory usage verification.
+    Verify payload memory usage and enforce configured limits.
+
+    This function performs the following steps:
+    - Reads the memory monitor summary produced in `job.workdir` (file name `job.memorymonitor`)
+      using `get_memory_values()`. The summary is expected to include `Max -> maxPSS` in kilobytes (kB).
+      If the summary cannot be read, the function returns `(errors.BADMEMORYMONITORJSON, <diagnostics>)`.
+    - Retrieves the configured per-core memory limit for `resource_type` (in MB) via `get_memory_limit()`.
+    - Computes an effective memory limit in kilobytes by calling `calculate_memory_limit_kb(job, resource_type, memory_limit_panda)`.
+      That calculation may use `queuedata.maxrss`, `queuedata.corecount`, `job.corecount`, `queuedata.pilot_rss_grace`
+      and/or `job.minramcount`. The returned value is in kB.
+    - If cgroups are enabled (`pilot_cache.use_cgroups`) and a valid memory limit is available,
+      attempts to set a cgroup memory limit via `set_cgroups_limit()` (limit is provided in kB).
+    - Compares the observed peak memory (`maxPSS` in kB) to the computed limit (kB). If `maxPSS > memory_limit_kb`:
+      - Logs a warning, sets the pilot state to `"failed"`, annotates `job.piloterrorcodes` / `job.piloterrordiags`
+        using `errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)`, and kills payload processes via `kill_processes(job.pid)`.
+      - Returns `(0, diagnostics)` where `diagnostics` explains the exceeded limit.
+    - If the memory limit cannot be determined or `maxPSS` is not found, no enforcement is performed; the function logs
+      the condition and returns `(0, "")` (unless the monitor file could not be read, see above).
 
     Args:
         job (JobData): job object containing job information.
