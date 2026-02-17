@@ -1329,6 +1329,7 @@ def get_memory_limits(url: str, port: int) -> dict:
         dict: A dictionary of resource types.
     """
     cmd = get_server_command(url, port, cmd="getResourceTypes")
+    # cmd = get_server_command(url, port, cmd="api/v1/pilot/get_resource_types")
     try:
         response = request2(cmd, panda=True)  # will be a dictionary
     except Exception as exc:
