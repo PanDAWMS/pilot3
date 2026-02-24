@@ -931,6 +931,177 @@ class StageInClient(StagingClient):
 
             if self.infosys and self.infosys.queuedata:
                 copytool_name = copytool.__name__.rsplit('.', 1)[-1]
+                allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity,
+                                                                                 copytool_name) or allowed_schemas
+
+            # overwrite allowed_schemas for VP jobs
+            if kwargs.get('use_vp', False):
+                allowed_schemas = ['root']
+                self.logger.debug('overwrote allowed_schemas for VP job: %s', str(allowed_schemas))
+
+            for fspec in files:
+                resolve_replica = getattr(copytool, 'resolve_replica', None)
+                resolve_replica = self.resolve_replica if not callable(resolve_replica) else resolve_replica
+
+                replica = None
+
+                # --- NEW: prefer schema based on job.transfertype for copy-to-scratch ---
+                job = kwargs.get('job')
+                ttype = (getattr(job, 'transfertype', '') or '').lower()
+                prefer = [ttype] if ttype in ('file', 'root', 'davs') else None
+
+                # don’t interfere with direct I/O behavior
+                doing_direct = fspec.is_directaccess(ensure_replica=False) and (fspec.direct_access_lan or fspec.direct_access_wan)
+
+                if prefer and not doing_direct:
+                    # try LAN first (if allowed)
+                    if fspec.allow_lan:
+                        preferred_replica = resolve_replica(fspec, prefer, allowed_schemas, domain='lan')
+                        if preferred_replica:
+                            replica = preferred_replica
+                            self.logger.info('lan replica resolved with preferred schema=%s: %s', prefer, replica)
+
+                    # then WAN (respecting existing WAN schema restriction logic)
+                    if not replica and fspec.allow_wan:
+                        xschemas = self.remoteinput_allowed_schemas
+                        wan_allowed_schemas = [s for s in allowed_schemas if
+                                               s in xschemas] if allowed_schemas else xschemas
+                        preferred_replica = resolve_replica(fspec, prefer, wan_allowed_schemas, domain='wan')
+                        if preferred_replica:
+                            replica = preferred_replica
+                            self.logger.info('wan replica resolved with preferred schema=%s: %s', prefer, replica)
+                # --- end NEW block ---
+
+                # process direct access logic  ## TODO move to upper level, should not be dependent on copytool (anisyonk)
+
+                # check local replicas first
+                if fspec.allow_lan:
+                    if not replica:
+                        # prepare schemas which will be used to look up first the replicas allowed for direct access mode
+                        primary_schemas = (
+                            self.direct_localinput_allowed_schemas
+                            if fspec.direct_access_lan and fspec.is_directaccess(ensure_replica=False)
+                            else None
+                        )
+                        replica = resolve_replica(fspec, primary_schemas, allowed_schemas, domain='lan')
+
+                    if not replica:
+                        self.logger.info(
+                            "[stage-in] No LAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
+                            fspec.lfn, primary_schemas, allowed_schemas
+                        )
+                else:
+                    self.logger.info(
+                        "[stage-in] LAN access is DISABLED for lfn=%s (fspec.allow_lan=%s)",
+                        fspec.lfn, fspec.allow_lan
+                    )
+
+                # check remote replicas
+                if not replica and fspec.allow_wan:
+                    # prepare schemas which will be used to look up first the replicas allowed for direct access mode
+                    primary_schemas = (
+                        self.direct_remoteinput_allowed_schemas
+                        if fspec.direct_access_wan and fspec.is_directaccess(ensure_replica=False)
+                        else None
+                    )
+
+                    xschemas = self.remoteinput_allowed_schemas
+                    wan_allowed_schemas = [s for s in allowed_schemas if s in xschemas] if allowed_schemas else xschemas
+
+                    replica = resolve_replica(fspec, primary_schemas, wan_allowed_schemas, domain='wan')
+
+                    if not replica:
+                        self.logger.info(
+                            "[stage-in] No WAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
+                            fspec.lfn, primary_schemas, wan_allowed_schemas
+                        )
+
+                if not replica:
+                    raise ReplicasNotFound(
+                        f'No replica found for lfn={fspec.lfn} (allow_lan={fspec.allow_lan}, allow_wan={fspec.allow_wan})'
+                    )
+
+                if replica.get('pfn'):
+                    fspec.turl = replica['pfn']
+                if replica.get('surl'):
+                    fspec.surl = replica['surl']  # TO BE CLARIFIED if it's still used and need
+                if replica.get('ddmendpoint'):
+                    fspec.ddmendpoint = replica['ddmendpoint']
+                if replica.get('domain'):
+                    fspec.domain = replica['domain']
+
+                self.logger.info(
+                    "[stage-in] found replica to be used for lfn=%s: ddmendpoint=%s, pfn=%s",
+                    fspec.lfn, fspec.ddmendpoint, fspec.turl
+                )
+
+        # prepare files (resolve protocol/transfer url)
+        if getattr(copytool, 'require_input_protocols', False) and files:
+            args = kwargs.get('args')
+            input_dir = kwargs.get('input_dir') if not args else args.input_dir
+            self.require_protocols(files, copytool, activity, local_dir=input_dir)
+
+        # mark direct access files with status=remote_io
+        self.set_status_for_direct_access(files, kwargs.get('workdir', ''))
+
+        # get remain files that need to be transferred by copytool
+        remain_files = [e for e in files if e.status not in ['direct', 'remote_io', 'transferred', 'no_transfer']]
+
+        if not remain_files:
+            return files
+
+        if not copytool.is_valid_for_copy_in(remain_files):
+            msg = f'input is not valid for transfers using copytool={copytool}'
+            self.logger.warning(msg)
+            self.logger.debug('input: %s', remain_files)
+            self.trace_report.update(clientState='NO_REPLICA', stateReason=msg)
+            self.trace_report.send()
+            raise PilotException('invalid input data for transfer operation')
+
+        if self.infosys:
+            if self.infosys.queuedata:
+                kwargs['copytools'] = self.infosys.queuedata.copytools
+            kwargs['ddmconf'] = self.infosys.resolve_storage_data()
+        kwargs['activity'] = activity
+
+        # verify file sizes and available space for stage-in
+        if getattr(copytool, 'check_availablespace', True):
+            if self.infosys.queuedata.maxinputsize != -1:
+                self.check_availablespace(remain_files)
+            else:
+                self.logger.info('skipping input file size check since maxinputsize=-1')
+
+        # add the trace report
+        kwargs['trace_report'] = self.trace_report
+        self.logger.info('ready to transfer (stage-in) files: %s', remain_files)
+
+        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
+        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
+
+        # use bulk downloads if necessary
+        # if kwargs['use_bulk_transfer']
+        # return copytool.copy_in_bulk(remain_files, **kwargs)
+        return copytool.copy_in(remain_files, **kwargs)
+
+    def transfer_files_old(self, copytool: Any, files: list, activity: list = None, **kwargs: dict) -> list:  # noqa: C901
+        """
+        Automatically stage in files using the selected copy tool module.
+
+        :param copytool: copytool module (Any)
+        :param files: list of `FileSpec` objects (list)
+        :param activity: list of activity names used to determine appropriate copytool (list or None)
+        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
+        :return: list of processed `FileSpec` objects (list)
+        :raise: PilotException in case of controlled error.
+        """
+        if getattr(copytool, 'require_replicas', False) and files:
+            if files[0].replicas is None:  # look up replicas only once
+                files = self.resolve_replicas(files, use_vp=kwargs.get('use_vp', False))
+
+            allowed_schemas = getattr(copytool, 'allowed_schemas', None)
+
+            if self.infosys and self.infosys.queuedata:
+                copytool_name = copytool.__name__.rsplit('.', 1)[-1]
                 allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity, copytool_name) or allowed_schemas
 
             # overwrite allowed_schemas for VP jobs
@@ -944,9 +1115,35 @@ class StageInClient(StagingClient):
 
                 replica = None
 
-                # process direct access logic  ## TODO move to upper level, should not be dependent on copytool (anisyonk)
+                # for dev pilot purposes
+                # --- NEW: prefer schema based on job.transfertype for copy-to-scratch ---
+                job = kwargs.get('job')
+                ttype = (getattr(job, 'transfertype', '') or '').lower()
+
+                prefer = [ttype] if ttype in ('file', 'root', 'davs') else None
+
+                # don’t interfere with direct I/O behavior
+                doing_direct = fspec.is_directaccess(ensure_replica=False) and (fspec.direct_access_lan or fspec.direct_access_wan)
+
+                if prefer and not doing_direct:
+                    # try LAN first (if allowed)
+                    if fspec.allow_lan:
+                        replica = resolve_replica(fspec, prefer, allowed_schemas, domain='lan')
+                        self.logger.info(f'lan replica resolved with preferred schema={prefer}: {replica}')
+
+                    # then WAN (respecting existing WAN schema restriction logic)
+                    if not replica and fspec.allow_wan:
+                        xschemas = self.remoteinput_allowed_schemas
+                        wan_allowed = [s for s in allowed_schemas if s in xschemas] if allowed_schemas else xschemas
+                        replica = resolve_replica(fspec, prefer, wan_allowed, domain='wan')
+                        self.logger.info(f'wan replica resolved with preferred schema={prefer}: {replica}')
+                # --- end NEW block ---
+
+                # process direct access logic
+                # [Consider: move to upper level, should not be dependent on copytool (anisyonk)]
                 # check local replicas first
-                if fspec.allow_lan:
+                # if fspec.allow_lan:
+                if not replica and fspec.allow_lan:
                     # prepare schemas which will be used to look up first the replicas allowed for direct access mode
                     primary_schemas = (self.direct_localinput_allowed_schemas if fspec.direct_access_lan and
                                        fspec.is_directaccess(ensure_replica=False) else None)
