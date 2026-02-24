@@ -95,11 +95,11 @@ def write_pilot_timing(pilot_timing_dictionary: dict):
         logger.warning(f'failed to update pilot timing dictionary: {path}')
 
 
-def add_to_pilot_timing(job_id: str, timing_constant: str, time_measurement: float, args: object, store: bool = False):
+def add_to_pilot_timing(job_id: int, timing_constant: str, time_measurement: float, args: object, store: bool = False):
     """
     Add the given timing contant and measurement got job_id to the pilot timing dictionary.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param timing_constant: timing constant (str)
     :param time_measurement: time measurement (float)
     :param args: pilot arguments (object)
@@ -117,143 +117,143 @@ def add_to_pilot_timing(job_id: str, timing_constant: str, time_measurement: flo
         write_pilot_timing(args.timing)
 
 
-def get_initial_setup_time(job_id: str, args: object) -> int:
+def get_initial_setup_time(job_id: int, args: object) -> int:
     """
     Return the time for the initial setup.
 
     High level function that returns the time for the initial setup.
     The initial setup time is measured from PILOT_START_TIME to PILOT_PRE_GETJOB.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_MULTIJOB_START_TIME, PILOT_PRE_GETJOB, args)
 
 
-def get_getjob_time(job_id: str, args: object) -> int:
+def get_getjob_time(job_id: int, args: object) -> int:
     """
     Return the time for the getjob operation.
 
     High level function that returns the time for the getjob operation for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_GETJOB, PILOT_POST_GETJOB, args)
 
 
-def get_setup_time(job_id: str, args: object) -> int:
+def get_setup_time(job_id: int, args: object) -> int:
     """
     Return the time for the setup operation.
 
     High level function that returns the time for the setup operation for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_SETUP, PILOT_POST_SETUP, args)
 
 
-def get_stagein_time(job_id: str, args: object) -> int:
+def get_stagein_time(job_id: int, args: object) -> int:
     """
     Return the time for the stage-in operation.
 
     High level function that returns the time for the stage-in operation for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_STAGEIN, PILOT_POST_STAGEIN, args)
 
 
-def get_stageout_time(job_id: str, args: object) -> int:
+def get_stageout_time(job_id: int, args: object) -> int:
     """
     Return the time for the stage-out operation.
 
     High level function that returns the time for the stage-out operation for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_STAGEOUT, PILOT_POST_STAGEOUT, args)
 
 
-def get_log_creation_time(job_id: str, args: object) -> int:
+def get_log_creation_time(job_id: int, args: object) -> int:
     """
     Return the time for creating the job log.
 
     High level function that returns the time for creating the job log for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_LOG_TAR, PILOT_POST_LOG_TAR, args)
 
 
-def get_payload_execution_time(job_id: str, args: object) -> int:
+def get_payload_execution_time(job_id: int, args: object) -> int:
     """
     Return the time for the payload execution.
 
     High level function that returns the time for the payload execution for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_PAYLOAD, PILOT_POST_PAYLOAD, args)
 
 
-def get_final_update_time(job_id: str, args: object) -> int:
+def get_final_update_time(job_id: int, args: object) -> int:
     """
     Return the time for the final update.
 
     High level function that returns the time for execution the final update for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_FINAL_UPDATE, PILOT_POST_FINAL_UPDATE, args)
 
 
-def get_total_pilot_time(job_id: str, args: object) -> int:
+def get_total_pilot_time(job_id: int, args: object) -> int:
     """
     Return the total pilot time for the given job_id.
 
     High level function that returns the end time for the given job_id.
     This means the wall time that has passed from the start of the pilot until after the last job update.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_START_TIME, PILOT_END_TIME, args)
 
 
-def get_total_remoteio_time(job_id: str, args: object) -> int:
+def get_total_remoteio_time(job_id: int, args: object) -> int:
     """
     Return the total time to verify remote i/o files for the given job_id.
 
     High level function that returns the end time for the given job_id.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
     """
     return get_time_difference(job_id, PILOT_PRE_REMOTEIO, PILOT_POST_REMOTEIO, args)
 
 
-def get_postgetjob_time(job_id: str, args: object) -> int or None:
+def get_postgetjob_time(job_id: int, args: object) -> int or None:
     """
     Return the post getjob time.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param args: pilot arguments (object)
     :return: post getjob time measurement (int). In case of failure, return None (int or None).
     """
@@ -314,11 +314,11 @@ def get_time_since_multijob_start(args: object) -> int:
     return get_time_since('1', PILOT_MULTIJOB_START_TIME, args)
 
 
-def get_time_since(job_id: str, timing_constant: str, args: object) -> int:
+def get_time_since(job_id: int, timing_constant: str, args: object) -> int:
     """
     Return the amount of time that has passed since the time measurement of timing_constant.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param timing_constant: timing constant (str)
     :param args: pilot arguments (object)
     :return: time in seconds (int).
@@ -341,7 +341,7 @@ def get_time_since(job_id: str, timing_constant: str, args: object) -> int:
     return diff
 
 
-def get_time_difference(job_id: str, timing_constant_1: str, timing_constant_2: str, args: object) -> int:
+def get_time_difference(job_id: int, timing_constant_1: str, timing_constant_2: str, args: object) -> int:
     """
     Return the positive time difference between the given constants.
 
@@ -354,7 +354,7 @@ def get_time_difference(job_id: str, timing_constant_1: str, timing_constant_2: 
     job_id = 0 means timing information from wrapper. Timing constants are defined in pilot.util.constants.
     Time measurement are time.time() values. The float value will be converted to an int as a last step.
 
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param timing_constant_1: timing constant 1 (str)
     :param timing_constant_2: timing constant 2 (str)
     :param args: pilot arguments (object)
@@ -392,11 +392,11 @@ def get_time_difference(job_id: str, timing_constant_1: str, timing_constant_2: 
     return diff
 
 
-def timing_report(job_id: str, args: object) -> tuple[int, int, int, int, int, int, int]:
+def timing_report(job_id: int, args: object) -> tuple[int, int, int, int, int, int, int]:
     """
     Write a timing report to the job log and return relevant timing measurements.
 
-    :param job_id: job id (str)
+    :param job_id: job id (int)
     :param args: pilot arguments (object)
     :return: getjob, stagein, payload, stageout, initial setup, total setup, log creation time (tuple).
     """

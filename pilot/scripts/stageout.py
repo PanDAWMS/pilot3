@@ -123,6 +123,7 @@ def get_args() -> argparse.Namespace:
     arg_parser.add_argument('--jobid',
                             dest='jobid',
                             required=True,
+                            type=int,
                             help='PanDA job id')
     arg_parser.add_argument('--taskid',
                             dest='taskid',
@@ -222,16 +223,16 @@ class Job:
     """A minimal implementation of the Pilot Job class with data members necessary for the trace report only."""
 
     produserid = ""
-    jobid = ""
+    jobid = 0
     taskid = ""
     jobdefinitionid = ""
 
-    def __init__(self, produserid: str = "", jobid: str = "", taskid: str = "", jobdefinitionid: str = ""):
+    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: str = ""):
         """
         Initialize the Job object.
 
         :param produserid: produserid (str)
-        :param jobid: jobid (str)
+        :param jobid: jobid (int)
         :param taskid: taskid (str)
         :param jobdefinitionid: jobdefinitionid (str)
         """

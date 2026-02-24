@@ -303,13 +303,13 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = None) -> dict:
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = None) -> dict:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
     :param path: path to memory monitor txt output file (str)
     :param storejson: store dictionary on disk if True (bool)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :return: prmon metadata (dict).
     """
     # get the raw memory monitor output, convert to dictionary

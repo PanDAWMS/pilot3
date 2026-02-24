@@ -60,7 +60,7 @@ def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
 
 
 def get_memory_monitor_setup(pid: int,
-                             jobid: str,
+                             jobid: int,
                              workdir: str,
                              setup: str = "",
                              use_container: bool = True) -> tuple[str, int]:
@@ -72,7 +72,7 @@ def get_memory_monitor_setup(pid: int,
     to use a fixed version for the setup. Currently, release 21.0.22 is used.
 
     :param pid: job process id (int)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :param workdir: job work directory (str)
     :param setup: optional setup in case asetup can not be used, which uses infosys (str)
     :param use_container: optional boolean (bool)
@@ -105,7 +105,7 @@ def get_memory_monitor_setup(pid: int,
     return cmd, pid
 
 
-def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
+def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
     """
     Return a pid from the proper source to be used with the memory monitor.
 
@@ -116,7 +116,7 @@ def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
     launch the memory monitor as it is not needed any longer.
 
     :param pid: process id (int)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :param use_container: optional boolean (bool)
     :return: pid (int).
     """
@@ -179,18 +179,19 @@ def get_ps_info(whoami: str = "", options: str = "axfo pid,user,args") -> str:
     return stdout
 
 
-def get_pid_for_jobid(ps: str, jobid: str) -> int:
+def get_pid_for_jobid(ps: str, jobid: int) -> int:
     """
     Return the process id for the ps entry that contains the job id.
 
     :param ps: ps command output (str)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :return: pid (int) or None if no such process.
     """
     pid = None
 
+    jobid_str = str(jobid)
     for line in ps.split('\n'):
-        if jobid in line and 'xrootd' not in line:
+        if jobid_str in line and 'xrootd' not in line:
             # extract pid
             _pid = search(r'(\d+) ', line)
             try:
@@ -520,13 +521,13 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = "") -> dict:
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = 0) -> dict:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
     :param path: path to metadata file (str)
     :param storejson: store dictionary on disk if True (bool)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :return: prmon metadata (dict).
     """
     # get the raw memory monitor output, convert to dictionary

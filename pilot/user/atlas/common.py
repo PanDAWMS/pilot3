@@ -2304,7 +2304,7 @@ def get_utility_after_payload_started() -> dict:
     return com
 
 
-def get_xcache_command(catchall: str, workdir: str, jobid: str, label: str, xcache_function: Any) -> dict:
+def get_xcache_command(catchall: str, workdir: str, jobid: int, label: str, xcache_function: Any) -> dict:
     """
     Return the proper xcache command for either activation or deactivation.
 
@@ -2312,7 +2312,7 @@ def get_xcache_command(catchall: str, workdir: str, jobid: str, label: str, xcac
 
     :param catchall: queuedata catchall field (str)
     :param workdir: job working directory (str)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :param label: label (str)
     :param xcache_function: activation/deactivation function name (Any)
     :return: command (dict).
@@ -2398,7 +2398,7 @@ def set_xcache_var(line: str, name: str = '', pattern: str = ''):
         os.environ[name] = result[0]
 
 
-def xcache_activation_command(workdir: str = '', jobid: str = '') -> dict:
+def xcache_activation_command(workdir: str = '', jobid: int = 0) -> dict:
     """
     Return the xcache service activation command.
 
@@ -2427,7 +2427,7 @@ def xcache_activation_command(workdir: str = '', jobid: str = '') -> dict:
     return {'command': command, 'args': ''}
 
 
-def xcache_deactivation_command(workdir: str = '', jobid: str = '') -> dict:
+def xcache_deactivation_command(workdir: str = '', jobid: int = 0) -> dict:
     """
     Return the xcache service deactivation command.
 
@@ -2438,7 +2438,7 @@ def xcache_deactivation_command(workdir: str = '', jobid: str = '') -> dict:
     needs it in the called (xcache_activation_command needs it).
 
     :param workdir: payload work directory (str)
-    :param jobid: unused job id - do not remove (str)
+    :param jobid: unused job id - do not remove (int)
     :return: xcache command (dict).
     """
     if jobid:  # to bypass pylint warning
@@ -2766,7 +2766,7 @@ def preprocess_debug_command(job: JobData):
         job.debug_command = cmd + job.debug_command
 
 
-def process_debug_command(debug_command: str, pandaid: str) -> str:
+def process_debug_command(debug_command: str, pandaid: int) -> str:
     """
     Process the debug command in debug mode.
 
@@ -2781,7 +2781,7 @@ def process_debug_command(debug_command: str, pandaid: str) -> str:
     corresponding pid.
 
     :param debug_command: debug command (str)
-    :param pandaid: PanDA id (str)
+    :param pandaid: PanDA id (int)
     :return: updated debug command (str).
     """
     if '--pid %' not in debug_command:
@@ -2845,13 +2845,13 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: str) -> str:
+def get_pilot_id(jobid: int) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 
     Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (str)
+    :param jobid: PanDA job id - UNUSED (int)
     :return: pilot id (str).
     """
     if jobid:  # to bypass pylint score 0

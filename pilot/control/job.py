@@ -1112,12 +1112,12 @@ def add_memory_info(data: dict, workdir: str, name: str = ""):
         logger.info(f'memory information not available: {error}')
 
 
-def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
+def remove_pilot_logs_from_list(list_of_files: list, jobid: int) -> list:
     """
     Remove any pilot logs from the list of last updated files.
 
     :param list_of_files: list of last updated files (list)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :return: list of files (list).
     """
     # note: better to move experiment specific files to user area
@@ -1143,12 +1143,12 @@ def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
     return new_list_of_files
 
 
-def get_payload_log_tail(workdir: str, jobid: str) -> str:
+def get_payload_log_tail(workdir: str, jobid: int) -> str:
     """
     Return the tail of the payload stdout or its latest updated log file.
 
     :param workdir: job work directory (str)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :return: tail of stdout (str).
     """
     # find the latest updated log file
@@ -2141,7 +2141,7 @@ def get_fake_job(inpt: bool = True) -> dict:
                'outFiles': f'RDO_{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': 1000,
                'scopeIn': 'mc15_13TeV',
-               'PandaID': '0',
+               'PandaID': 0,
                'sourceSite': 'NULL',
                'dispatchDblock': 'NULL',
                'prodSourceLabel': 'ptest',
@@ -2197,7 +2197,7 @@ def get_fake_job(inpt: bool = True) -> dict:
                'outFiles': f'{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': '1000',
                'scopeIn': 'data15_13TeV',
-               'PandaID': '0',
+               'PandaID': 0,
                'sourceSite': 'NULL',
                'dispatchDblock': 'data15_13TeV:data15_13TeV.00276336.physics_Main.merge.AOD.r7562_p2521_tid07709524_00',
                'prodSourceLabel': 'ptest',
@@ -2480,11 +2480,11 @@ def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> i
         return getjob_failures
 
 
-def htcondor_envvar(jobid: str):
+def htcondor_envvar(jobid: int):
     """
     On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
-    :param jobid: PanDA job id (str).
+    :param jobid: PanDA job id (int).
     """
     try:
         globaljobid = encode_globaljobid(jobid)

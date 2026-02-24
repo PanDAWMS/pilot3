@@ -387,12 +387,12 @@ def get_valid_base_urls(base_urls: list, order: str = None) -> list:
     return valid_base_urls
 
 
-def get_payload_environment_variables(cmd: str, job_id: str, task_id: str, attempt_nr: int, processing_type: str, site_name: str, analysis_job: bool) -> list:
+def get_payload_environment_variables(cmd: str, job_id: int, task_id: str, attempt_nr: int, processing_type: str, site_name: str, analysis_job: bool) -> list:
     """
     Return an array with enviroment variables needed by the payload.
 
     :param cmd: payload execution command (str)
-    :param job_id: PanDA job id (str)
+    :param job_id: PanDA job id (int)
     :param task_id: PanDA task id (str)
     :param attempt_nr: PanDA job attempt number (int)
     :param processing_type: processing type (str)

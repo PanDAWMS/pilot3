@@ -150,7 +150,7 @@ def get_globaljobid() -> str:
     return ret
 
 
-def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
+def encode_globaljobid(jobid: int, maxsize: int = 31) -> str:
     """
     Encode the global job id on HTCondor.
 
@@ -164,7 +164,7 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
     characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
     to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
 
-    :param jobid: panda job id (str)
+    :param jobid: panda job id (int)
     :param maxsize: max length allowed (int)
     :return: encoded global job id (str).
     """
