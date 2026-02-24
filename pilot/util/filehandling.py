@@ -37,7 +37,7 @@ from functools import partial, reduce
 from glob import glob
 from json import load, JSONDecodeError
 from json import dump as dumpjson
-from mmap import mmap
+from mmap import mmap, ACCESS_READ
 from pathlib import Path
 from shutil import copy2, rmtree
 from typing import Any, IO, Union, Mapping, Iterable
@@ -812,8 +812,8 @@ def calculate_adler32_checksum(filename: str) -> str:
     adler = 1
 
     try:
-        with open(filename, 'r+b') as _file:
-            _mm = mmap(_file.fileno(), 0)
+        with open(filename, 'rb') as _file:
+            _mm = mmap(_file.fileno(), 0, access=ACCESS_READ)
             for block in iter(partial(_mm.read, io.DEFAULT_BUFFER_SIZE), b''):
                 adler = adler32(block, adler)
     except Exception as exc:
