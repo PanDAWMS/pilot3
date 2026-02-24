@@ -334,7 +334,9 @@ def _stage_in(args: object, job: JobData) -> bool:
                       'checkinputsize': True,
                       'rucio_host': args.rucio_host,
                       'jobworkdir': jobworkdir,
-                      'args': args}
+                      'args': args,
+                      'job': job}  # for dev purposes at DESY
+
             logger.debug(f'kwargs={kwargs}')
             client.prepare_sources(job.indata)
             client.prepare_inputddms(job.indata, storage_activities)
