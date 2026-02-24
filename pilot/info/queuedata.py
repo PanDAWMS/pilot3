@@ -190,8 +190,7 @@ class QueueData(BaseData):
     def set_pilot_walltime_grace(self):
         """Set pilot walltime grace factor based on the queuedata settings."""
         try:
-            # using a 1% grace by default, which corresponds to 14 minutes for a 24-hour limit
-            _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 1))
+            _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 0))
             self.pilot_walltime_grace = 1.0 + _pilot_walltime_grace / 100.0
         except (ValueError, TypeError) as e:
             logger.warning(f"failed to set pilot_walltime_grace: {e}")
