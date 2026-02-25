@@ -722,7 +722,7 @@ def add_data_structure_ids_new(data: dict, version_tag: str, job: Any) -> dict:
     # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-    pilotid = user.get_pilot_id(data['jobId'])
+    pilotid = user.get_pilot_id(data['job_id'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
         # report the batch system job id, if available
@@ -2727,7 +2727,13 @@ def extract_job_definitions(dispatcher_response: Dict[str, Any]) -> List[Dict[st
         return []
 
     # New-ish format
-    if dispatcher_response.get("success"):
+    success = dispatcher_response.get("success")
+    message = dispatcher_response.get("message")
+    if not success and message and "No jobs in PanDA" in message:
+        logger.warning("no jobs in PanDA")
+        return []
+
+    if success:
         data = dispatcher_response.get("data") or {}
         if data.get("StatusCode") != 0:
             logger.warning("dispatcher returned non-zero StatusCode: %s", data.get("StatusCode"))

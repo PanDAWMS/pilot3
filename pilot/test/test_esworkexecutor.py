@@ -98,15 +98,15 @@ class TestESWorkExecutorGrid(unittest.TestCase):
                 os.makedirs(job.workdir)
 
             job_data = {}
-            job_data['jobId'] = job['PandaID']
-            job_data['siteName'] = 'BNL_CLOUD_MCORE'
-            job_data['state'] = 'starting'
-            job_data['attemptNr'] = job['attemptNr'] + 1
+            job_data['job_id'] = job['PandaID']
+            job_data['site_name'] = 'BNL_CLOUD_MCORE'
+            job_data['job_status'] = 'starting'
+            job_data['attempt_nr'] = job['attemptNr'] + 1
             job_data['node'] = 'pilot3_test'
-            job_data['schedulerID'] = 'pilot3_test'
-            job_data['coreCount'] = 1
+            job_data['scheduler_id'] = 'pilot3_test'
+            job_data['core_count'] = 1
             _ = communicator_manager.update_jobs(jobs=[job_data])
-            job_data['state'] = 'running'
+            job_data['job_status'] = 'running'
             _ = communicator_manager.update_jobs(jobs=[job_data])
             communicator_manager.stop()
 

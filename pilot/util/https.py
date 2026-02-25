@@ -441,7 +441,7 @@ def get_vars(url: str, data: dict) -> tuple[str, str]:
     strdata = ""
     for key in data:
         strdata += f'data="{urllib.parse.urlencode({key: data[key]})}"\n'
-    jobid = f"_{data['jobId']}" if 'jobId' in list(data.keys()) else ""
+    jobid = f"_{data['job_id']}" if 'job_id' in list(data.keys()) else ""
 
     # write data to temporary config file
     filename = f"{os.getenv('PILOT_HOME')}/curl_{os.path.basename(url)}{jobid}.config"
@@ -873,6 +873,7 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         data = {}
 
     ipv = os.environ.get("PILOT_IP_VERSION")
+    logger.info(f"url = {url}, secure = {secure}, compressed = {compressed}, ipv = {ipv}")
 
     # https might not have been set up if running in a [middleware] container
     if not _ctx.cacert:

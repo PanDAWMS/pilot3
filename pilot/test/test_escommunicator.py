@@ -31,7 +31,6 @@ import unittest
 
 from pilot.eventservice.communicationmanager.communicationmanager import CommunicationRequest, CommunicationResponse, CommunicationManager
 from pilot.util.https import https_setup
-from pilot.util.timing import time_stamp
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -117,20 +116,19 @@ class TestESCommunicationManagerPanda(unittest.TestCase):
             job_list = []
             for job in jobs:
                 job_data = {'node': socket.getfqdn(),
-                            'pilotErrorCode': 0,
-                            'startTime': time.time(),
-                            'jobMetrics': 'coreCount=8',
-                            'schedulerID': 'unknown',
-                            'timestamp': time_stamp(),
-                            'exeErrorCode': 0,
-                            'pilotID': 'unknown|PR|2.0.0 (80)',
-                            'transExitCode': 0,
-                            'pilotErrorDiag': '',
-                            'exeErrorDiag': ''}
-                job_data['jobId'] = job['PandaID']
-                job_data['siteName'] = 'BNL_CLOUD_MCORE'
-                job_data['state'] = 'running'
-                job_data['attemptNr'] = job['attemptNr'] + 1
+                            'pilot_error_code': 0,
+                            'start_time': time.time(),
+                            'job_metrics': 'coreCount=8',
+                            'scheduler_id': 'unknown',
+                            'exe_error_code': 0,
+                            'pilot_id': 'unknown|PR|2.0.0 (80)',
+                            'trans_exit_code': 0,
+                            'pilot_error_diag': '',
+                            'exe_error_diag': ''}
+                job_data['job_id'] = job['PandaID']
+                job_data['site_name'] = 'BNL_CLOUD_MCORE'
+                job_data['job_status'] = 'running'
+                job_data['attempt_nr'] = job['attemptNr'] + 1
                 job_list.append(job_data)
             status = communicator_manager.update_jobs(jobs=job_list)
             self.assertEqual(status[0], True)
