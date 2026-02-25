@@ -336,6 +336,75 @@ def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> st
     return path
 
 
+def get_memory_monitor_info_new(workdir: str, allowtxtfile: bool = False, name: str = "") -> dict:  # noqa: C901
+    """
+    Add the utility info to the node structure if available.
+
+    Note: allowtxtfile is not used for ATLAS.
+
+    :param workdir: relevant work directory (str)
+    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
+    :param name: name of memory monitor (str)
+    :return: node structure (dict).
+    """
+    if allowtxtfile:  # bypass pylint warning
+        pass
+    node = {}
+
+    # Get the values from the memory monitor file (json if it exists, otherwise the preliminary txt file)
+    # Note that only the final json file will contain the totRBYTES, etc
+    try:
+        summary_dictionary = get_memory_values(workdir, name=name)
+    except Exception as exc:
+        logger.warning(f'failed to get memory values from memory monitor tool: {exc}')
+        summary_dictionary = {}
+    else:
+        logger.debug(f"summary_dictionary={summary_dictionary}")
+
+    # Fill the node dictionary
+    if summary_dictionary and summary_dictionary != {}:
+
+        try:
+            node['max_rss'] = int(summary_dictionary['Max']['rss'])
+            node['max_vmem'] = int(summary_dictionary['Max']['vmem'])
+            node['max_swap'] = int(summary_dictionary['Max']['swap'])
+            node['max_pss'] = int(summary_dictionary['Max']['pss'])
+            node['avg_rss'] = int(summary_dictionary['Avg']['rss'])
+            node['avg_vmem'] = int(summary_dictionary['Avg']['vmem'])
+            node['avg_swap'] = int(summary_dictionary['Avg']['swap'])
+            node['avg_pss'] = int(summary_dictionary['Avg']['pss'])
+        except KeyError as exc:
+            logger.warning(f"exception caught while parsing prmon file: {exc}")
+            logger.warning("will add -1 values for the memory info")
+            node['max_rss'] = -1
+            node['max_vmem'] = -1
+            node['max_swap'] = -1
+            node['max_pss'] = -1
+            node['avg_rss'] = -1
+            node['avg_vmem'] = -1
+            node['avg_swap'] = -1
+            node['avg_pss'] = -1
+        else:
+            logger.info("extracted standard info from prmon json")
+        try:
+            node['tot_rchar'] = int(summary_dictionary['Max']['rchar'])
+            node['tot_wchar'] = int(summary_dictionary['Max']['wchar'])
+            node['tot_rbytes'] = int(summary_dictionary['Max']['read_bytes'])
+            node['tot_wbytes'] = int(summary_dictionary['Max']['write_bytes'])
+            node['rate_rchar'] = int(summary_dictionary['Avg']['rchar'])
+            node['rate_wchar'] = int(summary_dictionary['Avg']['wchar'])
+            node['rate_rbytes'] = int(summary_dictionary['Avg']['read_bytes'])
+            node['rate_wbytes'] = int(summary_dictionary['Avg']['write_bytes'])
+        except KeyError as exc:
+            logger.warning(f"standard memory fields were not found in prmon json (or json doesn't exist yet): {exc}")
+        else:
+            logger.info("extracted standard memory fields from prmon json")
+    else:
+        logger.info("memory summary dictionary not yet available")
+
+    return node
+
+
 def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str = "") -> dict:  # noqa: C901
     """
     Add the utility info to the node structure if available.
