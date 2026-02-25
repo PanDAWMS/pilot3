@@ -156,7 +156,7 @@ class JobData(BaseData):
     debug = False                       # debug mode, when True, pilot will send debug info back to the server
     debug_command = ''            # debug command (can be defined on the task side)
     produserid = ""                     # the user DN (added to trace report)
-    jobdefinitionid = ""               # the job definition id (added to trace report)
+    jobdefinitionid = None               # the job definition id (added to trace report)
     infilesguids = ""                    # guids for input files
     indata = []                             # list of `FileSpec` objects for input files (aggregated inFiles, ddmEndPointIn, scopeIn, filesizeIn, etc)
     outdata = []                          # list of `FileSpec` objects for output files

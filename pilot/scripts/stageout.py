@@ -132,6 +132,7 @@ def get_args() -> argparse.Namespace:
     arg_parser.add_argument('--jobdefinitionid',
                             dest='jobdefinitionid',
                             required=True,
+                            type=int,
                             help='Job definition id')
     arg_parser.add_argument('--eventservicemerge',
                             dest='eventservicemerge',
@@ -225,16 +226,16 @@ class Job:
     produserid = ""
     jobid = 0
     taskid = ""
-    jobdefinitionid = ""
+    jobdefinitionid = 0
 
-    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: str = ""):
+    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0):
         """
         Initialize the Job object.
 
         :param produserid: produserid (str)
         :param jobid: jobid (int)
         :param taskid: taskid (str)
-        :param jobdefinitionid: jobdefinitionid (str)
+        :param jobdefinitionid: jobdefinitionid (int)
         """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid
