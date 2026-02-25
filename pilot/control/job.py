@@ -722,6 +722,11 @@ def add_data_structure_ids_new(data: dict, version_tag: str, job: Any) -> dict:
     # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+
+    logger.debug(f"add_data_structure_ids_new keys: {sorted(data.keys())}")
+    logger.debug(
+        f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
+
     pilotid = user.get_pilot_id(data['job_id'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
