@@ -2630,6 +2630,8 @@ def verify_job(job: JobData) -> bool:
     """
     status = False
 
+    logger.debug(f"verifying job parameters for job {job.jobid}")
+
     # are LFNs of correct lengths?
     exitcode, diagnostics = verify_lfn_length(job.outdata)
     if exitcode != 0:

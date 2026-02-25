@@ -906,8 +906,11 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
         data_json = json.dumps(data).encode('utf-8')
     logger.info(f'headers = {hide_token(headers.copy())}')
 
-    # set up the request
-    req = urllib.request.Request(url, data_json, headers=headers)
+    # set up the request (GET if no data, POST if data)
+    if data:
+        req = urllib.request.Request(url, data=data_json, headers=headers)
+    else:
+        req = urllib.request.Request(url, headers=headers)
 
     # create a context with certificate verification
     ssl_context = get_ssl_context()
@@ -1319,6 +1322,81 @@ def get_base_urls(args_base_urls: str) -> list:
 
 
 def get_memory_limits(url: str, port: int) -> dict:
+    """
+    Get the resource types from the server.
+
+    Args:
+        url (str): The URL of the server.
+        port (int): The port number of the server.
+
+    Returns:
+        dict: A dictionary of resource types.
+    """
+    cmd = get_server_command(url, port, cmd="api/v1/metaconfig/get_resource_types")
+
+    try:
+        response = request2(cmd, panda=True)
+    except Exception as exc:
+        logger.warning(f'exception caught in request2() while getting resource types: {exc}')
+        return {}
+
+    logger.debug(f"response from {cmd} = {response}")
+
+    if not response:
+        logger.warning(f'failed to get memory limits from {cmd}')
+        return {}
+
+    # Convert to dict if needed
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'failed to parse response as JSON: {exc}')
+            return {}
+
+    if not isinstance(response, dict):
+        logger.warning("unexpected response format (not a dict)")
+        return {}
+
+    # --- NEW SERVER FORMAT HANDLING ---
+    success = response.get("success", False)
+    if not success:
+        message = response.get("message", "unknown error")
+        logger.warning(f'PanDA server returned failure: {message}')
+        return {}
+
+    resource_types_list = response.get("data", [])
+    if not isinstance(resource_types_list, list):
+        logger.warning("unexpected data format in server response")
+        return {}
+
+    # Build final dictionary
+    resource_types = {}
+
+    try:
+        for entry in resource_types_list:
+            if not isinstance(entry, dict):
+                continue
+
+            resource_name = entry.get("resource_name")
+            if not resource_name:
+                continue
+
+            resource_types[resource_name] = {
+                "mincore": entry.get("mincore"),
+                "maxcore": entry.get("maxcore"),
+                "minrampercore": entry.get("minrampercore"),
+                "maxrampercore": entry.get("maxrampercore"),
+            }
+
+    except Exception as exc:
+        logger.warning(f'failed to parse resource types: {exc}')
+        return {}
+
+    return resource_types
+
+
+def get_memory_limits_old(url: str, port: int) -> dict:
     """
     Get the resource types from the server.
 

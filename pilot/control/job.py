@@ -2405,7 +2405,252 @@ def get_job_retrieval_delay(harvester: bool) -> int:
     return 10 if harvester else 60
 
 
-def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
+def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
+    """Continuously retrieve jobs from the PanDA server and enqueue validated jobs.
+
+    This function fetches dispatcher responses, validates the response structure
+    early, extracts job definition dict(s), builds a Job object, validates the Job,
+    and enqueues the Job object for downstream processing.
+
+    Important:
+        In PanDA Pilot, `_validate_job(job)` returns a bool. Do NOT enqueue its return
+        value. Enqueue the Job object itself.
+
+    Args:
+        queues: Object holding internal queues, expected to have `queues.jobs`.
+        traces: Trace/telemetry object (used for pilot error codes in special cases).
+        args: Runtime args object with (at least) the following attributes:
+            - queue: str
+            - graceful_stop: Event-like with is_set(), set()
+            - abort_job: Event-like with is_set()
+            - harvester: bool
+            - getjob_failures: int
+            - harvester_submitmode: bool
+
+    Returns:
+        None
+    """
+    jobnumber: int = 0
+    getjob_failures: int = 0
+
+    def _sleep_with_checks(seconds: int) -> bool:
+        """Sleep in 1s increments, returning early if stop/abort is set."""
+        for _ in range(int(seconds)):
+            if args.graceful_stop.is_set() or args.abort_job.is_set():
+                return False
+            time.sleep(1)
+        return True
+
+    def _job_id_str(job: Any) -> str:
+        """Return a useful job identifier for logging."""
+        for attr in ("PandaID", "pandaid", "jobid", "jobId", "JobID", "id"):
+            val = getattr(job, attr, None)
+            if val not in (None, "", 0):
+                return str(val)
+        return "<unknown>"
+
+    def _fetch_dispatcher_response() -> Optional[Dict[str, Any]]:
+        """Fetch and normalize dispatcher response.
+
+        Returns:
+            The dispatcher response dict, or None on failure.
+        """
+        try:
+            resp = get_job_definition(queues, args)
+        except Exception:
+            logger.exception("Exception while fetching dispatcher response")
+            return None
+
+        if not resp:
+            logger.debug("No dispatcher response received (None/empty)")
+            return None
+
+        if isinstance(resp, str):
+            logger.warning(f"Dispatcher response returned as string: {resp}")
+            return None
+
+        if not isinstance(resp, dict):
+            logger.warning(f"Dispatcher response has unexpected type: {type(resp)}")
+            return None
+
+        return resp
+
+    def _validate_dispatcher_response(resp: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Validate dispatcher response and extract job definition dicts.
+
+        Expected modern response format:
+            {
+              "success": true/false,
+              "message": "...",
+              "data": {
+                 "StatusCode": 0/nonzero,
+                 "jobs": [ {jobdef1}, {jobdef2}, ... ]
+              }
+            }
+
+        Returns:
+            List of job definition dictionaries if valid and jobs are present;
+            otherwise None (meaning "no usable jobs right now").
+        """
+        success = resp.get("success", False)
+        message = resp.get("message", "")
+        if not success:
+            logger.warning(f"Dispatcher success=False. message={message!r}")
+            return None
+
+        data = resp.get("data")
+        if not isinstance(data, dict):
+            logger.warning(f"Dispatcher response missing/invalid data field: {type(data)}")
+            return None
+
+        status_code = data.get("StatusCode")
+        if status_code != 0:
+            # StatusCode is present in your example; nonzero indicates server-side problem
+            logger.warning(f"Dispatcher data StatusCode={status_code}. message={message!r}")
+            return None
+
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list) or not jobs:
+            # Treat as "no jobs" (not necessarily an error)
+            logger.info(f"No jobs in PanDA. message={message!r}")
+            return None
+
+        # Optional job-level StatusCode check (present in your example)
+        first = jobs[0]
+        if isinstance(first, dict):
+            jsc = first.get("StatusCode")
+            if jsc is not None and jsc != 0:
+                logger.warning(
+                    f"First job StatusCode={jsc} (PandaID={first.get('PandaID')}). message={message!r}"
+                )
+                return None
+        else:
+            logger.warning(f"First job definition is not a dict: {type(first)}")
+            return None
+
+        return jobs
+
+    def _build_and_queue_first_job(job_defs: List[Dict[str, Any]]) -> bool:
+        """Build, validate, and enqueue the first job definition.
+
+        Args:
+            job_defs: Non-empty list of job definition dicts.
+
+        Returns:
+            True if a job object was successfully built, validated, and enqueued;
+            False otherwise.
+        """
+        if len(job_defs) > 1:
+            logger.info(f"Dispatcher returned {len(job_defs)} jobs; using only the first")
+
+        first_def = job_defs[0]
+        panda_id = first_def.get("PandaID")
+        if panda_id in (None, "", 0):
+            logger.warning("Job definition missing PandaID; refusing to build job")
+            return False
+
+        try:
+            job = build_job_from_definition(first_def, queuename=args.queue)
+        except Exception:
+            logger.exception(f"Exception while building job from definition (PandaID={panda_id})")
+            return False
+
+        if not job:
+            logger.warning(f"build_job_from_definition returned None (PandaID={panda_id})")
+            return False
+
+        # IMPORTANT: _validate_job(job) returns bool, not a job object.
+        try:
+            ok = _validate_job(job)
+        except Exception:
+            logger.exception(f"_validate_job() raised exception for job {_job_id_str(job)}")
+            return False
+
+        if not ok:
+            logger.warning(f"Job failed _validate_job() (PandaID={_job_id_str(job)})")
+            return False
+
+        # Enqueue the job OBJECT (not the bool).
+        try:
+            put_in_queue(job, queues.jobs)
+        except Exception:
+            logger.exception(f"Failed to enqueue job {_job_id_str(job)}")
+            return False
+
+        logger.info(f"Queued job {_job_id_str(job)}")
+        return True
+
+    logger.info(f"Starting retrieve thread for queue {args.queue!r}")
+
+    while not args.graceful_stop.is_set():
+        if args.abort_job.is_set():
+            logger.info("Abort requested — stopping retrieve loop")
+            break
+
+        dispatcher_response = _fetch_dispatcher_response()
+
+        if dispatcher_response is None:
+            getjob_failures += 1
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+            if getjob_failures >= max_failures:
+                logger.warning(
+                    f"did not get a job — max getJob failures reached ({getjob_failures}); setting graceful_stop"
+                )
+                # preserve existing HPC special-case defensively
+                try:
+                    if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == "hpc":
+                        logger.warning("Setting error code to NOJOBSINPANDA on HPC resource")
+                        traces.pilot["error_code"] = errors.NOJOBSINPANDA
+                except Exception:
+                    logger.debug("HPC special-case evaluation skipped")
+                args.graceful_stop.set()
+                break
+
+            delay = get_job_retrieval_delay(args.harvester)
+            if not args.harvester:
+                logger.warning(f"No dispatcher response — sleeping {delay} s")
+            _sleep_with_checks(delay)
+            continue
+
+        job_definitions = _validate_dispatcher_response(dispatcher_response)
+
+        if not job_definitions:
+            getjob_failures += 1
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+            if getjob_failures >= max_failures:
+                logger.warning(
+                    f"No usable jobs — max failures reached ({getjob_failures}); setting graceful_stop"
+                )
+                args.graceful_stop.set()
+                break
+
+            delay = get_job_retrieval_delay(args.harvester)
+            if not args.harvester:
+                logger.debug(f"No jobs available — sleeping {delay} s")
+            _sleep_with_checks(delay)
+            continue
+
+        # We have job defs; treat this as a successful poll (reset failures).
+        getjob_failures = 0
+
+        if not _build_and_queue_first_job(job_definitions):
+            # short backoff on build/validate/enqueue failure
+            delay = min(5, int(get_job_retrieval_delay(args.harvester)))
+            _sleep_with_checks(delay)
+            continue
+
+        jobnumber += 1
+
+        # Wait until job consumer reports completion or stop/abort is requested.
+        while not args.graceful_stop.is_set() and not args.abort_job.is_set():
+            if has_job_completed(queues, args):
+                break
+            time.sleep(1)
+
+    logger.info(f"Retrieve thread exiting (jobnumber={jobnumber})")
+
+
+def retrieve_old(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     """
     Retrieve all jobs from the proper source.
 
