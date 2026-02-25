@@ -788,7 +788,7 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
     :param metadata: job report metadata (str)
     :return: data structure (dict).
     """
-    data = {'job_Id': job.jobid,
+    data = {'job_id': job.jobid,
             'job_status': state,
             'site_name': os.environ.get('PILOT_SITENAME'),  # args.site,
             'node': get_node_name(),
