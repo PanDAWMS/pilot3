@@ -27,12 +27,13 @@
 from __future__ import annotations
 
 import os
-import time
 import hashlib
 import logging
 import queue
 import random
+import time
 from collections import namedtuple
+#from dataclasses import dataclass
 from json import (
     dumps,
     loads
@@ -470,31 +471,41 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         return True
 
     # res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
-    res = https.send_update('api/v1/pilot/update_job', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
-    if res is not None:
-        # update the last heartbeat time
-        args.last_heartbeat = time.time()
+    result = https.send_update(
+        "api/v1/pilot/update_job",
+        data,
+        args.url,
+        args.port,
+        job=job,
+        ipv=args.internet_protocol_version,
+    )
 
-        # to test 'tobekilled' server instruction - pilot will abort after stage-in
-        #if state == 'running':
-        #    test_tobekilled = True
+    if not result.ok:
+        if final:
+            os.environ["SERVER_UPDATE"] = SERVER_UPDATE_TROUBLE
 
-        # does the server update contain any backchannel information? if so, update the job object
-        handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
+        logger.warning(
+            f"Job update NOT accepted (attempts={result.attempts}, "
+            f"success={result.success}, StatusCode={result.status_code}, "
+            f"message={result.message!r})"
+        )
+        return False
 
-        if final:  # and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
-            os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+    # Update accepted
+    args.last_heartbeat = time.time()
 
-        if final and state in {'finished', 'holding', 'failed'}:
-            logger.info(f'setting job as completed (state={state})')
-            job.completed = True
-
-        return True
+    # Backchannel only makes sense on accepted responses
+    if result.response is not None:
+        handle_backchannel_command(result.response, job, args, test_tobekilled=test_tobekilled)
 
     if final:
-        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_TROUBLE
+        os.environ["SERVER_UPDATE"] = SERVER_UPDATE_FINAL
 
-    return False
+    if final and state in {"finished", "holding", "failed"}:
+        logger.info(f"Setting job as completed (state={state})")
+        job.completed = True
+
+    return True
 
 
 def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, int):
@@ -2583,6 +2594,13 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             return False
 
         logger.info(f"Queued job {_job_id_str(job)}")
+
+        # verify the job status on the server
+        try:
+            _, _, _ = get_job_status_from_server(job.jobid, args.url, args.port)
+        except Exception as error:
+            logger.warning(f"{error}")
+
         return True
 
     logger.info(f"Starting retrieve thread for queue {args.queue!r}")
@@ -2848,25 +2866,42 @@ def retrieve_old(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     logger.info('[job] retrieve thread has finished')
 
 
-def set_debug_mode(jobid: int, url: str, port: int):
+def set_debug_mode(jobid: int, url: str, port: int) -> bool:
+    """Inform the server that the given job should be put in debug mode.
+
+    The decision to activate debug mode is typically driven by queuedata.catchall.
+
+    Args:
+        jobid: PanDA job identifier.
+        url: Server URL.
+        port: Server port.
+
+    Returns:
+        True if the server accepted the request, False otherwise.
     """
-    Inform the server that the given job should be in debug mode.
+    data: dict[str, object] = {
+        "job_id": jobid,
+        "mode": "debug",  # explicit mode instead of boolean
+    }
 
-    Note, this is decided by queuedata.catchall.
+    result = https.send_update(
+        "api/v1/pilot/set_debug_mode",
+        data,
+        url,
+        port,
+        job=None,  # not a job-state update
+    )
 
-    :param jobid: job id (int)
-    :param url: server url (str)
-    :param port: server port (int).
-    """
-    # worker node structure to be sent to the server
-    data = {}
-    data["pandaID"] = jobid
-    data["modeOn"] = True
+    if not result.ok:
+        logger.warning(
+            f"Could not inform server to set debug mode for job {jobid} "
+            f"(success={result.success}, StatusCode={result.status_code}, "
+            f"message={result.message!r})"
+        )
+        return False
 
-    # attempt to send the info to the server
-    res = https.send_update("setDebugMode", data, url, port)
-    if not res:
-        logger.warning('could not inform server to set job in debug mode')
+    logger.info(f"Server accepted debug mode request for job {jobid}")
+    return True
 
 
 def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> int:

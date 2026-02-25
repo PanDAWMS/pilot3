@@ -50,6 +50,7 @@ import urllib.parse
 
 from collections.abc import Callable
 from collections import namedtuple
+from dataclasses import dataclass
 from gzip import GzipFile
 from io import BytesIO
 from re import (
@@ -63,7 +64,9 @@ from time import (
 )
 from typing import (
     Any,
-    Optional
+    Dict,
+    Optional,
+    Tuple
 )
 from urllib.parse import parse_qs
 
@@ -511,7 +514,177 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> dict:
+@dataclass(frozen=True)
+class UpdateResult:
+    """Normalized result from a server update attempt."""
+    ok: bool
+    attempts: int
+    response: Optional[Dict[str, Any]]
+    success: Optional[bool]
+    status_code: Optional[int]
+    command: Optional[str]
+    message: str
+    error_type: Optional[str] = None  # e.g. "transport", "protocol", "server"
+
+
+def _parse_update_response(res: Dict[str, Any]) -> Tuple[bool, Optional[int], Optional[str], str]:
+    """Parse PanDA update response into (ok, StatusCode, command, message)."""
+    success = res.get("success")
+    message = res.get("message") or ""
+
+    data = res.get("data", {})
+    if not isinstance(data, dict):
+        return False, None, None, f"Malformed response: data is {type(data)}"
+
+    status_code = data.get("StatusCode")
+    command = data.get("command")
+
+    # Application-level success rule:
+    # - success must be True
+    # - StatusCode should be 0 (if present)
+    if success is True and (status_code is None or status_code == 0):
+        return True, status_code, command, message
+
+    # Construct a meaningful message for caller/logging
+    if success is False:
+        return False, status_code, command, message or "Server returned success=False"
+    if status_code is not None and status_code != 0:
+        return False, status_code, command, message or f"Server returned StatusCode={status_code}"
+    return False, status_code, command, message or "Server response indicated failure"
+
+
+def send_update(update_function: str, data: Dict[str, Any], url: str, port: int, job: Optional[Any] = None,
+                ipv: str = "IPv6", max_attempts: int = 2) -> UpdateResult:  \# noqa
+    """Send an update to the PanDA server and validate the response.
+
+    This function distinguishes:
+      - transport success: got a response dict back
+      - application success: response has success=True and StatusCode==0 (if present)
+
+    It also preserves the existing behavior around REACHED_MAXTIME and delayed
+    heartbeats after completion.
+
+    Args:
+        update_function: Server endpoint/function name, e.g. 'api/v1/pilot/update_job'.
+        data: Payload dict to send.
+        url: Server URL (host or base).
+        port: Server port.
+        job: Job object (optional; used for completion logic and error annotations).
+        ipv: 'IPv4' or 'IPv6'.
+        max_attempts: Maximum number of attempts for retryable failures.
+
+    Returns:
+        UpdateResult with ok=True only when the server accepted the update.
+    """
+    attempt = 0
+    last_res: Optional[Dict[str, Any]] = None
+
+    # Preserve REACHED_MAXTIME behavior (as in your current code)
+    if os.environ.get("REACHED_MAXTIME") and update_function.endswith("update_job"):
+        data["state"] = "failed"
+        if job:
+            set_pilot_state(job=job, state="failed")
+            job.completed = True
+            msg = "the max batch system time limit has been reached"
+            logger.warning(msg)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
+            add_error_codes(data, job)
+
+    # Prevent delayed heartbeats after completion (as in your current code)
+    if job:
+        if getattr(job, "completed", False) and getattr(job, "state", None) in {"running", "starting"}:
+            logger.warning(f"Will not send job update for {job.state} since the job has already completed")
+            return UpdateResult(
+                ok=False,
+                attempts=0,
+                response=None,
+                success=None,
+                status_code=None,
+                command=None,
+                message="Job already completed; dropping delayed heartbeat",
+                error_type="client",
+            )
+
+    while attempt < max_attempts:
+        attempt += 1
+        logger.info(f"Server update attempt {attempt}/{max_attempts}")
+
+        try:
+            pandaserver = get_panda_server(url, port)
+        except Exception as exc:
+            logger.warning(f"Exception in get_panda_server(): {exc}")
+            # retryable (local/transient)
+            if attempt < max_attempts:
+                sleep(5)
+            continue
+
+        # Transport call
+        res = send_request(pandaserver, update_function, data, job, ipv)
+        last_res = res
+
+        if res is None:
+            # transport failed; retry
+            logger.warning("No server response (None)")
+            if attempt < max_attempts:
+                sleep(config.Pilot.update_sleep)
+            continue
+
+        if not isinstance(res, dict):
+            logger.warning(f"Malformed server response type: {type(res)}")
+            if attempt < max_attempts:
+                sleep(config.Pilot.update_sleep)
+            continue
+
+        ok, status_code, command, msg = _parse_update_response(res)
+        if ok:
+            return UpdateResult(
+                ok=True,
+                attempts=attempt,
+                response=res,
+                success=res.get("success"),
+                status_code=status_code,
+                command=command if isinstance(command, str) else None,
+                message=msg or "",
+                error_type=None,
+            )
+
+        # Not ok: decide retry behavior
+        # If server explicitly says success=False or StatusCode!=0, usually retrying
+        # may or may not help; we keep current behavior and retry up to max_attempts.
+        logger.warning(
+            f"Server update rejected: success={res.get('success')} StatusCode={status_code} message={msg!r}"
+        )
+        if attempt < max_attempts:
+            sleep(config.Pilot.update_sleep)
+
+    # Exhausted attempts
+    # If we have a dict response, include parsed fields for caller
+    if isinstance(last_res, dict):
+        ok, status_code, command, msg = _parse_update_response(last_res)
+        return UpdateResult(
+            ok=False,
+            attempts=max_attempts,
+            response=last_res,
+            success=last_res.get("success"),
+            status_code=status_code,
+            command=command if isinstance(command, str) else None,
+            message=msg,
+            error_type="server" if last_res.get("success") is False or (status_code not in (None, 0)) else "protocol",
+        )
+
+    return UpdateResult(
+        ok=False,
+        attempts=max_attempts,
+        response=None,
+        success=None,
+        status_code=None,
+        command=None,
+        message="No valid server response after retries",
+        error_type="transport",
+    )
+
+
+def send_update_old(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> dict:
     """
     Send the update to the server using the given function and data.
 
@@ -528,7 +701,7 @@ def send_update(update_function: str, data: dict, url: str, port: int, job: JobD
     done = False
     res = None
 
-    if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
+    if os.environ.get("REACHED_MAXTIME") and update_function.endswith("update_job"):
         data['state'] = 'failed'
         if job:
             set_pilot_state(job=job, state='failed')
