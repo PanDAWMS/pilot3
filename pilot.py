@@ -130,6 +130,10 @@ def main() -> int:  # noqa: C901
             "started", args.queue, args.url, args.port, logger, "IPv6"
         )  # note: assuming IPv6, fallback in place
 
+    #
+    if "PTEST" in args.queue:
+        args.getjob_failures = 1
+
     # check cvmfs if available (skip test if either NO_CVMFS_OK env var is set or pilot option --nocvmfs is used)
     if args.cvmfs:
         ec = check_cvmfs(logger)

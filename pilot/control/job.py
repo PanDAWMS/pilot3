@@ -904,7 +904,7 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
 
     # add timing info if finished or failed
     if state in {'finished', 'failed'}:
-        add_timing_and_extracts(data, job, state, args)
+        add_timing_and_extracts_new(data, job, state, args)
         https.add_error_codes(data, job)
 
     # glidein information, currently only relevant for EIC and generic pilots
@@ -1222,6 +1222,33 @@ def get_cpu_consumption_time(cpuconsumptiontime: int) -> int:
         constime = -1
 
     return constime
+
+
+def add_timing_and_extracts_new(data: dict, job: Any, state: str, args: Any):
+    """
+    Add timing info and log extracts to data structure for a completed job (finished or failed) to be sent to server.
+
+    Note: this function updates the data dictionary.
+
+    :param data: data structure (dict)
+    :param job: job object (Any)
+    :param state: state of the job (str)
+    :param args: pilot args object (Any)
+    """
+    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
+    data['pilot_timing'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
+    logger.debug(f'could have reported time_log_creation={time_log_creation} s')
+
+    # add log extracts (for failed/holding jobs or for jobs with outbound connections)
+    extracts = ""
+    if state in {'failed', 'holding'}:
+        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+        user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
+        extracts = user.get_log_extracts(job, state)
+        if extracts != "":
+            logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
+    data['pilot_log'] = extracts[:1024]
+    data['end_time'] = time.time()
 
 
 def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
@@ -2422,6 +2449,334 @@ def get_job_retrieval_delay(harvester: bool) -> int:
 
 
 def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
+    """Retrieve jobs and enqueue them, preserving retrieve_old() behavior.
+
+    This is a corrected refactor of retrieve_old() that:
+      - Validates dispatcher responses early (success/data/StatusCode/jobs).
+      - Builds a Job object only when safe.
+      - Uses _validate_job(job) correctly (it returns bool; never enqueue its return value).
+      - Preserves essential side effects from retrieve_old():
+          * add_to_pilot_timing(PILOT_PRE_GETJOB/PILOT_POST_GETJOB)
+          * htcondor_envvar() + update_condor_classad() if running under HTCondor
+          * kill_defunct_children() after job completion
+          * purge_queue(queues.finished_data_in) after completion
+          * proxy cleanup for verify_proxy/unified
+          * resetting flags for multi-job mode + re-establish logging
+          * threads_aborted() → set args.job_aborted
+    """
+    jobnumber: int = 0
+    getjob_failures: int = 0
+    getjob_requests: int = 0  # keep same semantics as retrieve_old()
+
+    def _sleep_with_checks(seconds: float) -> bool:
+        """Sleep in small increments and abort early if stop flags are set."""
+        # use 0.5s granularity like retrieve_old() (it used time.sleep(0.5))
+        end = time.time() + float(seconds)
+        while time.time() < end:
+            if args.graceful_stop.is_set() or args.abort_job.is_set():
+                return False
+            time.sleep(0.5)
+        return True
+
+    def _job_id_str(job: Any) -> str:
+        """Return a useful job identifier for logging."""
+        for attr in ("PandaID", "pandaid", "jobid", "jobId", "JobID", "id"):
+            val = getattr(job, attr, None)
+            if val not in (None, "", 0):
+                return str(val)
+        return "<unknown>"
+
+    def _fetch_dispatcher_response() -> Optional[Dict[str, Any]]:
+        """Fetch dispatcher response and normalize obvious error cases."""
+        try:
+            resp = get_job_definition(queues, args)
+        except Exception:
+            logger.exception("Exception while fetching dispatcher response")
+            return None
+
+        if not resp:
+            logger.debug("No dispatcher response received (None/empty)")
+            return None
+
+        # preserve old behavior: strings are considered failures/messages
+        if isinstance(resp, str):
+            logger.warning(f"Dispatcher response returned as string: {resp}")
+            return None
+
+        if not isinstance(resp, dict):
+            logger.warning(f"Dispatcher response has unexpected type: {type(resp)}")
+            return None
+
+        return resp
+
+    def _validate_dispatcher_response(resp: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Validate dispatcher response and extract job definition dicts.
+
+        Expected response shape (as per your logs):
+            {
+              "success": True/False,
+              "message": "",
+              "data": {
+                "StatusCode": 0/nonzero,
+                "jobs": [ {jobdef}, ... ]
+              }
+            }
+
+        Returns:
+            List of job definition dicts if valid and jobs exist; otherwise None.
+        """
+        success = resp.get("success", False)
+        message = resp.get("message", "")
+        if not success:
+            logger.warning(f"Dispatcher success=False. message={message!r}")
+            return None
+
+        data = resp.get("data")
+        if not isinstance(data, dict):
+            logger.warning(f"Dispatcher response missing/invalid data field: {type(data)}")
+            return None
+
+        status_code = data.get("StatusCode")
+        if status_code != 0:
+            logger.warning(f"Dispatcher data StatusCode={status_code}. message={message!r}")
+            return None
+
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list) or not jobs:
+            # Non-fatal "no work" response
+            logger.info(f"No jobs in PanDA. message={message!r}")
+            return None
+
+        # Optional job-level StatusCode check (present in your example)
+        first = jobs[0]
+        if not isinstance(first, dict):
+            logger.warning(f"First job definition is not a dict: {type(first)}")
+            return None
+
+        jsc = first.get("StatusCode")
+        if jsc is not None and jsc != 0:
+            logger.warning(
+                f"First job StatusCode={jsc} (PandaID={first.get('PandaID')}). message={message!r}"
+            )
+            return None
+
+        return jobs
+
+    def _build_validate_and_queue(job_defs: List[Dict[str, Any]], time_pre_getjob: float) -> Optional[Any]:
+        """Build the first job, validate it, apply retrieve_old() side-effects, and enqueue.
+
+        Args:
+            job_defs: List of job definitions returned by dispatcher.
+            time_pre_getjob: Timestamp captured just before get_job_definition() call.
+
+        Returns:
+            The built Job object if queued successfully, otherwise None.
+        """
+        if len(job_defs) > 1:
+            logger.info(f"Dispatcher returned {len(job_defs)} jobs; using only the first")
+
+        first_def = job_defs[0]
+        panda_id = first_def.get("PandaID")
+        if panda_id in (None, "", 0):
+            logger.warning("Job definition missing PandaID; refusing to build job")
+            return None
+
+        try:
+            job = build_job_from_definition(first_def, queuename=args.queue)
+        except Exception:
+            logger.exception(f"Exception while building job from definition (PandaID={panda_id})")
+            return None
+
+        if not job:
+            logger.warning(f"build_job_from_definition returned None (PandaID={panda_id})")
+            return None
+
+        # Validate job (IMPORTANT: returns bool)
+        try:
+            ok = _validate_job(job)
+        except Exception:
+            logger.exception(f"_validate_job() raised exception for job {_job_id_str(job)}")
+            return None
+
+        if not ok:
+            logger.warning(f"Job failed _validate_job() (PandaID={_job_id_str(job)})")
+            return None
+
+        # ---- restore retrieve_old(): verify job status on server (kept from your refactor) ----
+        try:
+            _, _, _ = get_job_status_from_server(job.jobid, args.url, args.port)
+        except Exception as error:
+            logger.warning(f"{error}")
+
+        # ---- restore retrieve_old(): pilot timing stamps (PRE/POST GETJOB) ----
+        try:
+            add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
+            add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
+        except Exception as exc:
+            logger.debug(f"Could not write pilot timing stamps: {exc}")
+
+        # ---- restore retrieve_old(): HTCondor env var + classad update ----
+        try:
+            if os.environ.get("_CONDOR_JOB_AD", None):
+                htcondor_envvar(job.jobid)
+                pilotid = get_pilot_id(args.version_tag)
+                update_condor_classad(pandaid=job.jobid, pilotid=pilotid)
+        except Exception as exc:
+            logger.debug(f"HTCondor env/classad update failed: {exc}")
+
+        # ---- enqueue the job OBJECT (never enqueue bool) ----
+        try:
+            put_in_queue(job, queues.jobs)
+        except Exception:
+            logger.exception(f"Failed to enqueue job {_job_id_str(job)}")
+            return None
+
+        logger.info(f"Queued job {_job_id_str(job)}")
+        return job
+
+    logger.info(f"Starting retrieve thread for queue {args.queue!r}")
+
+    while not args.graceful_stop.is_set():
+        if args.abort_job.is_set():
+            logger.info("Abort requested — stopping retrieve loop")
+            break
+
+        # restore retrieve_old(): store time stamp right before get_job_definition()
+        time_pre_getjob = time.time()
+
+        dispatcher_response = _fetch_dispatcher_response()
+        if dispatcher_response is None:
+            getjob_failures += 1
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+
+            if getjob_failures >= max_failures:
+                logger.warning(
+                    f"did not get a job — max getJob failures reached ({getjob_failures}); setting graceful_stop"
+                )
+                # preserve retrieve_old() HPC special case defensively
+                try:
+                    if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == "hpc":
+                        logger.warning("Setting error code to NOJOBSINPANDA on HPC resource")
+                        traces.pilot["error_code"] = errors.NOJOBSINPANDA
+                except Exception:
+                    logger.debug("HPC special-case evaluation skipped")
+                args.graceful_stop.set()
+                args.abort_job.set()
+                break
+
+            delay = get_job_retrieval_delay(args.harvester)
+            if not args.harvester:
+                logger.warning(f"No dispatcher response — sleeping {delay} s")
+            _sleep_with_checks(delay)
+            continue
+
+        job_definitions = _validate_dispatcher_response(dispatcher_response)
+        if not job_definitions:
+            getjob_failures += 1
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+
+            if getjob_failures >= max_failures:
+                logger.warning(
+                    f"No usable jobs — max failures reached ({getjob_failures}); setting graceful_stop"
+                )
+                args.graceful_stop.set()
+                args.abort_job.set()
+                break
+
+            delay = get_job_retrieval_delay(args.harvester)
+            if not args.harvester:
+                logger.debug(f"No jobs available — sleeping {delay} s")
+            _sleep_with_checks(delay)
+            continue
+
+        # successful poll
+        getjob_failures = 0
+        getjob_requests += 1
+
+        job = _build_validate_and_queue(job_definitions, time_pre_getjob)
+        if job is None:
+            # short backoff on build/validate/enqueue failure
+            delay = min(5, float(get_job_retrieval_delay(args.harvester)))
+            _sleep_with_checks(delay)
+            continue
+
+        jobnumber += 1
+
+        # ---- restore retrieve_old(): wait for completion and then do cleanup/reset ----
+        while not args.graceful_stop.is_set():
+            if has_job_completed(queues, args):
+                # make sure there are no lingering defunct subprocesses
+                try:
+                    kill_defunct_children(getattr(job, "pid", 0))
+                except Exception as exc:
+                    logger.debug(f"kill_defunct_children() failed: {exc}")
+
+                # purge queue(s) that retains job object
+                try:
+                    set_pilot_state(state="")
+                    purge_queue(queues.finished_data_in)
+                except Exception as exc:
+                    logger.debug(f"Queue purge/reset failed: {exc}")
+
+                # make sure proxy does not contain any traces of unified proxy
+                try:
+                    if getattr(args, "verify_proxy", False):
+                        xproxy = os.environ.get("X509_USER_PROXY", "")
+                        if "unified" in xproxy:
+                            logging.warning("Removing -unified from X509_USER_PROXY")
+                            os.environ["X509_USER_PROXY"] = xproxy.replace("-unified", "")
+                except Exception as exc:
+                    logger.debug(f"Proxy cleanup failed: {exc}")
+
+                # reset flags for next job
+                try:
+                    args.job_aborted.clear()
+                except Exception:
+                    pass
+                try:
+                    args.abort_job.clear()
+                except Exception:
+                    pass
+
+                logger.info("Ready for new job")
+
+                # re-establish logging (retrieve_old behavior)
+                try:
+                    logging.info("Pilot finished previous job — re-establishing logging")
+                    logging.handlers = []
+                    logging.shutdown()
+                    establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
+                    pilot_version_banner()
+                except Exception as exc:
+                    logger.debug(f"Re-establish logging failed: {exc}")
+
+                # reset retrieve_old multi-job bookkeeping
+                getjob_requests = 0
+                try:
+                    add_to_pilot_timing("1", PILOT_MULTIJOB_START_TIME, time.time(), args)
+                except Exception:
+                    pass
+                try:
+                    args.signal = None
+                except Exception:
+                    pass
+
+                break
+
+            time.sleep(0.5)
+
+    # restore retrieve_old(): proceed to set job_aborted if threads aborted
+    try:
+        if threads_aborted(caller="retrieve"):
+            logger.debug("will proceed to set job_aborted")
+            args.job_aborted.set()
+    except Exception:
+        pass
+
+    logger.info("[job] retrieve thread has finished")
+
+
+def retrieve_bad(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
     """Continuously retrieve jobs from the PanDA server and enqueue validated jobs.
 
     This function fetches dispatcher responses, validates the response structure

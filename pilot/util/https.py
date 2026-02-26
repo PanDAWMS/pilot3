@@ -531,8 +531,12 @@ def _parse_update_response(res: Dict[str, Any]) -> Tuple[bool, Optional[int], Op
     """Parse PanDA update response into (ok, StatusCode, command, message)."""
     success = res.get("success")
     message = res.get("message") or ""
-
     data = res.get("data", {})
+
+    if success and not data:
+        logger.debug(f"Server response success=True, message={message!r} (data not returned)")
+        return True, None, None, message
+
     if not isinstance(data, dict):
         return False, None, None, f"Malformed response: data is {type(data)}"
 
@@ -784,14 +788,25 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
         if job:
             txt += f' for job {job.jobid}'
         logger.info(txt)
+
         # hide sensitive info
-        pilotsecrets = ''
-        if res and 'pilotSecrets' in res:
-            pilotsecrets = res['pilotSecrets']
-            res['pilotSecrets'] = '********'
+        # Determine the nested dict that contains 'pilotSecrets'
+        #logger.debug(f"res={res}")
+        _data = res.get('data') or {}
+        container = (
+            _data if 'pilotSecrets' in _data
+            else res if res and 'pilotSecrets' in res
+            else None
+        )
+
+        pilot_secrets = container.pop('pilotSecrets', None) if container else None
+        if pilot_secrets:
+            container['pilotSecrets'] = '********'
+
         logger.info(f'server responded with: res = {res}')
-        if pilotsecrets:
-            res['pilotSecrets'] = pilotsecrets
+
+        if pilot_secrets:
+            container['pilotSecrets'] = pilot_secrets
     else:
         logger.warning(f'server {update_function} request failed both with urllib and curl')
 
@@ -1108,8 +1123,6 @@ def request2(url: str = "", data: dict = None, secure: bool = True, compressed: 
             # Handle the response here
             logger.info(f"response.status={response.status}, response.reason={response.reason}")
             ret = response.read().decode('utf-8')
-            if 'getProxy' not in url:
-                logger.info(f"response={ret}")
         logger.debug('sent request to server')
     except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
         ret = f"failed to send request: {exc}"
