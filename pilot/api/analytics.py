@@ -189,22 +189,24 @@ class Analytics(Services):
                 if itmet:
                     norg = len(x)
                     fit = self.fit(x, y)
-                    _slope = self.slope()
                     _chi2_org = fit.chi2()
 
-                    # determine the removable right region ("right side limit")
-                    _x = x
-                    _y = y
-                    right_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="right")
+                    # only attempt iterative trimming if the initial chi2 is valid and non-zero
+                    # (bug fix: guard against None or zero chi2 causing ZeroDivisionError in find_limit)
+                    if _chi2_org is not None and _chi2_org != 0:
+                        # determine the removable right region ("right side limit")
+                        _x = x
+                        _y = y
+                        right_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="right")
 
-                    # determine the removable left region ("left side limit")
-                    _x = x
-                    _y = y
-                    left_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="left")
+                        # determine the removable left region ("left side limit")
+                        _x = x
+                        _y = y
+                        left_limit = self.find_limit(_x, _y, _chi2_org, norg, edge="left")
 
-                    # final fit adjusted for removable regions
-                    x = x[left_limit:right_limit]
-                    y = y[left_limit:right_limit]
+                        # final fit adjusted for removable regions
+                        x = x[left_limit:right_limit]
+                        y = y[left_limit:right_limit]
 
                 try:
                     fit = self.fit(x, y)
@@ -212,9 +214,9 @@ class Analytics(Services):
                 except Exception as exc:
                     logger.warning(f"failed to fit data, x={x}, y={y}: {exc}")
                 else:
-                    if _slope:
+                    # bug fix: use explicit None check so a legitimate zero slope is not discarded
+                    if _slope is not None:
                         slope = float_to_rounded_string(fit.slope(), precision=precision)
-                        fit.set_intersect()
                         intersect = float_to_rounded_string(fit.intersect(), precision=precision)
                         _chi2 = float_to_rounded_string(fit.chi2(), precision=precision)
                         if slope != "":
@@ -273,6 +275,12 @@ class Analytics(Services):
                 break
 
             _chi2 = fit.chi2()
+
+            # bug fix: guard against None or zero chi2_prev to prevent ZeroDivisionError or TypeError
+            if _chi2 is None or _chi2_prev is None or _chi2_prev == 0:
+                logger.warning(f"invalid chi2 value(s): chi2={_chi2}, chi2_prev={_chi2_prev} - stopping iteration")
+                break
+
             change = (_chi2_prev - _chi2) / _chi2_prev
             logger.info(f"current chi2={_chi2} (change={change * 100} %)")
             if change < change_limit:
@@ -292,7 +300,8 @@ class Analytics(Services):
             limit = 0
             logger.info("left removable region not found")
         else:
-            limit = iterations * 10
+            # bug fix: was hardcoded as iterations * 10; correct formula is iterations * steps
+            limit = iterations * steps
             logger.info(f"left removable region: {limit}")
 
         return limit
@@ -336,16 +345,17 @@ class Analytics(Services):
 class Fit():
     """Low-level fitting class."""
 
-    _model = "linear"  # fitting model
-    _x = None  # x values
-    _y = None  # y values
-    _xm = None  # x mean
-    _ym = None  # y mean
-    _ss = None  # sum of square deviations
-    _ss2 = None  # sum of deviations
-    _slope = None  # slope
-    _intersect = None  # intersect
-    _chi2 = None  # chi2
+    _model = "linear"   # fitting model
+    _x = None           # x values (original, uncentered)
+    _y = None           # y values
+    _x_offset = None    # x centering offset (mean of x) to prevent catastrophic cancellation
+    _xm = None          # x mean of centered data (always 0.0 after centering)
+    _ym = None          # y mean
+    _ss = None          # sum of square deviations
+    _ss2 = None         # sum of deviations
+    _slope = None       # slope
+    _intersect = None   # intersect (y value at center of x range, i.e. at x = _x_offset)
+    _chi2 = None        # chi2
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize and perform the fit.
@@ -376,13 +386,19 @@ class Fit():
         logger.debug(f'model: {self._model}, x: {self._x}, y: {self._y}')
         # base calculations
         if self._model == "linear":
+            # bug fix: center x values around their mean to prevent catastrophic cancellation
+            # in the intersect calculation when x values are large (e.g. Unix timestamps).
+            # sum_square_dev and sum_dev both subtract the mean internally, so the slope
+            # is unaffected. Setting _xm=0 makes intersect = y_mean (the y value at the
+            # center of the x range), which is numerically stable.
+            self._x_offset = mean(self._x)
             self._ss = sum_square_dev(self._x)
             logger.info("sum of square deviations: %s", self._ss)
             self._ss2 = sum_dev(self._x, self._y)
             logger.info("sum of deviations: %s", self._ss2)
             self.set_slope()
-            self._xm = mean(self._x)
-            logger.info("mean x: %s", self._xm)
+            self._xm = 0.0  # mean of (x - x_offset) is zero by construction
+            logger.info("mean x (centered): %s", self._xm)
             self._ym = mean(self._y)
             logger.info("mean y: %s", self._ym)
             self.set_intersect()
@@ -404,30 +420,36 @@ class Fit():
     def value(self, t: float) -> float:
         """Return the fitted y value at a given x position.
 
-        Evaluates y(x=t) = slope * t + intersect for the linear model.
+        Evaluates y(x=t) = slope * (t - x_offset) + intersect for the linear model,
+        where ``x_offset`` is the mean of the original x data used to center the fit
+        and ``intersect`` is the y value at the center of the x range.
 
         Args:
-            t: The x position at which to evaluate the fit.
+            t: The x position (in original, uncentered coordinates) at which to evaluate
+                the fit.
 
         Returns:
             float: The fitted y value at x equal to t.
         """
-        return self._slope * t + self._intersect
+        return self._slope * (t - self._x_offset) + self._intersect
 
     def set_chi2(self) -> None:
         """Calculate and store the chi2 value of the current fit.
 
         Computes expected y values from the linear model for each x point and
         compares them to the observed y values using the chi2 function.
-        Sets ``_chi2`` to None if either the observed or expected lists are empty.
+        Sets ``_chi2`` to None if slope or intersect are undefined, or if either
+        the observed or expected lists are empty.
         """
+        # bug fix: guard against None slope/intersect to prevent TypeError in value()
+        if self._slope is None or self._intersect is None:
+            self._chi2 = None
+            return
+
         y_observed = self._y
         y_expected = []
-        # i = 0
         for x in self._x:
-            # y_expected.append(self.value(x) - y_observed[i])
             y_expected.append(self.value(x))
-            # i += 1
         if y_observed and y_observed != [] and y_expected and y_expected != []:
             self._chi2 = chi2(y_observed, y_expected)
         else:
@@ -446,7 +468,9 @@ class Fit():
 
         Sets ``_slope`` to None if the required sums are zero or undefined.
         """
-        if self._ss2 and self._ss and self._ss != 0:
+        # bug fix: use explicit None checks instead of truthiness so that a
+        # legitimate zero slope (flat data) is stored as 0.0 rather than None
+        if self._ss2 is not None and self._ss is not None and self._ss != 0:
             self._slope = self._ss2 / float(self._ss)
         else:
             self._slope = None
@@ -462,6 +486,12 @@ class Fit():
     def set_intersect(self) -> None:
         """Calculate and store the intersect of the linear fit.
 
+        Because x is centered around its mean before fitting, ``_xm`` is 0 and
+        the intersect simplifies to ``y_mean``, i.e. the fitted y value at the
+        center of the x range. This avoids catastrophic cancellation that would
+        occur with the traditional formula when x values are large (e.g. Unix
+        timestamps).
+
         Sets ``_intersect`` to None if any of the required mean or slope values
         are undefined.
         """
@@ -474,6 +504,9 @@ class Fit():
 
     def intersect(self) -> Union[float, None]:
         """Return the intersect of the linear fit.
+
+        The intersect is the fitted y value at the center of the x range
+        (i.e. at ``x = x_offset``), not at ``x = 0``.
 
         Returns:
             float | None: The intersect value, or None if it could not be calculated.

@@ -44,12 +44,16 @@ class TestAnalytics(unittest.TestCase):
         fit = self.client.fit(x, y)
         slope = fit.slope()
         intersect = fit.intersect()
-        print(slope)
-        print(intersect)
         self.assertEqual(type(slope), float)
         self.assertEqual(slope, 1.0)
         self.assertEqual(type(intersect), float)
-        self.assertEqual(intersect, 0.0)
+        # intersect is the y value at the center of the x range (x_offset = mean(x) = 4.5),
+        # not at x=0; for y=x this equals 4.5
+        self.assertEqual(intersect, 4.5)
+        # verify the model evaluates correctly at arbitrary points
+        self.assertAlmostEqual(fit.value(0.0), 0.0)
+        self.assertAlmostEqual(fit.value(4.5), 4.5)
+        self.assertAlmostEqual(fit.value(9.0), 9.0)
 
         y = [0, -1, -2, -3, -4, -5, -6, -7, -8, -9]
 
@@ -57,6 +61,36 @@ class TestAnalytics(unittest.TestCase):
         slope = fit.slope()
 
         self.assertEqual(slope, -1.0)
+
+    def test_linear_fit_large_x_offset(self):
+        """Verify intersect stability when x values are large (e.g. Unix timestamps)."""
+        # Simulate 10 memory-monitor samples one second apart starting from a Unix timestamp.
+        # The true relationship is y = 1.0 * x + C, but expressed in original coordinates.
+        # With centering the fit should still recover slope=1.0 and value() should agree.
+        x_offset = 1_700_000_000
+        x = [x_offset + i for i in range(10)]
+        y = [float(i) for i in range(10)]  # y = x - x_offset, slope=1, intersect(centered)=4.5
+
+        fit = self.client.fit(x, y)
+        self.assertAlmostEqual(fit.slope(), 1.0, places=10)
+        # intersect is the y value at the center of the x range
+        self.assertAlmostEqual(fit.intersect(), 4.5, places=10)
+        # value() must give correct results in original coordinates
+        self.assertAlmostEqual(fit.value(x_offset + 0), 0.0, places=10)
+        self.assertAlmostEqual(fit.value(x_offset + 4.5), 4.5, places=10)
+        self.assertAlmostEqual(fit.value(x_offset + 9), 9.0, places=10)
+
+    def test_zero_slope(self):
+        """Verify that a flat dataset (zero slope) is handled correctly."""
+        x = [1, 2, 3, 4, 5]
+        y = [7.0, 7.0, 7.0, 7.0, 7.0]  # perfectly flat: slope should be 0, intersect=7
+
+        fit = self.client.fit(x, y)
+        # slope must be 0.0, not None
+        self.assertIsNotNone(fit.slope())
+        self.assertEqual(fit.slope(), 0.0)
+        self.assertAlmostEqual(fit.intersect(), 7.0)
+        self.assertAlmostEqual(fit.value(3.0), 7.0)
 
     def est_parsing_memory_monitor_data(self):
         """Read and fit PSS vs Time from memory monitor output file."""
