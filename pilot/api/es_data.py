@@ -21,7 +21,18 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2019
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
 
-"""API for event service data transfers."""
+"""API for event service data transfers.
+
+This module provides :class:`StageInESClient` and :class:`StageOutESClient`, which
+extend the generic :class:`~pilot.api.data.StageInClient` and
+:class:`~pilot.api.data.StageOutClient` with event-service-specific behaviour.
+
+The key difference from the standard staging clients is the addition of the
+``objectstore`` copytool and dedicated event-service activities (``es_events_read``
+for stage-in and ``es_events`` for stage-out).  During stage-in, each file's
+``storage_token`` is inspected to resolve the correct DDM endpoint and, when the
+path convention signals a transient object, to set the file scope to ``"transient"``.
+"""
 
 import logging
 from typing import Any
@@ -32,26 +43,59 @@ logger = logging.getLogger(__name__)
 
 
 class StageInESClient(StageInClient):
-    """Stage-in client."""
+    """Stage-in client for event service data transfers.
 
-    def __init__(self, **kwargs: dict):
-        """Set default/init values."""
+    Extends :class:`~pilot.api.data.StageInClient` by registering the
+    ``objectstore`` copytool module and mapping the ``es_events_read`` activity
+    to it.  The :meth:`prepare_sources` override additionally resolves each
+    file's DDM endpoint from its ``storage_token`` field.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the event service stage-in client.
+
+        Calls the parent initializer and then registers the ``objectstore``
+        copytool module (if not already present) and sets the default copytool
+        for the ``es_events_read`` activity to ``objectstore``.
+
+        Args:
+            **kwargs: Keyword arguments forwarded verbatim to
+                :class:`~pilot.api.data.StageInClient`. Recognized keys include
+                ``infosys_instance``, ``acopytools``, ``logger``,
+                ``default_copytools``, and ``trace_report``.
+        """
         super().__init__(**kwargs)
 
         self.copytool_modules.setdefault('objectstore', {'module_name': 'objectstore'})
         self.acopytools.setdefault('es_events_read', ['objectstore'])
 
-    def prepare_sources(self, files: list, activities: Any = None):
-        """
-        Prepare sources.
+    def prepare_sources(self, files: list, activities: Any = None) -> None:
+        """Prepare event service source files before stage-in.
 
-        Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`
-        (custom StageClient could extend this logic if needed).
+        Overrides :meth:`~pilot.api.data.StagingClient.prepare_sources` to
+        resolve each file's DDM endpoint from its ``storage_token`` field.  For
+        every :class:`~pilot.info.filespec.FileSpec` in ``files`` that carries a
+        ``storage_token``, the token is parsed into a ``storage_id`` and a
+        ``path_convention``:
 
-        If storage_id is specified, replace ddmendpoint by parsing storage_id.
+        - If ``path_convention`` equals ``1000`` the file scope is set to
+          ``"transient"``, indicating a short-lived object-store object.
+        - If a ``storage_id`` is present it is looked up via
+          :meth:`~pilot.info.infoservice.InfoService.get_ddmendpoint` and the
+          resolved name is written to ``fspec.ddmendpoint``.
 
-        :param files: list of `FileSpec` objects to be processed (list)
-        :param activities: string or ordered list of activities to resolve `astorages` (optional) (list or str)
+        The ``activities`` parameter is accepted for interface compatibility with
+        the base class but is not used by this implementation.
+
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects whose
+                source locations should be prepared.
+            activities: Activity name or ordered list of activity names used to
+                resolve storage endpoints.  Accepted for interface compatibility
+                but unused in this override.
+
+        Returns:
+            None
         """
         if not self.infosys:
             self.logger.warning('infosys instance is not initialized: skip calling prepare_sources()')
@@ -71,10 +115,27 @@ class StageInESClient(StageInClient):
 
 
 class StageOutESClient(StageOutClient):
-    """Stage-out client."""
+    """Stage-out client for event service data transfers.
 
-    def __init__(self, **kwargs: dict):
-        """Set default/init values."""
+    Extends :class:`~pilot.api.data.StageOutClient` by registering the
+    ``objectstore`` copytool module and mapping the ``es_events`` activity to it.
+    No additional source/destination preparation is required for event service
+    stage-out beyond what the parent class provides.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the event service stage-out client.
+
+        Calls the parent initializer and then registers the ``objectstore``
+        copytool module (if not already present) and sets the default copytool
+        for the ``es_events`` activity to ``objectstore``.
+
+        Args:
+            **kwargs: Keyword arguments forwarded verbatim to
+                :class:`~pilot.api.data.StageOutClient`. Recognized keys include
+                ``infosys_instance``, ``acopytools``, ``logger``,
+                ``default_copytools``, and ``trace_report``.
+        """
         super().__init__(**kwargs)
 
         self.copytool_modules.setdefault('objectstore', {'module_name': 'objectstore'})
