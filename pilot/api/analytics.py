@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2026
 
 """Functions for performing analytics including fitting of data."""
 
@@ -36,24 +36,23 @@ class Analytics(Services):
 
     _fit = None
 
-    def __init__(self, **kwargs: Any):
-        """
-        Initialize variables.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize variables.
 
-        :param kwargs: kwargs dictionary (dict).
+        Args:
+            **kwargs: Arbitrary keyword arguments (unused).
         """
         self._fit = None
 
     def fit(self, x: list, y: list, model: str = "linear") -> Any:
-        """
-        Fit the given data according to the given model.
+        """Fit the given data according to the given model.
 
         For a linear model: y(x) = slope * x + intersect
 
         Args:
-            x (list[float] | list[int]): Input x data points.
-            y (list[float] | list[int]): Input y data points.
-            model (str): Model name. Defaults to "linear".
+            x: Input x data points.
+            y: Input y data points.
+            model: Model name. Defaults to "linear".
 
         Raises:
             UnknownException: If constructing the Fit object fails.
@@ -69,8 +68,7 @@ class Analytics(Services):
         return self._fit
 
     def slope(self) -> Union[float, None]:
-        """
-        Return the slope of a linear fit y(x) = slope * x + intersect.
+        """Return the slope of a linear fit y(x) = slope * x + intersect.
 
         Raises:
             NotDefined: If the fit has not been defined.
@@ -84,25 +82,27 @@ class Analytics(Services):
         return self._fit.slope()
 
     def intersect(self) -> Union[float, None]:
-        """
-        Return the intersect of a linear fit y(x) = slope * x + intersect.
+        """Return the intersect of a linear fit y(x) = slope * x + intersect.
 
         Raises:
             NotDefined: If the fit has not been defined.
 
         Returns:
+            float | None: The intersect value if available, otherwise None.
         """
         if not self._fit:
             raise NotDefined("Fit has not been defined")
 
         return self._fit.intersect()
 
-    def chi2(self) -> float:
-        """
-        Return the chi2 of the fit.
+    def chi2(self) -> Union[float, None]:
+        """Return the chi2 of the fit.
 
-        :raises NotDefined: exception thrown if fit is not defined
-        :return: chi2 (float).
+        Raises:
+            NotDefined: If the fit has not been defined.
+
+        Returns:
+            float | None: The chi2 value if available, otherwise None.
         """
         if not self._fit:
             raise NotDefined("Fit has not been defined")
@@ -110,14 +110,16 @@ class Analytics(Services):
         return self._fit.chi2()
 
     def get_table(self, filename: str, header: str = "", separator: str = "\t", convert_to_float: bool = True) -> dict:
-        """
-        Return a table from file.
+        """Return a table read from a file.
 
-        :param filename: full path to input file (str)
-        :param header: header (str)
-        :param separator: separator character (str)
-        :param convert_to_float: boolean, if True, all values will be converted to floats (bool)
-        :return: table dictionary (dict).
+        Args:
+            filename: Full path to the input file.
+            header: Header string. Defaults to "".
+            separator: Column separator character. Defaults to tab.
+            convert_to_float: If True, all values are converted to floats. Defaults to True.
+
+        Returns:
+            dict: Table data keyed by column name.
         """
         return get_table_from_file(
             filename,
@@ -129,17 +131,23 @@ class Analytics(Services):
     def get_fitted_data(
         self, filename: str, x_name: str = "Time", y_name: str = "pss+swap", precision: int = 2, tails: bool = True
     ) -> dict:
-        """
-        Return a properly formatted job metrics string with analytics data.
+        """Return a dictionary of analytics fit results for the given memory monitor output file.
 
-        Currently, the function returns a fit for PSS+Swap vs time, whose slope measures memory leaks.
+        Currently fits PSS+Swap vs time; the slope of this fit measures memory leaks.
 
-        :param filename: full path to memory monitor output (str)
-        :param x_name: optional string, name selector for table column (str)
-        :param y_name: optional string, name selector for table column (str)
-        :param precision: optional precision for fitted slope parameter, default 2 (int)
-        :param tails: should tails (first and last values) be used? (bool)
-        :return: {"slope": slope, "chi2": chi2} (dict).
+        Args:
+            filename: Full path to the memory monitor output file.
+            x_name: Column name to use as the x-axis. Defaults to "Time".
+            y_name: Column name to use as the y-axis (may contain a '+' to sum two columns).
+                Defaults to "pss+swap".
+            precision: Decimal precision for the rounded output values. Defaults to 2.
+            tails: If True, retain the first and last data points (tails). For large samples
+                (>=100 points) the iterative method is used regardless. Defaults to True.
+
+        Returns:
+            dict: A dictionary with keys ``"slope"``, ``"chi2"``, and ``"intersect"``, each
+                holding a rounded string representation of the corresponding fit parameter,
+                or an empty string if the fit could not be performed.
         """
         slope = ""
         intersect = ""
@@ -217,9 +225,36 @@ class Analytics(Services):
         return {"slope": slope, "chi2": _chi2, "intersect": intersect}
 
     def find_limit(
-        self, _x, _y, _chi2_org, norg, change_limit=0.25, edge="right", steps=5
-    ):
-        """Use an iterative approach to find the limits of the distributions that can be used for the final fit."""
+        self,
+        _x: list,
+        _y: list,
+        _chi2_org: float,
+        norg: int,
+        change_limit: float = 0.25,
+        edge: str = "right",
+        steps: int = 5,
+    ) -> int:
+        """Use an iterative approach to find the trimming limit on one edge of the distribution.
+
+        Iteratively removes ``steps`` data points from the specified edge and re-fits,
+        stopping when the relative improvement in chi2 falls below ``change_limit``.
+        The search continues only while at least two thirds of the original data remain.
+
+        Args:
+            _x: x data points.
+            _y: y data points (same length as ``_x``).
+            _chi2_org: Chi2 value of the initial fit before trimming.
+            norg: Original number of data points before any trimming.
+            change_limit: Minimum relative chi2 improvement required to continue trimming.
+                Defaults to 0.25.
+            edge: Which edge to trim; either ``"right"`` or ``"left"``. Defaults to ``"right"``.
+            steps: Number of points removed per iteration. Defaults to 5.
+
+        Returns:
+            int: Index into the original arrays representing the trim boundary.
+                For the right edge this is the last index to keep; for the left edge
+                it is the first index to keep.
+        """
         _chi2_prev = _chi2_org
         found = False
         iterations = 0
@@ -262,14 +297,21 @@ class Analytics(Services):
 
         return limit
 
-    def extract_from_table(self, table, x_name, y_name):
-        """
-        Extract x and y from a table.
+    def extract_from_table(self, table: dict, x_name: str, y_name: str) -> tuple:
+        """Extract x and y data series from a table dictionary.
 
-        :param table: dictionary with columns.
-        :param x_name: column name to be extracted (string).
-        :param y_name: column name to be extracted (may contain '+'-sign) (string).
-        :return: x (list), y (list).
+        If ``y_name`` contains a ``'+'`` character, the two named columns are summed
+        element-wise to produce the y series.
+
+        Args:
+            table: Dictionary mapping column names to lists of values.
+            x_name: Key of the column to use as the x series.
+            y_name: Key of the column to use as the y series. May be of the form
+                ``"col1+col2"`` to sum two columns.
+
+        Returns:
+            tuple: A two-element tuple ``(x, y)`` where each element is a list of values.
+                Both lists are empty on failure.
         """
         x = table.get(x_name, [])
         if "+" not in y_name:
@@ -305,12 +347,20 @@ class Fit():
     _intersect = None  # intersect
     _chi2 = None  # chi2
 
-    def __init__(self, **kwargs):
-        """
-        Init function.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize and perform the fit.
 
-        :param kwargs:
-        :raises PilotException: NotImplementedError for unknown fitting model, NotDefined if input data not defined.
+        Args:
+            **kwargs: Keyword arguments. Recognized keys are:
+
+                - ``model`` (str): Fitting model name. Defaults to ``"linear"``.
+                - ``x`` (list): x data points.
+                - ``y`` (list): y data points.
+
+        Raises:
+            NotDefined: If ``x`` or ``y`` are not provided or are empty.
+            NotSameLength: If ``x`` and ``y`` have different lengths.
+            NotImplementedError: If the requested model is not implemented.
         """
         # extract parameters
         self._model = kwargs.get("model", "linear")
@@ -343,27 +393,33 @@ class Fit():
             logger.warning("'%s' model is not implemented", self._model)
             raise NotImplementedError()
 
-    def fit(self):
-        """
-        Return fitting object.
+    def fit(self) -> "Fit":
+        """Return the fitting object itself.
 
-        :return: fitting object.
+        Returns:
+            Fit: This Fit instance.
         """
         return self
 
-    def value(self, t):
-        """
-        Return the value y(x=t) of a linear fit y(x) = slope * x + intersect.
+    def value(self, t: float) -> float:
+        """Return the fitted y value at a given x position.
 
-        :return: intersect (float).
+        Evaluates y(x=t) = slope * t + intersect for the linear model.
+
+        Args:
+            t: The x position at which to evaluate the fit.
+
+        Returns:
+            float: The fitted y value at x equal to t.
         """
         return self._slope * t + self._intersect
 
-    def set_chi2(self):
-        """
-        Calculate and set the chi2 value.
+    def set_chi2(self) -> None:
+        """Calculate and store the chi2 value of the current fit.
 
-        :return:
+        Computes expected y values from the linear model for each x point and
+        compares them to the observed y values using the chi2 function.
+        Sets ``_chi2`` to None if either the observed or expected lists are empty.
         """
         y_observed = self._y
         y_expected = []
@@ -377,34 +433,37 @@ class Fit():
         else:
             self._chi2 = None
 
-    def chi2(self):
-        """
-        Return the chi2 value.
+    def chi2(self) -> Union[float, None]:
+        """Return the chi2 value of the fit.
 
-        :return: chi2 (float).
+        Returns:
+            float | None: The chi2 value, or None if it could not be calculated.
         """
         return self._chi2
 
-    def set_slope(self):
-        """
-        Calculate and set the slope of the linear fit.
+    def set_slope(self) -> None:
+        """Calculate and store the slope of the linear fit.
+
+        Sets ``_slope`` to None if the required sums are zero or undefined.
         """
         if self._ss2 and self._ss and self._ss != 0:
             self._slope = self._ss2 / float(self._ss)
         else:
             self._slope = None
 
-    def slope(self):
-        """
-        Return the slope value.
+    def slope(self) -> Union[float, None]:
+        """Return the slope of the linear fit.
 
-        :return: slope (float).
+        Returns:
+            float | None: The slope value, or None if it could not be calculated.
         """
         return self._slope
 
-    def set_intersect(self):
-        """
-        Calculate and set the intersect of the linear fit.
+    def set_intersect(self) -> None:
+        """Calculate and store the intersect of the linear fit.
+
+        Sets ``_intersect`` to None if any of the required mean or slope values
+        are undefined.
         """
         if self._ym is not None and self._slope is not None and self._xm is not None:
             self._intersect = self._ym - self._slope * self._xm
@@ -413,10 +472,10 @@ class Fit():
             self._intersect = None
             logger.info("could not calculate intersect")
 
-    def intersect(self):
-        """
-        Return the intersect value.
+    def intersect(self) -> Union[float, None]:
+        """Return the intersect of the linear fit.
 
-        :return: intersect (float).
+        Returns:
+            float | None: The intersect value, or None if it could not be calculated.
         """
         return self._intersect
