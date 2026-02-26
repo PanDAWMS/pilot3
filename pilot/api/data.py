@@ -93,7 +93,7 @@ import hashlib
 import logging
 import time
 from functools import reduce
-from typing import Any
+from typing import Any, Optional, Union
 try:
     import requests
 except ImportError:
@@ -121,7 +121,23 @@ from pilot.util.tracereport import TraceReport
 
 
 class StagingClient:
-    """Base Staging Client."""
+    """Base class for stage-in and stage-out clients.
+
+    Provides the common framework for data staging, including dynamic copytool
+    selection, replica resolution, protocol negotiation, and transfer orchestration.
+    Subclasses (:class:`StageInClient`, :class:`StageOutClient`) implement the
+    direction-specific logic by overriding :meth:`transfer_files` and
+    :meth:`resolve_surl`.
+
+    Class-level attributes:
+        copytool_modules (dict): Registry mapping copytool names to their module names.
+        direct_remoteinput_allowed_schemas (list): URL schemas permitted for direct
+            (remote-I/O) access from WAN replicas.
+        direct_localinput_allowed_schemas (list): URL schemas permitted for direct
+            access from LAN replicas.
+        remoteinput_allowed_schemas (list): URL schemas permitted for copied transfers
+            from remote (WAN) replicas.
+    """
 
     ipv = "IPv6"
     workdir = ''
@@ -151,20 +167,34 @@ class StagingClient:
                  default_copytools: str = 'rucio',
                  trace_report: dict = None,
                  ipv: str = 'IPv6',
-                 workdir: str = ""):
-        """
-        Set default/init values.
+                 workdir: str = "") -> None:
+        """Initialize common staging client state.
 
-        If `acopytools` is not specified then it will be automatically resolved via infosys. In this case `infosys`
-        requires initialization.
+        If ``acopytools`` is not provided it is resolved automatically from
+        ``infosys.queuedata``.  When using auto-resolution the ``infosys``
+        instance must already be initialized.
 
-        :param infosys_instance: infosys instance to be used for data resolution (Any)
-        :param acopytools: copytool names per activity to be used for transfers. Accepts also list of names or string value without activity passed (dict)
-        :param logger: logging.Logger object to use for logging (None means no logging) (Any)
-        :param default_copytools: copytool name(s) to be used in case of unknown activity passed. Accepts either list of names or single string value (str)
-        :param trace_report: trace report object (dict)
-        :param ipv: internet protocol version (str)
-        :param workdir: working directory (str).
+        Args:
+            infosys_instance: Info service instance used for queue/storage data
+                resolution.  Defaults to the module-level ``infosys`` singleton.
+            acopytools: Mapping of activity name to ordered list of copytool
+                names, e.g. ``{'read_lan': ['rucio'], 'default': ['gfal']}``.
+                Also accepts a plain list or a single string, which are wrapped
+                into ``{'default': [...]}`` automatically.
+            logger: Logger instance to use.  If ``None`` a disabled logger is
+                created so all log calls become no-ops.
+            default_copytools: Copytool name(s) to fall back to when the
+                requested activity is not found in ``acopytools``.  Accepts
+                either a list or a single string.
+            trace_report: Pre-initialized trace report object.  A new
+                :class:`~pilot.util.tracereport.TraceReport` is created when
+                ``None``.
+            ipv: Internet protocol version string passed to the trace report.
+                Defaults to ``"IPv6"``.
+            workdir: Working directory passed to the trace report.
+
+        Raises:
+            PilotException: If no copytool configuration can be resolved.
         """
         super().__init__()
 
@@ -202,29 +232,39 @@ class StagingClient:
             raise PilotException("failed to resolve acopytools settings")
         logger.info('configured copytools per activity: acopytools=%s', self.acopytools)
 
-    def allow_mvfinaldest(self, catchall: str):
-        """
-        Check if there is an override in catchall to allow mv to final destination.
+    def allow_mvfinaldest(self, catchall: str) -> bool:
+        """Check whether the catchall string enables mv-to-final-destination mode.
 
-        :param catchall: catchall from queuedata (str)
-        :return: True if 'mv_final_destination' is present in catchall, otherwise False (bool).
+        Args:
+            catchall: The ``catchall`` string from queuedata.
+
+        Returns:
+            bool: ``True`` if ``"mv_final_destination"`` is present in
+                ``catchall``, ``False`` otherwise.
         """
         return catchall and 'mv_final_destination' in catchall
 
-    def set_acopytools(self):
-        """Set the internal acopytools."""
+    def set_acopytools(self) -> None:
+        """Resolve and set ``acopytools`` from queuedata if not already configured.
+
+        Tries ``queuedata.acopytools`` first; falls back to the keys of
+        ``queuedata.copytools`` wrapped in a ``"default"`` activity.
+        """
         if not self.acopytools:  # resolve from queuedata.acopytools using infosys
             self.acopytools = (self.infosys.queuedata.acopytools or {}).copy()
         if not self.acopytools:  # resolve from queuedata.copytools using infosys
             self.acopytools = {"default": list((self.infosys.queuedata.copytools or {}).keys())}
 
     @staticmethod
-    def get_default_copytools(default_copytools: str):
-        """
-        Get the default copytools as a list.
+    def get_default_copytools(default_copytools: str) -> list:
+        """Return the default copytools as a list.
 
-        :param default_copytools: default copytools (str)
-        :return: default copytools (str).
+        Args:
+            default_copytools: A single copytool name string, or an already-
+                converted list.  An empty string returns an empty list.
+
+        Returns:
+            list: The copytool name(s) as a list.
         """
         if isinstance(default_copytools, str):
             default_copytools = [default_copytools] if default_copytools else []
@@ -232,13 +272,18 @@ class StagingClient:
         return default_copytools
 
     @classmethod
-    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Any or None:
-        """
-        Get preferred replica from the `replicas` list suitable for `allowed_schemas`.
+    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Optional[Any]:
+        """Return the first replica whose PFN matches one of the allowed schemas.
 
-        :param replicas: list of replicas (list)
-        :param allowed_schemas: list of allowed schemas (list)
-        :return: first matched replica or None if not found (Any or None).
+        Args:
+            replicas: Ordered list of replica info dicts, each containing at
+                least a ``"pfn"`` key.
+            allowed_schemas: URL schemas to match against (e.g. ``["root",
+                "https"]``).  An empty schema string matches any PFN.
+
+        Returns:
+            Optional[Any]: The first matching replica dict, or ``None`` if no
+                replica matches any of the allowed schemas.
         """
         for replica in replicas:
             pfn = replica.get('pfn')
@@ -248,26 +293,31 @@ class StagingClient:
         return None
 
     def prepare_sources(self, files: list, activities: Any = None) -> None:
-        """
-        Prepare sources.
+        """Prepare source file metadata before transfer (base implementation, no-op).
 
-        Customize/prepare source data for each entry in `files` optionally checking data for requested `activities`.
-        (custom StageClient could extend the logic if needed).
+        Subclasses may override this to customize source data for each entry in
+        ``files``, optionally using ``activities`` to resolve storage endpoints.
 
-        :param files: list of `FileSpec` objects to be processed (list)
-        :param activities: string or ordered list of activities to resolve `astorages` (optional) (Any)
-        :return: (None)
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                be prepared.
+            activities: Activity name or ordered list of activity names used to
+                resolve ``astorages``.  Unused in this base implementation.
         """
         return None
 
-    def prepare_inputddms(self, files: list, activities: list = None):
-        """
-        Prepare input DDMs.
+    def prepare_inputddms(self, files: list, activities: list = None) -> None:
+        """Populate ``fspec.inputddms`` for each file from the site's associated storages.
 
-        Populates filespec.inputddms for each entry from `files` list.
+        Resolves the preferred input DDM endpoints for each activity in
+        ``activities`` using ``queuedata.astorages``.  Falls back to
+        ``fspec.ddmendpoint`` when no storages are configured.
 
-        :param files: list of `FileSpec` objects
-        :param activities: ordered list of activities to resolve `astorages` (optional)
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects whose
+                ``inputddms`` attribute will be populated.
+            activities: Ordered list of activity names used to resolve
+                ``astorages``.  Defaults to ``["read_lan"]``.
         """
         astorages = self.infosys.queuedata.astorages if self.infosys and self.infosys.queuedata else {}
         activities = activities or ['read_lan']
@@ -285,12 +335,15 @@ class StagingClient:
             if not fdat.inputddms and fdat.ddmendpoint:
                 fdat.inputddms = [fdat.ddmendpoint]
 
-    def print_replicas(self, replicas: list, label: str = 'unsorted'):
-        """
-        Print replicas.
+    def print_replicas(self, replicas: list, label: str = 'unsorted') -> None:
+        """Log a labelled summary of replica PFNs for debugging.
 
-        :param replicas: list of replicas (Any)
-        :param label: label (str).
+        Prints at most 10 replicas at DEBUG level.
+
+        Args:
+            replicas: List of ``(pfn, replica_data)`` tuples to log.
+            label: Descriptive label shown in the log header.  Defaults to
+                ``"unsorted"``.
         """
         number = 1
         maxnumber = 10
@@ -306,14 +359,20 @@ class StagingClient:
 
     @classmethod
     def sort_replicas(cls, replicas: list, inputddms: list) -> list:
-        """
-        Sort input replicas.
+        """Sort replicas so that preferred DDM endpoints appear first.
 
-        Consider first affected replicas from inputddms.
+        Replicas whose RSE is listed in ``inputddms`` are moved to the front
+        while preserving their relative order within each group.  Replicas not
+        in ``inputddms`` are appended in their original order.
 
-        :param replicas: Prioritized list of replicas [(pfn, dat)] (list)
-        :param inputddms: preferred list of ddmebdpoint (list)
-        :return: sorted list of `replicas` (list).
+        Args:
+            replicas: Prioritized list of ``(pfn, replica_data)`` tuples as
+                returned by Rucio.
+            inputddms: Ordered list of preferred DDM endpoint names (LAN-local
+                endpoints first).
+
+        Returns:
+            list: Re-ordered list of ``(pfn, replica_data)`` tuples.
         """
         if not inputddms:
             return replicas
@@ -336,15 +395,27 @@ class StagingClient:
         return xreplicas
 
     def resolve_replicas(self, files: list, use_vp: bool = False) -> list:
-        """
-        Populate filespec.replicas for each entry from `files` list.
+        """Populate ``fspec.replicas`` for each file by querying the replica catalog.
 
-            fdat.replicas = [{'ddmendpoint':'ddmendpoint', 'pfn':'replica', 'domain':'domain value'}]
+        After the call each file's ``replicas`` attribute contains a list of
+        dicts with the structure::
 
-        :param files: list of `FileSpec` objects (list)
-        :param use_vp: True for VP jobs (bool)
-        :raise: Exception in case of list_replicas() failure
-        :return: list of files (list).
+            {'ddmendpoint': str, 'pfn': str, 'domain': str}
+
+        File size and checksum values are cross-checked against the catalog and
+        a warning is logged on any mismatch.
+
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                resolve.
+            use_vp: Set to ``True`` for VP (Virtual Placement) jobs, which
+                restricts replicas to ``root://`` schema and non-tape RSEs.
+
+        Raises:
+            Exception: Re-raises any exception from :meth:`list_replicas`.
+
+        Returns:
+            list: The same ``files`` list with ``replicas`` populated.
         """
         logger = self.logger
         xfiles = []
@@ -403,15 +474,24 @@ class StagingClient:
         return files
 
     def list_replicas(self, xfiles: list, use_vp: bool) -> list:
-        """
-        List Rucio replicas.
+        """Query Rucio for all available replicas of the given files.
 
-        Wrapper around rucio_client.list_replicas()
+        Wraps ``rucio.client.Client.list_replicas()``.  The query requests
+        geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
+        the schema is restricted to ``root://`` and availability checks are
+        enforced.
 
-        :param xfiles: list of files objects (list)
-        :param use_vp: True for VP jobs (bool)
-        :raise: PilotException in case of list_replicas() failure
-        :return: replicas (list).
+        Args:
+            xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                look up.
+            use_vp: Set to ``True`` for VP jobs to apply VP-specific query
+                parameters.
+
+        Raises:
+            PilotException: If the Rucio call fails.
+
+        Returns:
+            list: Raw replica dicts as returned by the Rucio client.
         """
         # load replicas from Rucio
         from rucio.client import Client
@@ -448,12 +528,20 @@ class StagingClient:
         return replicas
 
     def add_replicas(self, fdat: Any, replica: Any) -> Any:
-        """
-        Add the replicas to the fdat structure.
+        """Populate ``fdat.replicas`` from a raw Rucio replica record.
 
-        :param fdat: fdat object (Any)
-        :param replica: replica object (Any)
-        :return: updated fdat object (Any).
+        Only DISK-type replicas are kept.  The ``domain`` field is overridden
+        to ``"lan"`` when the replica's RSE is in ``fdat.inputddms``,
+        otherwise ``"wan"``.  Replicas that conflict with the file's
+        ``allow_lan`` / ``allow_wan`` settings are skipped.
+
+        Args:
+            fdat: :class:`~pilot.info.filespec.FileSpec` object to update.
+            replica: Raw Rucio replica dict containing ``"pfns"``, ``"scope"``,
+                ``"name"``, and checksum fields.
+
+        Returns:
+            Any: The updated ``fdat`` object.
         """
         fdat.replicas = []  # reset replicas list
 
@@ -493,15 +581,24 @@ class StagingClient:
 
         return fdat
 
-    def detect_client_location(self, use_vp: bool = False) -> dict:
-        """
-        Detect the client location.
+    def detect_client_location(self, use_vp: bool = False) -> tuple:
+        """Detect the worker node's network location for Rucio geo-sorting.
 
-        Open a UDP socket to a machine on the internet, to get the local IPv4 and IPv6
-        addresses of the requesting client.
+        Opens a UDP socket toward the public internet to discover the local IP
+        address.  For VP sites, geographic coordinates are obtained from the
+        ``RUCIO_LATITUDE`` / ``RUCIO_LONGITUDE`` environment variables or by
+        querying an external geo-IP service.
 
-        :param use_vp: is it a VP site? (bool)
-        :return: client location (dict).
+        Args:
+            use_vp: Set to ``True`` for VP (Virtual Placement) sites to also
+                resolve geographic coordinates.
+
+        Returns:
+            tuple: A two-element tuple ``(client_location, diagnostics)`` where
+                ``client_location`` is a dict with at least ``"ip"`` and
+                ``"site"`` keys (and optionally ``"latitude"`` / ``"longitude"``
+                for VP sites), and ``diagnostics`` is an error string (empty
+                when no errors occurred).
         """
         diagnostics = ''
         client_location = {}
@@ -555,50 +652,78 @@ class StagingClient:
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
 
-    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
-        """
-        Resolve SURL.
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: Any) -> dict:
+        """Resolve the final storage URL (SURL) for a file transfer.
 
-        Only needed in StageOutClient.
+        This is an abstract method that must be implemented by subclasses.
+        The concrete implementation lives in :class:`StageOutClient`.
 
-        Get final destination SURL for file to be transferred.
-        Can be customized at the level of specific copytool.
+        Args:
+            fspec: :class:`~pilot.info.filespec.FileSpec` object for the file
+                being transferred.
+            protocol: Protocol dict (endpoint, path, flavour) selected for the
+                transfer.
+            ddmconf: Full DDM configuration mapping endpoint names to storage
+                data objects.
+            **kwargs: Additional keyword arguments forwarded by the caller.
 
-        :param fspec: `FileSpec` object (Any)
-        :param protocol: suggested protocol (dict)
-        :param ddmconf: full ddmconf data (dict)
-        :param kwargs: extra kwargs (dict)
-        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
-        """
-        raise NotImplementedError()
+        Raises:
+            NotImplementedError: Always, in this base implementation.
 
-    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
-        """
-        Transfer the files.
-
-        Apply transfer of given `files` using passed `copytool` module.
-        Should be implemented by custom Staging Client.
-
-        :param copytool: copytool module (Any)
-        :param files: list of `FileSpec` objects (list)
-        :param activity: list of activity names used to determine appropriate copytool (list)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :raise: PilotException in case of controlled error.
+        Returns:
+            dict: Dict with at least a ``"surl"`` key and optionally a
+                ``"ddmendpoint"`` key.
         """
         raise NotImplementedError()
 
-    def transfer(self, files: list, activity: list or str = 'default', raise_exception: bool = True, **kwargs: dict) -> list:  # noqa: C901
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: Any) -> list:
+        """Execute the actual file transfer using the given copytool.
+
+        This is an abstract method that must be implemented by subclasses
+        (:meth:`StageInClient.transfer_files`,
+        :meth:`StageOutClient.transfer_files`).
+
+        Args:
+            copytool: Imported copytool module (e.g. ``pilot.copytool.rucio``).
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                transfer.
+            activity: Ordered list of activity names used to select the
+                appropriate copytool.
+            **kwargs: Extra keyword arguments forwarded to the copytool handler.
+
+        Raises:
+            NotImplementedError: Always, in this base implementation.
+            PilotException: Subclass implementations raise this on controlled
+                transfer errors.
         """
-        Perform file transfer.
+        raise NotImplementedError()
 
-        Automatically stage passed files using copy tools related to given `activity`.
+    def transfer(self, files: list, activity: Union[list, str] = 'default', raise_exception: bool = True, **kwargs: Any) -> list:  # noqa: C901
+        """Stage files using the copytools configured for the given activity.
 
-        :param files: list of `FileSpec` objects (list)
-        :param activity: list of activity names used to determine appropriate copytool (list or str)
-        :param raise_exception: boolean flag used to ignore transfer errors
-        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :raise: PilotException in case of controlled error if `raise_exception` is `True`
-        :return: list of processed `FileSpec` objects (list).
+        Resolves the copytool list for ``activity`` (falling back to
+        ``"default"``), prepares input DDMs and file activities, then iterates
+        through the copytools until one succeeds or all fail.
+
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                transfer.
+            activity: Activity name or ordered list of activity names used to
+                select the copytool(s).  ``"default"`` is always appended as a
+                final fallback.
+            raise_exception: When ``True`` a :exc:`PilotException` is raised if
+                any files remain un-transferred after all copytools are
+                exhausted.  Set to ``False`` to suppress the exception and
+                inspect ``fspec.status`` instead.
+            **kwargs: Extra keyword arguments forwarded to the copytool handler.
+
+        Raises:
+            PilotException: If no copytool can be resolved for the activity, or
+                if ``raise_exception`` is ``True`` and files remain
+                un-transferred.
+
+        Returns:
+            list: The same ``files`` list with updated ``status`` attributes.
         """
         self.trace_report.update(relativeStart=time.time(), transferStart=time.time())
 
@@ -705,16 +830,23 @@ class StagingClient:
 
         return files
 
-    def require_protocols(self, files: list, copytool: Any, activity: list or str, local_dir: str = ''):
-        """
-        Require protocols.
+    def require_protocols(self, files: list, copytool: Any, activity: Union[list, str], local_dir: str = '') -> None:
+        """Resolve and assign transfer protocols and TURLs for each file.
 
-        Populates fspec.protocols and fspec.turl for each entry in `files` according to preferred fspec.ddm_activity
+        Populates ``fspec.protocols`` and ``fspec.turl`` for each entry in
+        ``files`` according to the preferred ``fspec.ddm_activity``.  When
+        ``local_dir`` is provided, a synthetic local-file protocol is used
+        instead of querying the storage configuration.
 
-        :param files: list of `FileSpec` objects (list)
-        :param copytool: copytool module (Any)
-        :param activity: list of activity names used to determine appropriate copytool (list or str)
-        :param local_dir: local directory (str).
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                update.
+            copytool: Imported copytool module whose ``allowed_schemas``
+                attribute (if present) constrains protocol selection.
+            activity: Activity name or ordered list of activity names used to
+                resolve allowed schemas from queuedata.
+            local_dir: If non-empty, all files are assigned this directory as
+                their protocol endpoint instead of using DDM configuration.
         """
         allowed_schemas = getattr(copytool, 'allowed_schemas', None)
 
@@ -757,15 +889,24 @@ class StagingClient:
                 fspec.ddmendpoint = r['ddmendpoint']
 
     def resolve_protocols(self, files: list) -> list:
-        """
-        Resolve protocols.
+        """Populate ``fspec.protocols`` for each file from the DDM configuration.
 
-        Populates filespec.protocols for each entry from `files` according to preferred `fspec.ddm_activity` value
+        Resolves the list of available transfer protocols for each file based on
+        its ``ddm_activity`` and the ``arprotocols`` defined in the DDM storage
+        configuration.  The result is stored as::
 
-        fdat.protocols = [dict(endpoint, path, flavour), ..]
+            fdat.protocols = [{'endpoint': str, 'path': str, 'flavour': str}, ...]
 
-        :param files: list of `FileSpec` objects (list)
-        :return: list of `files` object (list).
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects whose
+                ``protocols`` attribute will be populated.
+
+        Raises:
+            PilotException: If the file's DDM endpoint cannot be found in the
+                storage configuration.
+
+        Returns:
+            list: The same ``files`` list with ``protocols`` populated.
         """
         ddmconf = self.infosys.resolve_storage_data()
 
@@ -788,14 +929,18 @@ class StagingClient:
 
     @classmethod
     def resolve_protocol(cls, fspec: Any, allowed_schemas: Any = None) -> list:
-        """
-        Resolve protocol.
+        """Filter ``fspec.protocols`` to those matching the allowed schemas.
 
-        Resolve protocol according to allowed schema
+        Args:
+            fspec: :class:`~pilot.info.filespec.FileSpec` instance whose
+                ``protocols`` list is filtered.
+            allowed_schemas: List of URL schema strings (e.g. ``["root",
+                "https"]``) to accept.  ``None`` accepts all schemas.
 
-        :param fspec: `FileSpec` instance (list)
-        :param allowed_schemas: list of allowed schemas or any if None (Any)
-        :return: list of dict(endpoint, path, flavour) (list).
+        Returns:
+            list: Subset of ``fspec.protocols`` whose endpoints start with one
+                of the allowed schemas, or all protocols when ``allowed_schemas``
+                is ``None``.
         """
         if not fspec.protocols:
             return []
@@ -812,24 +957,37 @@ class StagingClient:
 
 
 class StageInClient(StagingClient):
-    """Stage-in client."""
+    """Stage-in client for copying input files to the worker node.
+
+    Extends :class:`StagingClient` with replica resolution logic that selects
+    the best available source URL for each input file, taking into account LAN
+    vs. WAN proximity, direct-access (remote I/O) eligibility, allowed URL
+    schemas, and VP-job constraints.  Files approved for direct access are
+    marked with ``status="remote_io"`` and are not physically copied.
+    """
 
     mode = "stage-in"
 
-    def resolve_replica(self, fspec: Any, primary_schemas: Any = None, allowed_schemas: Any = None, domain: Any = None) -> dict or None:
-        """
-        Resolve replica.
+    def resolve_replica(self, fspec: Any, primary_schemas: Any = None, allowed_schemas: Any = None, domain: Any = None) -> Optional[dict]:
+        """Select the best available replica for a single input file.
 
-        Resolve input replica (matched by `domain` if needed) first according to `primary_schemas`,
-        if not found then look up within `allowed_schemas`.
+        First attempts to find a replica matching ``primary_schemas`` within the
+        requested ``domain`` (priority is ignored for primary schemas, making
+        this suitable for direct-access URL selection).  If not found, falls
+        back to any replica in ``allowed_schemas`` within the same domain.
 
-        Primary schemas ignore replica priority (used to resolve direct access replica, which could be not with top priority set).
+        Args:
+            fspec: :class:`~pilot.info.filespec.FileSpec` object whose
+                ``replicas`` list is searched.
+            primary_schemas: Preferred URL schemas tried first (ignoring Rucio
+                priority order).  ``None`` skips the primary lookup.
+            allowed_schemas: Fallback URL schemas.  ``None`` accepts any schema.
+            domain: Domain to restrict the search to (``"lan"`` or ``"wan"``).
 
-        :param fspec: input `FileSpec` objects (Any)
-        :param primary_schemas: list of primary schemas or any if None (Any)
-        :param allowed_schemas: list of allowed schemas or any if None (Any)
-        :param domain: domain value to match (Any)
-        :return: dict(surl, ddmendpoint, pfn, domain) or None if replica not found (dict or None).
+        Returns:
+            Optional[dict]: Dict with keys ``"surl"``, ``"ddmendpoint"``,
+                ``"pfn"``, and ``"domain"`` for the chosen replica, or ``None``
+                if no suitable replica was found.
         """
         if not fspec.replicas:
             self.logger.warning('resolve_replica() received no fspec.replicas')
@@ -872,29 +1030,39 @@ class StageInClient(StagingClient):
 
         return {'surl': surl['pfn'], 'ddmendpoint': replica['ddmendpoint'], 'pfn': replica['pfn'], 'domain': replica['domain']}
 
-    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
-        """
-        Resolve SURL.
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: Any) -> dict:
+        """Resolve the source URL for a stage-in transfer (not applicable).
 
-        Only needed in StageOutClient.
+        SURL resolution is only meaningful for stage-out.  This override exists
+        solely to satisfy the abstract interface and always raises
+        :exc:`NotImplementedError`.
 
-        Get final destination SURL for file to be transferred.
-        Can be customized at the level of specific copytool.
+        Args:
+            fspec: :class:`~pilot.info.filespec.FileSpec` object.
+            protocol: Protocol dict selected for the transfer.
+            ddmconf: Full DDM configuration dict.
+            **kwargs: Additional keyword arguments (ignored).
 
-        :param fspec: `FileSpec` object (Any)
-        :param protocol: suggested protocol (dict)
-        :param ddmconf: full ddmconf data (dict)
-        :param kwargs: extra kwargs (dict)
-        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        Raises:
+            NotImplementedError: Always.
         """
         raise NotImplementedError()
 
-    def get_direct_access_variables(self, job: Any) -> (bool, str):
-        """
-        Return the direct access settings for the PQ.
+    def get_direct_access_variables(self, job: Any) -> tuple:
+        """Return the direct-access (remote I/O) settings for the current queue.
 
-        :param job: job object (Any)
-        :return: allow_direct_access (bool), direct_access_type (str).
+        Checks ``queuedata.direct_access_lan`` and
+        ``queuedata.direct_access_wan``.  Direct access is disabled for
+        production jobs unless ``job.transfertype == "direct"``.
+
+        Args:
+            job: Job object.  May be ``None`` when no job context is available.
+
+        Returns:
+            tuple: A two-element tuple ``(allow_direct_access, direct_access_type)``
+                where ``allow_direct_access`` is a ``bool`` and
+                ``direct_access_type`` is ``"LAN"``, ``"WAN"``, or ``""``
+                (empty string when direct access is disabled).
         """
         allow_direct_access, direct_access_type = False, ''
         if self.infosys.queuedata:  # infosys is initialized
@@ -912,16 +1080,35 @@ class StageInClient(StagingClient):
 
         return allow_direct_access, direct_access_type
 
-    def transfer_files(self, copytool: Any, files: list, activity: list = None, **kwargs: dict) -> list:  # noqa: C901
-        """
-        Automatically stage in files using the selected copy tool module.
+    def transfer_files(self, copytool: Any, files: list, activity: list = None, **kwargs: Any) -> list:  # noqa: C901
+        """Stage in files using the given copytool module.
 
-        :param copytool: copytool module (Any)
-        :param files: list of `FileSpec` objects (list)
-        :param activity: list of activity names used to determine appropriate copytool (list or None)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :return: list of processed `FileSpec` objects (list)
-        :raise: PilotException in case of controlled error.
+        Orchestrates the full stage-in pipeline for a single copytool:
+
+        1. Resolve Rucio replicas (if the copytool requires them).
+        2. Select the best replica per file considering ``transfertype``,
+           LAN/WAN preference, and direct-access eligibility.
+        3. Resolve input protocols (if required by the copytool).
+        4. Mark direct-access files with ``status="remote_io"``.
+        5. Check available disk space against the total input size.
+        6. Delegate physical transfers to ``copytool.copy_in()``.
+
+        Args:
+            copytool: Imported copytool module.
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                stage in.
+            activity: Ordered list of activity names used to resolve allowed
+                schemas.
+            **kwargs: Extra keyword arguments forwarded to the copytool.
+                Recognized keys include ``use_vp``, ``job``, ``workdir``,
+                ``input_dir``, ``args``, and ``catchall``.
+
+        Raises:
+            ReplicasNotFound: If no suitable replica is found for a file.
+            PilotException: On validation failures or copytool errors.
+
+        Returns:
+            list: The updated ``files`` list.
         """
         if getattr(copytool, 'require_replicas', False) and files:
             if files[0].replicas is None:  # look up replicas only once
@@ -1083,16 +1270,25 @@ class StageInClient(StagingClient):
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
-    def transfer_files_old(self, copytool: Any, files: list, activity: list = None, **kwargs: dict) -> list:  # noqa: C901
-        """
-        Automatically stage in files using the selected copy tool module.
+    def transfer_files_old(self, copytool: Any, files: list, activity: list = None, **kwargs: Any) -> list:  # noqa: C901
+        """Stage in files using the given copytool module (deprecated predecessor).
 
-        :param copytool: copytool module (Any)
-        :param files: list of `FileSpec` objects (list)
-        :param activity: list of activity names used to determine appropriate copytool (list or None)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :return: list of processed `FileSpec` objects (list)
-        :raise: PilotException in case of controlled error.
+        Retained for reference only.  Use :meth:`transfer_files` instead.
+
+        Args:
+            copytool: Imported copytool module.
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                stage in.
+            activity: Ordered list of activity names used to resolve allowed
+                schemas.
+            **kwargs: Extra keyword arguments forwarded to the copytool.
+
+        Raises:
+            ReplicasNotFound: If no suitable replica is found for a file.
+            PilotException: On validation failures or copytool errors.
+
+        Returns:
+            list: The updated ``files`` list.
         """
         if getattr(copytool, 'require_replicas', False) and files:
             if files[0].replicas is None:  # look up replicas only once
@@ -1229,14 +1425,21 @@ class StageInClient(StagingClient):
         # return copytool.copy_in_bulk(remain_files, **kwargs)
         return copytool.copy_in(remain_files, **kwargs)
 
-    def set_status_for_direct_access(self, files: list, workdir: str):
-        """
-        Update the FileSpec status with 'remote_io' for direct access mode.
+    def set_status_for_direct_access(self, files: list, workdir: str) -> None:
+        """Mark files eligible for direct access with ``status="remote_io"``.
 
-        Should be called only once since the function sends traces.
+        For each file, evaluates LAN and WAN direct-access conditions.  When
+        both ``domain`` and ``direct_access_{lan,wan}`` match, the file status
+        is set to ``"remote_io"``, an ``ALRB_XCACHE_PROXY`` prefix is applied
+        to the TURL if configured, and a trace report is sent.
 
-        :param files: list of FileSpec objects (list)
-        :param workdir: work directory (str).
+        Should be called only once per transfer because it emits trace events.
+
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                evaluate and potentially update.
+            workdir: Working directory used to locate the base trace report
+                file when remote file verification is enabled.
         """
         for fspec in files:
             direct_lan = (fspec.domain == 'lan' and fspec.direct_access_lan and
@@ -1292,12 +1495,20 @@ class StageInClient(StagingClient):
                 else:
                     self.trace_report.send()
 
-    def check_availablespace(self, files: list):
-        """
-        Verify that enough local space is available to stage in and run the job.
+    def check_availablespace(self, files: list) -> None:
+        """Verify that total input size fits within configured limits and available disk.
 
-        :param files: list of FileSpec objects (list)
-        :raise: PilotException in case of not enough space or total input size too large.
+        Compares the sum of all file sizes against ``maxinputsize`` and against
+        the currently available local disk space (from ``df``).
+
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects whose
+                ``filesize`` values are summed.
+
+        Raises:
+            SizeTooLarge: If the total input size exceeds ``maxinputsize``.
+            NoLocalSpace: If the total input size exceeds available local disk
+                space.
         """
         for f in files:
             self.logger.debug(f'lfn={f.lfn} filesize={f.filesize} accessmode={f.accessmode}')
@@ -1332,20 +1543,41 @@ class StageInClient(StagingClient):
 
 
 class StageOutClient(StagingClient):
-    """Stage-out client."""
+    """Stage-out client for uploading output files from the worker node.
+
+    Extends :class:`StagingClient` with destination resolution logic that maps
+    each output file to the correct RSE (Rucio Storage Element) for the
+    requested activity.  Before transfer, the client verifies that each output
+    file exists on disk, is non-zero in size, and computes its checksum.
+    """
 
     mode = "stage-out"
 
-    def prepare_destinations(self, files: list, activities: list or str, alt_exclude: list = None) -> list:
-        """
-        Resolve destination RSE (filespec.ddmendpoint) for each entry from `files` according to requested `activities`.
+    def prepare_destinations(self, files: list, activities: Union[list, str], alt_exclude: list = None) -> list:
+        """Resolve the output RSE (``fspec.ddmendpoint``) for each file.
 
-        Apply Pilot-side logic to choose proper destination.
+        Determines the primary and alternative DDM endpoints by matching the
+        ``activities`` list against ``queuedata.astorages``.  Files that
+        already have an endpoint set are re-mapped to the default endpoint if
+        their current endpoint is not in the allowed storage list; the original
+        value is then used as the alternative destination.
 
-        :param files: list of FileSpec objects to be processed (list)
-        :param activities: ordered list of activities to be used to resolve astorages (list or str)
-        :param alt_exclude: global list of destinations that should be excluded / not used for alternative stage-out
-        :return: updated fspec entries (list).
+        Args:
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects whose
+                ``ddmendpoint`` and ``ddmendpoint_alt`` will be set.
+            activities: Activity name or ordered list of activity names used to
+                look up associated output storages in ``astorages``.
+            alt_exclude: Global list of endpoint names that must not be used as
+                alternative destinations (e.g. endpoints that have already
+                failed).
+
+        Raises:
+            PilotException: If ``activities`` is empty, or if no associated
+                storages are defined and the ``mv`` copytool is not configured.
+
+        Returns:
+            list: The same ``files`` list with ``ddmendpoint`` and
+                ``ddmendpoint_alt`` populated.
         """
 
         alt_exclude = list(alt_exclude or [])
@@ -1377,7 +1609,7 @@ class StageOutClient(StagingClient):
                                  code=ErrorCodes.NOSTORAGE, state='NO_ASTORAGES_DEFINED')
 
         def resolve_alt_destination(primary, exclude=None):
-            """ resolve alt destination as the next to primary entry not equal to `primary` and `exclude` """
+            """Return the next storage entry after ``primary`` that is not in ``exclude``."""
 
             cur = storages.index(primary) if primary in storages else 0
             inext = (cur + 1) % len(storages)  # cycle storages, take the first elem when reach end
@@ -1421,14 +1653,21 @@ class StageOutClient(StagingClient):
 
     @classmethod
     def get_path(cls, scope: str, lfn: str) -> str:
-        """
-        Construct a partial Rucio PFN using the scope and the LFN.
+        """Construct a deterministic Rucio path fragment from scope and LFN.
 
-            <prefix=rucio>/<scope>/md5(<scope>:<lfn>)[0:2]/md5(<scope:lfn>)[2:4]/<lfn>
+        The path follows the standard Rucio deterministic layout::
 
-        :param scope: replica scope (str)
-        :param lfn: repliva LFN (str)
-        :return: constructed path (str).
+            <scope_parts>/md5(<scope>:<lfn>)[0:2]/md5(<scope>:<lfn>)[2:4]/<lfn>
+
+        The ``rucio`` prefix is omitted; it should be prepended by the caller
+        via the protocol endpoint and path.
+
+        Args:
+            scope: Rucio scope of the replica (e.g. ``"data18_13TeV"``).
+            lfn: Logical file name of the replica.
+
+        Returns:
+            str: The deterministic path fragment (without leading slash).
         """
         s = f'{scope}:{lfn}'
         hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()
@@ -1439,18 +1678,31 @@ class StageOutClient(StagingClient):
 
         return '/'.join(paths)
 
-    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> dict:
-        """
-        Resolve SURL.
+    def resolve_surl(self, fspec: Any, protocol: dict, ddmconf: dict, **kwargs: Any) -> dict:
+        """Construct the final destination SURL for a stage-out file.
 
-        Get final destination SURL for file to be transferred.
-        Can be customized at the level of specific copytool.
+        Uses the deterministic Rucio path layout (see :meth:`get_path`) unless
+        a ``local_dir`` override is supplied.  Only deterministic DDM endpoints
+        are supported; non-deterministic endpoints raise an exception.
 
-        :param fspec: `FileSpec` object (Any)
-        :param protocol: suggested protocol (dict)
-        :param ddmconf: full ddmconf data (dict)
-        :param kwargs: extra kwargs (dict)
-        :return: dictionary with keys ('pfn', 'ddmendpoint') (dict).
+        Can be replaced at the copytool level by providing a ``resolve_surl``
+        callable on the copytool module.
+
+        Args:
+            fspec: :class:`~pilot.info.filespec.FileSpec` object for the output
+                file.
+            protocol: Protocol dict (``endpoint``, ``path``, ``flavour``) to
+                use for building the SURL.
+            ddmconf: Full DDM storage configuration dict.
+            **kwargs: Recognized keys: ``local_dir`` — when non-empty the SURL
+                is built from this directory instead of the DDM configuration.
+
+        Raises:
+            PilotException: If the DDM endpoint cannot be resolved or is
+                non-deterministic.
+
+        Returns:
+            dict: Dict with key ``"surl"`` containing the constructed storage URL.
         """
         local_dir = kwargs.get('local_dir', '')
         if not local_dir:
@@ -1469,18 +1721,35 @@ class StageOutClient(StagingClient):
 
         return {'surl': surl}
 
-    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: dict) -> list:
-        """
-        Transfer files.
+    def transfer_files(self, copytool: Any, files: list, activity: list, **kwargs: Any) -> list:
+        """Stage out files using the given copytool module.
 
-        Automatically stage out files using the selected copy tool module.
+        Orchestrates the full stage-out pipeline for a single copytool:
 
-        :param copytool: copytool module (Any)
-        :param files: list of `FileSpec` objects (list)
-        :param activity: ordered list of preferred activity names to resolve SE protocols (list)
-        :param kwargs: extra kwargs to be passed to copytool transfer handler (dict)
-        :return: the output of the copytool transfer operation (list)
-        :raise: PilotException in case of controlled error.
+        1. Verify each output file exists on disk and is readable.
+        2. Populate ``fspec.filesize`` from the filesystem when not already set.
+        3. Reject zero-size output files.
+        4. Compute the file checksum if not already present.
+        5. Resolve output protocols and TURLs (``require_protocols``).
+        6. Validate input via ``copytool.is_valid_for_copy_out()``.
+        7. Delegate to ``copytool.copy_out()``.
+
+        Args:
+            copytool: Imported copytool module.
+            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                stage out.
+            activity: Ordered list of activity names used to resolve SE
+                protocols.
+            **kwargs: Extra keyword arguments forwarded to the copytool.
+                Recognized keys include ``workdir``, ``output_dir``, and
+                ``catchall``.
+
+        Raises:
+            PilotException: If an output file is missing, zero-size, has no
+                RSE defined, or if the copytool reports invalid input.
+
+        Returns:
+            list: Return value of ``copytool.copy_out()``.
         """
         # check if files exist before actual processing
         # populate filesize if needed, calculate checksum
