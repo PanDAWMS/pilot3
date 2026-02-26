@@ -553,8 +553,7 @@ def _parse_update_response(res: Dict[str, Any]) -> Tuple[bool, Optional[int], Op
     return False, status_code, command, message or "Server response indicated failure"
 
 
-def send_update(update_function: str, data: Dict[str, Any], url: str, port: int, job: Optional[Any] = None,
-                ipv: str = "IPv6", max_attempts: int = 2) -> UpdateResult:  \# noqa
+def send_update(update_function: str, data: Dict[str, Any], url: str, port: int, job: Optional[Any] = None, ipv: str = "IPv6", max_attempts: int = 2) -> UpdateResult:  # noqa
     """Send an update to the PanDA server and validate the response.
 
     This function distinguishes:
