@@ -30,7 +30,7 @@ try:
 except ImportError:
     certifi = None
 import datetime
-import http.client as http_client
+#import http.client as http_client
 import json
 import logging
 import os
@@ -52,6 +52,7 @@ from collections.abc import Callable
 from collections import namedtuple
 from dataclasses import dataclass
 from gzip import GzipFile
+from http import client as http_client
 from io import BytesIO
 from re import (
     findall,
@@ -66,9 +67,9 @@ from typing import (
     Any,
     Dict,
     Optional,
-    Tuple
+    Tuple,
+    Union
 )
-from urllib.parse import parse_qs
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import FileHandlingFailure
@@ -76,6 +77,7 @@ from pilot.info.jobdata import JobData
 
 from .auxiliary import (
     is_kubernetes_resource,
+    mask_sensitive_response,
     set_pilot_state
 )
 from .config import config
@@ -766,7 +768,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     logger.debug(f"update_function = {update_function}, path = {path}")
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{path}', data=data, panda=True)
+        res = request2(f'{path}', json_body=data, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -792,21 +794,8 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
         # hide sensitive info
         # Determine the nested dict that contains 'pilotSecrets'
         #logger.debug(f"res={res}")
-        _data = res.get('data') or {}
-        container = (
-            _data if 'pilotSecrets' in _data
-            else res if res and 'pilotSecrets' in res
-            else None
-        )
-
-        pilot_secrets = container.pop('pilotSecrets', None) if container else None
-        if pilot_secrets:
-            container['pilotSecrets'] = '********'
-
-        logger.info(f'server responded with: res = {res}')
-
-        if pilot_secrets:
-            container['pilotSecrets'] = pilot_secrets
+        log_res, pilot_secrets = mask_sensitive_response(res)
+        logger.info(f'server responded with: res = {log_res}')
     else:
         logger.warning(f'server {update_function} request failed both with urllib and curl')
 
@@ -881,10 +870,10 @@ def add_error_codes(data: dict, job: JobData):
     pilot_error_code = job.piloterrorcode
     pilot_error_codes = job.piloterrorcodes
     if pilot_error_codes != []:
-        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
-        data['pilotErrorCode'] = pilot_error_codes[0]
+        logger.warning(f'pilot_error_code(s) = {pilot_error_codes} (will report primary/first error code)')
+        data['pilot_error_code'] = pilot_error_codes[0]
     else:
-        data['pilotErrorCode'] = pilot_error_code
+        data['pilot_error_code'] = pilot_error_code
 
     def remove_timestamp(log_entry: str) -> str:
         """
@@ -908,24 +897,24 @@ def add_error_codes(data: dict, job: JobData):
             else:
                 # Optionally log or convert to string
                 pilot_error_diags_cleaned.append(remove_timestamp(str(diag)))
-                logger.warning(f'pilotErrorDiags contains non-string value: {diag} (converted to string)')
+                logger.warning(f'pilot_error_diag(s) contains non-string value: {diag} (converted to string)')
         pilot_error_diags = pilot_error_diags_cleaned
 
-        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
-        data['pilotErrorDiag'] = pilot_error_diags[0]
+        logger.warning(f'pilot_error_diag(s) = {pilot_error_diags} (will report primary/first error diag)')
+        data['pilot_error_diag'] = pilot_error_diags[0]
     else:
-        data['pilotErrorDiag'] = pilot_error_diag
+        data['pilot_error_diag'] = pilot_error_diag
 
     # special case for SIGTERM failures on Kubernetes resources
-    if data.get('pilotErrorCode') == errors.SIGTERM:
+    if data.get('pilot_error_code') == errors.SIGTERM:
         if is_kubernetes_resource():
             logger.warning('resetting SIGTERM error to PREEMPTION for Kubernetes resource')
-            data['pilotErrorCode'] = errors.PREEMPTION
-            data['pilotErrorDiag'] = errors.get_error_code(errors.PREEMPTION)
+            data['pilot_error_code'] = errors.PREEMPTION
+            data['pilot_error_diag'] = errors.get_error_code(errors.PREEMPTION)
 
-    data['transExitCode'] = job.transexitcode
-    data['exeErrorCode'] = job.exeerrorcode
-    data['exeErrorDiag'] = job.exeerrordiag
+    data['trans_exit_code'] = job.transexitcode
+    data['exe_error_code'] = job.exeerrorcode
+    data['exe_error_diag'] = job.exeerrordiag
 
 
 def get_server_command(url: str, port: int, cmd: str = 'api/v1/pilot/acquire_jobs') -> str:
@@ -1045,105 +1034,196 @@ class IPv4HTTPHandler(urllib.request.HTTPHandler):
         return socket.create_connection((host, port), timeout, source_address, family=socket.AF_INET)
 
 
-def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
+def _merge_query(url: str, params: Dict[str, Any]) -> str:
     """
-    Send a request using HTTPS (using urllib module).
+    Merge params into existing query string in url.
+    Values are stringified; lists/tuples become repeated query args.
+    """
+    if not params:
+        return url
 
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :param secure: use secure connection (bool)
-    :param compressed: compress data (bool)
-    :param panda: True for panda server interactions (bool)
-    :return: server response (str or dict).
+    parts = urllib.parse.urlsplit(url)
+    existing = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+
+    # Add/override with new params
+    for k, v in params.items():
+        if v is None:
+            continue
+        if isinstance(v, (list, tuple)):
+            existing[k] = [str(x) for x in v]
+        else:
+            existing[k] = [str(v)]
+
+    new_query = urllib.parse.urlencode(existing, doseq=True)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
+# --- small helpers to reduce complexity in request2() ---
+
+def _decide_method(json_body: Optional[Dict[str, Any]], method: Optional[str]) -> str:
+    """Decide HTTP method when caller did not explicitly provide one."""
+    if method is None:
+        return "GET" if json_body is None else "POST"
+    return method.upper()
+
+
+def _get_auth_and_headers(url: str, panda: bool) -> Tuple[Dict[str, str], bool]:
     """
-    if data is None:
-        data = {}
+    Return headers and whether OIDC token should be used.
+    Raises nothing; returns headers ready to be extended.
+    """
+    auth_token, auth_origin = get_local_oidc_token_info()
+    use_oidc_token = bool(auth_token and auth_origin and panda)
+    auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
+    if not auth_token_content and use_oidc_token:
+        logger.warning("OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read")
+        # calling function will decide what to do (we return headers but caller may bail)
+    accept = True if "api/v" in url else False
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
+    return headers, use_oidc_token
+
+
+def _prepare_body_and_headers(url: str, json_body: Optional[Dict[str, Any]], compressed: bool, headers: Dict[str, str]) -> Optional[bytes]:
+    """
+    Prepare the request body bytes (possibly gzipped) and update headers accordingly.
+    Returns bytes or None if no body.
+    """
+    if json_body is None:
+        return None
+
+    # Disallow GET + body: caller likely mistaken
+    # The main function will raise ValueError before calling this if method=="GET"
+    payload = json.dumps(json_body).encode("utf-8")
+    headers["Content-Type"] = "application/json"
+    if compressed and "api/v" in url:
+        headers["Content-Encoding"] = "gzip"
+        rdata_out = BytesIO()
+        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
+            f_gzip.write(payload)
+        return rdata_out.getvalue()
+    return payload
+
+
+def _get_ssl_context(use_oidc_token: bool) -> ssl.SSLContext:
+    """
+    Return an SSLContext configured the same way as before.
+    Caller may modify verify_mode or load_cert_chain afterwards if needed.
+    """
+    ssl_context = get_ssl_context()
+    if not use_oidc_token:
+        # load cert chain with same file used previously
+        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+    return ssl_context
+
+
+def _parse_response_text(ret_text: str) -> Union[str, Dict[str, Any]]:
+    """
+    Parse a textual response into the same semantic result as your previous function:
+      - "Succeeded" -> {"StatusCode": "0"}
+      - JSON object -> parsed dict
+      - otherwise parse like query string "a=1&b=2"
+    """
+    if ret_text == "Succeeded":
+        return {"StatusCode": "0"}
+
+    # JSON object
+    if ret_text.startswith("{") and ret_text.endswith("}"):
+        try:
+            return json.loads(ret_text)
+        except json.JSONDecodeError as e:
+            logger.warning(f"failed to parse response as JSON: {e}")
+            return ret_text
+
+    # fallback: parse query-string-like response
+    query_dict = urllib.parse.parse_qs(ret_text)
+    return {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+
+
+# --- main function (now short and low-complexity) ---
+
+def request2(
+    url: str = "",
+    *,
+    params: Optional[Dict[str, Any]] = None,
+    json_body: Optional[Dict[str, Any]] = None,
+    secure: bool = True,
+    compressed: bool = True,
+    panda: bool = False,
+    method: Optional[str] = None,
+) -> Union[str, Dict[str, Any]]:
+    """
+    Send an HTTPS request via urllib.
+
+    High level:
+      - `params` are merged into the URL query string.
+      - `json_body` is sent as JSON request body (for non-GET methods).
+      - If `method` is not provided: defaults to GET when json_body is None, otherwise POST.
+    """
+    params = params or {}
+    method = _decide_method(json_body, method)
 
     ipv = os.environ.get("PILOT_IP_VERSION")
-    logger.info(f"url = {url}, secure = {secure}, compressed = {compressed}, ipv = {ipv}")
+    logger.info(f"url = {url}, secure = {secure}, compressed = {compressed}, ipv = {ipv}, method = {method}")
 
-    # https might not have been set up if running in a [middleware] container
+    # Ensure HTTPS setup is available
     if not _ctx.cacert:
         https_setup(None, get_pilot_version())
 
-    # should tokens be used?
-    auth_token, auth_origin = get_local_oidc_token_info()
-    use_oidc_token = auth_token and auth_origin and panda
-    auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
-    if not auth_token_content and use_oidc_token:
-        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
+    # Prepare headers and auth
+    headers, use_oidc_token = _get_auth_and_headers(url, panda)
+
+    # If OIDC is required but content missing, mirror previous behavior and bail out
+    # (the helper logged a warning already)
+    if panda and use_oidc_token and not headers:
         return ""
 
-    # only add Accept to headers if new API is used
-    accept = True if "api/v" in url else False
+    # Merge params into URL
+    url = _merge_query(url, params)
 
-    # get the relevant headers
-    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
-    logger.info(f'data = {data}')
+    # Disallow GET with body: explicit error (prevents silent misuse)
+    if method.upper() == "GET" and json_body is not None:
+        raise ValueError("GET requests must not include json_body; use 'params=' instead")
 
-    # encode data as compressed JSON
-    if compressed:
-        if "api/v" in url:
-            headers['Content-Encoding'] = 'gzip'
-        rdata_out = BytesIO()
-        with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
-            f_gzip.write(json.dumps(data).encode())
-        data_json = rdata_out.getvalue()
-    else:
-        data_json = json.dumps(data).encode('utf-8')
-    logger.info(f'headers = {hide_token(headers.copy())}')
+    # Prepare body and possibly gzip it; headers are updated inside helper
+    data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
 
-    # set up the request (GET if no data, POST if data)
-    if data:
-        req = urllib.request.Request(url, data=data_json, headers=headers)
-    else:
-        req = urllib.request.Request(url, headers=headers)
+    logger.info(f"params = {params}")
+    logger.info(f"json_body = {json_body}")
+    logger.info(f"headers = {hide_token(headers.copy())}")
 
-    # create a context with certificate verification
-    ssl_context = get_ssl_context()
-    #ssl_context.verify_mode = ssl.CERT_REQUIRED
-    if not use_oidc_token:
-        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+    # Build request
+    req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
 
+    # SSL context and certificates
+    ssl_context = _get_ssl_context(use_oidc_token)
     if not secure:
         ssl_context.verify_mode = False
         ssl_context.check_hostname = False
 
-    if ipv == 'IPv4':
+    # IP family handling
+    if ipv == "IPv4":
         logger.info("will use IPv4 in server communication")
         install_ipv4_opener()
     else:
         logger.info("will use IPv6 in server communication")
 
-    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
-    # Send the request securely
+    # Send request and handle network-level errors with minimal branching
     try:
-        logger.debug('sending data to server')
+        logger.debug("sending request to server")
         with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-            # Handle the response here
             logger.info(f"response.status={response.status}, response.reason={response.reason}")
-            ret = response.read().decode('utf-8')
-        logger.debug('sent request to server')
+            ret_text = response.read().decode("utf-8")
+        logger.debug("sent request to server")
     except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
         ret = f"failed to send request: {exc}"
         logger.warning(ret)
-    else:
-        if secure and isinstance(ret, str):
-            if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
-                ret = {'StatusCode': '0'}
-            elif ret.startswith('{') and ret.endswith('}'):
-                try:
-                    ret = json.loads(ret)
-                except json.JSONDecodeError as e:
-                    logger.warning(f'failed to parse response: {e}')
-            else:  # response="StatusCode=_some number_"
-                # Parse the query string into a dictionary
-                query_dict = parse_qs(ret)
+        return ret
 
-                # Convert lists to single values
-                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+    # Parse textual response into dict/string as before
+    if secure and isinstance(ret_text, str):
+        return _parse_response_text(ret_text)
 
-    return ret
+    return ret_text
 
 
 def install_ipv4_opener():
@@ -1581,74 +1661,6 @@ def get_memory_limits(url: str, port: int) -> dict:
     return resource_types
 
 
-def get_memory_limits_old(url: str, port: int) -> dict:
-    """
-    Get the resource types from the server.
-
-    Args:
-        url (str): The URL of the server.
-        port (int): The port number of the server.
-
-    Returns:
-        dict: A dictionary of resource types.
-    """
-    # cmd = get_server_command(url, port, cmd="getResourceTypes")
-    cmd = get_server_command(url, port, cmd="api/v1/metaconfig/get_resource_types")
-    try:
-        response = request2(cmd, panda=True)  # will be a dictionary
-    except Exception as exc:
-        logger.warning(f'exception caught in request2() while getting resource types: {exc}')
-        return {}
-    logger.debug(f"response from {cmd} = {response}")
-
-    if not response:
-        logger.warning(f'failed to get memory limits from {cmd}')
-        return {}
-
-    # convert the response to a dictionary in case it is a string
-    if isinstance(response, str):
-        try:
-            response = json.loads(response)
-        except json.JSONDecodeError as exc:
-            logger.warning(f'failed to parse response as JSON: {exc}')
-            return {}
-
-    resource_types_pre = response.get('ResourceTypes', {})
-    # Handle if resource_types_pre is a string (legacy server response)
-    if isinstance(resource_types_pre, str):
-        resource_types_str = resource_types_pre.replace("None", "null").replace("'", '"')
-        try:
-            resource_types_list = json.loads(resource_types_str)
-        except json.JSONDecodeError as exc:
-            logger.warning(f'failed to parse ResourceTypes as JSON: {exc}')
-            resource_types_list = []
-    elif isinstance(resource_types_pre, dict):
-        resource_types_list = resource_types_pre.get('ResourceTypes', [])
-    else:
-        resource_types_list = []
-
-    # create the final dictionary
-    resource_types = {}
-    try:
-        for entry in resource_types_list:
-            resource_name = entry.get('resource_name', '')
-            mincore = entry.get('mincore', 0)
-            maxcore = entry.get('maxcore', 0)
-            minrampercore = entry.get('minrampercore', 0)
-            maxrampercore = entry.get('maxrampercore', 0)
-            resource_types[resource_name] = {
-                'mincore': mincore,
-                'maxcore': maxcore,
-                'minrampercore': minrampercore,
-                'maxrampercore': maxrampercore
-            }
-    except Exception as exc:
-        logger.warning(f'failed to parse resource types: {exc}')
-        resource_types = {}
-
-    return resource_types
-
-
 def extract_protocol(url: str) -> Optional[str]:
     """Extract the protocol (scheme) from a URL.
 
@@ -1663,3 +1675,115 @@ def extract_protocol(url: str) -> Optional[str]:
     """
     parsed = urllib.parse.urlparse(url)
     return parsed.scheme or None
+
+
+# --- helper: parse dispatcher response (module-level, small and simple) ---
+def _parse_get_job_status_response(resp: Any, job_id: int) -> Tuple[str, int, int]:
+    """
+    Parse the new-style dispatcher response and return (status, attempt_nr, status_code).
+
+    Raises:
+        ValueError: if the response cannot be parsed into the expected shape.
+    """
+    if not isinstance(resp, dict):
+        raise ValueError("response is not a dict")
+
+    if resp.get("success") is not True:
+        raise ValueError("dispatcher returned success=False")
+
+    data = resp.get("data")
+    if not isinstance(data, list) or len(data) == 0:
+        # success True but no data -> notfound (not an error)
+        return "notfound", 0, 0
+
+    # look for exact match first
+    for item in data:
+        if isinstance(item, dict) and item.get("job_id") == job_id:
+            record = item
+            break
+    else:
+        # fallback to first dict-like record
+        first = data[0]
+        if not isinstance(first, dict):
+            raise ValueError("data[0] is not a dict")
+        record = first
+
+    status = str(record.get("status", "unknown"))
+    attempt_raw = record.get("attempt_number", 0)
+    try:
+        attempt_nr = int(attempt_raw)
+    except (TypeError, ValueError):
+        attempt_nr = -1
+
+    return status, attempt_nr, 0
+
+
+# --- main function (refactored to be low complexity) ---
+def get_job_status_from_server(job_id: int, url: str, port: int) -> Tuple[str, int, int]:
+    """
+    Fetch the current status of a PanDA job from the dispatcher (pilot API).
+
+    Queries:
+        GET /api/v1/pilot/get_job_status?job_ids=<...>
+
+    Expected response:
+        {
+          "success": true,
+          "message": "",
+          "data": [
+            {"job_id": 7037255444, "status": "sent", "attempt_number": 0}
+          ]
+        }
+
+    Return status codes:
+        0  : Success (parsed OK)
+        10 : Transient error / timeout (may be retried)
+        20 : Response parsing error or API returned success=False
+        -1 : Unexpected exception
+
+    Args:
+        job_id: PanDA job ID.
+        url: PanDA server URL/alias for `get_panda_server()`.
+        port: PanDA server port.
+
+    Returns:
+        Tuple of (status, attempt_nr, status_code).
+    """
+    # defaults
+    status: str = "unknown"
+    attempt_nr: int = 0
+    status_code: int = 0
+
+    if config.Pilot.pandajob == "fake":
+        return status, attempt_nr, status_code
+
+    pandaserver = get_panda_server(url, port)
+    params = {"job_ids": str(job_id)}
+    max_trials = 2
+
+    for trial in range(1, max_trials + 1):
+        ret: Optional[Any] = None
+        try:
+            ret = request2(f"{pandaserver}/api/v1/pilot/get_job_status", params=params, method="GET")
+            status, attempt_nr, status_code = _parse_get_job_status_response(ret, job_id)
+            return status, attempt_nr, status_code
+
+        except ValueError as parse_err:
+            # Response shape or semantic error -> map to 20
+            logger.warning(f"parse error getting job status (trial {trial}): {parse_err} ret={ret}")
+            return "unknown", -1, 20
+
+        except (TimeoutError, ssl.SSLError, http_client.RemoteDisconnected, urllib.error.URLError, urllib.error.HTTPError) as transient_exc:
+            # Transient: map to 10 and retry if allowed
+            logger.warning(f"transient error contacting dispatcher (trial {trial}/{max_trials}): {transient_exc}")
+            if trial < max_trials:
+                time.sleep(10)
+                continue
+            return "unknown", -1, 10
+
+        except Exception as exc:
+            logger.warning(f"unexpected error interpreting job status: {exc} ret={ret}")
+            return "unknown", -1, -1
+
+    # fallback (shouldn't be reached, but safe default)
+    return "unknown", -1, -1

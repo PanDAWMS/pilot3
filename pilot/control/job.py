@@ -32,7 +32,9 @@ import logging
 import queue
 import random
 import time
+
 from collections import namedtuple
+from datetime import datetime
 #from dataclasses import dataclass
 from json import (
     dumps,
@@ -76,6 +78,7 @@ from pilot.util.auxiliary import (
     has_instruction_sets,
     is_virtual_machine,
     locate_core_file,
+    mask_sensitive_response,
     pilot_version_banner,
     set_pilot_state,
 )
@@ -126,6 +129,7 @@ from pilot.util.harvester import (
     remove_job_request_file,
     request_new_jobs,
 )
+from pilot.util.https import get_job_status_from_server
 from pilot.util.jobmetrics import get_job_metrics
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean, float_to_rounded_string
@@ -508,106 +512,6 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
     return True
 
 
-def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, int):
-    """
-    Return the current status of job <jobId> from the dispatcher.
-
-    CURRENTLY NOT USED
-
-    typical dispatcher response: 'status=finished&StatusCode=0'
-    StatusCode  0: succeeded
-               10: time-out
-               20: general error
-               30: failed
-    In the case of time-out, the dispatcher will be asked one more time after 10 s.
-
-    :param job_id: PanDA job id (int)
-    :param url: PanDA server URL (int)
-    :param port: PanDA server port (str)
-    :return: status (string; e.g. holding), attempt_nr (int), status_code (int).
-    """
-    status = 'unknown'
-    attempt_nr = 0
-    status_code = 0
-    if config.Pilot.pandajob == 'fake':
-        return status, attempt_nr, status_code
-
-    data = {}
-    # WARNING: the documentation says this should be a list of job ids (as a string)
-    data['ids'] = job_id
-
-    # get the URL for the PanDA server from pilot options or from config
-    pandaserver = https.get_panda_server(url, port)
-
-    # ask dispatcher about lost job status
-    trial = 1
-    max_trials = 2
-
-    while trial <= max_trials:
-        try:
-            # open connection
-            # https://aipanda090.cern.ch:25443/server/panda/getResourceTypes
-            # https://aipanda090.cern.ch:25443/api/v1/pilot/get_resource_types
-            ret = https.request2(f'{pandaserver}/api/v1/pilot/get_job_status', data=data)
-            logger.debug(f"get_job_status response: {ret}")
-            if not ret or isinstance(ret, str):
-                ret = https.request(f'{pandaserver}/api/v1/pilot/get_job_status', data=data)
-
-            if isinstance(ret, str):  # string response in case of time-out
-                logger.warning(f"dispatcher did not return allowed values: {ret}")
-                status = "unknown"
-                attempt_nr = -1
-                status_code = 20
-                continue
-
-            response = ret[1]
-            logger.info(f"response: {response}")
-            if response:
-                try:
-                    # decode the response
-                    # eg. var = ['status=notfound', 'attemptNr=0', 'StatusCode=0']
-                    # = response
-
-                    status = response['status']  # e.g. 'holding'
-                    attempt_nr = int(response['attemptNr'])  # e.g. '0'
-                    status_code = int(response['StatusCode'])  # e.g. '0'
-                except Exception as error:
-                    logger.warning(
-                        f"exception: dispatcher did not return allowed values: {ret}, {error}")
-                    status = "unknown"
-                    attempt_nr = -1
-                    status_code = 20
-                else:
-                    logger.debug(f'server job status={status}, attempt_nr={attempt_nr}, status_code={status_code}')
-            else:
-                logger.warning(f"dispatcher did not return allowed values: {ret}")
-                status = "unknown"
-                attempt_nr = -1
-                status_code = 20
-        except Exception as error:
-            logger.warning(f"could not interpret job status from dispatcher: {error}")
-            status = 'unknown'
-            attempt_nr = -1
-            status_code = -1
-            break
-        else:
-            if status_code == 0:  # success
-                break
-            if status_code == 10:  # time-out
-                trial += 1
-                time.sleep(10)
-                continue
-            if status_code == 20:  # other error
-                if ret[0] == 13056 or ret[0] == '13056':
-                    logger.warning(f"wrong certificate used with curl operation? (encountered error {ret[0]})")
-                break
-
-            # general error
-            break
-
-    return status, attempt_nr, status_code
-
-
 def get_debug_command(cmd: str) -> (bool, str):
     """
     Identify and filter the given debug command.
@@ -810,7 +714,7 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
-        data['start_time'] = starttime
+        data['start_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
 
     if xml is not None:
         data['job_output_report'] = xml
@@ -1248,7 +1152,7 @@ def add_timing_and_extracts_new(data: dict, job: Any, state: str, args: Any):
         if extracts != "":
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
     data['pilot_log'] = extracts[:1024]
-    data['end_time'] = time.time()
+    data['end_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
@@ -1993,8 +1897,10 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
         if "curlgetjob" in infosys.queuedata.catchall:
             res = https.request(cmd, data=data)
         else:
-            res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
-            logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
+            res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
+
+            log_res, pilot_secrets = mask_sensitive_response(res)
+            logger.info(f'server responded with: res = {log_res}')
             if not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
@@ -2603,11 +2509,10 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             return None
 
         # ---- restore retrieve_old(): verify job status on server (kept from your refactor) ----
-        try:
-            _, _, _ = get_job_status_from_server(job.jobid, args.url, args.port)
-        except Exception as error:
-            logger.warning(f"{error}")
-
+        #try:
+        #    _, _, _ = get_job_status_from_server(job.jobid, args.url, args.port)
+        #except Exception as error:
+        #    logger.warning(f"{error}")
         # ---- restore retrieve_old(): pilot timing stamps (PRE/POST GETJOB) ----
         try:
             add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)

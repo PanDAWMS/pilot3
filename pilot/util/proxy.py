@@ -107,7 +107,8 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
         user = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
         data = user.getproxy_dictionary(voms_role)
 
-        res = https.request2(f'{url}/server/panda/getProxy', data=data)
+        # res = https.request2(f'{url}/server/panda/getProxy', json_body=data)
+        res = https.request2(f'{url}/api/v1/creds/get_proxy', params=data)
         if res is None:
             logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
             res = https.request('{url}/server/panda/getProxy', data=data)

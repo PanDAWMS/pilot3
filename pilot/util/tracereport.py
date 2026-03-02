@@ -229,7 +229,6 @@ class TraceReport(dict):
             except (KeyError, ValueError) as e:
                 logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
 
-            # send the trace report using the new request2 function
             # must convert data to a dictionary and make sure None values are kept
             data_str_urllib = data_urllib.replace('None', '\"None\"')
             data_str_urllib = data_str_urllib.replace('null', '\"None\"')
@@ -237,7 +236,7 @@ class TraceReport(dict):
             data_dict = loads(data_str_urllib)  # None values will now be 'None'-strings
             data_dict = correct_none_types(data_dict)
             logger.debug(f'data_dict={data_dict}')
-            ret = request2(url=url, data=data_dict, secure=False, compressed=False)
+            ret = request2(url=url, json_body=data_dict, secure=False, compressed=False)
             if isinstance(ret, str):
                 logger.warning(f"tracing server returned a string instead of a dictionary: {ret}")
                 return False
