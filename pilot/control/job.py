@@ -714,7 +714,8 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
-        data['start_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
+        data['start_time'] = datetime.fromtimestamp(starttime).strftime("%Y-%m-%d %H:%M:%S")
+        logger.debug(f'xxx start time: {data["start_time"]}')
 
     if xml is not None:
         data['job_output_report'] = xml
@@ -2517,6 +2518,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         try:
             add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
             add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
+            logger.debug(f"xxx added to pilot timing: {PILOT_PRE_GETJOB}={time_pre_getjob}, {PILOT_POST_GETJOB}={time.time()}")
         except Exception as exc:
             logger.debug(f"Could not write pilot timing stamps: {exc}")
 
@@ -2542,12 +2544,14 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
     logger.info(f"Starting retrieve thread for queue {args.queue!r}")
 
     while not args.graceful_stop.is_set():
+        logger.debug("xxx proceeding with job retrieval loop")
         if args.abort_job.is_set():
             logger.info("Abort requested - stopping retrieve loop")
             break
 
         # restore retrieve_old(): store time stamp right before get_job_definition()
         time_pre_getjob = time.time()
+        logger.debug(f"xxx time_pre_getjob set to {time_pre_getjob}")
 
         dispatcher_response = _fetch_dispatcher_response()
         if dispatcher_response is None:
@@ -2599,6 +2603,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         getjob_requests += 1
 
         job = _build_validate_and_queue(job_definitions, time_pre_getjob)
+        logger.debug("xxx got a job object from _build_validate_and_queue()")
         if job is None:
             # short backoff on build/validate/enqueue failure
             delay = min(5, float(get_job_retrieval_delay(args.harvester)))
@@ -2606,7 +2611,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             continue
 
         jobnumber += 1
-
+        logger.debug(f"xxx jobnumber {jobnumber}")
         # ---- restore retrieve_old(): wait for completion and then do cleanup/reset ----
         while not args.graceful_stop.is_set():
             if has_job_completed(queues, args):
