@@ -97,7 +97,7 @@ from typing import Any, Optional, Union
 try:
     import requests
 except ImportError:
-    pass
+    requests = None  # type: ignore[assignment]
 
 from pilot.info import infosys
 from pilot.common.exception import (
@@ -106,7 +106,6 @@ from pilot.common.exception import (
     SizeTooLarge,
     NoLocalSpace,
     ReplicasNotFound,
-    FileHandlingFailure,
 )
 from pilot.util.config import config
 from pilot.util.filehandling import (
@@ -418,20 +417,13 @@ class StagingClient:
             list: The same ``files`` list with ``replicas`` populated.
         """
         logger = self.logger
-        xfiles = []
-
-        for fdat in files:
-            # skip fdat if needed (e.g. to properly handle OS ddms)
-            xfiles.append(fdat)
+        xfiles = list(files)
 
         if not xfiles:  # no files for replica look-up
             return files
 
         # get the list of replicas
-        try:
-            replicas = self.list_replicas(xfiles, use_vp)
-        except Exception as exc:
-            raise exc
+        replicas = self.list_replicas(xfiles, use_vp)
 
         files_lfn = dict(((e.scope, e.lfn), e) for e in xfiles)
         for replica in replicas:
@@ -465,7 +457,7 @@ class StagingClient:
                     fdat.checksum[ctype] = replica[ctype]
 
             if not status:
-                logger.info("filesize and checksum verification done")
+                logger.warning("filesize and/or checksum verification failed")
                 self.trace_report.update(clientState="DONE")
 
         logger.info('Number of resolved replicas:\n' +
@@ -607,8 +599,11 @@ class StagingClient:
         try:
             import socket
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
+            try:
+                s.connect(("8.8.8.8", 80))
+                ip = s.getsockname()[0]
+            finally:
+                s.close()
         except socket.gaierror as e:
             diagnostics = f'failed to get socket info due to address-related error: {e}'
             self.logger.warning(diagnostics)
@@ -633,7 +628,7 @@ class StagingClient:
                 except ValueError:
                     diagnostics = f'client set latitude (\"{latitude}\") and longitude (\"{longitude}\") are not valid'
                     self.logger.warning(diagnostics)
-            else:
+            elif requests is not None:
                 try:
                     response = requests.post('https://location.cern.workers.dev',
                                              json={"site": site},
@@ -648,6 +643,8 @@ class StagingClient:
                 except requests.exceptions.RequestException as exc:
                     diagnostics = f'requests.post failed with general exception: {exc}'
                     self.logger.warning(diagnostics)
+            else:
+                self.logger.warning('requests module is not available: cannot determine VP client location')
 
         self.logger.debug(f'will use client_location={client_location}')
         return client_location, diagnostics
@@ -811,16 +808,16 @@ class StagingClient:
         if remain_files:  # failed or incomplete transfer
             # propagate message from first error back up
             # errmsg = str(caught_errors[0]) if caught_errors else ''
-            if caught_errors and "Cannot authenticate" in str(caught_errors):
-                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE if self.mode == 'stage-in' else ErrorCodes.STAGEOUTAUTHENTICATIONFAILURE  # is it stage-in/out?
-            elif caught_errors and "bad queue configuration" in str(caught_errors):
-                code = ErrorCodes.BADQUEUECONFIGURATION
-            elif caught_errors and isinstance(caught_errors[0], PilotException):
+            if caught_errors and isinstance(caught_errors[0], PilotException):
                 code = caught_errors[0].get_error_code()
                 # errmsg = caught_errors[0].get_last_error()
             elif caught_errors and isinstance(caught_errors[0], TimeoutException):
                 code = ErrorCodes.STAGEINTIMEOUT if self.mode == 'stage-in' else ErrorCodes.STAGEOUTTIMEOUT  # is it stage-in/out?
                 self.logger.warning(f'caught time-out exception: {caught_errors[0]}')
+            elif caught_errors and "Cannot authenticate" in str(caught_errors):
+                code = ErrorCodes.STAGEINAUTHENTICATIONFAILURE if self.mode == 'stage-in' else ErrorCodes.STAGEOUTAUTHENTICATIONFAILURE  # is it stage-in/out?
+            elif caught_errors and "bad queue configuration" in str(caught_errors):
+                code = ErrorCodes.BADQUEUECONFIGURATION
             else:
                 code = ErrorCodes.STAGEINFAILED if self.mode == 'stage-in' else ErrorCodes.STAGEOUTFAILED  # is it stage-in/out?
             details = str(caught_errors) + ":" + f'failed to transfer files using copytools={copytools}'
@@ -855,9 +852,9 @@ class StagingClient:
             allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity, copytool_name) or allowed_schemas
 
         if local_dir:
+            if not local_dir.endswith('/'):
+                local_dir += '/'
             for fdat in files:
-                if not local_dir.endswith('/'):
-                    local_dir += '/'
                 fdat.protocols = [{'endpoint': local_dir, 'flavour': '', 'id': 0, 'path': ''}]
         else:
             files = self.resolve_protocols(files)
@@ -1612,7 +1609,6 @@ class StageOutClient(StagingClient):
             """Return the next storage entry after ``primary`` that is not in ``exclude``."""
 
             cur = storages.index(primary) if primary in storages else 0
-            inext = (cur + 1) % len(storages)  # cycle storages, take the first elem when reach end
             exclude = set([primary] + list(exclude or []))
             alt = None
             for attempt in range(len(exclude) or 1):  # apply several tries to jump exclude entries (in case of dublicated data will stack)
@@ -1779,13 +1775,8 @@ class StageOutClient(StagingClient):
             fspec.surl = pfn
             fspec.activity = activity
             if os.path.isfile(pfn) and not fspec.checksum.get(config.File.checksum_type):
-                try:
-                    fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
-                                                                                   algorithm=config.File.checksum_type)
-                except (FileHandlingFailure, NotImplementedError) as exc:
-                    raise exc
-                except Exception as exc:
-                    raise exc
+                fspec.checksum[config.File.checksum_type] = calculate_checksum(pfn,
+                                                                               algorithm=config.File.checksum_type)
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_protocols', True) and files:
