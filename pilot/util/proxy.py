@@ -191,8 +191,6 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
                 )
                 return False, proxy_outfile_name
 
-        logger.debug(f"get_proxy server response: {res}")
-
         # Extract proxy from either new-style or old-style response
         proxy_contents = _extract_proxy_from_response(res, voms_role)
 
