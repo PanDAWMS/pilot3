@@ -458,7 +458,7 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
     final = is_final_update(job, state, tag='sending' if args.update_server else 'writing')
 
     # build the data structure needed for updateJob
-    data = get_data_structure_new(job, state, args, xml=xml, metadata=metadata)
+    data = get_data_structure(job, state, args, xml=xml, metadata=metadata)
     logger.debug(f'data={data}')
 
     # write the heartbeat message to file if the server is not to be updated by the pilot (Nordugrid mode)
@@ -621,7 +621,7 @@ def handle_backchannel_command(res: dict, job: Any, args: Any, test_tobekilled: 
     # job.debug_command = 'gdb --pid % -ex \'generate-core-file\''
 
 
-def add_data_structure_ids_new(data: dict, version_tag: str, job: Any) -> dict:
+def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     """
     Add pilot, batch and scheduler ids to the data structure for getJob, updateJob.
 
@@ -638,7 +638,7 @@ def add_data_structure_ids_new(data: dict, version_tag: str, job: Any) -> dict:
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
 
-    logger.debug(f"add_data_structure_ids_new keys: {sorted(data.keys())}")
+    logger.debug(f"add_data_structure_ids keys: {sorted(data.keys())}")
     logger.debug(
         f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
 
@@ -659,40 +659,7 @@ def add_data_structure_ids_new(data: dict, version_tag: str, job: Any) -> dict:
     return data
 
 
-def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
-    """
-    Add pilot, batch and scheduler ids to the data structure for getJob, updateJob.
-
-    :param data: data structure (dict)
-    :param version_tag: Pilot version tag (str)
-    :param job: job object (Any)
-    :return: updated data structure (dict).
-    """
-    schedulerid = get_job_scheduler_id()
-    if schedulerid:
-        data['schedulerID'] = schedulerid
-
-    # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
-    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-    pilotid = user.get_pilot_id(data['jobId'])
-    if pilotid:
-        pilotversion = os.environ.get('PILOT_VERSION')
-        # report the batch system job id, if available
-        if not job.batchid:
-            job.batchtype, job.batchid = get_batchsystem_jobid()
-        if job.batchtype and job.batchid:
-            data['pilotID'] = f"{pilotid}|{job.batchtype}|{version_tag}|{pilotversion}"
-            data['batchID'] = job.batchid
-        else:
-            data['pilotID'] = f"{pilotid}|{version_tag}|{pilotversion}"
-    else:
-        logger.warning('pilotid not available')
-
-    return data
-
-
-def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
+def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
     """
     Build the data structure needed for update_job.
 
@@ -710,12 +677,11 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
             'attempt_nr': job.attemptnr}
 
     # add pilot, batch and scheduler ids to the data structure
-    data = add_data_structure_ids_new(data, args.version_tag, job)
+    data = add_data_structure_ids(data, args.version_tag, job)
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
         data['start_time'] = datetime.fromtimestamp(starttime).strftime("%Y-%m-%d %H:%M:%S")
-        logger.debug(f'xxx start time: {data["start_time"]}')
 
     if xml is not None:
         data['job_output_report'] = xml
@@ -775,7 +741,7 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
             data['cpu_consumption_unit'] = data['cpu_consumption_unit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available
-    add_memory_info_new(data, job.workdir, name=job.memorymonitor)
+    add_memory_info(data, job.workdir, name=job.memorymonitor)
 
     # job metrics
 
@@ -806,139 +772,6 @@ def get_data_structure_new(job: Any, state: str, args: Any, xml: str = "", metad
     job_metrics = get_job_metrics(job, extra=extra)
     if job_metrics:
         data['job_metrics'] = job_metrics
-
-    # add timing info if finished or failed
-    if state in {'finished', 'failed'}:
-        add_timing_and_extracts_new(data, job, state, args)
-        https.add_error_codes(data, job)
-
-    # glidein information, currently only relevant for EIC and generic pilots
-    if args.pilot_user.lower() == 'epic' or args.pilot_user.lower() == 'generic':
-        glidein_site, remote_schedd_name = extract_site_and_schedd()
-        if glidein_site and remote_schedd_name:
-            data['source_site'] = remote_schedd_name
-            data['destination_site'] = glidein_site
-
-    return data
-
-
-def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
-    """
-    Build the data structure needed for updateJob.
-
-    :param job: job object (Any)
-    :param state: state of the job (str)
-    :param args: Pilot args object (Any)
-    :param xml: optional XML string (str)
-    :param metadata: job report metadata read as a string (str)
-    :return: data structure (dict).
-    """
-    data = {'jobId': job.jobid,
-            'state': state,
-            'timestamp': time_stamp(),
-            'siteName': os.environ.get('PILOT_SITENAME'),  # args.site,
-            'node': get_node_name(),
-            'attemptNr': job.attemptnr}
-
-    # add pilot, batch and scheduler ids to the data structure
-    data = add_data_structure_ids(data, args.version_tag, job)
-
-    starttime = get_postgetjob_time(job.jobid, args)
-    if starttime:
-        data['startTime'] = starttime
-
-    if xml is not None:
-        data['xml'] = xml
-    if metadata is not None:
-        data['metaData'] = metadata
-
-    # in debug mode, also send a tail of the latest log file touched by the payload
-    if job.debug and job.debug_command:
-        data['stdout'] = process_debug_mode(job)
-
-    # add the core count
-    if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
-        data['coreCount'] = job.corecount
-    if job.corecounts:
-        _mean = mean(job.corecounts)
-        logger.info(f'mean actualcorecount: {_mean}')
-        data['meanCoreCount'] = _mean
-
-    # get the number of events, should report in heartbeat in case of preempted.
-    if job.nevents != 0:
-        data['nEvents'] = job.nevents
-        logger.info(f"total number of processed events: {job.nevents} (read)")
-    else:
-        logger.info("payload/TRF did not report the number of read events")
-
-    # get the CPU consumption time
-    constime = get_cpu_consumption_time(job.cpuconsumptiontime)
-    if constime and constime != -1:
-        data['cpuConsumptionTime'] = constime
-        data['cpuConversionFactor'] = job.cpuconversionfactor
-    number_of_cores, ht, sockets, cpu_mhz, _, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
-    cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
-    if number_of_cores:
-        cpumodel = update_modelstring(cpumodel, number_of_cores, ht, sockets)  # add the CPU cores if not present
-    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
-    logger.debug(f"got CPU MHz: {cpu_mhz}")
-    if cpu_mhz:
-        job.cpufrequencies.append(cpu_mhz)
-
-    # CPU instruction set
-    instruction_sets = has_instruction_sets(['AVX2'])
-    # if the product and vendor info is needed, better to cache it since it is expensive to get
-    # product, vendor = get_display_info()
-    if instruction_sets:
-        if 'cpuConsumptionUnit' in data:
-            data['cpuConsumptionUnit'] += '+' + instruction_sets
-        else:
-            data['cpuConsumptionUnit'] = instruction_sets
-        #if product and vendor:
-        #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
-
-    # CPU architecture level
-    if cpu_arch_level:
-        data['cpu_architecture_level'] = cpu_arch_level
-        # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
-        if cpu_arch_level.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
-            data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
-
-    # add memory information if available
-    add_memory_info(data, job.workdir, name=job.memorymonitor)
-
-    # job metrics
-
-    # add read_bytes from memory monitor to job metrics if available
-    extra = {}
-    if 'totRBYTES' in data:
-        _totalsize = get_total_input_size(job.indata, nolib=True)
-        logger.debug(f'_totalsize={_totalsize}')
-        logger.debug(f"current max read_bytes: {data.get('totRBYTES')}")
-        try:
-            readfrac = data.get('totRBYTES') / _totalsize
-        except (TypeError, ZeroDivisionError) as exc:
-            logger.warning(f"failed to calculate totRBYTES / total size of input files = {data.get('totRBYTES')}/{_totalsize}: {exc}")
-            logger.warning('will not report readbyterate')
-            readfrac = None
-        else:
-            readfrac = float_to_rounded_string(readfrac, precision=2)
-            logger.debug(f'readbyterate={readfrac}')
-        if readfrac:
-            extra = {'readbyterate': readfrac}
-    else:
-        logger.debug('read_bytes info not yet available')
-
-    # extract and remove any GPU info from data since it will be reported with job metrics
-    # add_gpu_info(data, extra)
-
-    # add the lsetup time if set
-    if job.lsetuptime:
-        extra['lsetup_time'] = job.lsetuptime
-
-    job_metrics = get_job_metrics(job, extra=extra)
-    if job_metrics:
-        data['jobMetrics'] = job_metrics
 
     # add timing info if finished or failed
     if state in {'finished', 'failed'}:
@@ -1129,7 +962,7 @@ def get_cpu_consumption_time(cpuconsumptiontime: int) -> int:
     return constime
 
 
-def add_timing_and_extracts_new(data: dict, job: Any, state: str, args: Any):
+def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
     """
     Add timing info and log extracts to data structure for a completed job (finished or failed) to be sent to server.
 
@@ -1154,52 +987,6 @@ def add_timing_and_extracts_new(data: dict, job: Any, state: str, args: Any):
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
     data['pilot_log'] = extracts[:1024]
     data['end_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
-    """
-    Add timing info and log extracts to data structure for a completed job (finished or failed) to be sent to server.
-
-    Note: this function updates the data dictionary.
-
-    :param data: data structure (dict)
-    :param job: job object (Any)
-    :param state: state of the job (str)
-    :param args: pilot args object (Any)
-    """
-    time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
-    data['pilotTiming'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
-    logger.debug(f'could have reported time_log_creation={time_log_creation} s')
-
-    # add log extracts (for failed/holding jobs or for jobs with outbound connections)
-    extracts = ""
-    if state in {'failed', 'holding'}:
-        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        user = __import__(f'pilot.user.{pilot_user}.diagnose', globals(), locals(), [pilot_user], 0)
-        extracts = user.get_log_extracts(job, state)
-        if extracts != "":
-            logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
-    data['pilotLog'] = extracts[:1024]
-    data['endTime'] = time.time()
-
-
-def add_memory_info_new(data: dict, workdir: str, name: str = ""):
-    """
-    Add memory information (if available) to the data structure that will be sent to the server with job updates.
-
-    Note: this function updates the data dictionary.
-
-    :param data: data structure (dict)
-    :param workdir: working directory of the job (str)
-    :param name: name of memory monitor (str).
-    """
-    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    utilities = __import__(f'pilot.user.{pilot_user}.utilities', globals(), locals(), [pilot_user], 0)
-    try:
-        utility_node = utilities.get_memory_monitor_info_new(workdir, name=name)
-        data.update(utility_node)
-    except Exception as error:
-        logger.info(f'memory information not available: {error}')
 
 
 def add_memory_info(data: dict, workdir: str, name: str = ""):
@@ -2518,7 +2305,6 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         try:
             add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
             add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
-            logger.debug(f"xxx added to pilot timing: {PILOT_PRE_GETJOB}={time_pre_getjob}, {PILOT_POST_GETJOB}={time.time()}")
         except Exception as exc:
             logger.debug(f"Could not write pilot timing stamps: {exc}")
 
@@ -2544,14 +2330,12 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
     logger.info(f"Starting retrieve thread for queue {args.queue!r}")
 
     while not args.graceful_stop.is_set():
-        logger.debug("xxx proceeding with job retrieval loop")
         if args.abort_job.is_set():
             logger.info("Abort requested - stopping retrieve loop")
             break
 
         # restore retrieve_old(): store time stamp right before get_job_definition()
         time_pre_getjob = time.time()
-        logger.debug(f"xxx time_pre_getjob set to {time_pre_getjob}")
 
         dispatcher_response = _fetch_dispatcher_response()
         if dispatcher_response is None:
@@ -2603,7 +2387,6 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         getjob_requests += 1
 
         job = _build_validate_and_queue(job_definitions, time_pre_getjob)
-        logger.debug("xxx got a job object from _build_validate_and_queue()")
         if job is None:
             # short backoff on build/validate/enqueue failure
             delay = min(5, float(get_job_retrieval_delay(args.harvester)))
@@ -2611,7 +2394,6 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             continue
 
         jobnumber += 1
-        logger.debug(f"xxx jobnumber {jobnumber}")
         # ---- restore retrieve_old(): wait for completion and then do cleanup/reset ----
         while not args.graceful_stop.is_set():
             if has_job_completed(queues, args):
