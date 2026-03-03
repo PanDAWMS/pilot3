@@ -1339,7 +1339,6 @@ def upload_file(url: str, path: str) -> bool:
             response_data = response.read()
             # Handle response
             ret = response_data.decode('utf-8')
-            logger.debug(f"server response: {ret}")
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as e:
         # Handle URL errors
         logger.warning(f"exception caught in urlopen: {e}")
@@ -1425,7 +1424,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -
 
     # the client name and token key should be added to the URL as parameters
     server_command += f"?client_name=pilot_server&token_key={panda_token_key}"
-
+    logger.info(f"server_command: {server_command}")
     content = download_file(server_command, headers=headers)
     if not content:
         logger.warning(f'failed to download data from "{url}" resource')
