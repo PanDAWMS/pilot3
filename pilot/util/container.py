@@ -130,7 +130,9 @@ def execute(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
-            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
+            if kwargs.get('returnproc', False):
+                return None
+            return -1, "", diagnostics
 
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
@@ -358,7 +360,7 @@ def execute_old3(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
     return exit_code, stdout, stderr
 
 
-def execute_nothreads(executable: Any, **kwargs: Any) -> Any:
+def execute_nothreads(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
     """Execute a command without background reader threads.
 
     A thread-free variant of :func:`execute` required for commands (such as
@@ -393,7 +395,9 @@ def execute_nothreads(executable: Any, **kwargs: Any) -> Any:
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
-            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
+            if kwargs.get('returnproc', False):
+                return None
+            return -1, "", diagnostics
 
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
@@ -408,7 +412,7 @@ def execute_nothreads(executable: Any, **kwargs: Any) -> Any:
     stdout = ''
     stderr = ''
 
-    # Acquire the lock before creating the subprocess
+    # Acquire the lock only for Popen creation, not for the full subprocess lifetime
     process = None
     with execute_lock:
         process = subprocess.Popen(exe,
@@ -422,22 +426,22 @@ def execute_nothreads(executable: Any, **kwargs: Any) -> Any:
         if kwargs.get('returnproc', False):
             return process
 
-        try:
-            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            # make sure that stdout buffer gets flushed - in case of time-out exceptions
-            # flush_handler(name="stream_handler")
-            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-            logger.warning(stderr)
-            exit_code = errors.COMMANDTIMEDOUT
-            stderr = kill_all(process, stderr)
-        except Exception as exc:
-            logger.warning(f'exception caused when executing command: {executable}: {exc}')
-            exit_code = errors.UNKNOWNEXCEPTION
-            stderr = kill_all(process, str(exc))
-        else:
-            exit_code = process.poll()
+    try:
+        logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        # flush_handler(name="stream_handler")
+        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+        logger.warning(stderr)
+        exit_code = errors.COMMANDTIMEDOUT
+        stderr = kill_all(process, stderr)
+    except Exception as exc:
+        logger.warning(f'exception caused when executing command: {executable}: {exc}')
+        exit_code = errors.UNKNOWNEXCEPTION
+        stderr = kill_all(process, str(exc))
+    else:
+        exit_code = process.poll()
 
     # wait for the process to finish
     # (not strictly necessary when process.communicate() is used)
@@ -641,12 +645,7 @@ def print_executable(executable: str, obscure: str = '') -> None:
         obscure: An additional sensitive substring to redact, e.g. a
             password or token passed via a ``--password`` flag.
     """
-    executable_readable = executable
-    for sub_cmd in executable_readable.split(";"):
-        if 'S3_SECRET_KEY=' in sub_cmd:
-            secret_key = sub_cmd.split('S3_SECRET_KEY=')[1]
-            secret_key = 'S3_SECRET_KEY=' + secret_key
-            executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
+    executable_readable = re.sub(r'S3_SECRET_KEY=\S+', 'S3_SECRET_KEY=********', executable)
     if obscure:
         executable_readable = executable_readable.replace(obscure, '********')
 
@@ -680,7 +679,11 @@ def containerise_executable(executable: str, **kwargs: Any) -> tuple:
     logger.debug(f'containerising executable called for exe={executable}')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
-    container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
+    try:
+        container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
+    except ImportError as exc:
+        logger.warning(f'container module could not be imported: {exc}')
+        return executable, ""
     if container:
         # should a container really be used?
         do_use_container = job.usecontainer if job else container.do_use_container(**kwargs)
@@ -725,7 +728,7 @@ def obscure_token(cmd: str) -> str:
         if a regex error occurred.
     """
     try:
-        match = re.search(r'-p (\S+)\ ', cmd)
+        match = re.search(r'-p (\S+)', cmd)
         if match:
             cmd = cmd.replace(match.group(1), '********')
     except (re.error, AttributeError, IndexError):
@@ -798,10 +801,14 @@ def execute_command_with_timeout(command: Any, timeout: int = 30) -> tuple:
 
     def _execute_command():
         _command = shlex.split(command) if isinstance(command, str) else command
-        process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception as exc:
+            result_queue.put((-1, f"Failed to start process: {exc}"))
+            return
 
         try:
-            output, errors = process.communicate(timeout=timeout)
+            output, _ = process.communicate(timeout=timeout)
             return_code = process.returncode
             result_queue.put((return_code, output.decode()))
         except subprocess.TimeoutExpired:
@@ -810,6 +817,9 @@ def execute_command_with_timeout(command: Any, timeout: int = 30) -> tuple:
         except KeyboardInterrupt:
             process.kill()
             result_queue.put((-1, "Command interrupted"))
+        except Exception as exc:
+            process.kill()
+            result_queue.put((-1, f"Unexpected error: {exc}"))
 
     # Create a thread to execute the command
     thread = threading.Thread(target=_execute_command)
