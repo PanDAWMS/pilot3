@@ -2543,7 +2543,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
     while not args.graceful_stop.is_set():
         if args.abort_job.is_set():
-            logger.info("Abort requested — stopping retrieve loop")
+            logger.info("Abort requested - stopping retrieve loop")
             break
 
         # restore retrieve_old(): store time stamp right before get_job_definition()
@@ -2556,7 +2556,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
             if getjob_failures >= max_failures:
                 logger.warning(
-                    f"did not get a job — max getJob failures reached ({getjob_failures}); setting graceful_stop"
+                    f"did not get a job - max getJob failures reached ({getjob_failures}); setting graceful_stop"
                 )
                 # preserve retrieve_old() HPC special case defensively
                 try:
@@ -2571,7 +2571,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
             delay = get_job_retrieval_delay(args.harvester)
             if not args.harvester:
-                logger.warning(f"No dispatcher response — sleeping {delay} s")
+                logger.warning(f"No dispatcher response - sleeping {delay} s")
             _sleep_with_checks(delay)
             continue
 
@@ -2582,7 +2582,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
             if getjob_failures >= max_failures:
                 logger.warning(
-                    f"No usable jobs — max failures reached ({getjob_failures}); setting graceful_stop"
+                    f"No usable jobs - max failures reached ({getjob_failures}); setting graceful_stop"
                 )
                 args.graceful_stop.set()
                 args.abort_job.set()
@@ -2590,7 +2590,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
             delay = get_job_retrieval_delay(args.harvester)
             if not args.harvester:
-                logger.debug(f"No jobs available — sleeping {delay} s")
+                logger.debug(f"No jobs available - sleeping {delay} s")
             _sleep_with_checks(delay)
             continue
 
@@ -2647,7 +2647,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
                 # re-establish logging (retrieve_old behavior)
                 try:
-                    logging.info("Pilot finished previous job — re-establishing logging")
+                    logging.info("Pilot finished previous job - re-establishing logging")
                     logging.handlers = []
                     logging.shutdown()
                     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
