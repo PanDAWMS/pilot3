@@ -23,6 +23,8 @@
 
 """Functions for https interactions."""
 
+from __future__ import annotations
+
 import ast
 import base64
 try:
@@ -1337,6 +1339,7 @@ def upload_file(url: str, path: str) -> bool:
             response_data = response.read()
             # Handle response
             ret = response_data.decode('utf-8')
+            logger.debug(f"server response: {ret}")
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as e:
         # Handle URL errors
         logger.warning(f"exception caught in urlopen: {e}")
@@ -1382,6 +1385,177 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
 
 def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
     """
+    Refresh the OIDC access token by downloading a new token from the PanDA server
+    and overwriting the existing token file.
+
+    The token key is expected to be provided in the environment variable
+    PANDA_AUTH_TOKEN_KEY and the token itself in `auth_token`.
+
+    Args:
+        auth_token: Path to the local auth token file to overwrite (or token identifier
+            used by `get_auth_token_content()` and `rename()` in the pilot codebase).
+        auth_origin: Token origin string used for authentication headers.
+        url: PanDA server base URL.
+        port: PanDA server port.
+
+    Returns:
+        True if a new token was downloaded and stored successfully, otherwise False.
+    """
+    # first get the token key
+    token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
+    if not token_key:
+        logger.warning("PANDA_AUTH_TOKEN_KEY is not set - will not be able to download a new token")
+        return False
+
+    panda_token_key = get_auth_token_content(token_key, key=True)
+    if not panda_token_key:
+        logger.warning("failed to get panda_token_key - will not be able to download a new token")
+        return False
+
+    logger.info(f"read token key: {token_key}")
+
+    # now get the actual token content (used to authenticate the refresh call)
+    auth_token_content = get_auth_token_content(auth_token)
+    if not auth_token_content:
+        logger.warning(f"failed to get auth token content for {auth_token}")
+        return False
+
+    headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
+    server_command = get_server_command(url, port, cmd="api/v1/creds/get_access_token")
+
+    # the client name and token key should be added to the URL as parameters
+    server_command += f"?client_name=pilot_server&token_key={panda_token_key}"
+
+    content = download_file(server_command, headers=headers)
+    if not content:
+        logger.warning(f'failed to download data from "{url}" resource')
+        return False
+
+    return handle_file_content(content, auth_token)
+
+
+def _extract_token_from_refresh_response(payload: Dict[str, Any]) -> str:
+    """
+    Extract the refreshed token from either new-style or old-style response payloads.
+
+    New-style example:
+        {"success": true, "message": "", "data": {"access_token": "<TOKEN>"}}
+
+    Old-style example (historical pilot convention):
+        {"StatusCode": 0, "ErrorDialog": "", "userProxy": "<TOKEN>"}
+
+    Returns:
+        The token string.
+
+    Raises:
+        ValueError: if the response indicates an error or token cannot be found.
+    """
+    # Old-style
+    if "StatusCode" in payload:
+        statuscode = payload.get("StatusCode", 0)
+        diagnostics = payload.get("ErrorDialog", "")
+        if statuscode != 0:
+            raise ValueError(f"failed to get new token: StatusCode={statuscode}, ErrorDialog={diagnostics!r}")
+        token = payload.get("userProxy") or payload.get("access_token") or payload.get("token")
+        if not token:
+            raise ValueError("old-style response missing token field (expected userProxy)")
+        return str(token)
+
+    # New-style
+    if "success" in payload:
+        if payload.get("success") is not True:
+            msg = payload.get("message", "unknown error")
+            raise ValueError(f"failed to get new token: success=False, message={msg!r}")
+
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"unexpected 'data' type in response: {type(data)}")
+
+        token = data.get("access_token") or data.get("token") or data.get("user_proxy") or data.get("userProxy")
+        if not token:
+            raise ValueError("new-style response missing token field in data (expected access_token/token)")
+        return str(token)
+
+    raise ValueError("unrecognized token refresh response format")
+
+
+def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
+    """
+    Handle the content of the downloaded token payload and overwrite the existing token.
+
+    The refreshed token is written to a temporary file first and then renamed over
+    the original `auth_token` (overwrite).
+
+    Args:
+        content: The raw response content (bytes or str) returned from the server.
+        auth_token: Path/name of the token file to overwrite.
+
+    Returns:
+        True if the token was parsed and saved successfully, otherwise False.
+    """
+    # define the path if it does not exist already
+    path = os.environ.get("OIDC_REFRESHED_AUTH_TOKEN")
+    if path is None:
+        path = os.path.join(os.environ.get("PILOT_HOME"), "tmp_refreshed_token")
+
+    # normalize to text
+    if isinstance(content, bytes):
+        text = content.decode("utf-8", errors="replace")
+    else:
+        text = content
+
+    # Parse payload as JSON first (new API).
+    # If that fails, fall back to literal_eval-compatible dict strings (old behaviour).
+    payload: Optional[Dict[str, Any]] = None
+    try:
+        payload = json.loads(text)
+    except Exception:
+        try:
+            # very old endpoints sometimes returned python-ish dict strings
+            import ast
+            maybe = ast.literal_eval(text)
+            if isinstance(maybe, dict):
+                payload = maybe
+        except Exception:
+            payload = None
+
+    if not isinstance(payload, dict):
+        logger.warning(f"failed to parse token refresh response as dict; raw={text!r}")
+        return False
+
+    try:
+        token = _extract_token_from_refresh_response(payload)
+    except ValueError as exc:
+        logger.warning(str(exc))
+        return False
+
+    # write token to temp file then atomically replace via rename()
+    try:
+        with open(path, "w", encoding="utf-8") as _file:
+            _file.write(token)
+    except IOError as exc:
+        logger.warning(f"failed to write data to file {path}: {exc}")
+        return False
+
+    status = rename(path, auth_token)
+    if status:
+        logger.info(f"saved token data in file {auth_token}, length={len(token) / 1024.0:.1f} kB")
+        os.environ["OIDC_REFRESHED_AUTH_TOKEN"] = auth_token
+    else:
+        logger.warning(f"failed to rename {path} to {auth_token}")
+        return False
+
+    mtime = get_modification_time(auth_token)
+    if mtime:
+        logger.info(f"{os.path.basename(auth_token)} modification time: {ctime(mtime)}")
+    else:
+        logger.warning(f"failed to get modification time for {auth_token}")
+
+    return True
+
+
+def refresh_oidc_token_old(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
+    """
     Refresh the OIDC token.
 
     :param auth_token: token name (str)
@@ -1426,7 +1600,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -
     return status
 
 
-def handle_file_content(content: bytes or str, auth_token: str) -> bool:
+def handle_file_content_old(content: bytes or str, auth_token: str) -> bool:
     """
     Handle the content of the downloaded file.
 
