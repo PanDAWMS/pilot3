@@ -108,8 +108,9 @@ class TraceReport(dict):
 
         super().__init__(defs)
         self.update(dict(*args, **kwargs))  # apply extra input
-        self.ipv = kwargs.get('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
-        self.workdir = kwargs.get('workdir', '')  # workdir is needed for streaming the curl output, but should not be included in the report
+        # pop ipv and workdir from the dict — they are for internal use only and must not appear in the sent report
+        self.ipv = self.pop('ipv', 'IPv6')  # ipv (internet protocol version) is needed below for the curl command, but should not be included in the report
+        self.workdir = self.pop('workdir', '')  # workdir is needed for streaming the curl output, but should not be included in the report
 
     # sitename, dsname, eventType
     def init(self, job: JobData):
@@ -217,17 +218,9 @@ class TraceReport(dict):
         out = None
         err = None
         try:
-            # take care of the encoding
+            # take care of the encoding (ipv/workdir are instance attrs, not in the dict)
             data = dumps(self).replace('"', '\\"')  # for curl
             data_urllib = dumps(self)  # for urllib
-            # remove the ipv and workdir items since they are for internal pilot use only
-            data = data.replace(f'\"ipv\": \"{self.ipv}\", ', '')
-            data = data.replace(f'\"workdir\": \"{self.workdir}\", ', '')
-            try:
-                data_urllib = data_urllib.replace(f'\"ipv\": \"{self.ipv}\", ', '')
-                data_urllib = data_urllib.replace(f'\"workdir\": \"{self.workdir}\", ', '')
-            except (KeyError, ValueError) as e:
-                logger.warning(f'failed to remove ipv and workdir from data_urllib: {e}')
 
             # must convert data to a dictionary and make sure None values are kept
             data_str_urllib = data_urllib.replace('None', '\"None\"')
@@ -260,47 +253,48 @@ class TraceReport(dict):
             outname, errname = self.get_trace_curl_filenames(name='trace_curl_last')
             out, err = self.get_trace_curl_files(outname, errname)
             logger.debug(f'using {outname} and {errname} to store curl output')
-            cmd = f'{command} --connect-timeout 100 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
-            exit_code = execute2(cmd, out, err, 300)
-            logger.debug(f'exit_code={exit_code}')
-
-            # always append the output to trace_curl.std{out|err}
-            outname_final, errname_final = self.get_trace_curl_filenames(name='trace_curl')
-            _ = append_to_file(outname, outname_final)
-            _ = append_to_file(errname, errname_final)
-            self.close(out, err)
-
-            # handle errors that only appear in stdout/err (curl)
-            if not exit_code:
-                out, err = self.get_trace_curl_files(outname, errname, mode='r')
-                if out:
-                    exit_code = self.assign_error(out)
-                    if not exit_code:
-                        exit_code = self.assign_error(err)
-                    logger.debug(f'curl exit_code from stdout/err={exit_code}')
-                    self.close(out, err)
-                else:
-                    logger.warning(f'failed to open curl stdout file: {outname}')
-            if not exit_code:
-                logger.info('no errors were detected from curl operation')
+            if out is None or err is None:
+                logger.warning('failed to open curl output files; curl fallback cannot run')
             else:
-                # better to store exit code in file since env var will not be seen outside container in case middleware
-                # container is used
-                path = os.path.join(self.workdir, config.Rucio.rucio_trace_error_file)
-                try:
-                    write_file(path, str(exit_code))
-                except FileHandlingFailure as exc:
-                    logger.warning(f'failed to store curl exit code to file: {exc}')
+                cmd = f'{command} --connect-timeout 100 --max-time 120 --cacert {ssl_certificate} -v -k -d \"{data}\" {url}'
+                exit_code = execute2(cmd, out, err, 300)
+                logger.debug(f'exit_code={exit_code}')
+
+                # always append the output to trace_curl.std{out|err}
+                outname_final, errname_final = self.get_trace_curl_filenames(name='trace_curl')
+                _ = append_to_file(outname, outname_final)
+                _ = append_to_file(errname, errname_final)
+                self.close(out, err)
+
+                # handle errors that only appear in stdout/err (curl)
+                if not exit_code:
+                    out, err = self.get_trace_curl_files(outname, errname, mode='r')
+                    if out:
+                        exit_code = self.assign_error(out)
+                        if not exit_code and err:
+                            exit_code = self.assign_error(err)
+                        logger.debug(f'curl exit_code from stdout/err={exit_code}')
+                        self.close(out, err)
+                    else:
+                        logger.warning(f'failed to open curl stdout file: {outname}')
+                if not exit_code:
+                    logger.info('no errors were detected from curl operation')
                 else:
-                    logger.info(f'wrote rucio trace exit code {exit_code} to file {path}')
-                logger.debug(f"setting env var RUCIO_TRACE_ERROR to \'{exit_code}\' to be sent with job metrics")
-                os.environ['RUCIO_TRACE_ERROR'] = str(exit_code)
+                    # better to store exit code in file since env var will not be seen outside container in case middleware
+                    # container is used
+                    path = os.path.join(self.workdir, config.Rucio.rucio_trace_error_file)
+                    try:
+                        write_file(path, str(exit_code))
+                    except FileHandlingFailure as exc:
+                        logger.warning(f'failed to store curl exit code to file: {exc}')
+                    else:
+                        logger.info(f'wrote rucio trace exit code {exit_code} to file {path}')
+                    logger.debug(f"setting env var RUCIO_TRACE_ERROR to \'{exit_code}\' to be sent with job metrics")
+                    os.environ['RUCIO_TRACE_ERROR'] = str(exit_code)
 
         except Exception:
             # if something fails, log it but ignore
             logger.error(f'tracing failed: {exc_info()}')
-        else:
-            logger.info("tracing report sent")
 
         return True
 
@@ -349,9 +343,10 @@ class TraceReport(dict):
         :param name: name pattern (str)
         :return: stdout file name (str), stderr file name (str) (tuple).
         """
-        return f"{name}.stdout", f"{name}.stderr"
+        base = os.path.join(self.workdir, name) if self.workdir else name
+        return f"{base}.stdout", f"{base}.stderr"
 
-    def get_trace_curl_files(self, outpath: str, errpath: str, mode: str = 'wb') -> tuple[TextIOWrapper or None, TextIOWrapper or None]:
+    def get_trace_curl_files(self, outpath: str, errpath: str, mode: str = 'w') -> tuple[TextIOWrapper or None, TextIOWrapper or None]:
         """
         Return file objects for the curl stdout and stderr.
 
@@ -360,11 +355,15 @@ class TraceReport(dict):
         :param mode: mode (str)
         :return: out (TextIOWrapper or None), err (TextIOWrapper or None) (tuple).
         """
+        out = None
+        err = None
         try:
             out = open(outpath, mode=mode, encoding='utf-8')  # pylint: disable=consider-using-with
             err = open(errpath, mode=mode, encoding='utf-8')  # pylint: disable=consider-using-with
         except IOError as error:
             logger.warning(f'failed to open curl stdout/err: {error}')
+            if out is not None:
+                out.close()
             out = None
             err = None
 
