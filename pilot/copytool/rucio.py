@@ -376,6 +376,23 @@ def _get_trace(fspec: Any, traces: list) -> list:
     return []
 
 
+def get_json_summary(filename: str) -> str:
+    """
+    Return the content of the JSON summary file created by Rucio.
+
+    :param filename: logical filename (str)
+    :return: path to the JSON summary file (str).
+    """
+    summary_json = ""
+    if os.path.exists(filename):
+        with open(filename, 'rb') as f:
+            summary_json = json.load(f)
+    else:
+        logger.error(f'Failed to resolve Rucio summary JSON, wrong path? file={filename}')
+
+    return summary_json
+
+
 #@timeout(seconds=10800)
 def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
     """
@@ -443,10 +460,25 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                 trace_report.send()
                 msg = f" {fspec.scope}:{fspec.lfn} to {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state')) from error
+
+        if summary:
+            summary_json = get_json_summary(summary_file_path)
+            # {'panda:RDO_f22aae82-6317-4f79-9118-eacc73532f70.root': {'adler32': '7951df23', 'bytes': 1114317,
+            # 'guid': 'c0dab595739d40cfafee0e5e6fba6b53', 'md5': '714b77553a718ab7dd0733408c76dd9f', '
+            # name': 'RDO_f22aae82-6317-4f79-9118-eacc73532f70.root',
+            # 'pfn': 'root://eosatlas.cern.ch:1094//eos/atlas/atlasdatadisk/rucio/panda/f6/48/RDO_f22aae82-6317-4f79-9118-eacc73532f70.root',
+            # 'rse': 'CERN-PROD_DATADISK', 'scope': 'panda'}}
+
+            # extract pfn already here in case of trouble with the state reason, so that the trace report at least contains the pfn (turl) and protocol
+            dat = summary_json.get(f"{fspec.scope}:{fspec.lfn}") or {}
+            fspec.turl = dat.get('pfn')
+            trace_report.update(url=fspec.turl)
         else:
-            protocol = get_protocol(trace_report_out)
-            trace_report.update(protocol=protocol)
-            rename_xrdlog(fspec.lfn)
+            summary_json = ""
+            dat = {}
+        protocol = get_protocol(trace_report_out)
+        trace_report.update(protocol=protocol)
+        rename_xrdlog(fspec.lfn)
 
         # make sure there was no missed failure (only way to deal with this until rucio API has been fixed)
         # (using the timeout decorator prevents the trace_report_out from being updated - rucio API should return
@@ -460,34 +492,25 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
                 msg = f" {fspec.scope}:{fspec.lfn} from {fspec.ddmendpoint}, {error_details.get('error')}"
                 raise PilotException(msg, code=error_details.get('rcode'), state=error_details.get('state'))
 
-        if summary:  # resolve final pfn (turl) from the summary JSON
-            if not os.path.exists(summary_file_path):
-                logger.error(f'Failed to resolve Rucio summary JSON, wrong path? file={summary_file_path}')
+        # continue
+        # resolve final pfn (turl) from the summary JSON
+        if summary and dat:
+            checksum = dat.get(config.File.checksum_type)
+            local_checksum = fspec.checksum.get(config.File.checksum_type)
+            if local_checksum and checksum and local_checksum != checksum:
+                msg = f'checksum verification failed: local {local_checksum} != remote {checksum}'
+                logger.warning(msg)
+                fspec.status = 'failed'
+                fspec.status_code = ErrorCodes.PUTADMISMATCH if config.File.checksum_type == 'adler32' else ErrorCodes.PUTMD5MISMATCH
+                state = 'AD_MISMATCH' if config.File.checksum_type == 'adler32' else 'MD_MISMATCH'
+                trace_report.update(clientState=state, stateReason=msg, timeEnd=time())
+                trace_report.send()
+                if not ignore_errors:
+                    raise PilotException("Failed to stageout: CRC mismatched", code=fspec.status_code, state=state)
+            elif local_checksum and checksum and local_checksum == checksum:
+                logger.info(f'local checksum ({local_checksum}) = remote checksum ({checksum})')
             else:
-                with open(summary_file_path, 'rb') as f:
-                    summary_json = json.load(f)
-                    dat = summary_json.get(f"{fspec.scope}:{fspec.lfn}") or {}
-                    fspec.turl = dat.get('pfn')
-                    # quick transfer verification:
-                    # the logic should be unified and moved to base layer shared for all the movers
-                    checksum = dat.get(config.File.checksum_type)
-                    local_checksum = fspec.checksum.get(config.File.checksum_type)
-                    if local_checksum and checksum and local_checksum != checksum:
-                        msg = f'checksum verification failed: local {local_checksum} != remote {checksum}'
-                        logger.warning(msg)
-                        fspec.status = 'failed'
-                        fspec.status_code = ErrorCodes.PUTADMISMATCH if config.File.checksum_type == 'adler32' else ErrorCodes.PUTMD5MISMATCH
-                        state = 'AD_MISMATCH' if config.File.checksum_type == 'adler32' else 'MD_MISMATCH'
-                        trace_report.update(clientState=state, stateReason=msg, timeEnd=time())
-                        trace_report.send()
-                        if not ignore_errors:
-                            raise PilotException("Failed to stageout: CRC mismatched",
-                                                 code=fspec.status_code, state=state)
-                    elif local_checksum and checksum and local_checksum == checksum:
-                        logger.info(f'local checksum ({local_checksum}) = remote checksum ({checksum})')
-                    else:
-                        logger.warning(f'checksum could not be verified: local checksum ({local_checksum}), '
-                                       f'remote checksum ({checksum})')
+                logger.warning(f'checksum could not be verified: local checksum ({local_checksum}), remote checksum ({checksum})')
         if not fspec.status_code:
             fspec.status_code = 0
             fspec.status = 'transferred'
