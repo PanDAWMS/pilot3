@@ -421,8 +421,8 @@ def locate_token(auth_token: str, key: bool = False) -> str:
         if _refreshed and os.path.exists(_refreshed):
             paths.insert(0, _refreshed)
 
-    # remove duplicates
-    paths = list(set(paths))
+    # remove duplicates while preserving insertion-order priority
+    paths = list(dict.fromkeys(paths))
 
     path = ""
     for _path in paths:
@@ -510,7 +510,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     except urllib.error.HTTPError as exc:
         logger.warning(f'server error ({exc.code}): {exc.read()}')
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
-        logger.warning(f'connection error: {exc.reason}')
+        logger.warning(f'connection error: {getattr(exc, "reason", exc)}')
     else:
         exitcode = 0
     logger.debug(f'ok url opened: exitcode={exitcode}')
@@ -964,9 +964,9 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
     """
     if use_oidc_token:
         headers = {
-            "Authorization": f"Bearer {shlex.quote(auth_token_content)}",
+            "Authorization": f"Bearer {auth_token_content}",
             # "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
-            "Origin": shlex.quote(auth_origin),
+            "Origin": auth_origin,
         }
     else:
         headers = {}
@@ -1199,8 +1199,8 @@ def request2(
     # SSL context and certificates
     ssl_context = _get_ssl_context(use_oidc_token)
     if not secure:
-        ssl_context.verify_mode = False
         ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
     # IP family handling
     if ipv == "IPv4":
@@ -1375,7 +1375,7 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=timeout) as response:
             content = response.read()
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
-        logger.warning(f"error occurred with urlopen: {exc.reason}")
+        logger.warning(f"error occurred with urlopen: {getattr(exc, 'reason', exc)}")
         # Handle the error, set content to None or handle as needed
         content = ""
 
@@ -1495,7 +1495,7 @@ def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
     # define the path if it does not exist already
     path = os.environ.get("OIDC_REFRESHED_AUTH_TOKEN")
     if path is None:
-        path = os.path.join(os.environ.get("PILOT_HOME"), "tmp_refreshed_token")
+        path = os.path.join(os.environ.get("PILOT_HOME", ""), "tmp_refreshed_token")
 
     # normalize to text
     if isinstance(content, bytes):
@@ -1950,7 +1950,7 @@ def get_job_status_from_server(job_id: int, url: str, port: int) -> Tuple[str, i
             # Transient: map to 10 and retry if allowed
             logger.warning(f"transient error contacting dispatcher (trial {trial}/{max_trials}): {transient_exc}")
             if trial < max_trials:
-                time.sleep(10)
+                sleep(10)
                 continue
             return "unknown", -1, 10
 
