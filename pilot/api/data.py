@@ -485,6 +485,123 @@ class StagingClient:
         Returns:
             list: Raw replica dicts as returned by the Rucio client.
         """
+        from rucio.client import Client
+
+        # Optional imports (do NOT require requests to exist)
+        retriable_exceptions = []
+        try:
+            import urllib3
+            retriable_exceptions.append(urllib3.exceptions.ProtocolError)
+        except Exception:
+            pass
+
+        try:
+            from requests.exceptions import ChunkedEncodingError, RequestException
+            retriable_exceptions.extend([ChunkedEncodingError, RequestException])
+        except Exception:
+            pass
+
+        # Always allow generic ConnectionError/Timeout if present
+        try:
+            retriable_exceptions.append(ConnectionError)
+            retriable_exceptions.append(TimeoutError)
+        except Exception:
+            pass
+
+        # Convert to tuple for except clause
+        retriable_exceptions = tuple(retriable_exceptions) if retriable_exceptions else (Exception,)
+
+        MAX_ATTEMPTS = 3
+        BACKOFF_BASE_SECONDS = 2
+
+        rucio_client = Client()
+
+        location, diagnostics = self.detect_client_location(use_vp=use_vp)
+        if diagnostics:
+            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
+
+        query = {
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
+            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
+        }
+        query.update(sort='geoip', client_location=location)
+
+        if use_vp:
+            query['schemes'] = ['root']
+            query['rse_expression'] = 'istape=False\\type=SPECIAL'
+            query['ignore_availability'] = False
+
+        query.update(signature_lifetime=24 * 3600)
+
+        self.logger.info(f'calling rucio.list_replicas() with query={query}')
+
+        last_exc = None
+
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                replicas_iter = rucio_client.list_replicas(**query)
+
+                replicas = []
+                for item in replicas_iter:
+                    replicas.append(item)
+
+                self.logger.debug(
+                    f"replicas received from Rucio (count={len(replicas)})."
+                )
+                return replicas
+
+            except retriable_exceptions as exc:
+                last_exc = exc
+                self.logger.warning(
+                    "Attempt %d/%d: transient error while listing replicas from Rucio: %s",
+                    attempt, MAX_ATTEMPTS, exc,
+                )
+
+                if attempt < MAX_ATTEMPTS:
+                    sleep_for = BACKOFF_BASE_SECONDS ** (attempt - 1)
+                    self.logger.info("Retrying after %s seconds...", sleep_for)
+                    time.sleep(sleep_for)
+                    continue
+
+                raise PilotException(
+                    f"Failed to get replicas from Rucio after {MAX_ATTEMPTS} attempts: {exc}",
+                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                ) from exc
+
+            except Exception as exc:
+                self.logger.exception(
+                    "Unexpected exception while listing replicas from Rucio."
+                )
+                raise PilotException(
+                    f"Failed to get replicas from Rucio: {exc}",
+                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                ) from exc
+
+        raise PilotException(
+            f"Failed to get replicas from Rucio: {last_exc}",
+            code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+        ) from last_exc
+
+    def list_replicas_old(self, xfiles: list, use_vp: bool) -> list:
+        """Query Rucio for all available replicas of the given files.
+
+        Wraps ``rucio.client.Client.list_replicas()``.  The query requests
+        geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
+        the schema is restricted to ``root://`` and availability checks are
+        enforced.
+
+        Args:
+            xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                look up.
+            use_vp: Set to ``True`` for VP jobs to apply VP-specific query
+                parameters.
+
+        Raises:
+            PilotException: If the Rucio call fails.
+
+        Returns:
+            list: Raw replica dicts as returned by the Rucio client.
+        """
         # load replicas from Rucio
         from rucio.client import Client
         rucio_client = Client()
