@@ -62,24 +62,16 @@ def get_setup_command(job: Any, prepareasetup: bool) -> str:
     """
     if not prepareasetup:
         logger.debug('prepareasetup is not used by this function')
+
     cmd = ""
 
-    # return immediately if there is no release or if user containers are used
-    if job.swrelease == 'NULL' or '--containerImage' in job.jobparams:
-        logger.debug(f'get_setup_command return value: {cmd}')
-        return cmd
+    # test if HARVESTER_LD_LIBRARY_PATH is defined
+    # (to add CUDA runtime inside user's container)
+    if os.environ.get('HARVESTER_LD_LIBRARY_PATH', '') != "":
+        cmd += "export LD_LIBRARY_PATH=$HARVESTER_LD_LIBRARY_PATH:$LD_LIBRARY_PATH;"
+    # test if HARVESTER_PYTHONPATH is defined
+    if os.environ.get('HARVESTER_PYTHONPATH', '') != "":
+        cmd += "export PYTHONPATH=$HARVESTER_PYTHONPATH:$PYTHONPATH;"
 
-    # test if environmental variable HARVESTER_CONTAINER_RELEASE_SETUP_FILE is defined
-    setupfile = os.environ.get('HARVESTER_CONTAINER_RELEASE_SETUP_FILE', '')
-    if setupfile != "":
-        cmd = f"source {setupfile};"
-        # test if HARVESTER_LD_LIBRARY_PATH is defined
-        if os.environ.get('HARVESTER_LD_LIBRARY_PATH', '') != "":
-            cmd += "export LD_LIBRARY_PATH=$HARVESTER_LD_LIBRARY_PATH:$LD_LIBRARY_PATH;"
-        # test if HARVESTER_PYTHONPATH is defined
-        if os.environ.get('HARVESTER_PYTHONPATH', '') != "":
-            cmd += "export PYTHONPATH=$HARVESTER_PYTHONPATH:$PYTHONPATH;"
-
-        logger.debug(f'get_setup_command return value: {cmd}')
-
+    logger.debug(f'get_setup_command return value: {cmd}')
     return cmd
