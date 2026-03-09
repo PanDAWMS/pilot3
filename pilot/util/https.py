@@ -19,7 +19,7 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """HTTPS communication layer for the PanDA Pilot.
 
@@ -382,26 +382,49 @@ def get_local_oidc_token_info() -> tuple[Optional[str], Optional[str]]:
     return auth_token, auth_origin
 
 
-def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
-    """Build the curl command string for a PanDA server request.
+def _format_curl_headers(plain: bool,
+                         use_oidc: bool,
+                         auth_token_content: str,
+                         auth_origin: str,
+                         user_agent: str,
+                         capath: str,
+                         cacert: str) -> Tuple[str, str]:
+    """
+    Return a safe shell fragment of curl header and cert flags, and the
+    bearer token content for redaction. Uses shlex.quote on each header.
+    """
+    parts = []
+    redaction_token = ''
 
-    Constructs a ``curl`` invocation that includes the appropriate
-    authentication headers.  When an OIDC token is available it is used via
-    ``Authorization: Bearer``; otherwise X.509 certificate paths are passed
-    via ``--cert``/``--cacert``/``--key``.
+    # common capath
+    parts.append(f'--capath {shlex.quote(capath or "")}')
 
-    Args:
-        plain: If ``True``, omit the ``Accept: application/json`` header so
-            the response is treated as plain text.
-        dat: The ``--config`` or URL-encoded data option string to append to
-            the curl command.
-        ipv: Internet-protocol version; ``'IPv4'`` appends the ``-4`` flag.
+    if use_oidc:
+        # Authorization header (quote whole header string)
+        parts.append('-H ' + shlex.quote(f'Authorization: Bearer {auth_token_content}'))
+        redaction_token = auth_token_content
+        if not plain:
+            parts.append('-H ' + shlex.quote('Accept: application/json'))
+            parts.append('-H ' + shlex.quote('Content-Type: application/json'))
+        parts.append('-H ' + shlex.quote(f'Origin: {auth_origin}'))
+    else:
+        # client certs + UA
+        parts.append(f'--cert {shlex.quote(cacert or "")}')
+        parts.append(f'--cacert {shlex.quote(cacert or "")}')
+        parts.append(f'--key {shlex.quote(cacert or "")}')
+        parts.append('-H ' + shlex.quote(f'User-Agent: {user_agent}'))
+        if not plain:
+            parts.append('-H ' + shlex.quote('Accept: application/json'))
+            parts.append('-H ' + shlex.quote('Content-Type: application/json'))
 
-    Returns:
-        A two-element tuple ``(command, auth_token_content)`` where *command*
-        is the full curl string (or ``None`` if the token could not be read)
-        and *auth_token_content* is the bearer token string that must be
-        redacted before logging.
+    return ' '.join(parts), redaction_token
+
+
+def get_curl_command(plain: bool, dat: str, ipv: str) -> Tuple[object, str]:
+    """
+    Build the curl command safely by delegating header/cert construction
+    to _format_curl_headers to avoid nested f-strings and quoting issues.
+    Returns (command_str_or_None, auth_token_content_for_redaction).
     """
     auth_token_content = ''
     auth_token, auth_origin = get_local_oidc_token_info()
@@ -409,10 +432,9 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
     command = 'curl'
     if ipv == 'IPv4':
         command += ' -4'
-    if auth_token and auth_origin:
-        # curl --silent --capath
-        # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
-        # -H "Authorization: Bearer <contents of PANDA_AUTH_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+
+    use_oidc = bool(auth_token and auth_origin)
+    if use_oidc:
         path = locate_token(auth_token)
         if os.path.exists(path):
             auth_token_content = read_file(path)
@@ -422,27 +444,23 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
         else:
             logger.warning(f'path does not exist: {path}')
             return None, ''
-        if not auth_token_content:
-            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
-            return None, ''
 
-        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
-              f'--max-time {config.Pilot.http_maxtime} '\
-              f'--capath {shlex.quote(_ctx.capath or "")} ' \
-              f'-H "Authorization: Bearer {shlex.quote(auth_token_content)}" ' \
-              f'-H {shlex.quote("Accept: application/json") if not plain else ""} ' \
-              f'-H "Origin: {shlex.quote(auth_origin)}" {dat}'
-    else:
-        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
-              f'--max-time {config.Pilot.http_maxtime} '\
-              f'--capath {shlex.quote(_ctx.capath or "")} ' \
-              f'--cert {shlex.quote(_ctx.cacert or "")} ' \
-              f'--cacert {shlex.quote(_ctx.cacert or "")} ' \
-              f'--key {shlex.quote(_ctx.cacert or "")} '\
-              f'-H {shlex.quote(f"User-Agent: {_ctx.user_agent}")} ' \
-              f'-H {shlex.quote("Accept: application/json") if not plain else ""} {dat}'
+    headers_fragment, redact_token = _format_curl_headers(
+        plain=plain,
+        use_oidc=use_oidc,
+        auth_token_content=auth_token_content,
+        auth_origin=auth_origin or "",
+        user_agent=_ctx.user_agent,
+        capath=_ctx.capath or "",
+        cacert=_ctx.cacert or ""
+    )
 
-    return req, auth_token_content
+    req = (
+        f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} '
+        f'--max-time {config.Pilot.http_maxtime} {headers_fragment} {dat}'
+    )
+
+    return req, redact_token
 
 
 def locate_token(auth_token: str, key: bool = False) -> str:
@@ -540,8 +558,12 @@ def get_curl_config_option(writestatus: bool, url: str, data: dict, filename: st
         The ``dat`` string to append to the curl command.
     """
     if not writestatus:
-        logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
-        dat = shlex.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
+        logger.warning('failed to create curl config file (will attempt to send JSON body inline)')
+        try:
+            json_payload = json.dumps(data) if data else ''
+            dat = f"--data-raw {shlex.quote(json_payload)} {url}"
+        except Exception:
+            dat = shlex.quote(url + ('?' + urllib.parse.urlencode(data) if data else ''))
     else:
         dat = f'--config {filename} {url}'
 
@@ -554,7 +576,8 @@ def execute_urllib(url: str, data: dict, plain: bool, secure: bool) -> urllib.re
     Args:
         url: Target URL.
         data: Payload dict to URL-encode and attach as the request body.
-        plain: If ``True``, omit the ``Accept: application/json`` header.
+        plain: If ``True``, omit the ``Accept: application/json' \
+              f'-H {shlex.quote("Content-Type: application/json")}`` header.
         secure: If ``True``, attach the ``User-Agent`` header from ``_ctx``.
 
     Returns:
@@ -1361,18 +1384,22 @@ def _parse_response_text(ret_text: str) -> Union[str, Dict[str, Any]]:
     return {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
 
 
-# --- main function (now short and low-complexity) ---
+def _ensure_numeric_fields(json_body: Optional[Dict[str, Any]], numeric_keys: tuple = ("memory", "disk_space")) -> None:
+    """Ensure certain keys in json_body are integers. Convert numeric-like strings to int in-place."""
+    if not isinstance(json_body, dict):
+        return
+    for k in numeric_keys:
+        if k in json_body:
+            v = json_body[k]
+            if isinstance(v, str):
+                try:
+                    json_body[k] = int(v.strip())
+                    logger.debug("converted numeric-like string to int: %s=%s", k, json_body[k])
+                except Exception:
+                    logger.warning("non-numeric %s value will be sent as-is: %r", k, v)
 
-def request2(
-    url: str = "",
-    *,
-    params: Optional[Dict[str, Any]] = None,
-    json_body: Optional[Dict[str, Any]] = None,
-    secure: bool = True,
-    compressed: bool = True,
-    panda: bool = False,
-    method: Optional[str] = None,
-) -> Union[str, Dict[str, Any]]:
+
+def request2(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa C901
     """Send an HTTPS request via urllib.
 
     The preferred high-level request function.  Handles OIDC and X.509
@@ -1424,12 +1451,27 @@ def request2(
     if method.upper() == "GET" and json_body is not None:
         raise ValueError("GET requests must not include json_body; use 'params=' instead")
 
+    # Defensive numeric conversion for common numeric fields
+    try:
+        _ensure_numeric_fields(json_body)
+    except Exception:
+        logger.debug("numeric field normalization failed or was skipped")
+
     # Prepare body and possibly gzip it; headers are updated inside helper
+    # Also log a preview of the outgoing JSON payload for debugging
+    if json_body is not None:
+        try:
+            preview_text = json.dumps(json_body, ensure_ascii=False)
+            logger.debug("outgoing JSON payload preview: %s", preview_text[:1024])
+        except Exception:
+            logger.debug("failed to create outgoing payload preview")
+
     data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
 
     logger.info(f"params = {params}")
     logger.info(f"json_body = {json_body}")
     logger.info(f"headers = {hide_token(headers.copy())}")
+    logger.debug(f"data_bytes length = {len(data_bytes) if data_bytes is not None else 0}")
 
     # Build request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
@@ -1448,13 +1490,47 @@ def request2(
         logger.info("will use IPv6 in server communication")
 
     # Send request and handle network-level errors with minimal branching
+    ret_text = None
     try:
         logger.debug("sending request to server")
         with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
             logger.info(f"response.status={response.status}, response.reason={response.reason}")
             ret_text = response.read().decode("utf-8")
         logger.debug("sent request to server")
-    except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
+    except urllib.error.HTTPError as http_exc:
+        # HTTPError may include a body explaining the failure. Log it.
+        try:
+            body = http_exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = "<no body available>"
+        code = getattr(http_exc, "code", "<no-code>")
+        reason = getattr(http_exc, "reason", "<no-reason>")
+        logger.warning("failed to send request: HTTP Error %s: %s. Server response body: %s", code, reason, body[:2048])
+
+        # If server error and we sent a gzipped JSON body, retry once without gzip
+        try:
+            _code_int = int(code)
+        except Exception:
+            _code_int = 0
+        if 500 <= _code_int < 600 and json_body is not None and compressed:
+            logger.info("server returned 5xx -> retrying once without gzip compression")
+            try:
+                headers_retry = dict(headers)
+                headers_retry.pop("Content-Encoding", None)
+                payload_retry = json.dumps(json_body).encode("utf-8")
+                logger.debug("retry JSON payload preview: %s", payload_retry.decode("utf-8", errors="replace")[:1024])
+                req_retry = urllib.request.Request(url, data=payload_retry, headers=headers_retry, method=method)
+                with urllib.request.urlopen(req_retry, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
+                    logger.info("[retry no-gzip] response.status=%s, response.reason=%s", response.status, response.reason)
+                    ret_text = response.read().decode("utf-8")
+                logger.debug("sent retry (no-gzip) to server")
+            except Exception as retry_exc:
+                logger.warning("retry without gzip failed: %s", retry_exc)
+                return f"failed to send request: HTTP Error {code}: {reason}"
+        else:
+            return f"failed to send request: HTTP Error {code}: {reason}"
+
+    except (urllib.error.URLError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
         ret = f"failed to send request: {exc}"
         logger.warning(ret)
         return ret
