@@ -21,6 +21,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
+
 """HTTPS communication layer for the PanDA Pilot.
 
 This module provides all network I/O between the pilot and the PanDA server,
@@ -45,7 +46,6 @@ try:
 except ImportError:
     certifi = None
 import datetime
-#import http.client as http_client
 import json
 import logging
 import os
@@ -56,9 +56,12 @@ try:
 except ImportError:
     requests = None
 import shlex
+import shutil
 import socket
 import ssl
+import subprocess
 import sys
+import tempfile
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -87,7 +90,6 @@ from typing import (
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import FileHandlingFailure
 from pilot.info.jobdata import JobData
 
 from .auxiliary import (
@@ -97,12 +99,10 @@ from .auxiliary import (
 )
 from .config import config
 from .constants import get_pilot_version
-from .container import execute
 from .filehandling import (
     get_modification_time,
     read_file,
     rename,
-    write_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,89 +252,112 @@ def https_setup(args: object = None, version: str = "") -> None:
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url: str, data: dict = None, plain: bool = False, secure: bool = True, ipv: str = 'IPv6') -> Any:
-    """Send an HTTPS request using curl.
+def request(url: str,
+            data: Dict[str, Any] | None = None,
+            plain: bool = False,
+            secure: bool = True,
+            ipv: str = "IPv6") -> Any:
+    """
+    Curl-based HTTP request fallback which uses a curl config file that references
+    a JSON payload file (data = @payload.json) and sets `request = POST`.
 
-    Always uses the curl backend (the SSL context is intentionally cleared so
-    that the urllib path is bypassed for grid compatibility).  The curl command
-    is tried first with IPv6; if that fails and *ipv* is ``'IPv6'`` it retries
-    with IPv4.
+    This function delegates to send_request_with_token_via_curl_config() which:
+      - writes the JSON payload to a temporary file,
+      - writes a curl config file that sets headers and `request = POST`,
+      - executes curl with --config <file>,
+      - returns either a parsed dict (if response was JSON), a raw string (if curl succeeded but response not JSON),
+        or a string beginning with "failed to send request:" on error.
 
     Args:
-        url: Target URL.
-        data: Form-encoded payload dict to include in the request body.
-        plain: If ``True``, return the raw response text instead of parsing
-            it as JSON.
-        secure: If ``True``, include client certificates in the request.
-        ipv: Preferred internet protocol version (``'IPv6'`` or ``'IPv4'``).
+        url: Full URL to call (including scheme and port).
+        data: Payload dictionary to send (JSON body). If None, an empty dict is used.
+        plain: If True, return the raw string response (or JSON-dumped string for dict).
+        secure: Kept for API compatibility; currently only logged.
+        ipv: Preferred IP family ("IPv4" or "IPv6"); currently only logged.
 
     Returns:
-        Parsed JSON dict on success, raw response string when *plain* is
-        ``True``, or ``None`` if the request failed or JSON parsing failed.
+        Parsed dict on JSON success, raw string on parse failure, or failure string.
     """
-    if data is None:
-        data = {}
-    _ctx.ssl_context = None  # certificates are not available on the grid, use curl
+    # Ensure payload exists
+    payload = data or {}
 
-    # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
-    # we might have to update _ctx
-    update_ctx()
+    logger.info("curl fallback request: url=%s, secure=%s, ipv=%s", url, secure, ipv)
+    logger.debug("curl fallback payload preview (first 1024 chars): %s", json.dumps(payload)[:1024])
 
-    logger.debug(f'server update dictionary = \n{data}')
+    # Gather certificate / key and user-agent from module context (_ctx) and config
+    # NOTE: these names must match the ones used in your module:
+    #   _ctx.cacert  -> path to cert/cacert/key (used for cert/key/cacert)
+    #   _ctx.user_agent -> user agent string
+    #try:
+    #    certfile = _ctx.cacert
+    #    cacertfile = _ctx.cacert
+    #    keyfile = _ctx.cacert
+    #    user_agent = _ctx.user_agent
+    #except Exception as exc:
+    #    logger.warning("request() curl fallback: missing _ctx cert or user-agent: %s", exc)
+    #    # Fallback to sensible defaults (may still fail later)
+    #    certfile = cacertfile = keyfile = "/etc/ssl/certs/ca-bundle.crt"
+    #    user_agent = "pilot/unknown"
 
-    # get the filename and strdata for the curl config file
-    filename, strdata = get_vars(url, data)
-    # write the strdata to file
+    # Timeouts from config (fallback to sane defaults if not present)
     try:
-        writestatus = write_file(filename, strdata)
-    except FileHandlingFailure:
-        writestatus = None
+        connect_timeout = int(config.Pilot.http_connect_timeout)
+    except Exception:
+        connect_timeout = 100
+    try:
+        total_timeout = int(config.Pilot.http_maxtime)
+    except Exception:
+        total_timeout = 120
 
-    # get the config option for the curl command
-    dat = get_curl_config_option(writestatus, url, data, filename)
+    # Call the curl-config-based sender
+    try:
+        # get token content as your code already does
+        auth_token, _ = get_local_oidc_token_info()
+        auth_token_content = get_auth_token_content(auth_token)  # whatever function you have
 
-    # loop over internet protocol versions since proper value might be known yet (ie before downloading queuedata)
-    ipvs = ['IPv6', 'IPv4'] if ipv == 'IPv6' else ['IPv4']
-    if _ctx.ssl_context is None and secure:
-        failed = False
-        for _ipv in ipvs:
-            req, obscure = get_curl_command(plain, dat, _ipv)
-            if not req:
-                logger.warning('failed to construct valid curl command')
-                failed = True
-                break
+        res = send_request_with_token_via_curl_config(
+            url=url,
+            payload=data,
+            cacertfile=_ctx.cacert,
+            user_agent=_ctx.user_agent,
+            token=auth_token_content,  # add the token here
+            extra_headers={"Origin": "atlas.pilot"},  # if needed
+            use_token_only=True,  # omit client certs — set False if server requires mTLS
+            certfile=_ctx.cacert,  # optional, used only if use_token_only=False
+            keyfile=_ctx.cacert,
+            connect_timeout=connect_timeout,
+            total_timeout=total_timeout,
+            verify=True,
+        )
+    except Exception as exc:
+        logger.exception("curl fallback raised unexpected exception: %s", exc)
+        return f"failed to send request: {exc}"
+
+    # If caller explicitly wants a plain string, return it (stringify dict if needed)
+    if plain:
+        if isinstance(res, dict):
             try:
-                status, output, stderr = execute(req, obscure=obscure, timeout=config.Pilot.http_maxtime)
-            except Exception as exc:
-                logger.warning(f'exception: {exc}')
-                failed = True
-                break
-            else:
-                if status == 0:
-                    break
-                logger.warning(f'request failed for IPv={_ipv} ({status}): stdout={output}, stderr={stderr}')
-                continue
-        if failed:
-            return None
+                return json.dumps(res)
+            except Exception:
+                return str(res)
+        return res
 
-        # return output if plain otherwise return json.loads(output)
-        if plain:
-            return output
+    # Normal behaviour: prefer dict, else attempt to json.loads() string response,
+    # otherwise return the raw string (previously you attempted json.loads and warned)
+    if isinstance(res, dict):
+        return res
+
+    if isinstance(res, str):
         try:
-            ret = json.loads(output)
-        except Exception as exc:
-            logger.warning(f'json.loads() failed to parse output={output}: {exc}')
-            return None
-        return ret
+            parsed = json.loads(res)
+            return parsed
+        except Exception:
+            logger.warning("json.loads() failed to parse curl output=%r", res[:2000])
+            return res
 
-    req = execute_urllib(url, data, plain, secure)
-    context = _ctx.ssl_context if secure else None
-
-    ec, output = get_urlopen_output(req, context)
-    if ec:
-        return None
-
-    return output.read() if plain else json.load(output)
+    # Unexpected type from helper: return string repr
+    logger.warning("curl fallback returned unexpected type %s", type(res))
+    return str(res)
 
 
 def update_ctx() -> None:
@@ -463,7 +486,7 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> Tuple[object, str]:
     return req, redact_token
 
 
-def locate_token(auth_token: str, key: bool = False) -> str:
+def locate_token2(auth_token: str, key: bool = False) -> str:
     """Find the filesystem path for an OIDC token file.
 
     Searches a prioritised list of candidate directories for a file named
@@ -700,7 +723,7 @@ def send_update(update_function: str, data: Dict[str, Any], url: str, port: int,
 
     # Preserve REACHED_MAXTIME behavior (as in your current code)
     if os.environ.get("REACHED_MAXTIME") and update_function.endswith("update_job"):
-        data["state"] = "failed"
+        data["job_status"] = "failed"
         if job:
             set_pilot_state(job=job, state="failed")
             job.completed = True
@@ -803,68 +826,355 @@ def send_update(update_function: str, data: Dict[str, Any], url: str, port: int,
     )
 
 
-def send_update_old(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> Optional[dict]:
-    """Send a server update and return the raw response dict (legacy version).
-
-    Retries up to *max_attempts* times.  Prefer :func:`send_update` for new
-    code; this function is retained for backwards compatibility.
+def _write_payload_file(payload: Dict[str, Any], tmpdir: str) -> str:
+    """Write JSON payload to a temporary file.
 
     Args:
-        update_function: Server endpoint name, e.g. ``'updateJob'`` or
-            ``'updateWorkerPilotStatus'``.
-        data: Payload dict to send.
-        url: PanDA server URL.
-        port: PanDA server port.
-        job: Job object used to suppress delayed heartbeats after completion,
-            or ``None`` for worker-pilot status calls.
-        ipv: Internet-protocol version (``'IPv4'`` or ``'IPv6'``).
-        max_attempts: Maximum number of send attempts before giving up.
+        payload: JSON-serializable dictionary.
+        tmpdir: Directory where the file should be created.
 
     Returns:
-        The server response dict, or ``None`` if all attempts failed or the
-        update was suppressed.
+        Path to the created payload file.
     """
-    attempt = 0
-    done = False
-    res = None
+    payload_path = os.path.join(tmpdir, "payload.json")
+    with open(payload_path, "w", encoding="utf-8") as pf:
+        json.dump(payload, pf, ensure_ascii=False)
+        pf.flush()
+        os.fsync(pf.fileno())
+    return payload_path
 
-    if os.environ.get("REACHED_MAXTIME") and update_function.endswith("update_job"):
-        data['state'] = 'failed'
-        if job:
-            set_pilot_state(job=job, state='failed')
-            job.completed = True
-            msg = 'the max batch system time limit has been reached'
-            logger.warning(msg)
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
-            add_error_codes(data, job)
 
-    # do not allow any delayed heartbeat messages for running state, if the job has completed (ie another call to this
-    # function was already made by another thread for finished/failed state)
-    if job:  # ignore for updateWorkerPilotStatus calls
-        if job.completed and job.state in {'running', 'starting'}:
-            logger.warning(f'will not send job update for {job.state} state since the job has already completed')
-            return None  # should be ignored
+def _build_curl_config(
+    url: str,
+    payload_path: str,
+    user_agent: str,
+    token: Optional[str],
+    extra_headers: Optional[Dict[str, str]],
+    tmpdir: str,
+) -> str:
+    """Create a curl config file for JSON POST.
 
-    while attempt < max_attempts and not done:
-        logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
+    Args:
+        url: Target URL.
+        payload_path: Path to JSON payload file.
+        user_agent: User-Agent string.
+        token: Optional OIDC bearer token.
+        extra_headers: Additional HTTP headers.
+        tmpdir: Directory for config file.
 
-        # get the URL for the PanDA server from pilot options or from config
+    Returns:
+        Path to the curl config file.
+    """
+    config_lines: list[str] = [f'url = "{url}"']
+    config_lines.append(f'header = "User-Agent: {user_agent}"')
+    config_lines.append('header = "Accept: application/json"')
+    config_lines.append('header = "Content-Type: application/json"')
+
+    headers = (extra_headers.copy() if extra_headers else {})
+
+    if token:
+        headers.setdefault("Authorization", f"Bearer {token}")
+
+    for key, value in headers.items():
+        safe_value = value.replace('"', '\\"')
+        config_lines.append(f'header = "{key}: {safe_value}"')
+
+    config_lines.append(f'data = @{payload_path}')
+    config_lines.append("request = POST")
+
+    config_path = os.path.join(tmpdir, "curl_request.config")
+
+    with open(config_path, "w", encoding="utf-8") as cf:
+        cf.write("\n".join(config_lines))
+        cf.flush()
+        os.fsync(cf.fileno())
+
+    # Log config preview (mask token)
+    try:
+        with open(config_path, "r", encoding="utf-8", errors="replace") as f:
+            preview = f.read()[:4096]
+        if token:
+            preview = preview.replace(token, "<TOKEN_REDACTED>")
+        logger.debug(
+            "curl config file (%s) contents (first 4096 chars): %s",
+            config_path,
+            preview,
+        )
+    except Exception:
+        logger.debug("could not read back curl config file for logging")
+
+    return config_path
+
+
+def _build_curl_command(
+    config_path: str,
+    cacertfile: str,
+    certfile: Optional[str],
+    keyfile: Optional[str],
+    connect_timeout: int,
+    total_timeout: int,
+    verify: bool,
+    use_capath: bool,
+    use_token_only: bool,
+) -> list[str]:
+    """Construct curl command list.
+
+    Args:
+        config_path: Path to curl config file.
+        cacertfile: CA bundle file or directory.
+        certfile: Client certificate file.
+        keyfile: Client key file.
+        connect_timeout: Curl connection timeout.
+        total_timeout: Curl total timeout.
+        verify: Whether to verify server certificate.
+        use_capath: Use --capath instead of --cacert.
+        use_token_only: If True, omit client certificate.
+
+    Returns:
+        List of curl command arguments.
+    """
+    cmd: list[str] = [
+        "curl",
+        "-sS",
+        "--compressed",
+        "--connect-timeout",
+        str(connect_timeout),
+        "--max-time",
+        str(total_timeout),
+    ]
+
+    if not verify:
+        cmd.append("--insecure")
+
+    if use_capath:
+        cmd.extend(["--capath", cacertfile])
+    else:
+        cmd.extend(["--cacert", cacertfile])
+
+    if not use_token_only and certfile:
+        cmd.extend(["--cert", certfile])
+
+    if not use_token_only and keyfile:
+        cmd.extend(["--key", keyfile])
+
+    cmd.extend(["--config", config_path])
+
+    return cmd
+
+
+def _run_curl(cmd: list[str]) -> Tuple[int, str, str]:
+    """Execute curl command.
+
+    Args:
+        cmd: Curl command as list.
+
+    Returns:
+        Tuple of (return_code, stdout, stderr).
+    """
+    try:
+        logger.info(
+            "executing curl fallback: %s",
+            " ".join(shlex.quote(x) for x in cmd),
+        )
+    except Exception:
+        logger.info("executing curl fallback (command hidden)")
+
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+
+    logger.debug("curl stdout (truncated): %s", stdout[:8192])
+    logger.debug("curl stderr (truncated): %s", stderr[:8192])
+
+    return proc.returncode, stdout, stderr
+
+
+def _parse_curl_json(stdout: str) -> Union[str, Dict[str, Any]]:
+    """Parse JSON output from curl, handling concatenated JSON.
+
+    Args:
+        stdout: Raw stdout string from curl.
+
+    Returns:
+        Parsed dictionary if JSON detected, otherwise raw string.
+    """
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
         try:
-            pandaserver = get_panda_server(url, port)
+            decoder = json.JSONDecoder()
+            obj, idx = decoder.raw_decode(stdout)
+            leftover = stdout[idx:].strip()
+            if leftover:
+                logger.debug(
+                    "extra data after first JSON object: %s",
+                    leftover[:512],
+                )
+            return obj
         except Exception as exc:
-            logger.warning(f'exception caught in get_panda_server(): {exc}')
-            sleep(5)
-            attempt += 1
-            continue
-        # send the heartbeat
-        res = send_request(pandaserver, update_function, data, job, ipv)
-        if res is not None:
-            done = True
-        attempt += 1
-        if not done:
-            sleep(config.Pilot.update_sleep)
+            logger.warning(
+                "failed to parse curl output as JSON: %s",
+                exc,
+            )
+            return stdout
 
-    return res
+
+def send_request_with_token_via_curl_config(
+    url: str,
+    payload: Dict[str, Any],
+    *,
+    cacertfile: str,
+    user_agent: str,
+    token: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    use_token_only: bool = False,
+    certfile: Optional[str] = None,
+    keyfile: Optional[str] = None,
+    connect_timeout: int = 100,
+    total_timeout: int = 120,
+    config_dir: Optional[str] = None,
+    verify: bool = True,
+    use_capath: bool = False,
+) -> Union[str, Dict[str, Any]]:
+    """Send a JSON POST request via curl using a config file.
+
+    This function writes a temporary JSON payload file and curl config file,
+    executes curl, and parses the JSON response robustly.
+
+    Args:
+        url: Target URL.
+        payload: JSON body to send.
+        cacertfile: CA bundle for TLS verification.
+        user_agent: User-Agent string.
+        token: Optional OIDC bearer token.
+        extra_headers: Optional additional HTTP headers.
+        use_token_only: If True, omit client cert/key.
+        certfile: Client certificate file.
+        keyfile: Client key file.
+        connect_timeout: Curl connection timeout in seconds.
+        total_timeout: Curl maximum execution time in seconds.
+        config_dir: Directory for temporary files.
+        verify: Whether to verify server TLS certificate.
+        use_capath: Whether cacertfile is a directory.
+
+    Returns:
+        Parsed JSON dictionary on success, raw string on parse failure,
+        or error string starting with "failed to send request:".
+    """
+    tmpdir: Optional[str] = None
+
+    try:
+        base_tmpdir = config_dir or os.getenv("PILOT_HOME") or tempfile.gettempdir()
+        tmpdir = tempfile.mkdtemp(prefix="curl_cfg_", dir=base_tmpdir)
+
+        payload_path = _write_payload_file(payload, tmpdir)
+        config_path = _build_curl_config(
+            url,
+            payload_path,
+            user_agent,
+            token,
+            extra_headers,
+            tmpdir,
+        )
+
+        cmd = _build_curl_command(
+            config_path,
+            cacertfile,
+            certfile,
+            keyfile,
+            connect_timeout,
+            total_timeout,
+            verify,
+            use_capath,
+            use_token_only,
+        )
+
+        retcode, stdout, stderr = _run_curl(cmd)
+
+        if retcode != 0:
+            if verify and "certificate" in stderr.lower():
+                logger.warning("certificate verification failed")
+            return f"failed to send request: curl exit {retcode}: {stderr[:2000]}"
+
+        return _parse_curl_json(stdout)
+
+    except Exception as exc:
+        logger.exception("unexpected exception while running curl config fallback: %s", exc)
+        return f"failed to send request: {exc}"
+
+    finally:
+        if tmpdir and os.path.isdir(tmpdir):
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def make_cacert_with_server_cert(host: str, port: int, orig_cacert: str, out_dir: Optional[str] = None) -> str:
+    """
+    Create a new CA bundle by copying orig_cacert and appending the server certificate(s)
+    obtained from openssl s_client -showcerts. Returns the path to the new CA file.
+
+    Notes:
+      - Does NOT modify orig_cacert.
+      - Requires `openssl` to be available on the host.
+      - Caller should inspect/log the created file for security/audit.
+    """
+    base_tmp = out_dir or tempfile.gettempdir()
+    tmpdir = tempfile.mkdtemp(prefix="cacert_append_", dir=base_tmp)
+    server_chain = os.path.join(tmpdir, "server-chain.pem")
+    new_cacert = os.path.join(tmpdir, "cacert_with_server.pem")
+
+    # Run openssl s_client to get the server chain
+    cmd = f"openssl s_client -connect {shlex.quote(host)}:{int(port)} -showcerts"
+    proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, input="")
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+    if not stdout:
+        # raise so caller can log and decide
+        raise RuntimeError(f"openssl s_client produced no output: {stderr[:2000]!s}")
+
+    # Extract PEM blocks
+    pem_blocks = []
+    in_block = False
+    block_lines = []
+    for line in stdout.splitlines():
+        if "-----BEGIN CERTIFICATE-----" in line:
+            in_block = True
+            block_lines = [line]
+        elif "-----END CERTIFICATE-----" in line and in_block:
+            block_lines.append(line)
+            pem_blocks.append("\n".join(block_lines) + "\n")
+            in_block = False
+        elif in_block:
+            block_lines.append(line)
+
+    if not pem_blocks:
+        raise RuntimeError("no certificates found in server chain output")
+
+    # Write server-chain.pem
+    with open(server_chain, "w", encoding="utf-8") as f:
+        for b in pem_blocks:
+            f.write(b)
+
+    # Copy orig cacert and append the server chain (binary append)
+    shutil.copy(orig_cacert, new_cacert)
+    with open(new_cacert, "ab") as out_f, open(server_chain, "rb") as in_f:
+        out_f.write(b"\n")
+        out_f.write(in_f.read())
+
+    # Secure permissions
+    try:
+        os.chmod(new_cacert, 0o600)
+    except Exception:
+        pass
+
+    # Log path for inspection by caller
+    logger.info("created temporary cacert with server cert appended: %s", new_cacert)
+    return new_cacert
 
 
 def send_request(pandaserver: str, update_function: str, data: dict, job: JobData, ipv: str) -> Optional[dict]:
@@ -901,12 +1211,14 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
+    #if "update_job" in update_function:
+    #    res = None
     if not res:
-        if "api/v" in update_function:
-            return None
+        #if "api/v" in update_function:
+        #    return None
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
-            res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
+            res = request(f'{pandaserver}/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -1170,7 +1482,7 @@ def get_ssl_context() -> ssl.SSLContext:
     return ssl_context
 
 
-def get_auth_token_content(auth_token: str, key: bool = False) -> str:
+def get_auth_token_content2(auth_token: str, key: bool = False) -> str:
     """Read and return the content of an OIDC token file.
 
     Locates the token via :func:`locate_token` and reads its content.  Returns
@@ -2339,3 +2651,89 @@ def get_job_status_from_server(job_id: int, url: str, port: int) -> Tuple[str, i
 
     # fallback (shouldn't be reached, but safe default)
     return "unknown", -1, -1
+
+
+def locate_token(auth_token: str, key: bool = False) -> str:
+    """Find the filesystem path for an OIDC token file.
+
+    Defensive: if auth_token is falsy, return empty string immediately to avoid TypeErrors.
+    """
+    if not auth_token:
+        logger.debug("locate_token(): no auth_token provided -> returning empty path")
+        return ""
+
+    primary_basedir = os.path.dirname(
+        os.environ.get('OIDC_AUTH_DIR',
+                       os.environ.get('PANDA_AUTH_DIR',
+                                      os.environ.get('X509_USER_PROXY', '')))
+    )
+    paths = []
+    if primary_basedir:
+        paths.append(os.path.join(primary_basedir, auth_token))
+    # common candidate locations
+    for envvar in ('PILOT_SOURCE_DIR', 'PILOT_WORK_DIR', 'HOME'):
+        base = os.environ.get(envvar, '')
+        if base:
+            paths.append(os.path.join(base, auth_token))
+
+    # if the refreshed token exists, prepend it to the paths list and use it first (unless looking for key)
+    if not key:
+        _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
+        if _refreshed and os.path.exists(_refreshed):
+            paths.insert(0, _refreshed)
+
+    # remove duplicates while preserving order
+    seen = set()
+    uniq_paths = []
+    for p in paths:
+        if p and p not in seen:
+            seen.add(p)
+            uniq_paths.append(p)
+    paths = uniq_paths
+
+    path = ""
+    for _path in paths:
+        try:
+            if _path and os.path.exists(_path):
+                logger.debug(f'found {_path}')
+                path = _path
+                break
+        except Exception:
+            logger.debug(f'failed to stat candidate path: {_path}', exc_info=True)
+            continue
+
+    if path == "":
+        logger.info(f'did not find any local token file ({auth_token}) in paths={paths}')
+
+    return path
+
+
+def get_auth_token_content(auth_token: str, key: bool = False) -> str:
+    """Read and return the content of an OIDC token file.
+
+    Defensive: return empty string immediately if auth_token is falsy.
+    """
+    if not auth_token:
+        logger.debug("get_auth_token_content(): no auth_token provided -> returning empty content")
+        return ""
+
+    path = locate_token(auth_token, key=key)
+    if not path:
+        logger.warning('token could not be located (path is not set - make sure OIDC env vars are set)')
+        return ""
+
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                auth_token_content = f.read().strip()
+            if not auth_token_content:
+                logger.warning(f'failed to read file {path} or file is empty')
+                return ""
+            logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
+            return auth_token_content
+        else:
+            logger.warning(f'path does not exist: {path}')
+            return ""
+    except Exception as exc:
+        logger.warning(f'failed to read token file {path}: {exc}')
+        return ""

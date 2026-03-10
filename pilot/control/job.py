@@ -1461,8 +1461,6 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         'computing_element': args.queue,
         'prod_source_label': get_job_label(args),
         'disk_space': _diskspace,
-        #'workingGroup': args.working_group,
-        #'cpu': _cpu,
         'memory': int(_mem),
         'node': _nodename
     }
