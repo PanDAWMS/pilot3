@@ -318,7 +318,8 @@ def request(url: str,
         res = send_request_with_token_via_curl_config(
             url=url,
             payload=data,
-            cacertfile=_ctx.cacert,
+            cacertfile=_ctx.capath or "/etc/grid-security/certificates",  # CA dir/bundle
+            use_capath=bool(_ctx.capath),  # use --capath if it's a directory
             user_agent=_ctx.user_agent,
             token=auth_token_content,  # add the token here
             extra_headers={"Origin": "atlas.pilot"},  # if needed
@@ -1211,6 +1212,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     except Exception as exc:
         logger.warning(f'exception caught in https.request(): {exc}')
 
+    # test fallback to curl
     #if "update_job" in update_function:
     #    res = None
     if not res:
