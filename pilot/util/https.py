@@ -1713,7 +1713,177 @@ def _ensure_numeric_fields(json_body: Optional[Dict[str, Any]], numeric_keys: tu
                     logger.warning("non-numeric %s value will be sent as-is: %r", k, v)
 
 
-def request2(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa C901
+def request2(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa
+    """Send an HTTPS request via urllib supporting both OIDC and X.509.
+
+    This function handles:
+      - merging query params into the URL,
+      - deciding GET vs POST from the presence of json_body (or explicit method),
+      - adding headers for OIDC or X.509 as appropriate,
+      - optional gzip compression of JSON bodies for API endpoints,
+      - IPv4/IPv6 selection,
+      - loading the X.509 client certificate into the SSL context when OIDC
+        is NOT used (restoring mTLS behavior),
+      - a single retry for 5xx responses that were sent with gzip (retry without gzip),
+      - robust parsing of JSON/plain-text responses.
+
+    Args:
+        url: Target URL (including scheme and port).
+        params: Query parameters to merge into the URL.
+        json_body: JSON payload to send as request body (None => no body).
+        secure: If False, disable TLS verification (debugging only).
+        compressed: If True, gzip the request body when appropriate.
+        panda: If True, enable PanDA/OIDC behavior (attempt OIDC token).
+        method: Explicit HTTP method override. If None, inferred:
+                GET if json_body is None else POST.
+
+    Returns:
+        Parsed response (dict when server returns JSON, otherwise str), or an
+        error string that starts with "failed to send request:" on network errors.
+
+    Raises:
+        ValueError: If method == "GET" and json_body is provided.
+    """
+    params = params or {}
+    method = _decide_method(json_body, method)
+
+    ipv = os.environ.get("PILOT_IP_VERSION")
+    logger.info(
+        "url = %s, secure = %s, compressed = %s, ipv = %s, method = %s",
+        url,
+        secure,
+        compressed,
+        ipv,
+        method,
+    )
+
+    # Ensure HTTPS setup is available
+    if not _ctx.cacert:
+        https_setup(None, get_pilot_version())
+
+    # Prepare headers and determine whether OIDC should be used
+    headers, use_oidc_token = _get_auth_and_headers(url, panda)
+
+    # If OIDC requested but headers missing (token unreadable), mirror old behavior
+    if panda and use_oidc_token and not headers:
+        # _get_auth_and_headers already logged an appropriate warning
+        return ""
+
+    # Merge params into URL
+    url = _merge_query(url, params)
+
+    # Disallow GET with body explicitly
+    if method and method.upper() == "GET" and json_body is not None:
+        raise ValueError("GET requests must not include json_body; use 'params=' instead")
+
+    # Try to normalize numeric fields (best-effort)
+    try:
+        _ensure_numeric_fields(json_body)
+    except Exception:
+        logger.debug("numeric field normalization failed or was skipped")
+
+    # Log outgoing payload preview for debugging
+    if json_body is not None:
+        try:
+            logger.debug("outgoing JSON payload preview: %s", json.dumps(json_body, ensure_ascii=False)[:1024])
+        except Exception:
+            logger.debug("failed to create outgoing payload preview")
+
+    # Prepare body and update headers (compression, Content-Type, etc.)
+    data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
+
+    logger.info("params = %s", params)
+    logger.info("json_body = %s", json_body)
+    logger.info("headers = %s", hide_token(headers.copy()))
+    logger.debug("data_bytes length = %s", len(data_bytes) if data_bytes is not None else 0)
+
+    # Build urllib Request
+    req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
+
+    # Create SSL context and attach client cert when not using OIDC
+    ssl_context = _get_ssl_context(use_oidc_token)
+    # If OIDC not used, load the X.509 client cert into the context for mTLS
+    if not use_oidc_token:
+        try:
+            # Historically the code used the same file for cert and key (_ctx.cacert)
+            ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+        except Exception as exc:
+            # Log but continue; most failures here indicate missing cert/key on the host
+            logger.warning("failed to load X509 client cert/key (%s): %s", _ctx.cacert, exc)
+
+    # Optionally disable verification for debugging (preserve previous behavior)
+    if not secure:
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+    # Handle IP family choice
+    if ipv == "IPv4":
+        logger.info("will use IPv4 in server communication")
+        install_ipv4_opener()
+    else:
+        logger.info("will use IPv6 in server communication")
+
+    # Send request and handle errors
+    ret_text: Optional[str] = None
+    try:
+        logger.debug("sending request to server")
+        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
+            logger.info("response.status=%s, response.reason=%s", response.status, response.reason)
+            ret_text = response.read().decode("utf-8")
+        logger.debug("sent request to server")
+    except urllib.error.HTTPError as http_exc:
+        # Try to read body for diagnostics
+        try:
+            body = http_exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = "<no body available>"
+        code = getattr(http_exc, "code", "<no-code>")
+        reason = getattr(http_exc, "reason", "<no-reason>")
+        logger.warning(
+            "failed to send request: HTTP Error %s: %s. Server response body: %s",
+            code,
+            reason,
+            body[:2048],
+        )
+
+        # If 5xx and we sent gzip json, retry once without gzip
+        try:
+            _code_int = int(code)
+        except Exception:
+            _code_int = 0
+
+        if 500 <= _code_int < 600 and json_body is not None and compressed:
+            logger.info("server returned 5xx -> retrying once without gzip compression")
+            try:
+                headers_retry = dict(headers)
+                headers_retry.pop("Content-Encoding", None)
+                payload_retry = json.dumps(json_body).encode("utf-8")
+                logger.debug("retry JSON payload preview: %s", payload_retry.decode("utf-8", errors="replace")[:1024])
+
+                req_retry = urllib.request.Request(url, data=payload_retry, headers=headers_retry, method=method)
+                with urllib.request.urlopen(req_retry, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
+                    logger.info("[retry no-gzip] response.status=%s, response.reason=%s", response.status, response.reason)
+                    ret_text = response.read().decode("utf-8")
+                logger.debug("sent retry (no-gzip) to server")
+            except Exception as retry_exc:
+                logger.warning("retry without gzip failed: %s", retry_exc)
+                return f"failed to send request: HTTP Error {code}: {reason}"
+        else:
+            return f"failed to send request: HTTP Error {code}: {reason}"
+
+    except (urllib.error.URLError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
+        ret = f"failed to send request: {exc}"
+        logger.warning(ret)
+        return ret
+
+    # Parse text response into dict or str (robust handling)
+    if secure and isinstance(ret_text, str):
+        return _parse_response_text(ret_text)
+
+    return ret_text
+
+
+def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa C901
     """Send an HTTPS request via urllib.
 
     The preferred high-level request function.  Handles OIDC and X.509
