@@ -84,6 +84,7 @@ from time import (
 from typing import (
     Any,
     Dict,
+    List,
     Optional,
     Tuple,
     Union
@@ -226,12 +227,14 @@ def https_setup(args: object = None, version: str = "") -> None:
         version: Pilot version string embedded in the ``User-Agent`` header.
             Defaults to the value returned by :func:`~pilot.util.constants.get_pilot_version`.
     """
+    logger.debug('https_setup: resolving certificate paths and user-agent string')
     version = version or get_pilot_version()
 
     _ctx.user_agent = f'pilot/{version} (Python {sys.version.split()[0]}; {platform.system()} {platform.machine()})'
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
-
+    logger.debug('https_setup: resolving CA directory and user-agent string')
+    logger.debug(f'_ctx.capath={_ctx.capath}, _ctx.cacert={_ctx.cacert}, _ctx.user_agent={_ctx.user_agent}')
     try:
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
@@ -318,13 +321,12 @@ def request(url: str,
         res = send_request_with_token_via_curl_config(
             url=url,
             payload=data,
-            cacertfile=_ctx.capath or "/etc/grid-security/certificates",  # CA dir/bundle
-            use_capath=bool(_ctx.capath),  # use --capath if it's a directory
-            user_agent=_ctx.user_agent,
-            token=auth_token_content,  # add the token here
-            extra_headers={"Origin": "atlas.pilot"},  # if needed
-            use_token_only=True,  # omit client certs — set False if server requires mTLS
-            certfile=_ctx.cacert,  # optional, used only if use_token_only=False
+            cacertfile=_ctx.capath or "/etc/grid-security/certificates",
+            use_capath=bool(_ctx.capath),
+            token=auth_token_content,
+            extra_headers={"Origin": "atlas.pilot"},
+            use_token_only=False,  # important
+            certfile=_ctx.cacert,
             keyfile=_ctx.cacert,
             connect_timeout=connect_timeout,
             total_timeout=total_timeout,
@@ -394,6 +396,7 @@ def get_local_oidc_token_info() -> tuple[Optional[str], Optional[str]]:
         variable is not set.
     """
     # first check if there is a token that was downloaded by the pilot
+    logger.debug('checking for refreshed OIDC token in environment variable OIDC_REFRESHED_AUTH_TOKEN')
     refreshed_auth_token = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
     if refreshed_auth_token and os.path.exists(refreshed_auth_token):
         auth_token = refreshed_auth_token
@@ -1026,92 +1029,207 @@ def _parse_curl_json(stdout: str) -> Union[str, Dict[str, Any]]:
             return stdout
 
 
-def send_request_with_token_via_curl_config(
+def send_request_with_token_via_curl_config(  # noqa: C901
     url: str,
     payload: Dict[str, Any],
     *,
-    cacertfile: str,
-    user_agent: str,
     token: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
     use_token_only: bool = False,
     certfile: Optional[str] = None,
     keyfile: Optional[str] = None,
+    cacertfile: Optional[str] = None,
+    use_capath: bool = False,
     connect_timeout: int = 100,
     total_timeout: int = 120,
     config_dir: Optional[str] = None,
     verify: bool = True,
-    use_capath: bool = False,
 ) -> Union[str, Dict[str, Any]]:
-    """Send a JSON POST request via curl using a config file.
+    """Send JSON via curl using a curl config file and return parsed JSON or raw stdout.
 
-    This function writes a temporary JSON payload file and curl config file,
-    executes curl, and parses the JSON response robustly.
+    This function writes a payload.json and a curl_request.config in a temporary directory,
+    invokes curl with `--config` (so the config contains the URL), and returns either:
+      * a parsed dict (the first JSON object), or
+      * the raw stdout string if parsing fails, or
+      * an error string starting with "failed to send request:" on failure.
+
+    Notes:
+      - Do NOT add a default `Origin` header here; callers may add it if required by their server.
+      - If `use_token_only` is True we do not add client cert/key options to the curl command.
+      - If `token` is supplied it is added as Authorization header. Ensure the token is valid
+        for the server and the expected VO (some servers require specific VO information).
 
     Args:
-        url: Target URL.
-        payload: JSON body to send.
-        cacertfile: CA bundle for TLS verification.
-        user_agent: User-Agent string.
-        token: Optional OIDC bearer token.
-        extra_headers: Optional additional HTTP headers.
-        use_token_only: If True, omit client cert/key.
-        certfile: Client certificate file.
-        keyfile: Client key file.
-        connect_timeout: Curl connection timeout in seconds.
-        total_timeout: Curl maximum execution time in seconds.
-        config_dir: Directory for temporary files.
-        verify: Whether to verify server TLS certificate.
-        use_capath: Whether cacertfile is a directory.
+        url: Full target URL (including scheme and port).
+        payload: JSON-serializable dict to send as body.
+        token: Optional OIDC bearer token. If provided an 'Authorization: Bearer ...' header is added.
+        extra_headers: Optional extra headers to include (dict).
+        use_token_only: If True, do NOT pass client cert/key to curl (token-only mode).
+        certfile: Path to client certificate (if using X.509).
+        keyfile: Path to client key (if separate).
+        cacertfile: Path to CA bundle file to use with curl (or directory if use_capath True).
+        use_capath: If True, use `--capath` instead of `--cacert`.
+        connect_timeout: curl --connect-timeout seconds.
+        total_timeout: curl --max-time seconds.
+        config_dir: Directory where temporary files should be created (defaults to PILOT_HOME or tmp dir).
+        verify: Whether to verify server certificate. If False, pass --insecure to curl.
 
     Returns:
-        Parsed JSON dictionary on success, raw string on parse failure,
-        or error string starting with "failed to send request:".
+        dict parsed from server JSON, raw stdout string on parse failure, or error string
+        beginning with "failed to send request:" on errors.
     """
-    tmpdir: Optional[str] = None
+    tmpdir = None
+    payload_path = None
+    config_path = None
 
     try:
         base_tmpdir = config_dir or os.getenv("PILOT_HOME") or tempfile.gettempdir()
         tmpdir = tempfile.mkdtemp(prefix="curl_cfg_", dir=base_tmpdir)
 
-        payload_path = _write_payload_file(payload, tmpdir)
-        config_path = _build_curl_config(
-            url,
-            payload_path,
-            user_agent,
-            token,
-            extra_headers,
-            tmpdir,
-        )
+        # Write payload JSON
+        payload_path = os.path.join(tmpdir, "payload.json")
+        with open(payload_path, "w", encoding="utf-8") as pf:
+            json.dump(payload, pf, ensure_ascii=False)
+            pf.flush()
+            os.fsync(pf.fileno())
 
-        cmd = _build_curl_command(
-            config_path,
-            cacertfile,
-            certfile,
-            keyfile,
-            connect_timeout,
-            total_timeout,
-            verify,
-            use_capath,
-            use_token_only,
-        )
+        # Determine user agent (prefer _ctx if present, then config.Pilot)
+        try:
+            user_agent = getattr(_ctx, "user_agent", None) or getattr(config.Pilot, "user_agent", "pilot/unknown")
+        except Exception:
+            user_agent = "pilot/unknown"
 
-        retcode, stdout, stderr = _run_curl(cmd)
+        # Build headers dictionary (avoid duplicates; extra_headers takes precedence)
+        headers: Dict[str, str] = {}
+        headers["User-Agent"] = user_agent
+        headers["Accept"] = "application/json"
+        headers["Content-Type"] = "application/json"
+        # NOTE: Do NOT add a default Origin header here. If the server requires an Origin header,
+        # the caller should pass it explicitly in extra_headers.
+
+        if extra_headers:
+            # Normalize header keys and values to strings
+            for k, v in extra_headers.items():
+                if v is None:
+                    continue
+                headers[str(k)] = str(v)
+
+        if token:
+            # Authorization header added, but caller must ensure token is valid for the server
+            headers["Authorization"] = f"Bearer {token}"
+
+        # Build curl config lines (use --config so url is inside the config)
+        config_lines: List[str] = [f'url = "{url}"']
+        for k, v in headers.items():
+            # Escape any double quotes in header values for the config file
+            safe_val = v.replace('"', '\\"')
+            config_lines.append(f'header = "{k}: {safe_val}"')
+
+        config_lines.append(f'data = @{payload_path}')
+        config_lines.append("request = POST")
+
+        # Write curl config
+        config_path = os.path.join(tmpdir, "curl_request.config")
+        with open(config_path, "w", encoding="utf-8") as cf:
+            cf.write("\n".join(config_lines))
+            cf.flush()
+            os.fsync(cf.fileno())
+
+        # Log preview of config (redact token)
+        try:
+            cfg_preview = open(config_path, "r", encoding="utf-8", errors="replace").read()[:4096]
+            if token:
+                cfg_preview = cfg_preview.replace(token, "<TOKEN_REDACTED>")
+            logger.debug(f"curl config file ({config_path}) contents (first 4096 chars): {cfg_preview}")
+        except Exception:
+            logger.debug("could not read back curl config file for logging")
+
+        # Construct curl command: use --config only
+        curl_cmd = [
+            "curl",
+            "-sS",
+            "--compressed",
+            "--connect-timeout",
+            str(connect_timeout),
+            "--max-time",
+            str(total_timeout),
+        ]
+
+        if not verify:
+            curl_cmd.append("--insecure")
+
+        # CA verification choice
+        if use_capath and cacertfile:
+            curl_cmd.extend(["--capath", cacertfile])
+        elif cacertfile:
+            curl_cmd.extend(["--cacert", cacertfile])
+
+        # Include client cert/key unless explicitly token-only
+        if not use_token_only and certfile:
+            curl_cmd.extend(["--cert", certfile])
+        if not use_token_only and keyfile:
+            curl_cmd.extend(["--key", keyfile])
+
+        curl_cmd.extend(["--config", config_path])
+
+        # Log command (redact token)
+        try:
+            safe_cmd = " ".join(shlex.quote(s) for s in curl_cmd)
+            if token:
+                safe_cmd = safe_cmd.replace(token, "<TOKEN_REDACTED>")
+            logger.info(f"executing curl fallback: {safe_cmd}")
+        except Exception:
+            logger.info("executing curl fallback (command hidden)")
+
+        proc = subprocess.run(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        retcode = proc.returncode
+
+        logger.debug(f"curl stdout (truncated): {stdout[:8192]}")
+        logger.debug(f"curl stderr (truncated): {stderr[:8192]}")
 
         if retcode != 0:
-            if verify and "certificate" in stderr.lower():
-                logger.warning("certificate verification failed")
-            return f"failed to send request: curl exit {retcode}: {stderr[:2000]}"
+            if verify and ("self-signed" in stderr.lower() or "certificate" in stderr.lower() or "ssl certificate" in stderr.lower()):
+                logger.warning(f"curl failed with certificate verification error. stderr (head): {'; '.join(stderr.splitlines()[:8])}")
+            return f"failed to send request: curl exit {retcode}: {stderr[:2000]!s}"
 
-        return _parse_curl_json(stdout)
+        # Parse first JSON object robustly
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            try:
+                decoder = json.JSONDecoder()
+                obj, idx = decoder.raw_decode(stdout)
+                leftover = stdout[idx:].strip()
+                if leftover:
+                    logger.debug(f"extra data after first JSON object (first 512 chars): {leftover[:512]}")
+                return obj
+            except Exception as exc:
+                logger.warning(f"json.loads() failed to parse output={stdout[:2000]!s}; raw_decode also failed: {exc}")
+                return stdout
 
     except Exception as exc:
-        logger.exception("unexpected exception while running curl config fallback: %s", exc)
+        logger.exception(f"unexpected exception while running curl config fallback: {exc}")
         return f"failed to send request: {exc}"
 
     finally:
-        if tmpdir and os.path.isdir(tmpdir):
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        # Clean up temporary files/dir
+        try:
+            if payload_path and os.path.exists(payload_path):
+                os.remove(payload_path)
+        except Exception:
+            pass
+        try:
+            if config_path and os.path.exists(config_path):
+                os.remove(config_path)
+        except Exception:
+            pass
+        try:
+            if tmpdir and os.path.isdir(tmpdir):
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def make_cacert_with_server_cert(host: str, port: int, orig_cacert: str, out_dir: Optional[str] = None) -> str:
@@ -1210,7 +1328,7 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     try:
         res = request2(f'{path}', json_body=data, panda=True)
     except Exception as exc:
-        logger.warning(f'exception caught in https.request(): {exc}')
+        logger.warning(f'exception caught in https.request2(): {exc}')
 
     # test fallback to curl
     #if "update_job" in update_function:
@@ -1577,9 +1695,9 @@ def _decide_method(json_body: Optional[Dict[str, Any]], method: Optional[str]) -
         and *method* is unset, ``'POST'`` when *json_body* is provided, or the
         upper-cased *method* string if explicitly given.
     """
-    if method is None:
-        return "GET" if json_body is None else "POST"
-    return method.upper()
+    if method:
+        return method.upper()
+    return "GET" if json_body is None else "POST"
 
 
 def _get_auth_and_headers(url: str, panda: bool) -> Tuple[Dict[str, str], bool]:
@@ -1601,7 +1719,13 @@ def _get_auth_and_headers(url: str, panda: bool) -> Tuple[Dict[str, str], bool]:
         *use_oidc_token* indicates whether OIDC auth was applied.
     """
     auth_token, auth_origin = get_local_oidc_token_info()
-    use_oidc_token = bool(auth_token and auth_origin and panda)
+
+    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
+        logger.debug('switched off OIDC tokens for CERN-PTEST (2)')
+        use_oidc_token = False
+    else:
+        use_oidc_token = bool(auth_token and auth_origin and panda)
+
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
     if not auth_token_content and use_oidc_token:
         logger.warning("OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read")
@@ -1612,31 +1736,18 @@ def _get_auth_and_headers(url: str, panda: bool) -> Tuple[Dict[str, str], bool]:
 
 
 def _prepare_body_and_headers(url: str, json_body: Optional[Dict[str, Any]], compressed: bool, headers: Dict[str, str]) -> Optional[bytes]:
-    """Serialise *json_body* to bytes and update *headers* in-place.
+    """
+    Prepare request body bytes and adjust headers.
 
-    When *compressed* is ``True`` and the URL targets a versioned API endpoint
-    (``'api/v'`` in the path), the body is gzip-compressed and
-    ``Content-Encoding: gzip`` is added to *headers*.
-
-    Args:
-        url: Target URL; used to decide whether compression applies.
-        json_body: Payload dict to serialise, or ``None`` for a bodyless
-            request.
-        compressed: If ``True``, gzip-compress the body for API endpoints.
-        headers: Header dict to update in-place with ``Content-Type`` and
-            optionally ``Content-Encoding``.
-
-    Returns:
-        Serialised (and possibly compressed) body as bytes, or ``None`` if
-        *json_body* is ``None``.
+    - If json_body is None -> returns None.
+    - If 'api/v' in URL and compressed=True -> gzip JSON and set Content-Encoding.
+    - Otherwise returns UTF-8 encoded JSON bytes.
     """
     if json_body is None:
         return None
 
-    # Disallow GET + body: caller likely mistaken
-    # The main function will raise ValueError before calling this if method=="GET"
+    headers.setdefault("Content-Type", "application/json")
     payload = json.dumps(json_body).encode("utf-8")
-    headers["Content-Type"] = "application/json"
     if compressed and "api/v" in url:
         headers["Content-Encoding"] = "gzip"
         rdata_out = BytesIO()
@@ -1647,268 +1758,110 @@ def _prepare_body_and_headers(url: str, json_body: Optional[Dict[str, Any]], com
 
 
 def _get_ssl_context(use_oidc_token: bool) -> ssl.SSLContext:
-    """Return an :class:`ssl.SSLContext` configured for the request type.
-
-    When *use_oidc_token* is ``False``, loads the client certificate chain
-    from ``_ctx.cacert``.  The caller can further adjust ``verify_mode`` and
-    ``check_hostname`` for insecure requests.
-
-    Args:
-        use_oidc_token: If ``True``, skip loading the X.509 cert chain (OIDC
-            auth does not rely on client certificates).
-
-    Returns:
-        Configured :class:`ssl.SSLContext`.
     """
-    ssl_context = get_ssl_context()
-    if not use_oidc_token:
-        # load cert chain with same file used previously
-        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
-    return ssl_context
+    Create an SSLContext configured with the module CA cert if available.
 
-
-def _parse_response_text(ret_text: str) -> Union[str, Dict[str, Any]]:
-    """Parse a raw server response string into a structured result.
-
-    Applies the following rules in order:
-
-    - ``"Succeeded"`` → ``{"StatusCode": "0"}``
-    - JSON object string (starts/ends with ``{…}``) → parsed dict
-    - Anything else → parsed as a URL query string (``"a=1&b=2"`` → dict)
-
-    Args:
-        ret_text: Raw text response from the server.
-
-    Returns:
-        Parsed dict, or the original string if JSON parsing failed.
+    If OIDC is used we still want to verify server certificates; client cert
+    loading is handled separately by the caller when needed.
     """
-    if ret_text == "Succeeded":
+    ctx = ssl.create_default_context()
+    try:
+        if hasattr(_ctx, "cacert") and _ctx.cacert:
+            # set CA bundle used for server verification
+            ctx.load_verify_locations(cafile=_ctx.cacert)
+    except Exception:
+        # best effort: if loading the CA file fails, keep default context
+        pass
+    return ctx
+
+
+def _parse_response_text(text: str) -> Union[str, Dict[str, Any]]:
+    """
+    Parse a textual server response into a dict where possible, otherwise return string.
+
+    Attempts JSON, query-string style, then Python-literal dict parsing as fallbacks.
+    """
+    text = (text or "").strip()
+    if text == "Succeeded":
         return {"StatusCode": "0"}
 
-    # JSON object
-    if ret_text.startswith("{") and ret_text.endswith("}"):
+    # Try JSON first (most common)
+    if text.startswith("{") and text.endswith("}"):
         try:
-            return json.loads(ret_text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"failed to parse response as JSON: {e}")
-            return ret_text
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
 
-    # fallback: parse query-string-like response
-    query_dict = urllib.parse.parse_qs(ret_text)
-    return {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+    # Try query-string style: "a=1&b=2"
+    try:
+        from urllib.parse import parse_qs
+
+        query_dict = parse_qs(text)
+        if query_dict:
+            return {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+    except Exception:
+        pass
+
+    # Try to salvage python dict-like text
+    try:
+        import ast
+
+        maybe = ast.literal_eval(text)
+        if isinstance(maybe, dict):
+            return maybe
+    except Exception:
+        pass
+
+    # Last resort: return raw string
+    return text
 
 
-def _ensure_numeric_fields(json_body: Optional[Dict[str, Any]], numeric_keys: tuple = ("memory", "disk_space")) -> None:
-    """Ensure certain keys in json_body are integers. Convert numeric-like strings to int in-place."""
-    if not isinstance(json_body, dict):
+def _ensure_numeric_fields(payload: Optional[Dict[str, Any]]) -> None:
+    """
+    Normalize common numeric fields to integers if they are strings.
+
+    This is a best-effort helper to avoid server-side type errors for fields
+    like 'memory' or 'disk_space' that sometimes arrive as strings.
+    """
+    if not isinstance(payload, dict):
         return
-    for k in numeric_keys:
-        if k in json_body:
-            v = json_body[k]
+    for key in ("memory", "disk_space", "core_count", "attempt_nr", "attempt_number", "worker_id"):
+        if key in payload:
+            v = payload.get(key)
             if isinstance(v, str):
                 try:
-                    json_body[k] = int(v.strip())
-                    logger.debug("converted numeric-like string to int: %s=%s", k, json_body[k])
+                    # try to remove commas and plus signs if present
+                    cleaned = v.replace(",", "").split("+")[0]
+                    payload[key] = int(cleaned)
                 except Exception:
-                    logger.warning("non-numeric %s value will be sent as-is: %r", k, v)
+                    # leave as-is if conversion fails
+                    pass
 
 
 def request2(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa
-    """Send an HTTPS request via urllib supporting both OIDC and X.509.
-
-    This function handles:
-      - merging query params into the URL,
-      - deciding GET vs POST from the presence of json_body (or explicit method),
-      - adding headers for OIDC or X.509 as appropriate,
-      - optional gzip compression of JSON bodies for API endpoints,
-      - IPv4/IPv6 selection,
-      - loading the X.509 client certificate into the SSL context when OIDC
-        is NOT used (restoring mTLS behavior),
-      - a single retry for 5xx responses that were sent with gzip (retry without gzip),
-      - robust parsing of JSON/plain-text responses.
-
-    Args:
-        url: Target URL (including scheme and port).
-        params: Query parameters to merge into the URL.
-        json_body: JSON payload to send as request body (None => no body).
-        secure: If False, disable TLS verification (debugging only).
-        compressed: If True, gzip the request body when appropriate.
-        panda: If True, enable PanDA/OIDC behavior (attempt OIDC token).
-        method: Explicit HTTP method override. If None, inferred:
-                GET if json_body is None else POST.
-
-    Returns:
-        Parsed response (dict when server returns JSON, otherwise str), or an
-        error string that starts with "failed to send request:" on network errors.
-
-    Raises:
-        ValueError: If method == "GET" and json_body is provided.
     """
-    params = params or {}
-    method = _decide_method(json_body, method)
+    Send an HTTPS request that supports both OIDC token and X.509 client cert auth.
 
-    ipv = os.environ.get("PILOT_IP_VERSION")
-    logger.info(
-        "url = %s, secure = %s, compressed = %s, ipv = %s, method = %s",
-        url,
-        secure,
-        compressed,
-        ipv,
-        method,
-    )
-
-    # Ensure HTTPS setup is available
-    if not _ctx.cacert:
-        https_setup(None, get_pilot_version())
-
-    # Prepare headers and determine whether OIDC should be used
-    headers, use_oidc_token = _get_auth_and_headers(url, panda)
-
-    # If OIDC requested but headers missing (token unreadable), mirror old behavior
-    if panda and use_oidc_token and not headers:
-        # _get_auth_and_headers already logged an appropriate warning
-        return ""
-
-    # Merge params into URL
-    url = _merge_query(url, params)
-
-    # Disallow GET with body explicitly
-    if method and method.upper() == "GET" and json_body is not None:
-        raise ValueError("GET requests must not include json_body; use 'params=' instead")
-
-    # Try to normalize numeric fields (best-effort)
-    try:
-        _ensure_numeric_fields(json_body)
-    except Exception:
-        logger.debug("numeric field normalization failed or was skipped")
-
-    # Log outgoing payload preview for debugging
-    if json_body is not None:
-        try:
-            logger.debug("outgoing JSON payload preview: %s", json.dumps(json_body, ensure_ascii=False)[:1024])
-        except Exception:
-            logger.debug("failed to create outgoing payload preview")
-
-    # Prepare body and update headers (compression, Content-Type, etc.)
-    data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
-
-    logger.info("params = %s", params)
-    logger.info("json_body = %s", json_body)
-    logger.info("headers = %s", hide_token(headers.copy()))
-    logger.debug("data_bytes length = %s", len(data_bytes) if data_bytes is not None else 0)
-
-    # Build urllib Request
-    req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
-
-    # Create SSL context and attach client cert when not using OIDC
-    ssl_context = _get_ssl_context(use_oidc_token)
-    # If OIDC not used, load the X.509 client cert into the context for mTLS
-    if not use_oidc_token:
-        try:
-            # Historically the code used the same file for cert and key (_ctx.cacert)
-            ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
-        except Exception as exc:
-            # Log but continue; most failures here indicate missing cert/key on the host
-            logger.warning("failed to load X509 client cert/key (%s): %s", _ctx.cacert, exc)
-
-    # Optionally disable verification for debugging (preserve previous behavior)
-    if not secure:
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
-    # Handle IP family choice
-    if ipv == "IPv4":
-        logger.info("will use IPv4 in server communication")
-        install_ipv4_opener()
-    else:
-        logger.info("will use IPv6 in server communication")
-
-    # Send request and handle errors
-    ret_text: Optional[str] = None
-    try:
-        logger.debug("sending request to server")
-        with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-            logger.info("response.status=%s, response.reason=%s", response.status, response.reason)
-            ret_text = response.read().decode("utf-8")
-        logger.debug("sent request to server")
-    except urllib.error.HTTPError as http_exc:
-        # Try to read body for diagnostics
-        try:
-            body = http_exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            body = "<no body available>"
-        code = getattr(http_exc, "code", "<no-code>")
-        reason = getattr(http_exc, "reason", "<no-reason>")
-        logger.warning(
-            "failed to send request: HTTP Error %s: %s. Server response body: %s",
-            code,
-            reason,
-            body[:2048],
-        )
-
-        # If 5xx and we sent gzip json, retry once without gzip
-        try:
-            _code_int = int(code)
-        except Exception:
-            _code_int = 0
-
-        if 500 <= _code_int < 600 and json_body is not None and compressed:
-            logger.info("server returned 5xx -> retrying once without gzip compression")
-            try:
-                headers_retry = dict(headers)
-                headers_retry.pop("Content-Encoding", None)
-                payload_retry = json.dumps(json_body).encode("utf-8")
-                logger.debug("retry JSON payload preview: %s", payload_retry.decode("utf-8", errors="replace")[:1024])
-
-                req_retry = urllib.request.Request(url, data=payload_retry, headers=headers_retry, method=method)
-                with urllib.request.urlopen(req_retry, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-                    logger.info("[retry no-gzip] response.status=%s, response.reason=%s", response.status, response.reason)
-                    ret_text = response.read().decode("utf-8")
-                logger.debug("sent retry (no-gzip) to server")
-            except Exception as retry_exc:
-                logger.warning("retry without gzip failed: %s", retry_exc)
-                return f"failed to send request: HTTP Error {code}: {reason}"
-        else:
-            return f"failed to send request: HTTP Error {code}: {reason}"
-
-    except (urllib.error.URLError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
-        ret = f"failed to send request: {exc}"
-        logger.warning(ret)
-        return ret
-
-    # Parse text response into dict or str (robust handling)
-    if secure and isinstance(ret_text, str):
-        return _parse_response_text(ret_text)
-
-    return ret_text
-
-
-def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa C901
-    """Send an HTTPS request via urllib.
-
-    The preferred high-level request function.  Handles OIDC and X.509
-    authentication, optional gzip compression, IPv4/IPv6 selection, and
-    response parsing.
+    This function:
+    - Decides method (GET if no body else POST) unless overridden
+    - Merges query params into the URL
+    - Prepares headers via `get_headers()` (uses OIDC token if panda=True)
+    - Optionally gzips JSON bodies for API endpoints (and retries once w/o gzip on 5xx)
+    - Loads X.509 client certificate into the SSL context when OIDC token is not used
+    - Parses response text into dicts where possible
 
     Args:
         url: Target URL.
-        params: Query-string parameters merged into *url* before sending.
-        json_body: Dict to serialise as the JSON request body.  Mutually
-            exclusive with ``method='GET'`` (raises :exc:`ValueError` if both
-            are supplied).
-        secure: If ``False``, TLS certificate verification is disabled.
-        compressed: If ``True``, gzip-compress the body for API endpoints.
-        panda: If ``True``, enable OIDC bearer-token authentication for PanDA
-            server endpoints.
-        method: HTTP method override; inferred from *json_body* when ``None``.
+        params: Query-string parameters merged into URL.
+        json_body: Dict to JSON-serialize as request body.
+        secure: Whether to verify server TLS certificates. If False, TLS verification is disabled.
+        compressed: If True, gzip bodies for API endpoints where applicable.
+        panda: If True, attempt to use OIDC token authentication (if available).
+        method: Optional HTTP method override.
 
     Returns:
-        Parsed response (dict or str depending on the server payload), or an
-        error string starting with ``"failed to send request:"`` on network
-        failure.
-
-    Raises:
-        ValueError: If ``method='GET'`` is combined with *json_body*.
+        Parsed response (dict) when possible, otherwise raw string. On network issues returns
+        an error string starting with "failed to send request:".
     """
     params = params or {}
     method = _decide_method(json_body, method)
@@ -1917,39 +1870,51 @@ def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json
     logger.info(f"url = {url}, secure = {secure}, compressed = {compressed}, ipv = {ipv}, method = {method}")
 
     # Ensure HTTPS setup is available
-    if not _ctx.cacert:
+    if not getattr(_ctx, "cacert", None):
+        logger.debug('calling https_setup to ensure SSL context is configured')
         https_setup(None, get_pilot_version())
 
-    # Prepare headers and auth
-    headers, use_oidc_token = _get_auth_and_headers(url, panda)
+    # Determine OIDC usage
+    auth_token_name, auth_origin = get_local_oidc_token_info()
+    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
+        logger.debug('switched off OIDC tokens for CERN-PTEST')
+        use_oidc_token = False
+    else:
+        use_oidc_token = bool(auth_token_name and auth_origin and panda)
+    logger.info("will use OIDC token authentication" if use_oidc_token else "will not use OIDC token authentication")
 
-    # If OIDC is required but content missing, mirror previous behavior and bail out
-    # (the helper logged a warning already)
-    if panda and use_oidc_token and not headers:
-        return ""
+    auth_token_content = ""
+    if use_oidc_token:
+        auth_token_content = get_auth_token_content(auth_token_name)
+        if not auth_token_content:
+            logger.warning(f"OIDC token requested but token content unreadable for token '{auth_token_name}'")
+            return ""
+
+    # Only add Accept if new API is used
+    accept = True if "api/v" in url else False
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
 
     # Merge params into URL
     url = _merge_query(url, params)
 
     # Disallow GET with body: explicit error (prevents silent misuse)
-    if method.upper() == "GET" and json_body is not None:
+    if method and method.upper() == "GET" and json_body is not None:
         raise ValueError("GET requests must not include json_body; use 'params=' instead")
 
-    # Defensive numeric conversion for common numeric fields
+    # Normalize some numeric fields to ints when possible (best-effort)
     try:
         _ensure_numeric_fields(json_body)
     except Exception:
-        logger.debug("numeric field normalization failed or was skipped")
+        logger.debug("numeric field normalization skipped or failed")
 
-    # Prepare body and possibly gzip it; headers are updated inside helper
-    # Also log a preview of the outgoing JSON payload for debugging
+    # Log preview of outgoing JSON body for debugging
     if json_body is not None:
         try:
-            preview_text = json.dumps(json_body, ensure_ascii=False)
-            logger.debug("outgoing JSON payload preview: %s", preview_text[:1024])
+            logger.debug(f"outgoing JSON payload preview: {json.dumps(json_body, ensure_ascii=False)[:1024]}")
         except Exception:
             logger.debug("failed to create outgoing payload preview")
 
+    # Prepare body bytes and headers (helper will set Content-Encoding if gzipped)
     data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
 
     logger.info(f"params = {params}")
@@ -1957,11 +1922,21 @@ def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json
     logger.info(f"headers = {hide_token(headers.copy())}")
     logger.debug(f"data_bytes length = {len(data_bytes) if data_bytes is not None else 0}")
 
-    # Build request
+    # Build urllib request
     req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
 
-    # SSL context and certificates
+    # SSL context and certificate handling
     ssl_context = _get_ssl_context(use_oidc_token)
+
+    # If not using OIDC token, attempt to load X.509 client cert (mTLS) into context
+    if not use_oidc_token:
+        try:
+            if getattr(_ctx, "cacert", None):
+                ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+                logger.debug(f"loaded X.509 client cert/key from '{_ctx.cacert}'")
+        except Exception as exc:
+            logger.warning(f"failed to load X.509 client cert/key ('{getattr(_ctx, 'cacert', None)}'): {exc}")
+
     if not secure:
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
@@ -1973,8 +1948,8 @@ def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json
     else:
         logger.info("will use IPv6 in server communication")
 
-    # Send request and handle network-level errors with minimal branching
-    ret_text = None
+    # Send request
+    ret_text: Optional[str] = None
     try:
         logger.debug("sending request to server")
         with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
@@ -1982,34 +1957,36 @@ def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json
             ret_text = response.read().decode("utf-8")
         logger.debug("sent request to server")
     except urllib.error.HTTPError as http_exc:
-        # HTTPError may include a body explaining the failure. Log it.
+        # HTTPError may include body - attempt to read it for diagnostics
         try:
             body = http_exc.read().decode("utf-8", errors="replace")
         except Exception:
             body = "<no body available>"
+
         code = getattr(http_exc, "code", "<no-code>")
         reason = getattr(http_exc, "reason", "<no-reason>")
-        logger.warning("failed to send request: HTTP Error %s: %s. Server response body: %s", code, reason, body[:2048])
+        logger.warning(f"failed to send request: HTTP Error {code}: {reason}. Server response body: {body[:2048]}")
 
-        # If server error and we sent a gzipped JSON body, retry once without gzip
+        # Retry once without gzip if server-side 5xx and we originally sent gzip
         try:
-            _code_int = int(code)
+            code_int = int(code)
         except Exception:
-            _code_int = 0
-        if 500 <= _code_int < 600 and json_body is not None and compressed:
+            code_int = 0
+
+        if 500 <= code_int < 600 and json_body is not None and compressed:
             logger.info("server returned 5xx -> retrying once without gzip compression")
             try:
                 headers_retry = dict(headers)
                 headers_retry.pop("Content-Encoding", None)
                 payload_retry = json.dumps(json_body).encode("utf-8")
-                logger.debug("retry JSON payload preview: %s", payload_retry.decode("utf-8", errors="replace")[:1024])
+                logger.debug(f"retry JSON payload preview: {payload_retry.decode('utf-8', errors='replace')[:1024]}")
                 req_retry = urllib.request.Request(url, data=payload_retry, headers=headers_retry, method=method)
                 with urllib.request.urlopen(req_retry, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-                    logger.info("[retry no-gzip] response.status=%s, response.reason=%s", response.status, response.reason)
+                    logger.info(f"[retry no-gzip] response.status={response.status}, response.reason={response.reason}")
                     ret_text = response.read().decode("utf-8")
                 logger.debug("sent retry (no-gzip) to server")
             except Exception as retry_exc:
-                logger.warning("retry without gzip failed: %s", retry_exc)
+                logger.warning(f"retry without gzip failed: {retry_exc}")
                 return f"failed to send request: HTTP Error {code}: {reason}"
         else:
             return f"failed to send request: HTTP Error {code}: {reason}"
@@ -2019,7 +1996,7 @@ def request2_bad(url: str = "", *, params: Optional[Dict[str, Any]] = None, json
         logger.warning(ret)
         return ret
 
-    # Parse textual response into dict/string as before
+    # Parse textual response into dict when possible
     if secure and isinstance(ret_text, str):
         return _parse_response_text(ret_text)
 
