@@ -1748,6 +1748,7 @@ def get_job_definition(queues: namedtuple, args: object) -> dict or str:
     elif os.path.exists(path):
         logger.info(f'will read job definition from file: {path}')
         res = get_job_definition_from_file(path, args.harvester, args.pod)
+        logger.debug(f'got job definition: {res}')
     elif args.harvester and args.harvester_submitmode.lower() == 'push':
         pass  # local job definition file not found (go to sleep)
     else:
@@ -2656,7 +2657,7 @@ def retrieve_bad(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             break
 
         dispatcher_response = _fetch_dispatcher_response()
-
+        logger.debug(f"Dispatcher response: {dispatcher_response!r}")
         if dispatcher_response is None:
             getjob_failures += 1
             max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
