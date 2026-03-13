@@ -1764,6 +1764,8 @@ def _get_ssl_context(use_oidc_token: bool) -> ssl.SSLContext:
     If OIDC is used we still want to verify server certificates; client cert
     loading is handled separately by the caller when needed.
     """
+    if use_oidc_token:
+        pass  # to bypass pylint error
     ctx = ssl.create_default_context()
     try:
         if hasattr(_ctx, "cacert") and _ctx.cacert:
