@@ -2187,11 +2187,24 @@ def _validate_dispatcher_response(resp: Dict[str, Any]) -> Optional[List[Dict[st
     Returns:
         List of job definition dicts if valid and jobs exist; otherwise None.
     """
-    success = resp.get("success", False)
+    success = resp.get("success", "ignore")  # on ND, it will be "ignore"
     message = resp.get("message", "")
-    if not success:
+    if success is False:
         logger.warning(f"Dispatcher success=False. message={message!r}")
         return None
+
+    if success == "ignore":
+        _status_code = resp.get("StatusCode")
+        try:
+            status_code = int(_status_code)
+        except Exception:
+            logger.warning(f"Dispatcher response has non-integer StatusCode={status_code!r}")
+            return None
+        if status_code is not None and status_code != 0:
+            logger.warning(f"Dispatcher response has nonzero StatusCode={_status_code}")
+            return None
+        else:
+            return resp
 
     data = resp.get("data")
     if not isinstance(data, dict):
