@@ -2454,6 +2454,9 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         getjob_failures = 0
 
         # build, validate and queue (this will also perform timing and condor updates)
+        # in the "new" format, job_definitions is a list of dicts; in the "old" format, it's a single dict
+        if isinstance(job_definitions, dict):
+            job_definitions = [job_definitions]
         job = _build_validate_and_queue(job_definitions, args.queue, args, traces, time_pre_getjob, queues)
         if job is None:
             _sleep_with_checks(min(5.0, float(get_job_retrieval_delay(args.harvester))))
