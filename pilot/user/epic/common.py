@@ -113,12 +113,23 @@ def get_payload_command(job: JobData, args: object = None) -> str:
         raise TrfDownloadFailure(diagnostics)
     logger.debug(f'user analysis trf: {trf_name}')
 
-    resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
-    resource = __import__(f'pilot.user.epic.resource.{resource_name}', globals(), locals(), [resource_name], 0)
+    try:
+        resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
+        resource = __import__(f'pilot.user.epic.resource.{resource_name}', globals(), locals(), [resource_name], 0)
 
-    # get the general setup command
-    cmd = resource.get_setup_command(job, False)
-    return cmd + get_analysis_run_command(job, trf_name)
+        # get the general setup command
+        cmd = resource.get_setup_command(job, False)
+    except Exception:
+        logger.info("Not using a resource specific setup command")
+    else:
+        return cmd + get_analysis_run_command(job, trf_name)
+
+    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
+    if ec != 0:
+        raise TrfDownloadFailure(diagnostics)
+    logger.debug(f'user analysis trf: {trf_name}')
+
+    return get_analysis_run_command(job, trf_name)
 
 
 def get_analysis_run_command(job: object, trf_name: str) -> str:
