@@ -696,8 +696,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         data['core_count'] = job.corecount
     if job.corecounts:
         _mean = mean(job.corecounts)
-        logger.info(f'mean actualcorecount: {_mean}')
-        data['mean_core_count'] = _mean
+        _mean_int = int(_mean)
+        logger.info(f'mean job.corecounts={_mean} int(mean)={_mean_int}')
+        data['mean_core_count'] = _mean_int
 
     # get the number of events, should report in heartbeat in case of preempted.
     if job.nevents != 0:
