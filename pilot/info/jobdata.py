@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """
@@ -358,7 +358,6 @@ class JobData(BaseData):
             ##'??define_internal_key': 'prodDBlocks',
             'storage_token': 'prodDBlockToken',
             'ddmendpoint': 'ddmEndPointIn',
-            'requestid': 'reqID'
         }
 
         return kmap

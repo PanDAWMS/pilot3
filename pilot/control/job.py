@@ -1748,7 +1748,6 @@ def get_job_definition(queues: namedtuple, args: object) -> dict or str:
     elif os.path.exists(path):
         logger.info(f'will read job definition from file: {path}')
         res = get_job_definition_from_file(path, args.harvester, args.pod)
-        logger.debug(f'got job definition: {res}')
     elif args.harvester and args.harvester_submitmode.lower() == 'push':
         pass  # local job definition file not found (go to sleep)
     else:
@@ -2337,6 +2336,11 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
     getjob_failures: int = 0
     getjob_requests: int = 0
 
+    # Maximum time (s) to wait for Harvester to place a job definition file after
+    # request_new_jobs() has been called.  Poll every HARVESTER_JOB_POLL_INTERVAL s.
+    HARVESTER_JOB_WAIT_TIMEOUT: int = 120
+    HARVESTER_JOB_POLL_INTERVAL: float = 2.0
+
     print_node_info()
     logger.info(f"Starting retrieve thread for queue {args.queue!r}")
 
@@ -2347,6 +2351,34 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
                 return False
             time.sleep(0.5)
         return True
+
+    def _wait_for_harvester_job_definition(timeout: int, poll_interval: float) -> bool:
+        """Poll for a Harvester-placed job definition file after request_new_jobs().
+
+        Harvester responds asynchronously: it writes a job definition file to the
+        working directory after receiving the request file created by request_new_jobs().
+        Without this wait the pilot would call _fetch_dispatcher_response() immediately,
+        find nothing, and — because fail_at_getjob_none() returns True for ATLAS —
+        fatally abort even though Harvester simply hasn't had time to respond yet.
+
+        :param timeout: maximum seconds to wait for the file to appear (int)
+        :param poll_interval: seconds between existence checks (float)
+        :return: True if a job definition file was found within the timeout, False otherwise (bool)
+        """
+        deadline = time.time() + timeout
+        logger.info(f"waiting up to {timeout} s for Harvester to place a job definition file "
+                    f"(polling every {poll_interval} s)")
+        while time.time() < deadline:
+            if args.graceful_stop.is_set() or args.abort_job.is_set():
+                logger.info("graceful_stop/abort_job set while waiting for Harvester job definition — aborting wait")
+                return False
+            path = locate_job_definition(args)
+            if path:
+                logger.info(f"Harvester job definition file found: {path}")
+                return True
+            time.sleep(poll_interval)
+        logger.warning(f"timed out after {timeout} s waiting for Harvester to place a job definition file")
+        return False
 
     while not args.graceful_stop.is_set():
         if args.abort_job.is_set():
@@ -2386,6 +2418,29 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
             break
 
         time_pre_getjob = time.time()
+
+        # When running under Harvester for any job beyond the first, request_new_jobs()
+        # has just been called inside proceed_with_getjob().  That call is fire-and-forget:
+        # it writes a request file and returns immediately, while Harvester responds
+        # asynchronously by placing a job definition file.  Poll for that file before
+        # calling _fetch_dispatcher_response() so we do not mistake "not yet written"
+        # for "no job available" and trigger a spurious fatal abort.
+        if args.harvester and jobnumber > 0:
+            found = _wait_for_harvester_job_definition(HARVESTER_JOB_WAIT_TIMEOUT, HARVESTER_JOB_POLL_INTERVAL)
+            if not found:
+                # Harvester did not deliver a job within the timeout.  Treat this the
+                # same as any other empty response: increment the failure counter and
+                # let the existing retry/give-up logic below handle it, rather than
+                # immediately triggering a fatal abort.
+                logger.warning("no job definition received from Harvester within timeout — treating as empty response")
+                getjob_failures += 1
+                max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+                if getjob_failures >= max_failures:
+                    logger.warning(f"did not get a job -- max number of job request failures reached: {getjob_failures}")
+                    args.graceful_stop.set()
+                    break
+                _sleep_with_checks(get_job_retrieval_delay(args.harvester))
+                continue
 
         # fetch dispatcher response (may return None)
         dispatcher_response = _fetch_dispatcher_response(queues, args)
