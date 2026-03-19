@@ -128,7 +128,7 @@ from pilot.util.harvester import (
     remove_job_request_file,
     request_new_jobs,
 )
-from pilot.util.https import get_job_status_from_server
+# from pilot.util.https import get_job_status_from_server
 from pilot.util.jobmetrics import get_job_metrics
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean, float_to_rounded_string
@@ -2287,11 +2287,19 @@ def _build_validate_and_queue(job_defs: List[Dict[str, Any]], queuename: str, ar
         logger.warning(f"Job failed _validate_job() (PandaID={_job_id_str(job)})")
         return None
 
+    # keep track of start time
+    job.starttime = int(time.time())
+    logger.info(f'job {job.jobid} has start time={job.starttime}')
+
+    # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
+    if "setdebugmode" in job.infosys.queuedata.catchall:
+        set_debug_mode(job.jobid, args.url, args.port)
+
     # Legacy behaviour: try to get job status from server (non-fatal)
-    try:
-        _ = get_job_status_from_server(job.jobid, args.url, args.port)
-    except Exception as error:
-        logger.warning(f"{error}")
+    #try:
+    #    _ = get_job_status_from_server(job.jobid, args.url, args.port)
+    #except Exception as error:
+    #    logger.warning(f"{error}")
 
     # TIMING: add pre/post getjob pilot timing
     try:

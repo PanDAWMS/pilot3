@@ -1766,15 +1766,27 @@ def _get_ssl_context(use_oidc_token: bool) -> ssl.SSLContext:
     """
     if use_oidc_token:
         pass  # to bypass pylint error
-    ctx = ssl.create_default_context()
+    capath_val = getattr(_ctx, "capath", None)
+    # cacert_val = getattr(_ctx, "cacert", None)
+
     try:
-        if hasattr(_ctx, "cacert") and _ctx.cacert:
-            # set CA bundle used for server verification
-            ctx.load_verify_locations(cafile=_ctx.cacert)
-    except Exception:
-        # best effort: if loading the CA file fails, keep default context
-        pass
-    return ctx
+        # Pass capath (grid CA dir) AND cafile together — matches https_setup()
+        context = ssl.create_default_context(
+            capath=capath_val or None,
+            cafile=None,  # user proxy is NOT a CA file; don't pass it here
+        )
+        # Optionally also load certifi as a fallback if the grid CA dir is absent
+        if not capath_val:
+            try:
+                if certifi:
+                    context.load_verify_locations(cafile=certifi.where())
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning(f"failed to create SSL context with capath={capath_val}: {exc}, falling back to default")
+        context = ssl.create_default_context()
+
+    return context
 
 
 def _parse_response_text(text: str) -> Union[str, Dict[str, Any]]:

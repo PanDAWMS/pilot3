@@ -50,6 +50,7 @@ from pilot.control.payloads import (
     eventservice,
     eventservicemerge,
     generic,
+    kubernetesx,
 )
 from pilot.control.job import send_state
 from pilot.info import JobData
@@ -191,24 +192,52 @@ def _validate_payload(job: JobData) -> bool:
 
 
 def get_payload_executor(args: object, job: JobData, out: TextIO, err: TextIO, traces: Any) -> Any:
-    """
-    Get payload executor function for different payload.
+    """Return the appropriate payload executor for the given job.
 
-    :param args: Pilot arguments object (object)
-    :param job: job object (JobData)
-    :param out: stdout file object (TextIO)
-    :param err: stderr file object (TextIO)
-    :param traces: traces object (Any)
-    :return: instance of a payload executor (Any).
+    Executor selection follows this priority order:
+
+    1. **Kubernetes native** – returned when ``config.k8s_native`` is truthy
+       or the environment variable ``PILOT_K8S_NATIVE`` is set to ``"1"`` or
+       ``"true"`` (case-insensitive). This takes precedence over all other
+       executor types, including event-service jobs, so ensure the k8s flag is
+       only set in environments where the pod infrastructure supports it.
+    2. **Event service** – returned when ``job.is_eventservice`` is ``True``
+       (this also covers the native HPO workflow).
+    3. **Event service merge** – returned when ``job.is_eventservicemerge``
+       is ``True``.
+    4. **Generic** – the default executor for all other jobs.
+
+    Args:
+        args: Pilot arguments object containing queue name, queuedata, etc.
+        job: PanDA job object describing the payload to execute.
+        out: File object used to capture payload stdout.
+        err: File object used to capture payload stderr.
+        traces: Internal pilot state traces object.
+
+    Returns:
+        An executor instance exposing at minimum a ``run()`` method. The
+        concrete type is one of :class:`kubernetesx.Executor`,
+        :class:`eventservice.Executor`, :class:`eventservicemerge.Executor`,
+        or :class:`generic.Executor`.
     """
+    if getattr(config, "k8s_native", False) or os.environ.get("PILOT_K8S_NATIVE", "").lower() in ("1", "true"):
+        try:
+            return kubernetesx.Executor(args, job, out, err, traces)
+        except ImportError:
+            logger.error(
+                "Kubernetes executor requested (k8s_native/PILOT_K8S_NATIVE) but the "
+                "'kubernetes' package is not available on this node. "
+                "Falling through to generic executor."
+            )
+            return generic.Executor(args, job, out, err, traces)
+
     if job.is_eventservice:  # True for native HPO workflow as well
-        payload_executor = eventservice.Executor(args, job, out, err, traces)
-    elif job.is_eventservicemerge:
-        payload_executor = eventservicemerge.Executor(args, job, out, err, traces)
-    else:
-        payload_executor = generic.Executor(args, job, out, err, traces)
+        return eventservice.Executor(args, job, out, err, traces)
 
-    return payload_executor
+    if job.is_eventservicemerge:
+        return eventservicemerge.Executor(args, job, out, err, traces)
+
+    return generic.Executor(args, job, out, err, traces)
 
 
 def execute_payloads(queues: namedtuple, traces: Any, args: object):  # noqa: C901
