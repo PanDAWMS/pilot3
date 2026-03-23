@@ -33,7 +33,10 @@ import queue
 import time
 
 from collections import namedtuple
-from datetime import datetime
+from datetime import (
+    datetime,
+    timezone
+)
 #from dataclasses import dataclass
 from json import (
     dumps,
@@ -361,19 +364,265 @@ def publish_harvester_reports(state: str, args: Any, data: dict, job: Any, final
     return True
 
 
-def write_heartbeat_to_file(data: dict) -> bool:
+def safe_cast(value: Any, target_type: type[Any]) -> Optional[Any]:
+    """Safely cast a value to the requested type.
+
+    Args:
+        value: The input value to convert.
+        target_type: The target Python type.
+
+    Returns:
+        The converted value, or ``None`` if conversion is not possible.
+    """
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, target_type):
+        return value
+
+    try:
+        if target_type is int:
+            return int(float(value))
+        if target_type is float:
+            return float(value)
+        if target_type is str:
+            return str(value)
+        return target_type(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_time_to_epoch(value: Any) -> Optional[float]:
+    """Convert a time value to UTC epoch seconds.
+
+    Accepts strings in formats like:
+    - ``YYYY-MM-DD HH:MM:SS``
+    - ``YYYY-MM-DDTHH:MM:SS``
+
+    Args:
+        value: The value to convert.
+
+    Returns:
+        Epoch seconds as a float, or ``None`` if conversion fails.
+    """
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                dt = datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except ValueError:
+                pass
+
+    return None
+
+
+def convert_new_to_old(
+    data_new: dict[str, Any],
+    new_to_old: dict[str, str],
+    old_field_types: dict[str, type[Any]],
+) -> dict[str, Any]:
+    """Convert a new-format dictionary into the old-format dictionary.
+
+    Rules:
+    - New keys are mapped to old keys using ``new_to_old``.
+    - Empty mappings (``""``) are skipped.
+    - ``timestamp`` is always generated using ``time_stamp()``.
+    - ``startTime`` and ``endTime`` are converted from datetime strings to UTC
+      epoch seconds.
+    - All other values are converted safely to the type declared in
+      ``old_field_types``.
+
+    Args:
+        data_new: Input dictionary using the new field names.
+        new_to_old: Mapping from new field names to old field names.
+        old_field_types: Expected Python types for the old-format fields.
+
+    Returns:
+        A dictionary using the old field names and converted values.
+    """
+    data_old: dict[str, Any] = {}
+
+    old_to_new = {
+        old_name: new_name
+        for new_name, old_name in new_to_old.items()
+        if old_name
+    }
+
+    for old_field, expected_type in old_field_types.items():
+        if old_field == "timestamp":
+            data_old[old_field] = time_stamp()
+            continue
+
+        new_field = old_to_new.get(old_field)
+        if not new_field:
+            continue
+
+        if new_field not in data_new:
+            continue
+
+        raw_value = data_new[new_field]
+
+        if old_field in {"startTime", "endTime"}:
+            converted = parse_time_to_epoch(raw_value)
+        else:
+            converted = safe_cast(raw_value, expected_type)
+
+        if converted is not None:
+            data_old[old_field] = converted
+
+    return data_old
+
+
+def convert_to_old_format(data_new: dict) -> dict:
+    """
+    Convert a heartbeat dictionary from the new PanDA API format to the old format.
+
+    Args:
+        data_new: server data in the new PanDA API format (dict)
+
+    Return:
+        A dictionary in the old PanDA API format (dict).
+    """
+    new_to_old: dict[str, str] = {
+        "job_id": "jobId",
+        "job_status": "state",
+        "site_name": "siteName",
+        "timestamp": "timestamp",
+        "node": "node",
+        "attempt_nr": "attemptNr",
+        "scheduler_id": "schedulerID",
+        "pilot_id": "pilotID",
+        "batch_id": "batchID",
+        "start_time": "startTime",
+        "job_output_report": "xml",
+        "meta_data": "metaData",
+        "grid": "",
+        "source_site": "",
+        "destination_site": "",
+        "stdout": "",
+        "timeout": "",
+        "core_count": "coreCount",
+        "mean_core_count": "",
+        "n_events": "nEvents",
+        "n_input_files": "",
+        "cpu_consumption_time": "cpuConsumptionTime",
+        "cpu_conversion_factor": "cpuConversionFactor",
+        "cpu_consumption_unit": "cpuConsumptionUnit",
+        "cpu_architecture_level": "cpu_architecture_level",
+        "max_rss": "maxRSS",
+        "max_vmem": "maxVMEM",
+        "max_swap": "maxSWAP",
+        "max_pss": "maxPSS",
+        "avg_rss": "avgRSS",
+        "avg_vmem": "avgVMEM",
+        "avg_swap": "avgSWAP",
+        "avg_pss": "avgPSS",
+        "tot_rchar": "totRCHAR",
+        "tot_wchar": "totWCHAR",
+        "tot_rbytes": "totRBYTES",
+        "tot_wbytes": "totWBYTES",
+        "rate_rchar": "rateRCHAR",
+        "rate_wchar": "rateWCHAR",
+        "rate_rbytes": "rateRBYTES",
+        "rate_wbytes": "rateWBYTES",
+        "corrupted_files": "",
+        "job_metrics": "jobMetrics",
+        "pilot_timing": "pilotTiming",
+        "pilot_log": "pilotLog",
+        "end_time": "endTime",
+        "pilot_error_code": "pilotErrorCode",
+        "pilot_error_diag": "pilotErrorDiag",
+        "trans_exit_code": "transExitCode",
+        "exe_error_code": "exeErrorCode",
+        "exe_error_diag": "exeErrorDiag",
+    }
+
+    old_field_types: dict[str, type[Any]] = {
+        "jobId": str,
+        "state": str,
+        "timestamp": str,
+        "siteName": str,
+        "node": str,
+        "attemptNr": int,
+        "schedulerID": str,
+        "pilotID": str,
+        "batchID": str,
+        "startTime": float,
+        "xml": str,
+        "metaData": str,
+        "coreCount": int,
+        "nEvents": int,
+        "cpuConsumptionTime": int,
+        "cpuConversionFactor": float,
+        "cpuConsumptionUnit": str,
+        "cpu_architecture_level": str,
+        "maxRSS": int,
+        "maxVMEM": int,
+        "maxSWAP": int,
+        "maxPSS": int,
+        "avgRSS": float,
+        "avgVMEM": float,
+        "avgSWAP": float,
+        "avgPSS": float,
+        "totRCHAR": int,
+        "totWCHAR": int,
+        "totRBYTES": int,
+        "totWBYTES": int,
+        "rateRCHAR": float,
+        "rateWCHAR": float,
+        "rateRBYTES": float,
+        "rateWBYTES": float,
+        "jobMetrics": str,
+        "pilotTiming": str,
+        "pilotLog": str,
+        "endTime": float,
+        "pilotErrorCode": int,
+        "pilotErrorDiag": str,
+        "transExitCode": int,
+        "exeErrorCode": int,
+        "exeErrorDiag": str,
+    }
+
+    return convert_new_to_old(data_new, new_to_old, old_field_types)
+
+
+def write_heartbeat_to_file(data_new: dict) -> bool:
     """
     Write heartbeat dictionary to file.
 
     This is only done when server updates are not wanted.
+    The function takes the job update dictinoary in the new PanDA API format,
+    converts it to the old format and writes both to file (the old format is needed
+    for aCT, but the new format is also stored for future use).
 
-    :param data: server data (dict)
+    :param data_new: server data in the new PanDA API format (dict)
     :return: True if successful, False otherwise (bool).
     """
-    path = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.heartbeat_message)
-    if write_json(path, data):
-        logger.debug(f'heartbeat dictionary: {data}')
-        logger.debug(f'wrote heartbeat to file: {path}')
+    path_old = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.heartbeat_message)
+
+    # note: aCT does not yet support the new PanDA API format, so we
+    # need to write the heartbeat message in the old format, but also store
+    # the new format.
+    path_new = path_old.replace(".json", "_new.json")
+    data_old = convert_to_old_format(data_new)
+    logger.debug(f"data_new = {data_new}")
+    logger.debug(f"data_old = {data_old}")
+    failed = False
+    for path, data in zip([path_new, path_old], [data_new, data_old]):
+        if write_json(path, data):
+            logger.debug(f'heartbeat dictionary: {data}')
+            logger.debug(f'wrote heartbeat to file: {path}')
+        else:
+            failed = True
+            break
+
+    if not failed:
         return True
 
     return False

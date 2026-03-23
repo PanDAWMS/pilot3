@@ -32,6 +32,7 @@
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from pilot.util.config import config
 from pilot.util.constants import (
@@ -437,6 +438,15 @@ def timing_report(job_id: int, args: object) -> tuple[int, int, int, int, int, i
 
 
 def time_stamp() -> str:
+    """Return the current UTC timestamp in ISO-8601 format.
+
+    Returns:
+        A UTC timestamp string such as ``2026-03-20T08:15:30Z``.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def time_stamp_old() -> str:
     """
     Return ISO-8601 compliant date/time format
 
