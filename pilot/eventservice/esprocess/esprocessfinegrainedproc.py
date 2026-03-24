@@ -79,16 +79,16 @@ class ESProcessFineGrainedProc(threading.Thread):
             self.__stop_set_time = time.time()
             self.__stop_delay = delay
 
-    def get_job_id(self) -> str:
+    def get_job_id(self) -> int:
         """
         Return job id.
 
-        :return: job id (str).
+        :return: job id (int).
         """
         if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].jobid:
             return self.__payload['job'].jobid
 
-        return ''
+        return 0
 
     def get_corecount(self) -> int:
         """

@@ -22,6 +22,7 @@
 import logging
 import os
 import traceback
+from typing import Any, Dict
 
 from pilot.common.exception import FileHandlingFailure
 from pilot.util import https
@@ -88,7 +89,152 @@ def vomsproxyinfo(options: str = '-all', mute: bool = False, path: str = '') -> 
     return exit_code, stdout, stderr
 
 
+def _extract_proxy_from_response(res: Any, voms_role: str) -> str:
+    """
+    Extract proxy contents from either the new or old PanDA proxy API response.
+
+    New-style response example:
+        {
+          "success": true,
+          "message": "",
+          "data": {"user_proxy": "-----BEGIN CERTIFICATE-----..."}
+        }
+
+    Old-style response example:
+        {
+          "StatusCode": 0,
+          "errorDialog": "",
+          "userProxy": "-----BEGIN CERTIFICATE-----..."
+        }
+
+    Raises:
+        ValueError: if the response indicates an error or has an unexpected format.
+    """
+    if res is None:
+        raise ValueError(f"empty response when requesting proxy for role='{voms_role}'")
+
+    if isinstance(res, str):
+        raise ValueError(f"string response when requesting proxy for role='{voms_role}': {res}")
+
+    if not isinstance(res, dict):
+        raise ValueError(f"unexpected proxy response type={type(res)} for role='{voms_role}': {res!r}")
+
+    # Old-style: StatusCode + userProxy
+    if "StatusCode" in res:
+        status_code = res.get("StatusCode")
+        if status_code != 0:
+            err = res.get("errorDialog", "unknown error")
+            raise ValueError(
+                f"panda server returned: {err!r} for proxy role '{voms_role}' (StatusCode={status_code})"
+            )
+        proxy_contents = res.get("userProxy")
+        if not proxy_contents:
+            raise ValueError(f"missing 'userProxy' in proxy response for role='{voms_role}'")
+        return proxy_contents
+
+    # New-style: success + data.user_proxy
+    if "success" in res:
+        if res.get("success") is not True:
+            msg = res.get("message", "unknown error")
+            raise ValueError(
+                f"panda server returned success=False for proxy role '{voms_role}': {msg!r}"
+            )
+
+        data = res.get("data") or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"unexpected 'data' format in proxy response for role='{voms_role}': {data!r}")
+
+        proxy_contents = data.get("user_proxy") or data.get("userProxy")
+        if not proxy_contents:
+            raise ValueError(f"missing 'user_proxy' in proxy response data for role='{voms_role}'")
+        return proxy_contents
+
+    # Unknown format
+    raise ValueError(f"unrecognised proxy response format for role='{voms_role}': {res!r}")
+
+
 def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
+    """
+    Download and store a proxy.
+
+    On read-only file systems (e.g. K8s), the default output path may not be writable.
+    In that case, the proxy will be stored in the pilot workdir instead and the path
+    will be updated in the return value (and X509_USER_PROXY environment variable).
+
+    Args:
+        proxy_outfile_name: Path to the file where the proxy should be stored.
+        voms_role: VOMS role / VO name to request, e.g. "atlas".
+
+    Returns:
+        A tuple (result, proxy_path):
+            result: True on success, False on failure.
+            proxy_path: Path to the written proxy file (or the original path on failure).
+    """
+    try:
+        # It assumes that https_setup() was done already
+        url = os.environ.get("PANDA_SERVER_URL", config.Pilot.pandaserver)
+
+        pilot_user = os.environ.get("PILOT_USER", "generic").lower()
+        user = __import__(f"pilot.user.{pilot_user}.proxy", globals(), locals(), [pilot_user], 0)
+        data: Dict[str, Any] = user.getproxy_dictionary(voms_role)
+
+        # New API endpoint
+        res = https.request2(f"{url}/api/v1/creds/get_proxy", params=data)
+
+        if res is None:
+            logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
+            # Fallback to old endpoint via curl-based helper (if still available)
+            res = https.request(f"{url}/server/panda/getProxy", data=data)
+            if res is None:
+                logger.error(
+                    f"unable to get proxy with role '{voms_role}' from panda server using curl method"
+                )
+                return False, proxy_outfile_name
+
+        # Extract proxy from either new-style or old-style response
+        proxy_contents = _extract_proxy_from_response(res, voms_role)
+
+    except Exception as exc:
+        logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
+        return False, proxy_outfile_name
+
+    def create_file(filename: str, contents: str) -> bool:
+        """Create a file with the given contents and secure permissions."""
+        _file = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.close(_file)
+        # write_file() returns True on success
+        return write_file(filename, contents, mute=False)
+
+    result = False
+    try:
+        # Pre-create proxy file with secure permissions and then write into it.
+        result = create_file(proxy_outfile_name, proxy_contents)
+    except (OSError, FileHandlingFailure) as exc:
+        logger.error(f"exception caught:\n{exc},\ntraceback: {traceback.format_exc()}")
+        # Handle read-only FS by writing to PILOT_HOME instead
+        if "Read-only file system" in str(exc):
+            proxy_outfile_name = os.path.join(
+                os.getenv("PILOT_HOME", "."), os.path.basename(proxy_outfile_name)
+            )
+            logger.info(f"attempting writing proxy to alternative path: {proxy_outfile_name}")
+            try:
+                result = create_file(proxy_outfile_name, proxy_contents)
+            except (OSError, FileHandlingFailure) as e:
+                logger.error(f"exception caught:\n{e},\ntraceback: {traceback.format_exc()}")
+            else:
+                logger.debug(
+                    f"updating X509_USER_PROXY to alternative path {proxy_outfile_name} "
+                    "(valid until end of current job)"
+                )
+                os.environ["X509_USER_PROXY"] = proxy_outfile_name
+    else:
+        # On success, dump voms-proxy-info -all to log
+        _, _, _ = vomsproxyinfo(options="-all", path=proxy_outfile_name)
+
+    return result, proxy_outfile_name
+
+
+def get_proxy_old(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
     """
     Download and store a proxy.
 
@@ -107,7 +253,8 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
         user = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
         data = user.getproxy_dictionary(voms_role)
 
-        res = https.request2(f'{url}/server/panda/getProxy', data=data)
+        # res = https.request2(f'{url}/server/panda/getProxy', json_body=data)
+        res = https.request2(f'{url}/api/v1/creds/get_proxy', params=data)
         if res is None:
             logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
             res = https.request('{url}/server/panda/getProxy', data=data)
@@ -119,6 +266,7 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
             logger.error(f"panda server returned a string instead of a dictionary: {res}")
             return False, proxy_outfile_name
 
+        logger.debug(f'get_proxy server response: {res}')
         if res['StatusCode'] != 0:
             logger.error(f"panda server returned: \'{res['errorDialog']}\' for proxy role \'{voms_role}\'")
             return False, proxy_outfile_name

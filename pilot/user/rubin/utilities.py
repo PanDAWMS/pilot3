@@ -101,7 +101,7 @@ def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str 
     :param name: name of memory monitor (str)
     :return: node structure (dict).
     """
-    if not allowtxtfile:  # to bypass pylint complaint
+    if allowtxtfile:  # bypass pylint warning
         pass
     node = {}
 
@@ -113,7 +113,7 @@ def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str 
         logger.warning(f'failed to get memory values from memory monitor tool: {exc}')
         summary_dictionary = {}
     else:
-        logger.debug(f"summary_dictionary={str(summary_dictionary)}")
+        logger.debug(f"summary_dictionary={summary_dictionary}")
 
     # Fill the node dictionary
     if summary_dictionary and summary_dictionary != {}:
@@ -126,74 +126,74 @@ def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str 
             version = 'unknown'
         if version == 'MemoryMonitor':
             try:
-                node['maxRSS'] = summary_dictionary['Max']['maxRSS']
-                node['maxVMEM'] = summary_dictionary['Max']['maxVMEM']
-                node['maxSWAP'] = summary_dictionary['Max']['maxSwap']
-                node['maxPSS'] = summary_dictionary['Max']['maxPSS']
-                node['avgRSS'] = summary_dictionary['Avg']['avgRSS']
-                node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
-                node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
-                node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
+                node['max_rss'] = summary_dictionary['Max']['maxRSS']
+                node['max_vmem'] = summary_dictionary['Max']['maxVMEM']
+                node['max_swap'] = summary_dictionary['Max']['maxSwap']
+                node['max_pss'] = summary_dictionary['Max']['maxPSS']
+                node['avg_rss'] = summary_dictionary['Avg']['avgRSS']
+                node['avg_vmem'] = summary_dictionary['Avg']['avgVMEM']
+                node['avg_swap'] = summary_dictionary['Avg']['avgSwap']
+                node['avg_pss'] = summary_dictionary['Avg']['avgPSS']
             except KeyError as exc:
                 logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
-                node['maxRSS'] = -1
-                node['maxVMEM'] = -1
-                node['maxSWAP'] = -1
-                node['maxPSS'] = -1
-                node['avgRSS'] = -1
-                node['avgVMEM'] = -1
-                node['avgSWAP'] = -1
-                node['avgPSS'] = -1
+                node['max_rss'] = -1
+                node['max_vmem'] = -1
+                node['max_swap'] = -1
+                node['max_pss'] = -1
+                node['avg_rss'] = -1
+                node['avg_vmem'] = -1
+                node['avg_swap'] = -1
+                node['avg_pss'] = -1
             else:
                 logger.info("extracted standard info from memory monitor json")
             try:
-                node['totRCHAR'] = summary_dictionary['Max']['totRCHAR']
-                node['totWCHAR'] = summary_dictionary['Max']['totWCHAR']
-                node['totRBYTES'] = summary_dictionary['Max']['totRBYTES']
-                node['totWBYTES'] = summary_dictionary['Max']['totWBYTES']
-                node['rateRCHAR'] = summary_dictionary['Avg']['rateRCHAR']
-                node['rateWCHAR'] = summary_dictionary['Avg']['rateWCHAR']
-                node['rateRBYTES'] = summary_dictionary['Avg']['rateRBYTES']
-                node['rateWBYTES'] = summary_dictionary['Avg']['rateWBYTES']
-            except KeyError:
-                logger.warning("standard memory fields were not found in memory monitor json (or json doesn't exist yet)")
+                node['tot_rchar'] = summary_dictionary['Max']['totRCHAR']
+                node['tot_wchar'] = summary_dictionary['Max']['totWCHAR']
+                node['tot_rbytes'] = summary_dictionary['Max']['totRBYTES']
+                node['tot_wbytes'] = summary_dictionary['Max']['totWBYTES']
+                node['rate_rchar'] = summary_dictionary['Avg']['rateRCHAR']
+                node['rate_wchar'] = summary_dictionary['Avg']['rateWCHAR']
+                node['rate_rbytes'] = summary_dictionary['Avg']['rateRBYTES']
+                node['rate_wbytes'] = summary_dictionary['Avg']['rateWBYTES']
+            except KeyError as exc:
+                logger.warning(f"standard memory fields were not found in memory monitor json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from memory monitor json")
         elif version == 'prmon':
             try:
-                node['maxRSS'] = int(summary_dictionary['Max']['rss'])
-                node['maxVMEM'] = int(summary_dictionary['Max']['vmem'])
-                node['maxSWAP'] = int(summary_dictionary['Max']['swap'])
-                node['maxPSS'] = int(summary_dictionary['Max']['pss'])
-                node['avgRSS'] = summary_dictionary['Avg']['rss']
-                node['avgVMEM'] = summary_dictionary['Avg']['vmem']
-                node['avgSWAP'] = summary_dictionary['Avg']['swap']
-                node['avgPSS'] = summary_dictionary['Avg']['pss']
+                node['max_rss'] = int(summary_dictionary['Max']['rss'])
+                node['max_vmem'] = int(summary_dictionary['Max']['vmem'])
+                node['max_swap'] = int(summary_dictionary['Max']['swap'])
+                node['max_pss'] = int(summary_dictionary['Max']['pss'])
+                node['avg_rss'] = summary_dictionary['Avg']['rss']
+                node['avg_vmem'] = summary_dictionary['Avg']['vmem']
+                node['avg_swap'] = summary_dictionary['Avg']['swap']
+                node['avg_pss'] = summary_dictionary['Avg']['pss']
             except KeyError as exc:
                 logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
-                node['maxRSS'] = -1
-                node['maxVMEM'] = -1
-                node['maxSWAP'] = -1
-                node['maxPSS'] = -1
-                node['avgRSS'] = -1
-                node['avgVMEM'] = -1
-                node['avgSWAP'] = -1
-                node['avgPSS'] = -1
+                node['max_rss'] = -1
+                node['max_vmem'] = -1
+                node['max_swap'] = -1
+                node['max_pss'] = -1
+                node['avg_rss'] = -1
+                node['avg_vmem'] = -1
+                node['avg_swap'] = -1
+                node['avg_pss'] = -1
             else:
                 logger.info("extracted standard info from prmon json")
             try:
-                node['totRCHAR'] = int(summary_dictionary['Max']['rchar'])
-                node['totWCHAR'] = int(summary_dictionary['Max']['wchar'])
-                node['totRBYTES'] = int(summary_dictionary['Max']['read_bytes'])
-                node['totWBYTES'] = int(summary_dictionary['Max']['write_bytes'])
-                node['rateRCHAR'] = summary_dictionary['Avg']['rchar']
-                node['rateWCHAR'] = summary_dictionary['Avg']['wchar']
-                node['rateRBYTES'] = summary_dictionary['Avg']['read_bytes']
-                node['rateWBYTES'] = summary_dictionary['Avg']['write_bytes']
-            except KeyError:
-                logger.warning("standard memory fields were not found in prmon json (or json doesn't exist yet)")
+                node['tot_rchar'] = int(summary_dictionary['Max']['rchar'])
+                node['tot_wchar'] = int(summary_dictionary['Max']['wchar'])
+                node['tot_rbytes'] = int(summary_dictionary['Max']['read_bytes'])
+                node['tot_wbytes'] = int(summary_dictionary['Max']['write_bytes'])
+                node['rate_rchar'] = summary_dictionary['Avg']['rchar']
+                node['rate_wchar'] = summary_dictionary['Avg']['wchar']
+                node['rate_rbytes'] = summary_dictionary['Avg']['read_bytes']
+                node['rate_wbytes'] = summary_dictionary['Avg']['write_bytes']
+            except KeyError as exc:
+                logger.warning(f"standard memory fields were not found in prmon json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from prmon json")
         else:
@@ -303,13 +303,13 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = None) -> dict:
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = None) -> dict:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
     :param path: path to memory monitor txt output file (str)
     :param storejson: store dictionary on disk if True (bool)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :return: prmon metadata (dict).
     """
     # get the raw memory monitor output, convert to dictionary

@@ -29,6 +29,7 @@ from signal import SIGTERM
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import TrfDownloadFailure
 from pilot.info.jobdata import JobData
+from pilot.util.auxiliary import get_resource_name
 from pilot.util.config import config
 from pilot.util.constants import (
     UTILITY_AFTER_PAYLOAD_FINISHED,
@@ -106,6 +107,22 @@ def get_payload_command(job: JobData, args: object = None) -> str:
     userjob = job.is_analysis()
     tmp = 'user analysis' if userjob else 'production'
     logger.info(f'pilot is running a {tmp} job')
+
+    ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
+    if ec != 0:
+        raise TrfDownloadFailure(diagnostics)
+    logger.debug(f'user analysis trf: {trf_name}')
+
+    try:
+        resource_name = get_resource_name()  # 'grid' if no hpc_resource is set
+        resource = __import__(f'pilot.user.epic.resource.{resource_name}', globals(), locals(), [resource_name], 0)
+
+        # get the general setup command
+        cmd = resource.get_setup_command(job, False)
+    except Exception:
+        logger.info("Not using a resource specific setup command")
+    else:
+        return cmd + get_analysis_run_command(job, trf_name)
 
     ec, diagnostics, trf_name = get_analysis_trf(job.transformation, job.workdir, base_urls)
     if ec != 0:
@@ -431,7 +448,7 @@ def post_prestagein_utility_command(**kwargs: dict):
         pass
 
 
-def process_debug_command(debug_command: str, pandaid: str) -> str:
+def process_debug_command(debug_command: str, pandaid: int) -> str:
     """
     Process a debug command.
 
@@ -441,7 +458,7 @@ def process_debug_command(debug_command: str, pandaid: str) -> str:
     to the server).
 
     :param debug_command: debug command (str)
-    :param pandaid: PanDA id (str)
+    :param pandaid: PanDA id (int)
     :return: updated debug command (str).
     """
     if pandaid:  # to bypass pylint score 0
@@ -463,13 +480,13 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: str) -> str:
+def get_pilot_id(jobid: int) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 
     Update if necessary (do not used if you want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (str)
+    :param jobid: PanDA job id - UNUSED (int)
     :return: pilot id (str).
     """
     if jobid:  # to bypass pylint score 0

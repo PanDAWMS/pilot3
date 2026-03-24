@@ -158,10 +158,10 @@ class ESProcessFineGrainedProc(threading.Thread):
         self.close_logs()
         self.__thread_pool.shutdown(wait=False)
 
-    def get_job_id(self):
+    def get_job_id(self) -> int:
         if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].jobid:
             return self.__payload['job'].jobid
-        return ''
+        return 0
 
     def get_job(self):
         if 'job' in self.__payload and self.__payload['job']:

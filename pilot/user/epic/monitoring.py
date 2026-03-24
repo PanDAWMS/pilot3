@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Functions related to monitoring for eic user."""
+"""Functions related to monitoring for epic user."""
 
 
 def fast_monitor_tasks(job: object) -> int:

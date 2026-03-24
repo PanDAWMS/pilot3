@@ -312,7 +312,7 @@ def post_prestagein_utility_command(**kwargs: dict):
     # stdout = kwargs.get('output', None)
 
 
-def process_debug_command(debug_command: str, pandaid: str) -> str:
+def process_debug_command(debug_command: str, pandaid: int) -> str:
     """
     Process the debug command.
 
@@ -321,7 +321,7 @@ def process_debug_command(debug_command: str, pandaid: str) -> str:
     to the server).
 
     :param debug_command: debug command (str)
-    :param pandaid: PanDA job id (str)
+    :param pandaid: PanDA job id (int)
     :return: updated debug command (str).
     """
     if pandaid:  # to bypass pylint score 0
@@ -345,7 +345,7 @@ def allow_timefloor(submitmode: str) -> bool:
     return allow
 
 
-def get_pilot_id(jobid: str) -> str:
+def get_pilot_id(jobid: int) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 

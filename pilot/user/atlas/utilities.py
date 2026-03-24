@@ -97,7 +97,7 @@ def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
 
 
 def get_memory_monitor_setup(pid: int,
-                             jobid: str,
+                             jobid: int,
                              workdir: str,
                              setup: str = "",
                              use_container: bool = True) -> tuple[str, int]:
@@ -109,7 +109,7 @@ def get_memory_monitor_setup(pid: int,
     to use a fixed version for the setup. Currently, release 21.0.22 is used.
 
     :param pid: job process id (int)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :param workdir: job work directory (str)
     :param setup: optional setup in case asetup can not be used, which uses infosys (str)
     :param use_container: optional boolean (bool)
@@ -135,7 +135,7 @@ def get_memory_monitor_setup(pid: int,
     return cmd, pid
 
 
-def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
+def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
     """
     Return a pid from the proper source to be used with the memory monitor.
 
@@ -146,7 +146,7 @@ def get_proper_pid(pid: int, jobid: str, use_container: bool = True) -> int:
     launch the memory monitor as it is not needed any longer.
 
     :param pid: process id (int)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :param use_container: optional boolean (bool)
     :return: pid (int).
     """
@@ -206,11 +206,11 @@ def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
     return stdout
 
 
-def get_pid_for_jobid(jobid: str) -> int or None:
+def get_pid_for_jobid(jobid: int) -> int or None:
     """
     Return the process id for the ps entry that contains the job id.
 
-    :param jobid: PanDA job id (str).
+    :param jobid: PanDA job id (int).
     :return: pid (int) or None if no such process (int or None).
     """
     pid = find_process_by_jobid(jobid)
@@ -219,8 +219,9 @@ def get_pid_for_jobid(jobid: str) -> int or None:
 
     # fallback to ps command
     ps = get_ps_info()
+    jobid_str = str(jobid)
     for line in ps.split('\n'):
-        if jobid in line and 'xrootd' not in line:
+        if jobid_str in line and 'xrootd' not in line:
             # extract pid
             _pid = search(r'(\d+) ', line)
             try:
@@ -371,82 +372,76 @@ def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str 
             version = 'unknown'
         if version == 'MemoryMonitor':
             try:
-                node['maxRSS'] = summary_dictionary['Max']['maxRSS']
-                node['maxVMEM'] = summary_dictionary['Max']['maxVMEM']
-                node['maxSWAP'] = summary_dictionary['Max']['maxSwap']
-                node['maxPSS'] = summary_dictionary['Max']['maxPSS']
-                node['avgRSS'] = summary_dictionary['Avg']['avgRSS']
-                node['avgVMEM'] = summary_dictionary['Avg']['avgVMEM']
-                node['avgSWAP'] = summary_dictionary['Avg']['avgSwap']
-                node['avgPSS'] = summary_dictionary['Avg']['avgPSS']
+                node['max_rss'] = summary_dictionary['Max']['maxRSS']
+                node['max_vmem'] = summary_dictionary['Max']['maxVMEM']
+                node['max_swap'] = summary_dictionary['Max']['maxSwap']
+                node['max_pss'] = summary_dictionary['Max']['maxPSS']
+                node['avg_rss'] = summary_dictionary['Avg']['avgRSS']
+                node['avg_vmem'] = summary_dictionary['Avg']['avgVMEM']
+                node['avg_swap'] = summary_dictionary['Avg']['avgSwap']
+                node['avg_pss'] = summary_dictionary['Avg']['avgPSS']
             except KeyError as exc:
                 logger.warning(f"exception caught while parsing memory monitor file: {exc}")
                 logger.warning("will add -1 values for the memory info")
-                node['maxRSS'] = -1
-                node['maxVMEM'] = -1
-                node['maxSWAP'] = -1
-                node['maxPSS'] = -1
-                node['avgRSS'] = -1
-                node['avgVMEM'] = -1
-                node['avgSWAP'] = -1
-                node['avgPSS'] = -1
+                node['max_rss'] = -1
+                node['max_vmem'] = -1
+                node['max_swap'] = -1
+                node['max_pss'] = -1
+                node['avg_rss'] = -1
+                node['avg_vmem'] = -1
+                node['avg_swap'] = -1
+                node['avg_pss'] = -1
             else:
                 logger.info("extracted standard info from memory monitor json")
             try:
-                node['totRCHAR'] = summary_dictionary['Max']['totRCHAR']
-                node['totWCHAR'] = summary_dictionary['Max']['totWCHAR']
-                node['totRBYTES'] = summary_dictionary['Max']['totRBYTES']
-                node['totWBYTES'] = summary_dictionary['Max']['totWBYTES']
-                node['rateRCHAR'] = summary_dictionary['Avg']['rateRCHAR']
-                node['rateWCHAR'] = summary_dictionary['Avg']['rateWCHAR']
-                node['rateRBYTES'] = summary_dictionary['Avg']['rateRBYTES']
-                node['rateWBYTES'] = summary_dictionary['Avg']['rateWBYTES']
+                node['tot_rchar'] = summary_dictionary['Max']['totRCHAR']
+                node['tot_wchar'] = summary_dictionary['Max']['totWCHAR']
+                node['tot_rbytes'] = summary_dictionary['Max']['totRBYTES']
+                node['tot_wbytes'] = summary_dictionary['Max']['totWBYTES']
+                node['rate_rchar'] = summary_dictionary['Avg']['rateRCHAR']
+                node['rate_wchar'] = summary_dictionary['Avg']['rateWCHAR']
+                node['rate_rbytes'] = summary_dictionary['Avg']['rateRBYTES']
+                node['rate_wbytes'] = summary_dictionary['Avg']['rateWBYTES']
             except KeyError as exc:
                 logger.warning(f"standard memory fields were not found in memory monitor json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from memory monitor json")
         elif version == 'prmon':
             try:
-                node['maxRSS'] = int(summary_dictionary['Max']['rss'])
-                node['maxVMEM'] = int(summary_dictionary['Max']['vmem'])
-                node['maxSWAP'] = int(summary_dictionary['Max']['swap'])
-                node['maxPSS'] = int(summary_dictionary['Max']['pss'])
-                node['avgRSS'] = summary_dictionary['Avg']['rss']
-                node['avgVMEM'] = summary_dictionary['Avg']['vmem']
-                node['avgSWAP'] = summary_dictionary['Avg']['swap']
-                node['avgPSS'] = summary_dictionary['Avg']['pss']
+                node['max_rss'] = int(summary_dictionary['Max']['rss'])
+                node['max_vmem'] = int(summary_dictionary['Max']['vmem'])
+                node['max_swap'] = int(summary_dictionary['Max']['swap'])
+                node['max_pss'] = int(summary_dictionary['Max']['pss'])
+                node['avg_rss'] = summary_dictionary['Avg']['rss']
+                node['avg_vmem'] = summary_dictionary['Avg']['vmem']
+                node['avg_swap'] = summary_dictionary['Avg']['swap']
+                node['avg_pss'] = summary_dictionary['Avg']['pss']
             except KeyError as exc:
                 logger.warning(f"exception caught while parsing prmon file: {exc}")
                 logger.warning("will add -1 values for the memory info")
-                node['maxRSS'] = -1
-                node['maxVMEM'] = -1
-                node['maxSWAP'] = -1
-                node['maxPSS'] = -1
-                node['avgRSS'] = -1
-                node['avgVMEM'] = -1
-                node['avgSWAP'] = -1
-                node['avgPSS'] = -1
+                node['max_rss'] = -1
+                node['max_vmem'] = -1
+                node['max_swap'] = -1
+                node['max_pss'] = -1
+                node['avg_rss'] = -1
+                node['avg_vmem'] = -1
+                node['avg_swap'] = -1
+                node['avg_pss'] = -1
             else:
                 logger.info("extracted standard info from prmon json")
             try:
-                node['totRCHAR'] = int(summary_dictionary['Max']['rchar'])
-                node['totWCHAR'] = int(summary_dictionary['Max']['wchar'])
-                node['totRBYTES'] = int(summary_dictionary['Max']['read_bytes'])
-                node['totWBYTES'] = int(summary_dictionary['Max']['write_bytes'])
-                node['rateRCHAR'] = summary_dictionary['Avg']['rchar']
-                node['rateWCHAR'] = summary_dictionary['Avg']['wchar']
-                node['rateRBYTES'] = summary_dictionary['Avg']['read_bytes']
-                node['rateWBYTES'] = summary_dictionary['Avg']['write_bytes']
+                node['tot_rchar'] = int(summary_dictionary['Max']['rchar'])
+                node['tot_wchar'] = int(summary_dictionary['Max']['wchar'])
+                node['tot_rbytes'] = int(summary_dictionary['Max']['read_bytes'])
+                node['tot_wbytes'] = int(summary_dictionary['Max']['write_bytes'])
+                node['rate_rchar'] = summary_dictionary['Avg']['rchar']
+                node['rate_wchar'] = summary_dictionary['Avg']['wchar']
+                node['rate_rbytes'] = summary_dictionary['Avg']['read_bytes']
+                node['rate_wbytes'] = summary_dictionary['Avg']['write_bytes']
             except KeyError as exc:
                 logger.warning(f"standard memory fields were not found in prmon json (or json doesn't exist yet): {exc}")
             else:
                 logger.info("extracted standard memory fields from prmon json")
-            try:
-                node['GPU'] = summary_dictionary['HW']['gpu']
-            except KeyError as exc:
-                logger.warning(f"GPU info not found in prmon json: {exc}")
-            else:
-                logger.info("GPU info extracted from prmon json")
         else:
             logger.warning('unknown memory monitor version')
     else:
@@ -562,13 +557,13 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: str = None) -> dict or None:
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = None) -> dict or None:
     """
     Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
     :param path: path to memory monitor txt output file (str)
     :param storejson: store dictionary on disk if True (bool)
-    :param jobid: job id (str)
+    :param jobid: job id (int)
     :return: prmon metadata (dict).
     """
     # get the raw memory monitor output, convert to dictionary
