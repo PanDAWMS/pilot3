@@ -70,6 +70,7 @@ def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
         ec, stdout, stderr = execute(cmd)
         if ec:
             logger.warning(f'failed to set attribute PandaID={pandaid} for job ClassAd')
+            logger.warning('the job submit JDL must include "want_io_proxy = true” to allow runtime ClassAd updates')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
@@ -78,6 +79,7 @@ def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
         ec, stdout, stderr = execute(cmd)
         if ec:
             logger.warning(f'failed to set attribute PandaPilotId={pilotid} for job ClassAd')
+            logger.warning('the job submit JDL must include "want_io_proxy = true” to allow runtime ClassAd updates')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
@@ -150,7 +152,7 @@ def get_globaljobid() -> str:
     return ret
 
 
-def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
+def encode_globaljobid(jobid: int, maxsize: int = 31) -> str:
     """
     Encode the global job id on HTCondor.
 
@@ -164,7 +166,7 @@ def encode_globaljobid(jobid: str, maxsize: int = 31) -> str:
     characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
     to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
 
-    :param jobid: panda job id (str)
+    :param jobid: panda job id (int)
     :param maxsize: max length allowed (int)
     :return: encoded global job id (str).
     """

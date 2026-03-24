@@ -123,6 +123,7 @@ def get_args() -> argparse.Namespace:
     arg_parser.add_argument('--jobid',
                             dest='jobid',
                             required=True,
+                            type=int,
                             help='PanDA job id')
     arg_parser.add_argument('--taskid',
                             dest='taskid',
@@ -131,6 +132,7 @@ def get_args() -> argparse.Namespace:
     arg_parser.add_argument('--jobdefinitionid',
                             dest='jobdefinitionid',
                             required=True,
+                            type=int,
                             help='Job definition id')
     arg_parser.add_argument('--eventservicemerge',
                             dest='eventservicemerge',
@@ -222,18 +224,18 @@ class Job:
     """A minimal implementation of the Pilot Job class with data members necessary for the trace report only."""
 
     produserid = ""
-    jobid = ""
+    jobid = 0
     taskid = ""
-    jobdefinitionid = ""
+    jobdefinitionid = 0
 
-    def __init__(self, produserid: str = "", jobid: str = "", taskid: str = "", jobdefinitionid: str = ""):
+    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0):
         """
         Initialize the Job object.
 
         :param produserid: produserid (str)
-        :param jobid: jobid (str)
+        :param jobid: jobid (int)
         :param taskid: taskid (str)
-        :param jobdefinitionid: jobdefinitionid (str)
+        :param jobdefinitionid: jobdefinitionid (int)
         """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid

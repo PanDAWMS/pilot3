@@ -27,12 +27,17 @@
 from __future__ import annotations
 
 import os
-import time
 import hashlib
 import logging
 import queue
-import random
+import time
+
 from collections import namedtuple
+from datetime import (
+    datetime,
+    timezone
+)
+#from dataclasses import dataclass
 from json import (
     dumps,
     loads
@@ -41,6 +46,8 @@ from glob import glob
 from typing import (
     Any,
     Callable,
+    Dict,
+    List,
     Mapping,
     MutableMapping,
     Optional,
@@ -73,6 +80,7 @@ from pilot.util.auxiliary import (
     has_instruction_sets,
     is_virtual_machine,
     locate_core_file,
+    mask_sensitive_response,
     pilot_version_banner,
     set_pilot_state,
 )
@@ -123,6 +131,7 @@ from pilot.util.harvester import (
     remove_job_request_file,
     request_new_jobs,
 )
+# from pilot.util.https import get_job_status_from_server
 from pilot.util.jobmetrics import get_job_metrics
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.math import mean, float_to_rounded_string
@@ -355,19 +364,265 @@ def publish_harvester_reports(state: str, args: Any, data: dict, job: Any, final
     return True
 
 
-def write_heartbeat_to_file(data: dict) -> bool:
+def safe_cast(value: Any, target_type: type[Any]) -> Optional[Any]:
+    """Safely cast a value to the requested type.
+
+    Args:
+        value: The input value to convert.
+        target_type: The target Python type.
+
+    Returns:
+        The converted value, or ``None`` if conversion is not possible.
+    """
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, target_type):
+        return value
+
+    try:
+        if target_type is int:
+            return int(float(value))
+        if target_type is float:
+            return float(value)
+        if target_type is str:
+            return str(value)
+        return target_type(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_time_to_epoch(value: Any) -> Optional[float]:
+    """Convert a time value to UTC epoch seconds.
+
+    Accepts strings in formats like:
+    - ``YYYY-MM-DD HH:MM:SS``
+    - ``YYYY-MM-DDTHH:MM:SS``
+
+    Args:
+        value: The value to convert.
+
+    Returns:
+        Epoch seconds as a float, or ``None`` if conversion fails.
+    """
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                dt = datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except ValueError:
+                pass
+
+    return None
+
+
+def convert_new_to_old(
+    data_new: dict[str, Any],
+    new_to_old: dict[str, str],
+    old_field_types: dict[str, type[Any]],
+) -> dict[str, Any]:
+    """Convert a new-format dictionary into the old-format dictionary.
+
+    Rules:
+    - New keys are mapped to old keys using ``new_to_old``.
+    - Empty mappings (``""``) are skipped.
+    - ``timestamp`` is always generated using ``time_stamp()``.
+    - ``startTime`` and ``endTime`` are converted from datetime strings to UTC
+      epoch seconds.
+    - All other values are converted safely to the type declared in
+      ``old_field_types``.
+
+    Args:
+        data_new: Input dictionary using the new field names.
+        new_to_old: Mapping from new field names to old field names.
+        old_field_types: Expected Python types for the old-format fields.
+
+    Returns:
+        A dictionary using the old field names and converted values.
+    """
+    data_old: dict[str, Any] = {}
+
+    old_to_new = {
+        old_name: new_name
+        for new_name, old_name in new_to_old.items()
+        if old_name
+    }
+
+    for old_field, expected_type in old_field_types.items():
+        if old_field == "timestamp":
+            data_old[old_field] = time_stamp()
+            continue
+
+        new_field = old_to_new.get(old_field)
+        if not new_field:
+            continue
+
+        if new_field not in data_new:
+            continue
+
+        raw_value = data_new[new_field]
+
+        if old_field in {"startTime", "endTime"}:
+            converted = parse_time_to_epoch(raw_value)
+        else:
+            converted = safe_cast(raw_value, expected_type)
+
+        if converted is not None:
+            data_old[old_field] = converted
+
+    return data_old
+
+
+def convert_to_old_format(data_new: dict) -> dict:
+    """
+    Convert a heartbeat dictionary from the new PanDA API format to the old format.
+
+    Args:
+        data_new: server data in the new PanDA API format (dict)
+
+    Return:
+        A dictionary in the old PanDA API format (dict).
+    """
+    new_to_old: dict[str, str] = {
+        "job_id": "jobId",
+        "job_status": "state",
+        "site_name": "siteName",
+        "timestamp": "timestamp",
+        "node": "node",
+        "attempt_nr": "attemptNr",
+        "scheduler_id": "schedulerID",
+        "pilot_id": "pilotID",
+        "batch_id": "batchID",
+        "start_time": "startTime",
+        "job_output_report": "xml",
+        "meta_data": "metaData",
+        "grid": "",
+        "source_site": "",
+        "destination_site": "",
+        "stdout": "",
+        "timeout": "",
+        "core_count": "coreCount",
+        "mean_core_count": "",
+        "n_events": "nEvents",
+        "n_input_files": "",
+        "cpu_consumption_time": "cpuConsumptionTime",
+        "cpu_conversion_factor": "cpuConversionFactor",
+        "cpu_consumption_unit": "cpuConsumptionUnit",
+        "cpu_architecture_level": "cpu_architecture_level",
+        "max_rss": "maxRSS",
+        "max_vmem": "maxVMEM",
+        "max_swap": "maxSWAP",
+        "max_pss": "maxPSS",
+        "avg_rss": "avgRSS",
+        "avg_vmem": "avgVMEM",
+        "avg_swap": "avgSWAP",
+        "avg_pss": "avgPSS",
+        "tot_rchar": "totRCHAR",
+        "tot_wchar": "totWCHAR",
+        "tot_rbytes": "totRBYTES",
+        "tot_wbytes": "totWBYTES",
+        "rate_rchar": "rateRCHAR",
+        "rate_wchar": "rateWCHAR",
+        "rate_rbytes": "rateRBYTES",
+        "rate_wbytes": "rateWBYTES",
+        "corrupted_files": "",
+        "job_metrics": "jobMetrics",
+        "pilot_timing": "pilotTiming",
+        "pilot_log": "pilotLog",
+        "end_time": "endTime",
+        "pilot_error_code": "pilotErrorCode",
+        "pilot_error_diag": "pilotErrorDiag",
+        "trans_exit_code": "transExitCode",
+        "exe_error_code": "exeErrorCode",
+        "exe_error_diag": "exeErrorDiag",
+    }
+
+    old_field_types: dict[str, type[Any]] = {
+        "jobId": str,
+        "state": str,
+        "timestamp": str,
+        "siteName": str,
+        "node": str,
+        "attemptNr": int,
+        "schedulerID": str,
+        "pilotID": str,
+        "batchID": str,
+        "startTime": float,
+        "xml": str,
+        "metaData": str,
+        "coreCount": int,
+        "nEvents": int,
+        "cpuConsumptionTime": int,
+        "cpuConversionFactor": float,
+        "cpuConsumptionUnit": str,
+        "cpu_architecture_level": str,
+        "maxRSS": int,
+        "maxVMEM": int,
+        "maxSWAP": int,
+        "maxPSS": int,
+        "avgRSS": float,
+        "avgVMEM": float,
+        "avgSWAP": float,
+        "avgPSS": float,
+        "totRCHAR": int,
+        "totWCHAR": int,
+        "totRBYTES": int,
+        "totWBYTES": int,
+        "rateRCHAR": float,
+        "rateWCHAR": float,
+        "rateRBYTES": float,
+        "rateWBYTES": float,
+        "jobMetrics": str,
+        "pilotTiming": str,
+        "pilotLog": str,
+        "endTime": float,
+        "pilotErrorCode": int,
+        "pilotErrorDiag": str,
+        "transExitCode": int,
+        "exeErrorCode": int,
+        "exeErrorDiag": str,
+    }
+
+    return convert_new_to_old(data_new, new_to_old, old_field_types)
+
+
+def write_heartbeat_to_file(data_new: dict) -> bool:
     """
     Write heartbeat dictionary to file.
 
     This is only done when server updates are not wanted.
+    The function takes the job update dictinoary in the new PanDA API format,
+    converts it to the old format and writes both to file (the old format is needed
+    for aCT, but the new format is also stored for future use).
 
-    :param data: server data (dict)
+    :param data_new: server data in the new PanDA API format (dict)
     :return: True if successful, False otherwise (bool).
     """
-    path = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.heartbeat_message)
-    if write_json(path, data):
-        logger.debug(f'heartbeat dictionary: {data}')
-        logger.debug(f'wrote heartbeat to file: {path}')
+    path_old = os.path.join(os.environ.get('PILOT_HOME'), config.Pilot.heartbeat_message)
+
+    # note: aCT does not yet support the new PanDA API format, so we
+    # need to write the heartbeat message in the old format, but also store
+    # the new format.
+    path_new = path_old.replace(".json", "_new.json")
+    data_old = convert_to_old_format(data_new)
+    logger.debug(f"data_new = {data_new}")
+    logger.debug(f"data_old = {data_old}")
+    failed = False
+    for path, data in zip([path_new, path_old], [data_new, data_old]):
+        if write_json(path, data):
+            logger.debug(f'heartbeat dictionary: {data}')
+            logger.debug(f'wrote heartbeat to file: {path}')
+        else:
+            failed = True
+            break
+
+    if not failed:
         return True
 
     return False
@@ -467,126 +722,42 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         logger.info('skipping job update for fake test job')
         return True
 
-    res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
-    if res is not None:
-        # update the last heartbeat time
-        args.last_heartbeat = time.time()
+    # res = https.send_update('updateJob', data, args.url, args.port, job=job, ipv=args.internet_protocol_version)
+    result = https.send_update(
+        "api/v1/pilot/update_job",
+        data,
+        args.url,
+        args.port,
+        job=job,
+        ipv=args.internet_protocol_version,
+    )
 
-        # to test 'tobekilled' server instruction - pilot will abort after stage-in
-        #if state == 'running':
-        #    test_tobekilled = True
+    if not result.ok:
+        if final:
+            os.environ["SERVER_UPDATE"] = SERVER_UPDATE_TROUBLE
 
-        # does the server update contain any backchannel information? if so, update the job object
-        handle_backchannel_command(res, job, args, test_tobekilled=test_tobekilled)
+        logger.warning(
+            f"Job update NOT accepted (attempts={result.attempts}, "
+            f"success={result.success}, StatusCode={result.status_code}, "
+            f"message={result.message!r})"
+        )
+        return False
 
-        if final:  # and os.path.exists(job.workdir):  # ignore if workdir doesn't exist - might be a delayed jobUpdate
-            os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+    # Update accepted
+    args.last_heartbeat = time.time()
 
-        if final and state in {'finished', 'holding', 'failed'}:
-            logger.info(f'setting job as completed (state={state})')
-            job.completed = True
-
-        return True
+    # Backchannel only makes sense on accepted responses
+    if result.response is not None:
+        handle_backchannel_command(result.response, job, args, test_tobekilled=test_tobekilled)
 
     if final:
-        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_TROUBLE
+        os.environ["SERVER_UPDATE"] = SERVER_UPDATE_FINAL
 
-    return False
+    if final and state in {"finished", "holding", "failed"}:
+        logger.info(f"Setting job as completed (state={state})")
+        job.completed = True
 
-
-def get_job_status_from_server(job_id: int, url: str, port: int) -> (str, int, int):
-    """
-    Return the current status of job <jobId> from the dispatcher.
-
-    typical dispatcher response: 'status=finished&StatusCode=0'
-    StatusCode  0: succeeded
-               10: time-out
-               20: general error
-               30: failed
-    In the case of time-out, the dispatcher will be asked one more time after 10 s.
-
-    :param job_id: PanDA job id (int)
-    :param url: PanDA server URL (int)
-    :param port: PanDA server port (str)
-    :return: status (string; e.g. holding), attempt_nr (int), status_code (int).
-    """
-    status = 'unknown'
-    attempt_nr = 0
-    status_code = 0
-    if config.Pilot.pandajob == 'fake':
-        return status, attempt_nr, status_code
-
-    data = {}
-    data['ids'] = job_id
-
-    # get the URL for the PanDA server from pilot options or from config
-    pandaserver = https.get_panda_server(url, port)
-
-    # ask dispatcher about lost job status
-    trial = 1
-    max_trials = 2
-
-    while trial <= max_trials:
-        try:
-            # open connection
-            ret = https.request2(f'{pandaserver}/server/panda/getStatus', data=data)
-            logger.debug(f"request2 response: {ret}")
-            if not ret or isinstance(ret, str):
-                ret = https.request(f'{pandaserver}/server/panda/getStatus', data=data)
-
-            if isinstance(ret, str):  # string response in case of time-out
-                logger.warning(f"dispatcher did not return allowed values: {ret}")
-                status = "unknown"
-                attempt_nr = -1
-                status_code = 20
-                continue
-
-            response = ret[1]
-            logger.info(f"response: {response}")
-            if response:
-                try:
-                    # decode the response
-                    # eg. var = ['status=notfound', 'attemptNr=0', 'StatusCode=0']
-                    # = response
-
-                    status = response['status']  # e.g. 'holding'
-                    attempt_nr = int(response['attemptNr'])  # e.g. '0'
-                    status_code = int(response['StatusCode'])  # e.g. '0'
-                except Exception as error:
-                    logger.warning(
-                        f"exception: dispatcher did not return allowed values: {ret}, {error}")
-                    status = "unknown"
-                    attempt_nr = -1
-                    status_code = 20
-                else:
-                    logger.debug(f'server job status={status}, attempt_nr={attempt_nr}, status_code={status_code}')
-            else:
-                logger.warning(f"dispatcher did not return allowed values: {ret}")
-                status = "unknown"
-                attempt_nr = -1
-                status_code = 20
-        except Exception as error:
-            logger.warning(f"could not interpret job status from dispatcher: {error}")
-            status = 'unknown'
-            attempt_nr = -1
-            status_code = -1
-            break
-        else:
-            if status_code == 0:  # success
-                break
-            if status_code == 10:  # time-out
-                trial += 1
-                time.sleep(10)
-                continue
-            if status_code == 20:  # other error
-                if ret[0] == 13056 or ret[0] == '13056':
-                    logger.warning(f"wrong certificate used with curl operation? (encountered error {ret[0]})")
-                break
-
-            # general error
-            break
-
-    return status, attempt_nr, status_code
+    return True
 
 
 def get_debug_command(cmd: str) -> (bool, str):
@@ -709,22 +880,27 @@ def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     """
     schedulerid = get_job_scheduler_id()
     if schedulerid:
-        data['schedulerID'] = schedulerid
+        data['scheduler_id'] = schedulerid
 
     # update the jobid in the pilotid if necessary (not for ATLAS since there should be one batch log for all multi-jobs)
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-    pilotid = user.get_pilot_id(data['jobId'])
+
+    logger.debug(f"add_data_structure_ids keys: {sorted(data.keys())}")
+    logger.debug(
+        f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
+
+    pilotid = user.get_pilot_id(data['job_id'])
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
         # report the batch system job id, if available
         if not job.batchid:
             job.batchtype, job.batchid = get_batchsystem_jobid()
         if job.batchtype and job.batchid:
-            data['pilotID'] = f"{pilotid}|{job.batchtype}|{version_tag}|{pilotversion}"
-            data['batchID'] = job.batchid
+            data['pilot_id'] = f"{pilotid}|{job.batchtype}|{version_tag}|{pilotversion}"
+            data['batch_id'] = job.batchid
         else:
-            data['pilotID'] = f"{pilotid}|{version_tag}|{pilotversion}"
+            data['pilot_id'] = f"{pilotid}|{version_tag}|{pilotversion}"
     else:
         logger.warning('pilotid not available')
 
@@ -733,33 +909,32 @@ def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
 
 def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
     """
-    Build the data structure needed for updateJob.
+    Build the data structure needed for update_job.
 
     :param job: job object (Any)
     :param state: state of the job (str)
     :param args: Pilot args object (Any)
-    :param xml: optional XML string (str)
-    :param metadata: job report metadata read as a string (str)
+    :param xml: job_output_report, job output file info (str)
+    :param metadata: job report metadata (str)
     :return: data structure (dict).
     """
-    data = {'jobId': job.jobid,
-            'state': state,
-            'timestamp': time_stamp(),
-            'siteName': os.environ.get('PILOT_SITENAME'),  # args.site,
+    data = {'job_id': job.jobid,
+            'job_status': state,
+            'site_name': os.environ.get('PILOT_SITENAME'),  # args.site,
             'node': get_node_name(),
-            'attemptNr': job.attemptnr}
+            'attempt_nr': job.attemptnr}
 
     # add pilot, batch and scheduler ids to the data structure
     data = add_data_structure_ids(data, args.version_tag, job)
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
-        data['startTime'] = starttime
+        data['start_time'] = datetime.fromtimestamp(starttime).strftime("%Y-%m-%d %H:%M:%S")
 
     if xml is not None:
-        data['xml'] = xml
+        data['job_output_report'] = xml
     if metadata is not None:
-        data['metaData'] = metadata
+        data['meta_data'] = metadata
 
     # in debug mode, also send a tail of the latest log file touched by the payload
     if job.debug and job.debug_command:
@@ -767,15 +942,16 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     # add the core count
     if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
-        data['coreCount'] = job.corecount
+        data['core_count'] = job.corecount
     if job.corecounts:
         _mean = mean(job.corecounts)
-        logger.info(f'mean actualcorecount: {_mean}')
-        data['meanCoreCount'] = _mean
+        _mean_int = int(_mean)
+        logger.info(f'mean job.corecounts={_mean} int(mean)={_mean_int}')
+        data['mean_core_count'] = _mean_int
 
     # get the number of events, should report in heartbeat in case of preempted.
     if job.nevents != 0:
-        data['nEvents'] = job.nevents
+        data['n_events'] = job.nevents
         logger.info(f"total number of processed events: {job.nevents} (read)")
     else:
         logger.info("payload/TRF did not report the number of read events")
@@ -783,13 +959,13 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     # get the CPU consumption time
     constime = get_cpu_consumption_time(job.cpuconsumptiontime)
     if constime and constime != -1:
-        data['cpuConsumptionTime'] = constime
-        data['cpuConversionFactor'] = job.cpuconversionfactor
+        data['cpu_consumption_time'] = constime
+        data['cpu_conversion_factor'] = job.cpuconversionfactor
     number_of_cores, ht, sockets, cpu_mhz, _, _, _, cpu_arch_level = get_cpu_info()  # get from a cache
     cpumodel = get_cpu_model()  # ARM info will be corrected below if necessary (otherwise cpumodel will contain UNKNOWN)
     if number_of_cores:
         cpumodel = update_modelstring(cpumodel, number_of_cores, ht, sockets)  # add the CPU cores if not present
-    data['cpuConsumptionUnit'] = job.cpuconsumptionunit + "+" + cpumodel
+    data['cpu_consumption_unit'] = job.cpuconsumptionunit + "+" + cpumodel
     logger.debug(f"got CPU MHz: {cpu_mhz}")
     if cpu_mhz:
         job.cpufrequencies.append(cpu_mhz)
@@ -799,19 +975,19 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     # if the product and vendor info is needed, better to cache it since it is expensive to get
     # product, vendor = get_display_info()
     if instruction_sets:
-        if 'cpuConsumptionUnit' in data:
-            data['cpuConsumptionUnit'] += '+' + instruction_sets
+        if 'cpu_consumption_unit' in data:
+            data['cpu_consumption_unit'] += '+' + instruction_sets
         else:
-            data['cpuConsumptionUnit'] = instruction_sets
+            data['cpu_consumption_unit'] = instruction_sets
         #if product and vendor:
-        #    logger.debug(f'cpuConsumptionUnit: could have added: product={product}, vendor={vendor}')
+        #    logger.debug(f'cpu_consumption_unit: could have added: product={product}, vendor={vendor}')
 
     # CPU architecture level
     if cpu_arch_level:
         data['cpu_architecture_level'] = cpu_arch_level
         # correct the cpuConsumptionUnit on ARM since cpumodel and cache won't be reported
-        if cpu_arch_level.startswith('ARM') and 'UNKNOWN' in data['cpuConsumptionUnit']:
-            data['cpuConsumptionUnit'] = data['cpuConsumptionUnit'].replace('UNKNOWN', 'ARM')
+        if cpu_arch_level.startswith('ARM') and 'UNKNOWN' in data['cpu_consumption_unit']:
+            data['cpu_consumption_unit'] = data['cpu_consumption_unit'].replace('UNKNOWN', 'ARM')
 
     # add memory information if available
     add_memory_info(data, job.workdir, name=job.memorymonitor)
@@ -820,12 +996,12 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     # add read_bytes from memory monitor to job metrics if available
     extra = {}
-    if 'totRBYTES' in data:
+    if 'tot_rbytes' in data:
         _totalsize = get_total_input_size(job.indata, nolib=True)
         logger.debug(f'_totalsize={_totalsize}')
         logger.debug(f"current max read_bytes: {data.get('totRBYTES')}")
         try:
-            readfrac = data.get('totRBYTES') / _totalsize
+            readfrac = data.get('tot_rbytes') / _totalsize
         except (TypeError, ZeroDivisionError) as exc:
             logger.warning(f"failed to calculate totRBYTES / total size of input files = {data.get('totRBYTES')}/{_totalsize}: {exc}")
             logger.warning('will not report readbyterate')
@@ -838,16 +1014,13 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     else:
         logger.debug('read_bytes info not yet available')
 
-    # extract and remove any GPU info from data since it will be reported with job metrics
-    add_gpu_info(data, extra)
-
     # add the lsetup time if set
     if job.lsetuptime:
         extra['lsetup_time'] = job.lsetuptime
 
     job_metrics = get_job_metrics(job, extra=extra)
     if job_metrics:
-        data['jobMetrics'] = job_metrics
+        data['job_metrics'] = job_metrics
 
     # add timing info if finished or failed
     if state in {'finished', 'failed'}:
@@ -855,39 +1028,13 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
         https.add_error_codes(data, job)
 
     # glidein information, currently only relevant for EIC and generic pilots
-    if args.pilot_user.lower() == 'eic' or args.pilot_user.lower() == 'generic':
+    if args.pilot_user.lower() == 'epic' or args.pilot_user.lower() == 'generic':
         glidein_site, remote_schedd_name = extract_site_and_schedd()
         if glidein_site and remote_schedd_name:
             data['source_site'] = remote_schedd_name
             data['destination_site'] = glidein_site
 
     return data
-
-
-def add_gpu_info(data: dict, extra: dict):
-    """
-    Add GPU info to the extra dictionary.
-
-    :param data: data dictionary (dict)
-    :param extra: extra dictionary (dict)
-    """
-    if 'GPU' in data:
-        ngpu = 0
-        name = ""
-        try:
-            logger.debug(f'data[GPU]={data["GPU"]}')
-            for key in data["GPU"]:
-                if key.startswith('gpu_0'):  # ignore any further GPU info, ie assume they are all the same
-                    name = data["GPU"][key]['name'].replace(' ', '_')  # NVIDIA A100-SXM4-40GB -> NVIDIA_A100-SXM4-40GB
-                elif key == 'nGPU':
-                    ngpu = data["GPU"][key]
-            if name:
-                extra['GPU_name'] = name
-            if ngpu:
-                extra['nGPU'] = ngpu
-            del data['GPU']
-        except Exception as exc:
-            logger.warning(f'exception caught: {exc}')
 
 
 def process_debug_mode(job: Any) -> str:
@@ -1076,7 +1223,7 @@ def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
     :param args: pilot args object (Any)
     """
     time_getjob, time_stagein, time_payload, time_stageout, time_initial_setup, time_setup, time_log_creation = timing_report(job.jobid, args)
-    data['pilotTiming'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
+    data['pilot_timing'] = f"{time_getjob}|{time_stagein}|{time_payload}|{time_stageout}|{time_initial_setup}|{time_setup}"
     logger.debug(f'could have reported time_log_creation={time_log_creation} s')
 
     # add log extracts (for failed/holding jobs or for jobs with outbound connections)
@@ -1087,8 +1234,8 @@ def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
         extracts = user.get_log_extracts(job, state)
         if extracts != "":
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
-    data['pilotLog'] = extracts[:1024]
-    data['endTime'] = time.time()
+    data['pilot_log'] = extracts[:1024]
+    data['end_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def add_memory_info(data: dict, workdir: str, name: str = ""):
@@ -1110,12 +1257,12 @@ def add_memory_info(data: dict, workdir: str, name: str = ""):
         logger.info(f'memory information not available: {error}')
 
 
-def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
+def remove_pilot_logs_from_list(list_of_files: list, jobid: int) -> list:
     """
     Remove any pilot logs from the list of last updated files.
 
     :param list_of_files: list of last updated files (list)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :return: list of files (list).
     """
     # note: better to move experiment specific files to user area
@@ -1141,12 +1288,12 @@ def remove_pilot_logs_from_list(list_of_files: list, jobid: str) -> list:
     return new_list_of_files
 
 
-def get_payload_log_tail(workdir: str, jobid: str) -> str:
+def get_payload_log_tail(workdir: str, jobid: int) -> str:
     """
     Return the tail of the payload stdout or its latest updated log file.
 
     :param workdir: job work directory (str)
-    :param jobid: PanDA job id (str)
+    :param jobid: PanDA job id (int)
     :return: tail of stdout (str).
     """
     # find the latest updated log file
@@ -1555,58 +1702,54 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     :returns: dictionary prepared for the dispatcher getJob operation (str).
     """
     _diskspace = get_disk_space(infosys.queuedata)
-    _mem, _cpu, _ = collect_workernode_info(os.getcwd())
+    _mem, _, _ = collect_workernode_info(os.getcwd())
     _nodename = get_node_name()
-    #_remaining_time = get_remaining_time(args)
 
     data = {
-        'siteName': infosys.queuedata.resource,
-        'computingElement': args.queue,
-        'prodSourceLabel': get_job_label(args),
-        'diskSpace': _diskspace,
-        'workingGroup': args.working_group,
-        'cpu': _cpu,
-        'mem': _mem,
+        'site_name': infosys.queuedata.resource,
+        'computing_element': args.queue,
+        'prod_source_label': get_job_label(args),
+        'disk_space': _diskspace,
+        'memory': int(_mem),
         'node': _nodename
     }
 
-    # include remaining time
-    #if _remaining_time:
-    #    data['remaining_time'] = _remaining_time
-
     if args.jobtype != "":
-        data['jobType'] = args.jobtype
+        data['job_type'] = args.jobtype
 
-    if args.allow_other_country != "":
-        data['allowOtherCountry'] = args.allow_other_country
+    #if args.allow_other_country != "":
+    #    data['allowOtherCountry'] = args.allow_other_country
 
-    if args.country_group != "":
-        data['countryGroup'] = args.country_group
+    #if args.country_group != "":
+    #    data['countryGroup'] = args.country_group
 
     if args.job_label == 'self':
         dn = get_distinguished_name()
-        data['prodUserID'] = dn
+        data['prod_user_id'] = dn
 
     # special handling for task id from message broker
     if taskid:
-        data['taskID'] = taskid
+        data['task_id'] = taskid
         if args.allow_same_user:
-            data['viaTopic'] = True
-        logger.info(f"will download a new job belonging to task id: {data['taskID']}")
+            data['via_topic'] = True
+        logger.info(f"will download a new job belonging to task id: {data['task_id']}")
     else:  # task id from env var
         taskid = get_task_id()
         if taskid != "" and args.allow_same_user:
-            data['taskID'] = taskid
-            logger.info(f"will download a new job belonging to task id: {data['taskID']}")
+            data['task_id'] = taskid
+            logger.info(f"will download a new job belonging to task id: {data['task_id']}")
 
     if args.resource_type != "":
-        data['resourceType'] = args.resource_type
+        data['resource_type'] = args.resource_type
 
     # add harvester fields
     if 'HARVESTER_ID' in os.environ:
-        data['harvester_id'] = os.environ.get('HARVESTER_ID')
+        data['scheduler_id'] = os.environ.get('HARVESTER_ID')
     if 'HARVESTER_WORKER_ID' in os.environ:
-        data['worker_id'] = os.environ.get('HARVESTER_WORKER_ID')
+        try:
+            data['worker_id'] = int(os.environ.get('HARVESTER_WORKER_ID'))
+        except (ValueError, TypeError) as error:
+            logger.warning(f'failed to get HARVESTER_WORKER_ID: {error}')
 
     return data
 
@@ -1783,14 +1926,16 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> str:
     data = get_dispatcher_dictionary(args, taskid=taskid)
 
     # get the getJob server command
-    cmd = https.get_server_command(args.url, args.port)
+    cmd = https.get_server_command(args.url, args.port, cmd="api/v1/pilot/acquire_jobs")
     if cmd != "":
         logger.info(f'executing server command: {cmd}')
         if "curlgetjob" in infosys.queuedata.catchall:
             res = https.request(cmd, data=data)
         else:
-            res = https.request2(cmd, data=data, panda=True)  # will be a dictionary
-            logger.debug(f"request2 response: {res}")  # should be StatusCode=0 if all is ok
+            res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
+
+            log_res, pilot_secrets = mask_sensitive_response(res)
+            logger.info(f'server responded with: res = {log_res}')
             if not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
@@ -2141,7 +2286,7 @@ def get_fake_job(inpt: bool = True) -> dict:
                'outFiles': f'RDO_{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': 1000,
                'scopeIn': 'mc15_13TeV',
-               'PandaID': '0',
+               'PandaID': 0,
                'sourceSite': 'NULL',
                'dispatchDblock': 'NULL',
                'prodSourceLabel': 'ptest',
@@ -2197,7 +2342,7 @@ def get_fake_job(inpt: bool = True) -> dict:
                'outFiles': f'{job_name}.root,{job_name}.job.log.tgz',
                'currentPriority': '1000',
                'scopeIn': 'data15_13TeV',
-               'PandaID': '0',
+               'PandaID': 0,
                'sourceSite': 'NULL',
                'dispatchDblock': 'data15_13TeV:data15_13TeV.00276336.physics_Main.merge.AOD.r7562_p2521_tid07709524_00',
                'prodSourceLabel': 'ptest',
@@ -2244,216 +2389,498 @@ def get_job_retrieval_delay(harvester: bool) -> int:
     return 10 if harvester else 60
 
 
-def retrieve(queues: namedtuple, traces: Any, args: object):  # noqa: C901
+def _fetch_dispatcher_response(queues: Any, args: Any) -> Optional[Dict[str, Any]]:
+    """Fetch dispatcher response and normalize obvious error cases.
+
+    Args:
+        queues: queues object passed to retrieve.
+        args: runtime args.
+
+    Returns:
+        The dispatcher response dict on success, or None on failure/no-response.
     """
-    Retrieve all jobs from the proper source.
+    try:
+        resp = get_job_definition(queues, args)
+    except Exception:
+        logger.exception("Exception while fetching dispatcher response")
+        return None
 
-    Thread.
+    if not resp:
+        logger.debug("No dispatcher response received (None/empty)")
+        return None
 
-    The job definition is a json dictionary that is either present in the launch
-    directory (preplaced) or downloaded from a server specified by `args.url`.
+    if isinstance(resp, str):
+        logger.warning(f"Dispatcher response returned as string: {resp}")
+        return None
 
-    The function retrieves the job definition from the proper source and places
-    it in the `queues.jobs` queue.
+    if not isinstance(resp, dict):
+        logger.warning(f"Dispatcher response has unexpected type: {type(resp)}")
+        return None
 
-    WARNING: this function is nearly too complex. Be careful with adding more lines as flake8 will fail it.
+    return resp
 
-    :param queues: internal queues for job handling (namedtuple)
-    :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :raises PilotException: if create_job fails (e.g. because queuedata could not be downloaded).
+
+def _validate_dispatcher_response(resp: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Validate dispatcher response and extract job definition dicts.
+
+    Expected modern response format:
+        {
+          "success": True/False,
+          "message": "",
+          "data": {
+            "StatusCode": 0/nonzero,
+            "jobs": [ {jobdef}, ... ]
+          }
+        }
+
+    Returns:
+        List of job definition dicts if valid and jobs exist; otherwise None.
+    """
+    success = resp.get("success", "ignore")  # on ND, it will be "ignore"
+    message = resp.get("message", "")
+    if success is False:
+        logger.warning(f"Dispatcher success=False. message={message!r}")
+        return None
+
+    if success == "ignore":
+        _status_code = resp.get("StatusCode")
+        try:
+            status_code = int(_status_code)
+        except Exception:
+            logger.warning(f"Dispatcher response has non-integer StatusCode={status_code!r}")
+            return None
+        if status_code is not None and status_code != 0:
+            logger.warning(f"Dispatcher response has nonzero StatusCode={_status_code}")
+            return None
+        else:
+            return resp
+
+    data = resp.get("data")
+    if not isinstance(data, dict):
+        logger.warning(f"Dispatcher response missing/invalid data field: {type(data)}")
+        return None
+
+    status_code = data.get("StatusCode")
+    if status_code != 0:
+        logger.warning(f"Dispatcher data StatusCode={status_code}. message={message!r}")
+        return None
+
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        # Non-fatal "no work" response
+        logger.info(f"No jobs in PanDA. message={message!r}")
+        return None
+
+    # Optional job-level StatusCode check
+    first = jobs[0]
+    if not isinstance(first, dict):
+        logger.warning(f"First job definition is not a dict: {type(first)}")
+        return None
+
+    jsc = first.get("StatusCode")
+    if jsc is not None and jsc != 0:
+        logger.warning(f"First job StatusCode={jsc} (PandaID={first.get('PandaID')}). message={message!r}")
+        return None
+
+    return jobs
+
+
+def _job_id_str(job: Any) -> str:
+    """Return a useful job identifier for logging."""
+    for attr in ("PandaID", "pandaid", "jobid", "jobId", "JobID", "id"):
+        val = getattr(job, attr, None)
+        if val not in (None, "", 0):
+            return str(val)
+    return "<unknown>"
+
+
+def _build_validate_and_queue(job_defs: List[Dict[str, Any]], queuename: str, args: Any, traces: Any, time_pre_getjob: float, queues: Any) -> Optional[Any]:  # noqa: C901
+    """Build the first job, validate it, apply legacy side-effects, and enqueue.
+
+    Args:
+        job_defs: list of job-definition dicts (non-empty).
+        queuename: name of queue (args.queue).
+        args: runtime args.
+        traces: traces object (for pilot timing).
+        time_pre_getjob: timestamp taken before get_job_definition call.
+        queues: queues object.
+
+    Returns:
+        The job object that was enqueued, or None on failure.
+    """
+    # Use only first job definition (preserve current behaviour)
+    first_def = job_defs[0]
+    panda_id = first_def.get("PandaID")
+    if panda_id in (None, "", 0):
+        logger.warning("Job definition missing PandaID; refusing to build job")
+        return None
+
+    try:
+        job = build_job_from_definition(first_def, queuename=queuename)
+    except Exception:
+        logger.exception(f"Exception while building job from definition (PandaID={panda_id})")
+        return None
+
+    if not job:
+        logger.warning(f"build_job_from_definition returned None (PandaID={panda_id})")
+        return None
+
+    # Run the job-level validator (returns bool)
+    try:
+        ok = _validate_job(job)
+    except Exception:
+        logger.exception(f"_validate_job() raised exception for job {_job_id_str(job)}")
+        return None
+
+    if not ok:
+        logger.warning(f"Job failed _validate_job() (PandaID={_job_id_str(job)})")
+        return None
+
+    # keep track of start time
+    job.starttime = int(time.time())
+    logger.info(f'job {job.jobid} has start time={job.starttime}')
+
+    # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
+    if "setdebugmode" in job.infosys.queuedata.catchall:
+        set_debug_mode(job.jobid, args.url, args.port)
+
+    # Legacy behaviour: try to get job status from server (non-fatal)
+    #try:
+    #    _ = get_job_status_from_server(job.jobid, args.url, args.port)
+    #except Exception as error:
+    #    logger.warning(f"{error}")
+
+    # TIMING: add pre/post getjob pilot timing
+    try:
+        add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
+        add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
+    except Exception as exc:
+        logger.debug(f"Could not write pilot timing stamps: {exc}")
+
+    # HTCondor specific env/classad updates (legacy)
+    try:
+        if os.environ.get("_CONDOR_JOB_AD", None):
+            htcondor_envvar(job.jobid)
+            pilotid = get_pilot_id(args.version_tag)
+            update_condor_classad(pandaid=job.jobid, pilotid=pilotid)
+    except Exception as exc:
+        logger.debug(f"HTCondor env/classad update failed: {exc}")
+
+    # Finally, enqueue the job object (not the boolean result)
+    try:
+        put_in_queue(job, queues.jobs)
+    except Exception:
+        logger.exception(f"Failed to enqueue job {_job_id_str(job)}")
+        return None
+
+    logger.info(f"Queued job {_job_id_str(job)}")
+    return job
+
+
+def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
+    """Retrieve jobs and enqueue them; preserve all functionality from retrieve_old().
+
+    This version:
+      - calls proceed_with_getjob() at the start of each loop and stops downloading
+        new jobs if that returns False (timefloor / policy).
+      - respects jobdata.fail_at_getjob_none() per-experiment.
+      - restores legacy post-job cleanup and bookkeeping calls.
     """
     timefloor = infosys.queuedata.timefloor
     starttime = time.time()
 
-    jobnumber = 0  # number of downloaded jobs
-    getjob_requests = 0
-    getjob_failures = 0
+    jobnumber: int = 0
+    getjob_failures: int = 0
+    getjob_requests: int = 0
+
+    # Maximum time (s) to wait for Harvester to place a job definition file after
+    # request_new_jobs() has been called.  Poll every HARVESTER_JOB_POLL_INTERVAL s.
+    HARVESTER_JOB_WAIT_TIMEOUT: int = 120
+    HARVESTER_JOB_POLL_INTERVAL: float = 2.0
+
     print_node_info()
+    logger.info(f"Starting retrieve thread for queue {args.queue!r}")
+
+    def _sleep_with_checks(seconds: float) -> bool:
+        deadline = time.time() + float(seconds)
+        while time.time() < deadline:
+            if args.graceful_stop.is_set() or args.abort_job.is_set():
+                return False
+            time.sleep(0.5)
+        return True
+
+    def _wait_for_harvester_job_definition(timeout: int, poll_interval: float) -> bool:
+        """Poll for a Harvester-placed job definition file after request_new_jobs().
+
+        Harvester responds asynchronously: it writes a job definition file to the
+        working directory after receiving the request file created by request_new_jobs().
+        Without this wait the pilot would call _fetch_dispatcher_response() immediately,
+        find nothing, and — because fail_at_getjob_none() returns True for ATLAS —
+        fatally abort even though Harvester simply hasn't had time to respond yet.
+
+        :param timeout: maximum seconds to wait for the file to appear (int)
+        :param poll_interval: seconds between existence checks (float)
+        :return: True if a job definition file was found within the timeout, False otherwise (bool)
+        """
+        deadline = time.time() + timeout
+        logger.info(f"waiting up to {timeout} s for Harvester to place a job definition file "
+                    f"(polling every {poll_interval} s)")
+        while time.time() < deadline:
+            if args.graceful_stop.is_set() or args.abort_job.is_set():
+                logger.info("graceful_stop/abort_job set while waiting for Harvester job definition — aborting wait")
+                return False
+            path = locate_job_definition(args)
+            if path:
+                logger.info(f"Harvester job definition file found: {path}")
+                return True
+            time.sleep(poll_interval)
+        logger.warning(f"timed out after {timeout} s waiting for Harvester to place a job definition file")
+        return False
 
     while not args.graceful_stop.is_set():
+        if args.abort_job.is_set():
+            logger.info("Abort requested — stopping retrieve loop")
+            break
 
+        # be polite to the CPU
         time.sleep(0.5)
+
+        # each iteration increments the getjob request counter (retrieve_old semantics)
         getjob_requests += 1
 
-        if not proceed_with_getjob(timefloor, starttime, jobnumber, getjob_requests, args.getjob_requests,
-                                   args.update_server, args.harvester_submitmode, args.harvester, args.verify_proxy, traces):
-            # do not set graceful stop if pilot has not finished sending the final job update
-            # i.e. wait until SERVER_UPDATE is DONE_FINAL
+        # check whether the pilot should attempt to fetch another job (timefloor, resources, proxy...)
+        try:
+            proceed = proceed_with_getjob(
+                timefloor,
+                starttime,
+                jobnumber,
+                getjob_requests,
+                args.getjob_requests,
+                args.update_server,
+                args.harvester_submitmode,
+                args.harvester,
+                args.verify_proxy,
+                traces,
+            )
+        except Exception as exc:
+            logger.warning(f"proceed_with_getjob() raised exception: {exc}")
+            proceed = False
+
+        if not proceed:
+            # ensure final server update is processed before exit (legacy behavior)
             check_for_final_server_update(args.update_server)
-            logger.warning('setting graceful_stop since proceed_with_getjob() returned False (pilot will end)')
+            logger.warning("proceed_with_getjob() returned False — stopping retrieve loop (pilot will end)")
             args.graceful_stop.set()
             args.abort_job.set()
             break
 
-        # store time stamp
         time_pre_getjob = time.time()
 
-        # get a job definition from a source (file or server)
-        res = get_job_definition(queues, args)
-        if isinstance(res, str):
-            logger.warning(f"get_job_definition() returned a string (setting it to None): {res}")
-            res = None
+        # When running under Harvester for any job beyond the first, request_new_jobs()
+        # has just been called inside proceed_with_getjob().  That call is fire-and-forget:
+        # it writes a request file and returns immediately, while Harvester responds
+        # asynchronously by placing a job definition file.  Poll for that file before
+        # calling _fetch_dispatcher_response() so we do not mistake "not yet written"
+        # for "no job available" and trigger a spurious fatal abort.
+        if args.harvester and jobnumber > 0:
+            found = _wait_for_harvester_job_definition(HARVESTER_JOB_WAIT_TIMEOUT, HARVESTER_JOB_POLL_INTERVAL)
+            if not found:
+                # Harvester did not deliver a job within the timeout.  Treat this the
+                # same as any other empty response: increment the failure counter and
+                # let the existing retry/give-up logic below handle it, rather than
+                # immediately triggering a fatal abort.
+                logger.warning("no job definition received from Harvester within timeout — treating as empty response")
+                getjob_failures += 1
+                max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+                if getjob_failures >= max_failures:
+                    logger.warning(f"did not get a job -- max number of job request failures reached: {getjob_failures}")
+                    args.graceful_stop.set()
+                    break
+                _sleep_with_checks(get_job_retrieval_delay(args.harvester))
+                continue
 
-        #res['debug'] = True
-        if res:
-            dump_job_definition(res)
+        # fetch dispatcher response (may return None)
+        dispatcher_response = _fetch_dispatcher_response(queues, args)
 
-        # only ATLAS wants to abort immediately in this case
-        pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-        jobdata = __import__(f'pilot.user.{pilot_user}.jobdata', globals(), locals(), [pilot_user], 0)
-        fail_at_none = jobdata.fail_at_getjob_none()
-        if res is None and fail_at_none:
-            logger.fatal('fatal error in job download loop - cannot continue')
-            # do not set graceful stop if pilot has not finished sending the final job update
-            # i.e. wait until SERVER_UPDATE is DONE_FINAL
+        # some code paths (older experiment hooks) return strings to signal special cases
+        if isinstance(dispatcher_response, str):
+            logger.warning(f"get_job_definition() returned string; treating as no-response: {dispatcher_response}")
+            dispatcher_response = None
+
+        # dump job definition to file if configured (legacy)
+        if dispatcher_response:
+            try:
+                dump_job_definition(dispatcher_response)
+            except Exception:
+                logger.debug("dump_job_definition() failed (non-fatal)")
+
+        # experimental/jobdata specific: treat None as fatal when requested
+        pilot_user = os.environ.get("PILOT_USER", "generic").lower()
+        try:
+            jobdata = __import__(f"pilot.user.{pilot_user}.jobdata", globals(), locals(), [pilot_user], 0)
+            fail_at_none = jobdata.fail_at_getjob_none()
+        except Exception:
+            fail_at_none = False
+
+        if dispatcher_response is None and fail_at_none:
+            logger.fatal("fatal error in job download loop - cannot continue (fail_at_getjob_none)")
             check_for_final_server_update(args.update_server)
-            logger.warning('setting graceful_stop since no job definition could be received (pilot will end)')
+            logger.warning("setting graceful_stop since no job definition could be received (pilot will end)")
             args.graceful_stop.set()
             break
 
-        if not res:
+        # If there was no dispatcher_response -> backoff / retry semantics
+        if dispatcher_response is None:
             getjob_failures += 1
-            if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
-                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures} (setting graceful_stop)')
-                if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
-                    logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
-                    traces.pilot['error_code'] = errors.NOJOBSINPANDA
-
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+            if getjob_failures >= max_failures:
+                logger.warning(f"did not get a job -- max number of job request failures reached: {getjob_failures}")
+                try:
+                    if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == "hpc":
+                        logger.warning("setting error code to NOJOBSINPANDA on HPC resource")
+                        traces.pilot["error_code"] = errors.NOJOBSINPANDA
+                except Exception:
+                    logger.debug("HPC special-case evaluation skipped")
                 args.graceful_stop.set()
                 break
-
             delay = get_job_retrieval_delay(args.harvester)
             if not args.harvester:
-                logger.warning(f'did not get a job -- sleep {delay} s and repeat')
-            for _ in range(delay):
-                if args.graceful_stop.is_set():
-                    break
-                time.sleep(1)
-        elif ((isinstance(res, str) and res.startswith('StatusCode') and not res.startswith('StatusCode=0') or
-               (isinstance(res, dict) and 'StatusCode' in res and res['StatusCode'] != '0' and res['StatusCode'] != 0))):
-            # it seems the PanDA server returns StatusCode as an int, but the aCT returns it as a string
-            # note: StatusCode keyword is not available in job definition files from Harvester (not needed)
+                logger.warning(f"did not get a job -- sleep {delay} s and repeat")
+            _sleep_with_checks(delay)
+            continue
+
+        # validate/extract job definitions
+        job_definitions = _validate_dispatcher_response(dispatcher_response)
+        if not job_definitions:
             getjob_failures += 1
-            if getjob_failures >= get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode):
-                logger.warning(f'did not get a job -- max number of job request failures reached: {getjob_failures}')
-                if getjob_failures >= 5 and pilot_cache.queuedata.resource_type.lower() == 'hpc':
-                    logger.warning('setting error code to NOJOBSINPANDA on HPC resource')
-                    traces.pilot['error_code'] = errors.NOJOBSINPANDA
-
+            max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
+            if getjob_failures >= max_failures:
+                logger.warning(f"No usable jobs - max failures reached ({getjob_failures}); setting graceful_stop")
                 args.graceful_stop.set()
+                args.abort_job.set()
                 break
+            delay = get_job_retrieval_delay(args.harvester)
+            _sleep_with_checks(delay)
+            continue
 
-            delay = random.randint(60, 180)
-            logger.warning(f"did not get a job -- sleep {delay}s and repeat -- status: {res}")
-            for _ in range(delay):
-                if args.graceful_stop.is_set():
-                    break
-                time.sleep(1)
-        else:
-            # create the job object out of the raw dispatcher job dictionary
-            try:
-                job = create_job(res, queuename=args.queue)
-            except PilotException as error:
-                raise error
+        # successful poll -> reset failure counter
+        getjob_failures = 0
 
-            # keep track of start time
-            job.starttime = int(time.time())
-            logger.info(f'job {job.jobid} has start time={job.starttime}')
+        # build, validate and queue (this will also perform timing and condor updates)
+        # in the "new" format, job_definitions is a list of dicts; in the "old" format, it's a single dict
+        if isinstance(job_definitions, dict):
+            job_definitions = [job_definitions]
+        job = _build_validate_and_queue(job_definitions, args.queue, args, traces, time_pre_getjob, queues)
+        if job is None:
+            _sleep_with_checks(min(5.0, float(get_job_retrieval_delay(args.harvester))))
+            continue
 
-            # inform the server if this job should be in debug mode (real-time logging), decided by queuedata
-            if "setdebugmode" in job.infosys.queuedata.catchall:
-                set_debug_mode(job.jobid, args.url, args.port)
+        jobnumber += 1
 
-            # logger.info('resetting any existing errors')
-            job.reset_errors()
+        # wait for job completion and then perform retrieve_old cleanup/reset
+        while not args.graceful_stop.is_set():
+            if has_job_completed(queues, args):
+                # remove defunct children
+                try:
+                    kill_defunct_children(getattr(job, "pid", 0))
+                except Exception as exc:
+                    logger.debug(f"kill_defunct_children() failed: {exc}")
 
-            #else:
-            # verify the job status on the server
-            #try:
-            #    job_status, job_attempt_nr, job_status_code = get_job_status_from_server(job.jobid, args.url, args.port)
-            #    if job_status == "running":
-            #        pilot_error_diag = "job %s is already running elsewhere - aborting" % job.jobid
-            #        logger.warning(pilot_error_diag)
-            #        raise JobAlreadyRunning(pilot_error_diag)
-            #except Exception as error:
-            #    logger.warning(f"{error}")
-            # write time stamps to pilot timing file
-            # note: PILOT_POST_GETJOB corresponds to START_TIME in Pilot 1
-            add_to_pilot_timing(job.jobid, PILOT_PRE_GETJOB, time_pre_getjob, args)
-            add_to_pilot_timing(job.jobid, PILOT_POST_GETJOB, time.time(), args)
-
-            # for debugging on HTCondor purposes, set special env var
-            # (only proceed if there is a condor class ad)
-            if os.environ.get('_CONDOR_JOB_AD', None):
-                htcondor_envvar(job.jobid)
-                # update_condor_classad(pandaid=job.jobid, state='retrieved')
-                pilotid = get_pilot_id(args.version_tag)
-                update_condor_classad(pandaid=job.jobid, pilotid=pilotid)
-
-            # add the job definition to the jobs queue and increase the job counter,
-            # and wait until the job has finished
-            put_in_queue(job, queues.jobs)
-
-            jobnumber += 1
-            while not args.graceful_stop.is_set():
-                if has_job_completed(queues, args):
-                    # make sure there are no lingering defunct subprocesses
-                    kill_defunct_children(job.pid)
-
-                    # purge queue(s) that retains job object
-                    set_pilot_state(state='')
+                # purge finished-data-in queue and reset pilot state
+                try:
+                    set_pilot_state(state="")
                     purge_queue(queues.finished_data_in)
+                except Exception as exc:
+                    logger.debug(f"Queue purge/reset failed: {exc}")
 
-                    # make sure there proxy does not contain any traces of unified proxy
-                    if args.verify_proxy:
-                        if "unified" in os.environ.get("X509_USER_PROXY", ""):
-                            logging.warning("removing -unified from X509_USER_PROXY")
-                            os.environ["X509_USER_PROXY"] = os.environ.get("X509_USER_PROXY", "").replace("-unified", "")
+                # unified-proxy cleanup if enabled
+                try:
+                    if getattr(args, "verify_proxy", False):
+                        xproxy = os.environ.get("X509_USER_PROXY", "")
+                        if "unified" in xproxy:
+                            logger.warning("Removing -unified from X509_USER_PROXY")
+                            os.environ["X509_USER_PROXY"] = xproxy.replace("-unified", "")
+                except Exception as exc:
+                    logger.debug(f"Proxy cleanup failed: {exc}")
 
+                # reset job control flags
+                try:
                     args.job_aborted.clear()
+                except Exception:
+                    pass
+                try:
                     args.abort_job.clear()
-                    logger.info('ready for new job')
+                except Exception:
+                    pass
 
-                    # re-establish logging
-                    logging.info('pilot has finished with previous job - re-establishing logging')
-                    logging.handlers = []
+                logger.info("Ready for new job")
+
+                # re-establish logging like retrieve_old()
+                try:
                     logging.shutdown()
                     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog)
                     pilot_version_banner()
-                    getjob_requests = 0
-                    add_to_pilot_timing('1', PILOT_MULTIJOB_START_TIME, time.time(), args)
-                    args.signal = None
-                    break
-                time.sleep(0.5)
+                except Exception as exc:
+                    logger.debug(f"Re-establish logging failed: {exc}")
 
-    # proceed to set the job_aborted flag?
-    if threads_aborted(caller='retrieve'):
-        logger.debug('will proceed to set job_aborted')
-        args.job_aborted.set()
+                # reset bookkeeping
+                getjob_requests = 0
+                try:
+                    add_to_pilot_timing("1", PILOT_MULTIJOB_START_TIME, time.time(), args)
+                except Exception:
+                    pass
 
-    logger.info('[job] retrieve thread has finished')
+                break
+
+            time.sleep(0.5)
+
+    # after loop: if threads aborted, set job_aborted as in retrieve_old()
+    try:
+        if threads_aborted(caller="retrieve"):
+            logger.debug("will proceed to set job_aborted")
+            args.job_aborted.set()
+    except Exception:
+        pass
+
+    logger.info("[job] retrieve thread has finished")
 
 
-def set_debug_mode(jobid: int, url: str, port: int):
+def set_debug_mode(jobid: int, url: str, port: int) -> bool:
+    """Inform the server that the given job should be put in debug mode.
+
+    The decision to activate debug mode is typically driven by queuedata.catchall.
+
+    Args:
+        jobid: PanDA job identifier.
+        url: Server URL.
+        port: Server port.
+
+    Returns:
+        True if the server accepted the request, False otherwise.
     """
-    Inform the server that the given job should be in debug mode.
+    data: dict[str, object] = {
+        "job_id": jobid,
+        "mode": "debug",  # explicit mode instead of boolean
+    }
 
-    Note, this is decided by queuedata.catchall.
+    result = https.send_update(
+        "api/v1/pilot/set_debug_mode",
+        data,
+        url,
+        port,
+        job=None,  # not a job-state update
+    )
 
-    :param jobid: job id (int)
-    :param url: server url (str)
-    :param port: server port (int).
-    """
-    # worker node structure to be sent to the server
-    data = {}
-    data["pandaID"] = jobid
-    data["modeOn"] = True
+    if not result.ok:
+        logger.warning(
+            f"Could not inform server to set debug mode for job {jobid} "
+            f"(success={result.success}, StatusCode={result.status_code}, "
+            f"message={result.message!r})"
+        )
+        return False
 
-    # attempt to send the info to the server
-    res = https.send_update("setDebugMode", data, url, port)
-    if not res:
-        logger.warning('could not inform server to set job in debug mode')
+    logger.info(f"Server accepted debug mode request for job {jobid}")
+    return True
 
 
 def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> int:
@@ -2478,11 +2905,11 @@ def get_nr_getjob_failures(getjob_failures: int, harvester_submitmode: str) -> i
         return getjob_failures
 
 
-def htcondor_envvar(jobid: str):
+def htcondor_envvar(jobid: int):
     """
     On HTCondor nodes, set special env var (HTCondor_PANDA) for debugging Lustre.
 
-    :param jobid: PanDA job id (str).
+    :param jobid: PanDA job id (int).
     """
     try:
         globaljobid = encode_globaljobid(jobid)
@@ -2545,7 +2972,119 @@ def print_node_info():
         logger.info("pilot is not running in a virtual machine")
 
 
-def create_job(dispatcher_response: dict, queuename: str) -> Any:
+def extract_job_definitions(dispatcher_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract job definition dictionaries from a dispatcher response.
+
+    This normalizes both the "new" response format:
+        {"success": True, "data": {"StatusCode": 0, "jobs": [ ... ]}}
+    and the "old" format where the response itself is a job dict.
+
+    Args:
+        dispatcher_response: Raw response dictionary from the dispatcher.
+
+    Returns:
+        A list of job definition dictionaries. Empty if extraction fails.
+    """
+    if not dispatcher_response:
+        logger.warning("empty dispatcher response")
+        return []
+
+    # New-ish format
+    success = dispatcher_response.get("success")
+    message = dispatcher_response.get("message")
+    if not success and message and "No jobs in PanDA" in message:
+        logger.warning("no jobs in PanDA")
+        return []
+
+    if success:
+        data = dispatcher_response.get("data") or {}
+        if data.get("StatusCode") != 0:
+            logger.warning("dispatcher returned non-zero StatusCode: %s", data.get("StatusCode"))
+            return []
+
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list):
+            logger.warning("dispatcher response 'jobs' is not a list")
+            return []
+
+        job_defs = [j for j in jobs if isinstance(j, dict)]
+        if not job_defs:
+            logger.warning("no valid job definition dicts found in 'jobs' list")
+        return job_defs
+
+    # Old format fallback
+    logger.warning("assuming old data format")
+    if isinstance(dispatcher_response, dict):
+        return [dispatcher_response]
+
+    logger.warning("old data format is not a dict")
+    return []
+
+
+def build_job_from_definition(job_definition: Dict[str, Any], queuename: str) -> Any:
+    """
+    Create and initialize a JobData job object from a single job definition dict.
+
+    Args:
+        job_definition: A single job definition dictionary.
+        queuename: Queue name.
+
+    Returns:
+        Initialized job object.
+    """
+    job = JobData(job_definition)
+
+    jobinfosys = InfoService()
+    jobinfosys.init(queuename, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
+    job.init(jobinfosys)
+
+    logger.info("received job: %s (sleep until the job has finished)", job.jobid)
+
+    # Payload environment wants PANDAID set.
+    os.environ["PANDAID"] = str(job.jobid)
+
+    # Reset pilot errors at the beginning of each new job.
+    errors.reset_pilot_errors()
+
+    return job
+
+
+# for the future, if multiple jobs are to be supported:
+#
+# def create_jobs(dispatcher_response: Dict[str, Any], queuename: str) -> List[Any]:
+#     job_defs = extract_job_definitions(dispatcher_response)
+#     return [build_job_from_definition(jd, queuename) for jd in job_defs]
+
+def create_job(dispatcher_response: Dict[str, Any], queuename: str) -> Optional[Any]:
+    """
+    Create a single job object out of the dispatcher response.
+
+    Note:
+        The dispatcher may return multiple job definitions. For now, the pilot
+        only constructs and returns the first job object.
+
+    Args:
+        dispatcher_response: Raw job dictionary from the dispatcher.
+        queuename: Queue name.
+
+    Returns:
+        A single initialized job object, or None if no job could be created.
+    """
+    job_definitions = extract_job_definitions(dispatcher_response)
+    if not job_definitions:
+        return None
+
+    if len(job_definitions) > 1:
+        logger.info(
+            "dispatcher returned %d jobs; pilot currently supports only one (using the first)",
+            len(job_definitions),
+        )
+
+    return build_job_from_definition(job_definitions[0], queuename)
+
+
+def create_job_old(dispatcher_response: dict, queuename: str) -> Any:
     """
     Create a job object out of the dispatcher response.
 
@@ -2553,8 +3092,30 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     :param queuename: queue name (str)
     :return: job object (Any)
     """
+    # check for sanity
+    if dispatcher_response:
+        if 'success' in dispatcher_response and dispatcher_response['success']:
+            try:
+                if 'data' in dispatcher_response and dispatcher_response['data']['StatusCode'] == 0:
+                    response = dispatcher_response['data']['jobs'][0]  # only extract the first job
+                else:
+                    logger.warning("failed to extract data from dispatcher response")
+                    response = None
+            except Exception as exc:
+                logger.warning(f"exception caught when extracting data from dispatcher response: {exc}")
+                response = None
+        else:
+            logger.warning("assuming old data format")
+            response = dispatcher_response
+    else:
+        logger.warning("empty dispatcher response")
+        response = None
+
+    if not response:
+        return None
+
     # initialize (job specific) InfoService instance
-    job = JobData(dispatcher_response)
+    job = JobData(response)
     jobinfosys = InfoService()
     jobinfosys.init(queuename, infosys.confinfo, infosys.extinfo, JobInfoProvider(job))
     job.init(jobinfosys)
@@ -2562,7 +3123,7 @@ def create_job(dispatcher_response: dict, queuename: str) -> Any:
     logger.info(f'received job: {job.jobid} (sleep until the job has finished)')
 
     # payload environment wants the PANDAID to be set, also used below
-    os.environ['PANDAID'] = job.jobid
+    os.environ['PANDAID'] = str(job.jobid)
 
     # reset pilot errors at the beginning of each new job
     errors.reset_pilot_errors()

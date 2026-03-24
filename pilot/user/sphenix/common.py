@@ -459,7 +459,7 @@ def post_prestagein_utility_command(**kwargs: dict):
         pass
 
 
-def process_debug_command(debug_command: str, pandaid: str) -> str:
+def process_debug_command(debug_command: str, pandaid: int) -> str:
     """
     Process a debug command.
 
@@ -468,7 +468,7 @@ def process_debug_command(debug_command: str, pandaid: str) -> str:
     to the server).
 
     :param debug_command: debug command (str)
-    :param pandaid: PanDA id (str)
+    :param pandaid: PanDA id (int)
     :return: updated debug command (str).
     """
     if pandaid:  # to bypass pylint score 0
@@ -490,13 +490,13 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: str) -> str:
+def get_pilot_id(jobid: int) -> str:
     """
     Get the pilot id from the environment variable GTAG.
 
     Update if necessary (do not used if you want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (str)
+    :param jobid: PanDA job id - UNUSED (int)
     :return: pilot id (str).
     """
     if jobid:  # to bypass pylint score 0

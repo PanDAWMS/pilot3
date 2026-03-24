@@ -825,11 +825,11 @@ def find_cmd_pids(cmd: str, ps_dictionary: dict) -> list:
     return pids
 
 
-def find_pid(pandaid: str, ps_dictionary: dict) -> int:
+def find_pid(pandaid: int, ps_dictionary: dict) -> int:
     """
     Find the process id for the command that contains 'export PandaID=%d'.
 
-    :param pandaid: PanDA ID (str)
+    :param pandaid: PanDA ID (int)
     :param ps_dictionary: ps output dictionary (dict)
     :return: pid (int).
     """

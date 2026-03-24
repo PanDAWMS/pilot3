@@ -29,9 +29,10 @@ import sys
 
 from collections.abc import Set, Mapping
 from collections import deque, OrderedDict
+from copy import deepcopy
 from numbers import Number
 from time import sleep
-from typing import Any
+from typing import Any, Dict, Optional, Tuple
 from uuid import uuid4
 
 from pilot.util.constants import (
@@ -791,3 +792,31 @@ def list_items(items: list):
     """
     for i, item in enumerate(items):
         logger.info(f'{i + 1}: {item}')
+
+
+def mask_sensitive_response(res: Dict[str, Any], key: str = "pilotSecrets", mask: str = "********") -> Tuple[Dict[str, Any], Optional[Any]]:
+    """
+    Return a masked copy of `res` for logging and the extracted sensitive value (if any).
+
+    - Does not mutate the original `res`.
+    - Looks first in `res.get('data')`, then at top-level `res`.
+    - Returns (masked_copy, extracted_value_or_None).
+    """
+    if not isinstance(res, dict):
+        return res, None
+
+    log_res = deepcopy(res)
+    extracted = None
+
+    # prefer nested 'data' container if present
+    data_node = log_res.get('data') or {}
+    if isinstance(data_node, dict) and key in data_node:
+        extracted = res.get('data', {}).get(key)
+        data_node[key] = mask
+        # ensure the masked node is placed back if it was a copy
+        log_res['data'] = data_node
+    elif key in log_res:
+        extracted = res.get(key)
+        log_res[key] = mask
+
+    return log_res, extracted

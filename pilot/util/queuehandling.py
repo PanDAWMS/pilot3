@@ -179,7 +179,8 @@ def abort_jobs_in_queues(queues: namedtuple, sig: str):
         _queue = getattr(queues, queue)
         jobs = list(_queue.queue)
         for job in jobs:
-            if is_string(job):  # this will be the case for the completed_jobids queue
+            # completed_jobids can contain strings or ints, and other non-job sentinels might appear
+            if is_string(job) or not hasattr(job, 'jobid'):
                 continue
             if job not in jobs_list:
                 jobs_list.append(job)

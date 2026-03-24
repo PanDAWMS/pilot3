@@ -19,9 +19,25 @@
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
-"""Functions for https interactions."""
+
+"""HTTPS communication layer for the PanDA Pilot.
+
+This module provides all network I/O between the pilot and the PanDA server,
+including:
+
+- SSL/TLS context management (:func:`https_setup`, :func:`get_ssl_context`)
+- Low-level HTTP request helpers (:func:`request`, :func:`request2`,
+  :func:`request3`) supporting both curl and urllib backends
+- OIDC token management (:func:`get_local_oidc_token_info`,
+  :func:`refresh_oidc_token`, :func:`locate_token`)
+- Server update dispatch (:func:`send_update`, :func:`send_request`)
+- Job and worker-pilot status queries (:func:`get_job_status_from_server`)
+- Tracing and memory-limit endpoint helpers
+"""
+
+from __future__ import annotations
 
 import ast
 import base64
@@ -30,7 +46,6 @@ try:
 except ImportError:
     certifi = None
 import datetime
-import http.client as http_client
 import json
 import logging
 import os
@@ -41,16 +56,21 @@ try:
 except ImportError:
     requests = None
 import shlex
+import shutil
 import socket
 import ssl
+import subprocess
 import sys
+import tempfile
 import urllib.request
 import urllib.error
 import urllib.parse
 
 from collections.abc import Callable
 from collections import namedtuple
+from dataclasses import dataclass
 from gzip import GzipFile
+from http import client as http_client
 from io import BytesIO
 from re import (
     findall,
@@ -63,26 +83,27 @@ from time import (
 )
 from typing import (
     Any,
-    Optional
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union
 )
-from urllib.parse import parse_qs
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.common.exception import FileHandlingFailure
 from pilot.info.jobdata import JobData
 
 from .auxiliary import (
     is_kubernetes_resource,
+    mask_sensitive_response,
     set_pilot_state
 )
 from .config import config
 from .constants import get_pilot_version
-from .container import execute
 from .filehandling import (
     get_modification_time,
     read_file,
     rename,
-    write_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,17 +122,19 @@ ctx = type('ctx', (object,), {'ssl_context': None, 'user_agent': 'Pilot3 client'
 
 
 def _tester(func: Callable[..., Any], *args: Any) -> Any:
-    """
-    Test function ``func`` on the given arguments and return the first positive.
+    """Apply *func* to each argument and return the first one for which it is truthy.
 
     >>> _tester(lambda x: x%3 == 0, 1, 2, 3, 4, 5, 6)
     3
     >>> _tester(lambda x: x%3 == 0, 1, 2)
-    None
 
-    :param func: the function to be tested (Callable)
-    :param args: other arguments (Any)
-    :return: something or none (Any).
+    Args:
+        func: Predicate to test each argument against.
+        *args: Candidate values to test in order; ``None`` entries are skipped.
+
+    Returns:
+        The first non-``None`` argument for which ``func`` returns a truthy
+        value, or ``None`` if no argument passes.
     """
     for arg in args:
         if arg is not None and func(arg):
@@ -120,17 +143,21 @@ def _tester(func: Callable[..., Any], *args: Any) -> Any:
     return None
 
 
-def capath(args: object = None) -> Any:
-    """
-    Try to get :abbr:`CA (Certification Authority)` path with certificates.
+def capath(args: object = None) -> Optional[str]:
+    """Return the CA certificate directory path.
 
-    Tries
-    1. :option:`--capath` from arguments
-    2. :envvar:`X509_CERT_DIR` from env
-    3. Path ``/etc/grid-security/certificates``
+    Tries the following sources in order, returning the first that is an
+    existing directory:
 
-    :param args: arguments, parsed by argparse (object)
-    :returns: directory path (str), or None.
+    1. ``--capath`` command-line argument (``args.capath``)
+    2. ``X509_CERT_DIR`` environment variable
+    3. ``/etc/grid-security/certificates``
+
+    Args:
+        args: Parsed argparse namespace, or ``None``.
+
+    Returns:
+        Path to an existing CA directory, or ``None`` if none is found.
     """
     return _tester(os.path.isdir,
                    args and args.capath,
@@ -138,11 +165,15 @@ def capath(args: object = None) -> Any:
                    '/etc/grid-security/certificates')
 
 
-def cacert_default_location() -> str or None:
-    """
-    Try to get current user ID through `os.getuid`, and get the posix path for x509 certificate.
+def cacert_default_location() -> Optional[str]:
+    """Return the default POSIX path for the X.509 user proxy certificate.
 
-    :returns: `str` -- posix default x509 path, or `None` (str or None).
+    Constructs the conventional path ``/tmp/x509up_u<uid>`` using
+    :func:`os.getuid`.  On non-POSIX systems where ``getuid`` is not
+    available the function logs a warning and returns ``None``.
+
+    Returns:
+        Default proxy path string, or ``None`` on non-POSIX systems.
     """
     try:
         return f'/tmp/x509up_u{os.getuid()}'
@@ -153,17 +184,21 @@ def cacert_default_location() -> str or None:
 
 
 def cacert(args: object = None) -> str:
-    """
-    Try to get :abbr:`CA (Certification Authority)` certificate or X509.
+    """Return the path to the CA certificate or X.509 user proxy.
 
-    Checks that it is a regular file.
-    Tries
-    1. :option:`--cacert` from arguments
-    2. :envvar:`X509_USER_PROXY` from env
-    3. Path ``/tmp/x509up_uXXX``, where ``XXX`` refers to ``UID``
+    Tries the following sources in order, returning the first that is an
+    existing regular file:
 
-    :param args: arguments, parsed by argparse (object)
-    :return: certificate file path (str).
+    1. ``--cacert`` command-line argument (``args.cacert``)
+    2. ``X509_USER_PROXY`` environment variable
+    3. Default POSIX proxy path ``/tmp/x509up_u<uid>``
+
+    Args:
+        args: Parsed argparse namespace, or ``None``.
+
+    Returns:
+        Path to an existing certificate file, or an empty string if none
+        is found.
     """
     cert_path = _tester(os.path.isfile,
                         args and args.cacert,
@@ -173,23 +208,33 @@ def cacert(args: object = None) -> str:
     return cert_path if cert_path else ""
 
 
-def https_setup(args: object = None, version: str = ""):
-    """
-    Set up the context for HTTPS requests.
+def https_setup(args: object = None, version: str = "") -> None:
+    """Set up the global SSL/TLS context for all subsequent HTTPS requests.
 
-    1. Selects the certificate paths
-    2. Sets up :mailheader:`User-Agent`
-    3. Tries to create `ssl.SSLContext` for future use (falls back to :command:`curl` if fails)
+    Performs three steps:
 
-    :param args: arguments, parsed by argparse (object)
-    :param version: pilot version string (for :mailheader:`User-Agent`) (str).
+    1. Resolves CA directory and certificate paths via :func:`capath` and
+       :func:`cacert`, storing them on the module-level ``_ctx`` and ``ctx``
+       objects.
+    2. Builds the ``User-Agent`` header string from the pilot version and
+       Python/OS information.
+    3. Attempts to create an :class:`ssl.SSLContext`; on failure the context
+       is set to ``None`` and the curl fallback path is used instead.
+
+    Args:
+        args: Parsed argparse namespace used to resolve certificate paths, or
+            ``None`` to rely solely on environment variables and defaults.
+        version: Pilot version string embedded in the ``User-Agent`` header.
+            Defaults to the value returned by :func:`~pilot.util.constants.get_pilot_version`.
     """
+    logger.debug('https_setup: resolving certificate paths and user-agent string')
     version = version or get_pilot_version()
 
     _ctx.user_agent = f'pilot/{version} (Python {sys.version.split()[0]}; {platform.system()} {platform.machine()})'
     _ctx.capath = capath(args)
     _ctx.cacert = cacert(args)
-
+    logger.debug('https_setup: resolving CA directory and user-agent string')
+    logger.debug(f'_ctx.capath={_ctx.capath}, _ctx.cacert={_ctx.cacert}, _ctx.user_agent={_ctx.user_agent}')
     try:
         _ctx.ssl_context = ssl.create_default_context(capath=_ctx.capath,
                                                       cafile=_ctx.cacert)
@@ -210,103 +255,122 @@ def https_setup(args: object = None, version: str = ""):
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url: str, data: dict = None, plain: bool = False, secure: bool = True, ipv: str = 'IPv6') -> Any:
+def request(url: str,
+            data: Dict[str, Any] | None = None,
+            plain: bool = False,
+            secure: bool = True,
+            ipv: str = "IPv6") -> Any:
     """
-    Send a request using HTTPS.
+    Curl-based HTTP request fallback which uses a curl config file that references
+    a JSON payload file (data = @payload.json) and sets `request = POST`.
 
-    Sends :mailheader:`User-Agent` and certificates previously being set up by `https_setup`.
-    If `ssl.SSLContext` is available, uses `urllib2` as a request processor. Otherwise, uses :command:`curl`.
+    This function delegates to send_request_with_token_via_curl_config() which:
+      - writes the JSON payload to a temporary file,
+      - writes a curl config file that sets headers and `request = POST`,
+      - executes curl with --config <file>,
+      - returns either a parsed dict (if response was JSON), a raw string (if curl succeeded but response not JSON),
+        or a string beginning with "failed to send request:" on error.
 
-    If ``data`` is provided, encodes it as a URL form data and sends it to the server.
+    Args:
+        url: Full URL to call (including scheme and port).
+        data: Payload dictionary to send (JSON body). If None, an empty dict is used.
+        plain: If True, return the raw string response (or JSON-dumped string for dict).
+        secure: Kept for API compatibility; currently only logged.
+        ipv: Preferred IP family ("IPv4" or "IPv6"); currently only logged.
 
-    Treats the request as JSON unless a parameter ``plain`` is `True`.
-    If JSON is expected, sends ``Accept: application/json`` header.
-
-    Usage:
-
-    .. code-block:: python
-        :emphasize-lines: 2
-
-        https_setup(args, PILOT_VERSION)  # sets up ssl and other stuff
-        response = request('https://some.url', {'some':'data'})
-
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :param plain: if true, treats the response as a plain text (bool)
-    :param secure: default: True, i.e. use certificates (bool)
-    :param ipv: internet protocol version (str)
-    :returns:
-        - :keyword:`dict` -- if everything went OK
-        - `str` -- if ``plain`` parameter is `True`
-        - `None` -- if something went wrong.
+    Returns:
+        Parsed dict on JSON success, raw string on parse failure, or failure string.
     """
-    if data is None:
-        data = {}
-    _ctx.ssl_context = None  # certificates are not available on the grid, use curl
+    # Ensure payload exists
+    payload = data or {}
 
-    # note that X509_USER_PROXY might change during running (in the case of proxy downloads), so
-    # we might have to update _ctx
-    update_ctx()
+    logger.info("curl fallback request: url=%s, secure=%s, ipv=%s", url, secure, ipv)
+    logger.debug("curl fallback payload preview (first 1024 chars): %s", json.dumps(payload)[:1024])
 
-    logger.debug(f'server update dictionary = \n{data}')
+    # Gather certificate / key and user-agent from module context (_ctx) and config
+    # NOTE: these names must match the ones used in your module:
+    #   _ctx.cacert  -> path to cert/cacert/key (used for cert/key/cacert)
+    #   _ctx.user_agent -> user agent string
+    #try:
+    #    certfile = _ctx.cacert
+    #    cacertfile = _ctx.cacert
+    #    keyfile = _ctx.cacert
+    #    user_agent = _ctx.user_agent
+    #except Exception as exc:
+    #    logger.warning("request() curl fallback: missing _ctx cert or user-agent: %s", exc)
+    #    # Fallback to sensible defaults (may still fail later)
+    #    certfile = cacertfile = keyfile = "/etc/ssl/certs/ca-bundle.crt"
+    #    user_agent = "pilot/unknown"
 
-    # get the filename and strdata for the curl config file
-    filename, strdata = get_vars(url, data)
-    # write the strdata to file
+    # Timeouts from config (fallback to sane defaults if not present)
     try:
-        writestatus = write_file(filename, strdata)
-    except FileHandlingFailure:
-        writestatus = None
+        connect_timeout = int(config.Pilot.http_connect_timeout)
+    except Exception:
+        connect_timeout = 100
+    try:
+        total_timeout = int(config.Pilot.http_maxtime)
+    except Exception:
+        total_timeout = 120
 
-    # get the config option for the curl command
-    dat = get_curl_config_option(writestatus, url, data, filename)
+    # Call the curl-config-based sender
+    try:
+        # get token content as your code already does
+        auth_token, _ = get_local_oidc_token_info()
+        auth_token_content = get_auth_token_content(auth_token)  # whatever function you have
 
-    # loop over internet protocol versions since proper value might be known yet (ie before downloading queuedata)
-    ipvs = ['IPv6', 'IPv4'] if ipv == 'IPv6' else ['IPv4']
-    if _ctx.ssl_context is None and secure:
-        failed = False
-        for _ipv in ipvs:
-            req, obscure = get_curl_command(plain, dat, _ipv)
-            if not req:
-                logger.warning('failed to construct valid curl command')
-                failed = True
-                break
+        res = send_request_with_token_via_curl_config(
+            url=url,
+            payload=data,
+            cacertfile=_ctx.capath or "/etc/grid-security/certificates",
+            use_capath=bool(_ctx.capath),
+            token=auth_token_content,
+            extra_headers={"Origin": "atlas.pilot"},
+            use_token_only=False,  # important
+            certfile=_ctx.cacert,
+            keyfile=_ctx.cacert,
+            connect_timeout=connect_timeout,
+            total_timeout=total_timeout,
+            verify=True,
+        )
+    except Exception as exc:
+        logger.exception("curl fallback raised unexpected exception: %s", exc)
+        return f"failed to send request: {exc}"
+
+    # If caller explicitly wants a plain string, return it (stringify dict if needed)
+    if plain:
+        if isinstance(res, dict):
             try:
-                status, output, stderr = execute(req, obscure=obscure, timeout=config.Pilot.http_maxtime)
-            except Exception as exc:
-                logger.warning(f'exception: {exc}')
-                failed = True
-                break
-            else:
-                if status == 0:
-                    break
-                logger.warning(f'request failed for IPv={_ipv} ({status}): stdout={output}, stderr={stderr}')
-                continue
-        if failed:
-            return None
+                return json.dumps(res)
+            except Exception:
+                return str(res)
+        return res
 
-        # return output if plain otherwise return json.loads(output)
-        if plain:
-            return output
+    # Normal behaviour: prefer dict, else attempt to json.loads() string response,
+    # otherwise return the raw string (previously you attempted json.loads and warned)
+    if isinstance(res, dict):
+        return res
+
+    if isinstance(res, str):
         try:
-            ret = json.loads(output)
-        except Exception as exc:
-            logger.warning(f'json.loads() failed to parse output={output}: {exc}')
-            return None
-        return ret
+            parsed = json.loads(res)
+            return parsed
+        except Exception:
+            logger.warning("json.loads() failed to parse curl output=%r", res[:2000])
+            return res
 
-    req = execute_urllib(url, data, plain, secure)
-    context = _ctx.ssl_context if secure else None
-
-    ec, output = get_urlopen_output(req, context)
-    if ec:
-        return None
-
-    return output.read() if plain else json.load(output)
+    # Unexpected type from helper: return string repr
+    logger.warning("curl fallback returned unexpected type %s", type(res))
+    return str(res)
 
 
-def update_ctx():
-    """Update the ctx object in case X509_USER_PROXY has been updated."""
+def update_ctx() -> None:
+    """Refresh ``_ctx`` certificate paths from the environment.
+
+    Re-reads ``X509_USER_PROXY`` and ``X509_CERT_DIR`` and updates
+    ``_ctx.cacert`` / ``_ctx.capath`` if the environment variables point to
+    paths that now exist and differ from the stored values.  Called at the
+    start of each :func:`request` invocation to pick up proxy renewals.
+    """
     cert = str(_ctx.cacert)  # to bypass pylint W0143 warning
     x509 = os.environ.get('X509_USER_PROXY', cert)
     if x509 != cert and os.path.exists(x509):
@@ -318,13 +382,21 @@ def update_ctx():
         _ctx.capath = certdir
 
 
-def get_local_oidc_token_info() -> tuple[str or None, str or None]:
-    """
-    Get the OIDC token locally.
+def get_local_oidc_token_info() -> tuple[Optional[str], Optional[str]]:
+    """Return the local OIDC auth token path and its origin string.
 
-    :return: token (str), token origin (str) (tuple).
+    Checks for a refreshed token first (``OIDC_REFRESHED_AUTH_TOKEN``), then
+    falls back to the initial long-lasting token (``OIDC_AUTH_TOKEN`` or
+    ``PANDA_AUTH_TOKEN``).  The origin is read from ``OIDC_AUTH_ORIGIN`` or
+    ``PANDA_AUTH_ORIGIN``.
+
+    Returns:
+        A two-element tuple ``(auth_token, auth_origin)`` where each element
+        is either a string value or ``None`` if the corresponding environment
+        variable is not set.
     """
     # first check if there is a token that was downloaded by the pilot
+    logger.debug('checking for refreshed OIDC token in environment variable OIDC_REFRESHED_AUTH_TOKEN')
     refreshed_auth_token = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
     if refreshed_auth_token and os.path.exists(refreshed_auth_token):
         auth_token = refreshed_auth_token
@@ -337,14 +409,49 @@ def get_local_oidc_token_info() -> tuple[str or None, str or None]:
     return auth_token, auth_origin
 
 
-def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
+def _format_curl_headers(plain: bool,
+                         use_oidc: bool,
+                         auth_token_content: str,
+                         auth_origin: str,
+                         user_agent: str,
+                         capath: str,
+                         cacert: str) -> Tuple[str, str]:
     """
-    Get the curl command.
+    Return a safe shell fragment of curl header and cert flags, and the
+    bearer token content for redaction. Uses shlex.quote on each header.
+    """
+    parts = []
+    redaction_token = ''
 
-    :param plain: if true, treats the response as a plain text (bool)
-    :param dat: curl config option (str)
-    :param ipv: internet protocol version (str)
-    :return: curl command (str or None), sensitive string to be obscured before dumping to log (str).
+    # common capath
+    parts.append(f'--capath {shlex.quote(capath or "")}')
+
+    if use_oidc:
+        # Authorization header (quote whole header string)
+        parts.append('-H ' + shlex.quote(f'Authorization: Bearer {auth_token_content}'))
+        redaction_token = auth_token_content
+        if not plain:
+            parts.append('-H ' + shlex.quote('Accept: application/json'))
+            parts.append('-H ' + shlex.quote('Content-Type: application/json'))
+        parts.append('-H ' + shlex.quote(f'Origin: {auth_origin}'))
+    else:
+        # client certs + UA
+        parts.append(f'--cert {shlex.quote(cacert or "")}')
+        parts.append(f'--cacert {shlex.quote(cacert or "")}')
+        parts.append(f'--key {shlex.quote(cacert or "")}')
+        parts.append('-H ' + shlex.quote(f'User-Agent: {user_agent}'))
+        if not plain:
+            parts.append('-H ' + shlex.quote('Accept: application/json'))
+            parts.append('-H ' + shlex.quote('Content-Type: application/json'))
+
+    return ' '.join(parts), redaction_token
+
+
+def get_curl_command(plain: bool, dat: str, ipv: str) -> Tuple[object, str]:
+    """
+    Build the curl command safely by delegating header/cert construction
+    to _format_curl_headers to avoid nested f-strings and quoting issues.
+    Returns (command_str_or_None, auth_token_content_for_redaction).
     """
     auth_token_content = ''
     auth_token, auth_origin = get_local_oidc_token_info()
@@ -352,10 +459,9 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
     command = 'curl'
     if ipv == 'IPv4':
         command += ' -4'
-    if auth_token and auth_origin:
-        # curl --silent --capath
-        # /cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase/etc/grid-security-emi/certificates --compressed
-        # -H "Authorization: Bearer <contents of PANDA_AUTH_TOKEN>" -H "Origin: <PANDA_AUTH_VO>"
+
+    use_oidc = bool(auth_token and auth_origin)
+    if use_oidc:
         path = locate_token(auth_token)
         if os.path.exists(path):
             auth_token_content = read_file(path)
@@ -365,42 +471,51 @@ def get_curl_command(plain: bool, dat: str, ipv: str) -> tuple[Any, str]:
         else:
             logger.warning(f'path does not exist: {path}')
             return None, ''
-        if not auth_token_content:
-            logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
-            return None, ''
 
-        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
-              f'--max-time {config.Pilot.http_maxtime} '\
-              f'--capath {shlex.quote(_ctx.capath or "")} ' \
-              f'-H "Authorization: Bearer {shlex.quote(auth_token_content)}" ' \
-              f'-H {shlex.quote("Accept: application/json") if not plain else ""} ' \
-              f'-H "Origin: {shlex.quote(auth_origin)}" {dat}'
-    else:
-        req = f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} ' \
-              f'--max-time {config.Pilot.http_maxtime} '\
-              f'--capath {shlex.quote(_ctx.capath or "")} ' \
-              f'--cert {shlex.quote(_ctx.cacert or "")} ' \
-              f'--cacert {shlex.quote(_ctx.cacert or "")} ' \
-              f'--key {shlex.quote(_ctx.cacert or "")} '\
-              f'-H {shlex.quote(f"User-Agent: {_ctx.user_agent}")} ' \
-              f'-H {shlex.quote("Accept: application/json") if not plain else ""} {dat}'
+    headers_fragment, redact_token = _format_curl_headers(
+        plain=plain,
+        use_oidc=use_oidc,
+        auth_token_content=auth_token_content,
+        auth_origin=auth_origin or "",
+        user_agent=_ctx.user_agent,
+        capath=_ctx.capath or "",
+        cacert=_ctx.cacert or ""
+    )
 
-    return req, auth_token_content
+    req = (
+        f'{command} -sS --compressed --connect-timeout {config.Pilot.http_connect_timeout} '
+        f'--max-time {config.Pilot.http_maxtime} {headers_fragment} {dat}'
+    )
+
+    return req, redact_token
 
 
-def locate_token(auth_token: str, key: bool = False) -> str:
-    """
-    Locate the OIDC token file.
+def locate_token2(auth_token: str, key: bool = False) -> str:
+    """Find the filesystem path for an OIDC token file.
 
-    Primary means the original token file, not the refreshed one.
-    The primary token is needed for downloading new tokens (i.e. 'refreshed' ones).
+    Searches a prioritised list of candidate directories for a file named
+    *auth_token*.  When *key* is ``False`` (default) the list is prepended
+    with the ``OIDC_REFRESHED_AUTH_TOKEN`` path if it exists, ensuring the
+    most recently refreshed token is preferred.
 
-    Note that auth_token is only the file name for the primary token, but has the full path for any
-    refreshed token.
+    Candidate directories (in order):
 
-    :param auth_token: file name of token (str)
-    :param key: if true, token key is used (bool)
-    :return: path to token (str).
+    1. ``OIDC_REFRESHED_AUTH_TOKEN`` (if *key* is ``False`` and the file
+       exists)
+    2. ``OIDC_AUTH_DIR`` / ``PANDA_AUTH_DIR`` / ``X509_USER_PROXY`` dirname
+    3. ``PILOT_SOURCE_DIR``
+    4. ``PILOT_WORK_DIR``
+    5. ``HOME``
+
+    Args:
+        auth_token: File name (primary token) or full path (refreshed token)
+            to locate.
+        key: If ``True``, search for the token *key* file and skip the
+            refreshed-token prepend step.
+
+    Returns:
+        Absolute path to the first matching file, or an empty string if no
+        candidate exists.
     """
     primary_basedir = os.path.dirname(os.environ.get('OIDC_AUTH_DIR', os.environ.get('PANDA_AUTH_DIR', os.environ.get('X509_USER_PROXY', ''))))
     paths = [os.path.join(primary_basedir, auth_token),
@@ -414,8 +529,8 @@ def locate_token(auth_token: str, key: bool = False) -> str:
         if _refreshed and os.path.exists(_refreshed):
             paths.insert(0, _refreshed)
 
-    # remove duplicates
-    paths = list(set(paths))
+    # remove duplicates while preserving insertion-order priority
+    paths = list(dict.fromkeys(paths))
 
     path = ""
     for _path in paths:
@@ -431,17 +546,21 @@ def locate_token(auth_token: str, key: bool = False) -> str:
 
 
 def get_vars(url: str, data: dict) -> tuple[str, str]:
-    """
-    Get the filename and strdata for the curl config file.
+    """Build the curl config file path and its URL-encoded content string.
 
-    :param url: URL (str)
-    :param data: data to be written to file (dict)
-    :return: filename (str), strdata (str) (tuple).
+    Args:
+        url: Target URL; its basename is used as part of the config filename.
+        data: Key/value payload to encode as ``data="key=value"`` lines.
+
+    Returns:
+        A two-element tuple ``(filename, strdata)`` where *filename* is the
+        absolute path for the temporary curl config file under ``PILOT_HOME``
+        and *strdata* is the file content to write.
     """
     strdata = ""
     for key in data:
         strdata += f'data="{urllib.parse.urlencode({key: data[key]})}"\n'
-    jobid = f"_{data['jobId']}" if 'jobId' in list(data.keys()) else ""
+    jobid = f"_{data['job_id']}" if 'job_id' in list(data.keys()) else ""
 
     # write data to temporary config file
     filename = f"{os.getenv('PILOT_HOME')}/curl_{os.path.basename(url)}{jobid}.config"
@@ -450,18 +569,28 @@ def get_vars(url: str, data: dict) -> tuple[str, str]:
 
 
 def get_curl_config_option(writestatus: bool, url: str, data: dict, filename: str) -> str:
-    """
-    Get the curl config option.
+    """Return the curl data option string for use in the curl command.
 
-    :param writestatus: status of write_file call (bool)
-    :param url: URL (str)
-    :param data: data structure (dict)
-    :param filename: file name of config file (str)
-    :return: config option (str).
+    When *writestatus* is truthy (the config file was written successfully),
+    returns ``--config <filename> <url>``.  Otherwise falls back to inlining
+    the URL-encoded data directly in the command string.
+
+    Args:
+        writestatus: ``True`` if the curl config file was written successfully.
+        url: Target URL.
+        data: Payload dict used for the URL-encoded fallback.
+        filename: Path to the temporary curl config file.
+
+    Returns:
+        The ``dat`` string to append to the curl command.
     """
     if not writestatus:
-        logger.warning('failed to create curl config file (will attempt to urlencode data directly)')
-        dat = shlex.quote(url + '?' + urllib.parse.urlencode(data) if data else '')
+        logger.warning('failed to create curl config file (will attempt to send JSON body inline)')
+        try:
+            json_payload = json.dumps(data) if data else ''
+            dat = f"--data-raw {shlex.quote(json_payload)} {url}"
+        except Exception:
+            dat = shlex.quote(url + ('?' + urllib.parse.urlencode(data) if data else ''))
     else:
         dat = f'--config {filename} {url}'
 
@@ -469,14 +598,18 @@ def get_curl_config_option(writestatus: bool, url: str, data: dict, filename: st
 
 
 def execute_urllib(url: str, data: dict, plain: bool, secure: bool) -> urllib.request.Request:
-    """
-    Execute the request using urllib.
+    """Build a :class:`urllib.request.Request` object for the given URL and data.
 
-    :param url: URL (str)
-    :param data: data structure (dict)
-    :param plain: if true, treats the response as a plain text (bool)
-    :param secure: default: True, i.e. use certificates (bool)
-    :return: urllib request structure (Any).
+    Args:
+        url: Target URL.
+        data: Payload dict to URL-encode and attach as the request body.
+        plain: If ``True``, omit the ``Accept: application/json' \
+              f'-H {shlex.quote("Content-Type: application/json")}`` header.
+        secure: If ``True``, attach the ``User-Agent`` header from ``_ctx``.
+
+    Returns:
+        Configured :class:`urllib.request.Request` ready to be passed to
+        :func:`~urllib.request.urlopen`.
     """
     req = urllib.request.Request(url, urllib.parse.urlencode(data).encode('ascii'))
     if not plain:
@@ -488,12 +621,16 @@ def execute_urllib(url: str, data: dict, plain: bool, secure: bool) -> urllib.re
 
 
 def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> tuple[int, str]:
-    """
-    Get the output from the urlopen request.
+    """Open *req* with :func:`~urllib.request.urlopen` and return the response.
 
-    :param req: urllib request structure (urllib.request.Request)
-    :param context: ssl context (ssl.SSLContext)
-    :return: exit code (int), output (str) (tuple).
+    Args:
+        req: Prepared :class:`urllib.request.Request` to send.
+        context: SSL context to use, or ``None`` for no TLS verification.
+
+    Returns:
+        A two-element tuple ``(exitcode, output)`` where *exitcode* is ``0``
+        on success or ``-1`` on any network/HTTP error, and *output* is the
+        open response object (or an empty string on error).
     """
     exitcode = -1
     output = ""
@@ -503,7 +640,7 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     except urllib.error.HTTPError as exc:
         logger.warning(f'server error ({exc.code}): {exc.read()}')
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
-        logger.warning(f'connection error: {exc.reason}')
+        logger.warning(f'connection error: {getattr(exc, "reason", exc)}')
     else:
         exitcode = 0
     logger.debug(f'ok url opened: exitcode={exitcode}')
@@ -511,72 +648,671 @@ def get_urlopen_output(req: urllib.request.Request, context: ssl.SSLContext) -> 
     return exitcode, output
 
 
-def send_update(update_function: str, data: dict, url: str, port: int, job: JobData = None, ipv: str = 'IPv6', max_attempts: int = 2) -> dict:
-    """
-    Send the update to the server using the given function and data.
+@dataclass(frozen=True)
+class UpdateResult:
+    """Normalized result from a server update attempt."""
+    ok: bool
+    attempts: int
+    response: Optional[Dict[str, Any]]
+    success: Optional[bool]
+    status_code: Optional[int]
+    command: Optional[str]
+    message: str
+    error_type: Optional[str] = None  # e.g. "transport", "protocol", "server"
 
-    :param update_function: 'updateJob' or 'updateWorkerPilotStatus' (str)
-    :param data: data (dict)
-    :param url: server url (str)
-    :param port: server port (int)
-    :param job: job object (JobData)
-    :param ipv: internet protocol version, IPv4 or IPv6 (str)
-    :param max_attempts: maximum number of attempts to send the update (int)
-    :return: server response (dict).
+
+def _parse_update_response(res: Dict[str, Any]) -> Tuple[bool, Optional[int], Optional[str], str]:
+    """Parse a PanDA server update response into a normalised tuple.
+
+    Args:
+        res: Response dict from the server (must be a ``dict``).
+
+    Returns:
+        A four-element tuple ``(ok, status_code, command, message)`` where
+        *ok* is ``True`` only when ``success`` is ``True`` and
+        ``StatusCode`` is absent or zero.
+    """
+    success = res.get("success")
+    message = res.get("message") or ""
+    data = res.get("data", {})
+
+    if success and not data:
+        logger.debug(f"Server response success=True, message={message!r} (data not returned)")
+        return True, None, None, message
+
+    if not isinstance(data, dict):
+        return False, None, None, f"Malformed response: data is {type(data)}"
+
+    status_code = data.get("StatusCode")
+    command = data.get("command")
+
+    # Application-level success rule:
+    # - success must be True
+    # - StatusCode should be 0 (if present)
+    if success is True and (status_code is None or status_code == 0):
+        return True, status_code, command, message
+
+    # Construct a meaningful message for caller/logging
+    if success is False:
+        return False, status_code, command, message or "Server returned success=False"
+    if status_code is not None and status_code != 0:
+        return False, status_code, command, message or f"Server returned StatusCode={status_code}"
+    return False, status_code, command, message or "Server response indicated failure"
+
+
+def send_update(update_function: str, data: Dict[str, Any], url: str, port: int, job: Optional[Any] = None, ipv: str = "IPv6", max_attempts: int = 2) -> UpdateResult:  # noqa
+    """Send an update to the PanDA server and validate the response.
+
+    This function distinguishes:
+      - transport success: got a response dict back
+      - application success: response has success=True and StatusCode==0 (if present)
+
+    It also preserves the existing behavior around REACHED_MAXTIME and delayed
+    heartbeats after completion.
+
+    Args:
+        update_function: Server endpoint/function name, e.g. 'api/v1/pilot/update_job'.
+        data: Payload dict to send.
+        url: Server URL (host or base).
+        port: Server port.
+        job: Job object (optional; used for completion logic and error annotations).
+        ipv: 'IPv4' or 'IPv6'.
+        max_attempts: Maximum number of attempts for retryable failures.
+
+    Returns:
+        UpdateResult with ok=True only when the server accepted the update.
     """
     attempt = 0
-    done = False
-    res = None
+    last_res: Optional[Dict[str, Any]] = None
 
-    if os.environ.get('REACHED_MAXTIME', None) and update_function == 'updateJob':
-        data['state'] = 'failed'
+    # Preserve REACHED_MAXTIME behavior (as in your current code)
+    if os.environ.get("REACHED_MAXTIME") and update_function.endswith("update_job"):
+        data["job_status"] = "failed"
         if job:
-            set_pilot_state(job=job, state='failed')
+            set_pilot_state(job=job, state="failed")
             job.completed = True
-            msg = 'the max batch system time limit has been reached'
+            msg = "the max batch system time limit has been reached"
             logger.warning(msg)
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME, msg=msg)
             add_error_codes(data, job)
 
-    # do not allow any delayed heartbeat messages for running state, if the job has completed (ie another call to this
-    # function was already made by another thread for finished/failed state)
-    if job:  # ignore for updateWorkerPilotStatus calls
-        if job.completed and job.state in {'running', 'starting'}:
-            logger.warning(f'will not send job update for {job.state} state since the job has already completed')
-            return None  # should be ignored
+    # Prevent delayed heartbeats after completion (as in your current code)
+    if job:
+        if getattr(job, "completed", False) and getattr(job, "state", None) in {"running", "starting"}:
+            logger.warning(f"Will not send job update for {job.state} since the job has already completed")
+            return UpdateResult(
+                ok=False,
+                attempts=0,
+                response=None,
+                success=None,
+                status_code=None,
+                command=None,
+                message="Job already completed; dropping delayed heartbeat",
+                error_type="client",
+            )
 
-    while attempt < max_attempts and not done:
-        logger.info(f'server update attempt {attempt + 1}/{max_attempts}')
+    while attempt < max_attempts:
+        attempt += 1
+        logger.info(f"Server update attempt {attempt}/{max_attempts}")
 
-        # get the URL for the PanDA server from pilot options or from config
         try:
             pandaserver = get_panda_server(url, port)
         except Exception as exc:
-            logger.warning(f'exception caught in get_panda_server(): {exc}')
-            sleep(5)
-            attempt += 1
+            logger.warning(f"Exception in get_panda_server(): {exc}")
+            # retryable (local/transient)
+            if attempt < max_attempts:
+                sleep(5)
             continue
-        # send the heartbeat
+
+        # Transport call
         res = send_request(pandaserver, update_function, data, job, ipv)
-        if res is not None:
-            done = True
-        attempt += 1
-        if not done:
+        last_res = res
+
+        if res is None:
+            # transport failed; retry
+            logger.warning("No server response (None)")
+            if attempt < max_attempts:
+                sleep(config.Pilot.update_sleep)
+            continue
+
+        if not isinstance(res, dict):
+            logger.warning(f"Malformed server response type: {type(res)}")
+            if attempt < max_attempts:
+                sleep(config.Pilot.update_sleep)
+            continue
+
+        ok, status_code, command, msg = _parse_update_response(res)
+        if ok:
+            return UpdateResult(
+                ok=True,
+                attempts=attempt,
+                response=res,
+                success=res.get("success"),
+                status_code=status_code,
+                command=command if isinstance(command, str) else None,
+                message=msg or "",
+                error_type=None,
+            )
+
+        # Not ok: decide retry behavior
+        # If server explicitly says success=False or StatusCode!=0, usually retrying
+        # may or may not help; we keep current behavior and retry up to max_attempts.
+        logger.warning(
+            f"Server update rejected: success={res.get('success')} StatusCode={status_code} message={msg!r}"
+        )
+        if attempt < max_attempts:
             sleep(config.Pilot.update_sleep)
 
-    return res
+    # Exhausted attempts
+    # If we have a dict response, include parsed fields for caller
+    if isinstance(last_res, dict):
+        ok, status_code, command, msg = _parse_update_response(last_res)
+        return UpdateResult(
+            ok=False,
+            attempts=max_attempts,
+            response=last_res,
+            success=last_res.get("success"),
+            status_code=status_code,
+            command=command if isinstance(command, str) else None,
+            message=msg,
+            error_type="server" if last_res.get("success") is False or (status_code not in (None, 0)) else "protocol",
+        )
+
+    return UpdateResult(
+        ok=False,
+        attempts=max_attempts,
+        response=None,
+        success=None,
+        status_code=None,
+        command=None,
+        message="No valid server response after retries",
+        error_type="transport",
+    )
 
 
-def send_request(pandaserver: str, update_function: str, data: dict, job: JobData, ipv: str) -> dict or None:
+def _write_payload_file(payload: Dict[str, Any], tmpdir: str) -> str:
+    """Write JSON payload to a temporary file.
+
+    Args:
+        payload: JSON-serializable dictionary.
+        tmpdir: Directory where the file should be created.
+
+    Returns:
+        Path to the created payload file.
     """
-    Send the request to the server using the appropriate method.
+    payload_path = os.path.join(tmpdir, "payload.json")
+    with open(payload_path, "w", encoding="utf-8") as pf:
+        json.dump(payload, pf, ensure_ascii=False)
+        pf.flush()
+        os.fsync(pf.fileno())
+    return payload_path
 
-    :param pandaserver: PanDA server URL (str)
-    :param update_function: update function (str)
-    :param data: data dictionary (dict)
-    :param job: job object (JobData)
-    :param ipv: internet protocol version (str)
-    :return: server response (dict or None).
+
+def _build_curl_config(
+    url: str,
+    payload_path: str,
+    user_agent: str,
+    token: Optional[str],
+    extra_headers: Optional[Dict[str, str]],
+    tmpdir: str,
+) -> str:
+    """Create a curl config file for JSON POST.
+
+    Args:
+        url: Target URL.
+        payload_path: Path to JSON payload file.
+        user_agent: User-Agent string.
+        token: Optional OIDC bearer token.
+        extra_headers: Additional HTTP headers.
+        tmpdir: Directory for config file.
+
+    Returns:
+        Path to the curl config file.
+    """
+    config_lines: list[str] = [f'url = "{url}"']
+    config_lines.append(f'header = "User-Agent: {user_agent}"')
+    config_lines.append('header = "Accept: application/json"')
+    config_lines.append('header = "Content-Type: application/json"')
+
+    headers = (extra_headers.copy() if extra_headers else {})
+
+    if token:
+        headers.setdefault("Authorization", f"Bearer {token}")
+
+    for key, value in headers.items():
+        safe_value = value.replace('"', '\\"')
+        config_lines.append(f'header = "{key}: {safe_value}"')
+
+    config_lines.append(f'data = @{payload_path}')
+    config_lines.append("request = POST")
+
+    config_path = os.path.join(tmpdir, "curl_request.config")
+
+    with open(config_path, "w", encoding="utf-8") as cf:
+        cf.write("\n".join(config_lines))
+        cf.flush()
+        os.fsync(cf.fileno())
+
+    # Log config preview (mask token)
+    try:
+        with open(config_path, "r", encoding="utf-8", errors="replace") as f:
+            preview = f.read()[:4096]
+        if token:
+            preview = preview.replace(token, "<TOKEN_REDACTED>")
+        logger.debug(
+            "curl config file (%s) contents (first 4096 chars): %s",
+            config_path,
+            preview,
+        )
+    except Exception:
+        logger.debug("could not read back curl config file for logging")
+
+    return config_path
+
+
+def _build_curl_command(
+    config_path: str,
+    cacertfile: str,
+    certfile: Optional[str],
+    keyfile: Optional[str],
+    connect_timeout: int,
+    total_timeout: int,
+    verify: bool,
+    use_capath: bool,
+    use_token_only: bool,
+) -> list[str]:
+    """Construct curl command list.
+
+    Args:
+        config_path: Path to curl config file.
+        cacertfile: CA bundle file or directory.
+        certfile: Client certificate file.
+        keyfile: Client key file.
+        connect_timeout: Curl connection timeout.
+        total_timeout: Curl total timeout.
+        verify: Whether to verify server certificate.
+        use_capath: Use --capath instead of --cacert.
+        use_token_only: If True, omit client certificate.
+
+    Returns:
+        List of curl command arguments.
+    """
+    cmd: list[str] = [
+        "curl",
+        "-sS",
+        "--compressed",
+        "--connect-timeout",
+        str(connect_timeout),
+        "--max-time",
+        str(total_timeout),
+    ]
+
+    if not verify:
+        cmd.append("--insecure")
+
+    if use_capath:
+        cmd.extend(["--capath", cacertfile])
+    else:
+        cmd.extend(["--cacert", cacertfile])
+
+    if not use_token_only and certfile:
+        cmd.extend(["--cert", certfile])
+
+    if not use_token_only and keyfile:
+        cmd.extend(["--key", keyfile])
+
+    cmd.extend(["--config", config_path])
+
+    return cmd
+
+
+def _run_curl(cmd: list[str]) -> Tuple[int, str, str]:
+    """Execute curl command.
+
+    Args:
+        cmd: Curl command as list.
+
+    Returns:
+        Tuple of (return_code, stdout, stderr).
+    """
+    try:
+        logger.info(
+            "executing curl fallback: %s",
+            " ".join(shlex.quote(x) for x in cmd),
+        )
+    except Exception:
+        logger.info("executing curl fallback (command hidden)")
+
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+
+    logger.debug("curl stdout (truncated): %s", stdout[:8192])
+    logger.debug("curl stderr (truncated): %s", stderr[:8192])
+
+    return proc.returncode, stdout, stderr
+
+
+def _parse_curl_json(stdout: str) -> Union[str, Dict[str, Any]]:
+    """Parse JSON output from curl, handling concatenated JSON.
+
+    Args:
+        stdout: Raw stdout string from curl.
+
+    Returns:
+        Parsed dictionary if JSON detected, otherwise raw string.
+    """
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        try:
+            decoder = json.JSONDecoder()
+            obj, idx = decoder.raw_decode(stdout)
+            leftover = stdout[idx:].strip()
+            if leftover:
+                logger.debug(
+                    "extra data after first JSON object: %s",
+                    leftover[:512],
+                )
+            return obj
+        except Exception as exc:
+            logger.warning(
+                "failed to parse curl output as JSON: %s",
+                exc,
+            )
+            return stdout
+
+
+def send_request_with_token_via_curl_config(  # noqa: C901
+    url: str,
+    payload: Dict[str, Any],
+    *,
+    token: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+    use_token_only: bool = False,
+    certfile: Optional[str] = None,
+    keyfile: Optional[str] = None,
+    cacertfile: Optional[str] = None,
+    use_capath: bool = False,
+    connect_timeout: int = 100,
+    total_timeout: int = 120,
+    config_dir: Optional[str] = None,
+    verify: bool = True,
+) -> Union[str, Dict[str, Any]]:
+    """Send JSON via curl using a curl config file and return parsed JSON or raw stdout.
+
+    This function writes a payload.json and a curl_request.config in a temporary directory,
+    invokes curl with `--config` (so the config contains the URL), and returns either:
+      * a parsed dict (the first JSON object), or
+      * the raw stdout string if parsing fails, or
+      * an error string starting with "failed to send request:" on failure.
+
+    Notes:
+      - Do NOT add a default `Origin` header here; callers may add it if required by their server.
+      - If `use_token_only` is True we do not add client cert/key options to the curl command.
+      - If `token` is supplied it is added as Authorization header. Ensure the token is valid
+        for the server and the expected VO (some servers require specific VO information).
+
+    Args:
+        url: Full target URL (including scheme and port).
+        payload: JSON-serializable dict to send as body.
+        token: Optional OIDC bearer token. If provided an 'Authorization: Bearer ...' header is added.
+        extra_headers: Optional extra headers to include (dict).
+        use_token_only: If True, do NOT pass client cert/key to curl (token-only mode).
+        certfile: Path to client certificate (if using X.509).
+        keyfile: Path to client key (if separate).
+        cacertfile: Path to CA bundle file to use with curl (or directory if use_capath True).
+        use_capath: If True, use `--capath` instead of `--cacert`.
+        connect_timeout: curl --connect-timeout seconds.
+        total_timeout: curl --max-time seconds.
+        config_dir: Directory where temporary files should be created (defaults to PILOT_HOME or tmp dir).
+        verify: Whether to verify server certificate. If False, pass --insecure to curl.
+
+    Returns:
+        dict parsed from server JSON, raw stdout string on parse failure, or error string
+        beginning with "failed to send request:" on errors.
+    """
+    tmpdir = None
+    payload_path = None
+    config_path = None
+
+    try:
+        base_tmpdir = config_dir or os.getenv("PILOT_HOME") or tempfile.gettempdir()
+        tmpdir = tempfile.mkdtemp(prefix="curl_cfg_", dir=base_tmpdir)
+
+        # Write payload JSON
+        payload_path = os.path.join(tmpdir, "payload.json")
+        with open(payload_path, "w", encoding="utf-8") as pf:
+            json.dump(payload, pf, ensure_ascii=False)
+            pf.flush()
+            os.fsync(pf.fileno())
+
+        # Determine user agent (prefer _ctx if present, then config.Pilot)
+        try:
+            user_agent = getattr(_ctx, "user_agent", None) or getattr(config.Pilot, "user_agent", "pilot/unknown")
+        except Exception:
+            user_agent = "pilot/unknown"
+
+        # Build headers dictionary (avoid duplicates; extra_headers takes precedence)
+        headers: Dict[str, str] = {}
+        headers["User-Agent"] = user_agent
+        headers["Accept"] = "application/json"
+        headers["Content-Type"] = "application/json"
+        # NOTE: Do NOT add a default Origin header here. If the server requires an Origin header,
+        # the caller should pass it explicitly in extra_headers.
+
+        if extra_headers:
+            # Normalize header keys and values to strings
+            for k, v in extra_headers.items():
+                if v is None:
+                    continue
+                headers[str(k)] = str(v)
+
+        if token:
+            # Authorization header added, but caller must ensure token is valid for the server
+            headers["Authorization"] = f"Bearer {token}"
+
+        # Build curl config lines (use --config so url is inside the config)
+        config_lines: List[str] = [f'url = "{url}"']
+        for k, v in headers.items():
+            # Escape any double quotes in header values for the config file
+            safe_val = v.replace('"', '\\"')
+            config_lines.append(f'header = "{k}: {safe_val}"')
+
+        config_lines.append(f'data = @{payload_path}')
+        config_lines.append("request = POST")
+
+        # Write curl config
+        config_path = os.path.join(tmpdir, "curl_request.config")
+        with open(config_path, "w", encoding="utf-8") as cf:
+            cf.write("\n".join(config_lines))
+            cf.flush()
+            os.fsync(cf.fileno())
+
+        # Log preview of config (redact token)
+        try:
+            cfg_preview = open(config_path, "r", encoding="utf-8", errors="replace").read()[:4096]
+            if token:
+                cfg_preview = cfg_preview.replace(token, "<TOKEN_REDACTED>")
+            logger.debug(f"curl config file ({config_path}) contents (first 4096 chars): {cfg_preview}")
+        except Exception:
+            logger.debug("could not read back curl config file for logging")
+
+        # Construct curl command: use --config only
+        curl_cmd = [
+            "curl",
+            "-sS",
+            "--compressed",
+            "--connect-timeout",
+            str(connect_timeout),
+            "--max-time",
+            str(total_timeout),
+        ]
+
+        if not verify:
+            curl_cmd.append("--insecure")
+
+        # CA verification choice
+        if use_capath and cacertfile:
+            curl_cmd.extend(["--capath", cacertfile])
+        elif cacertfile:
+            curl_cmd.extend(["--cacert", cacertfile])
+
+        # Include client cert/key unless explicitly token-only
+        if not use_token_only and certfile:
+            curl_cmd.extend(["--cert", certfile])
+        if not use_token_only and keyfile:
+            curl_cmd.extend(["--key", keyfile])
+
+        curl_cmd.extend(["--config", config_path])
+
+        # Log command (redact token)
+        try:
+            safe_cmd = " ".join(shlex.quote(s) for s in curl_cmd)
+            if token:
+                safe_cmd = safe_cmd.replace(token, "<TOKEN_REDACTED>")
+            logger.info(f"executing curl fallback: {safe_cmd}")
+        except Exception:
+            logger.info("executing curl fallback (command hidden)")
+
+        proc = subprocess.run(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        retcode = proc.returncode
+
+        logger.debug(f"curl stdout (truncated): {stdout[:8192]}")
+        logger.debug(f"curl stderr (truncated): {stderr[:8192]}")
+
+        if retcode != 0:
+            if verify and ("self-signed" in stderr.lower() or "certificate" in stderr.lower() or "ssl certificate" in stderr.lower()):
+                logger.warning(f"curl failed with certificate verification error. stderr (head): {'; '.join(stderr.splitlines()[:8])}")
+            return f"failed to send request: curl exit {retcode}: {stderr[:2000]!s}"
+
+        # Parse first JSON object robustly
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError:
+            try:
+                decoder = json.JSONDecoder()
+                obj, idx = decoder.raw_decode(stdout)
+                leftover = stdout[idx:].strip()
+                if leftover:
+                    logger.debug(f"extra data after first JSON object (first 512 chars): {leftover[:512]}")
+                return obj
+            except Exception as exc:
+                logger.warning(f"json.loads() failed to parse output={stdout[:2000]!s}; raw_decode also failed: {exc}")
+                return stdout
+
+    except Exception as exc:
+        logger.exception(f"unexpected exception while running curl config fallback: {exc}")
+        return f"failed to send request: {exc}"
+
+    finally:
+        # Clean up temporary files/dir
+        try:
+            if payload_path and os.path.exists(payload_path):
+                os.remove(payload_path)
+        except Exception:
+            pass
+        try:
+            if config_path and os.path.exists(config_path):
+                os.remove(config_path)
+        except Exception:
+            pass
+        try:
+            if tmpdir and os.path.isdir(tmpdir):
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def make_cacert_with_server_cert(host: str, port: int, orig_cacert: str, out_dir: Optional[str] = None) -> str:
+    """
+    Create a new CA bundle by copying orig_cacert and appending the server certificate(s)
+    obtained from openssl s_client -showcerts. Returns the path to the new CA file.
+
+    Notes:
+      - Does NOT modify orig_cacert.
+      - Requires `openssl` to be available on the host.
+      - Caller should inspect/log the created file for security/audit.
+    """
+    base_tmp = out_dir or tempfile.gettempdir()
+    tmpdir = tempfile.mkdtemp(prefix="cacert_append_", dir=base_tmp)
+    server_chain = os.path.join(tmpdir, "server-chain.pem")
+    new_cacert = os.path.join(tmpdir, "cacert_with_server.pem")
+
+    # Run openssl s_client to get the server chain
+    cmd = f"openssl s_client -connect {shlex.quote(host)}:{int(port)} -showcerts"
+    proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, input="")
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+    if not stdout:
+        # raise so caller can log and decide
+        raise RuntimeError(f"openssl s_client produced no output: {stderr[:2000]!s}")
+
+    # Extract PEM blocks
+    pem_blocks = []
+    in_block = False
+    block_lines = []
+    for line in stdout.splitlines():
+        if "-----BEGIN CERTIFICATE-----" in line:
+            in_block = True
+            block_lines = [line]
+        elif "-----END CERTIFICATE-----" in line and in_block:
+            block_lines.append(line)
+            pem_blocks.append("\n".join(block_lines) + "\n")
+            in_block = False
+        elif in_block:
+            block_lines.append(line)
+
+    if not pem_blocks:
+        raise RuntimeError("no certificates found in server chain output")
+
+    # Write server-chain.pem
+    with open(server_chain, "w", encoding="utf-8") as f:
+        for b in pem_blocks:
+            f.write(b)
+
+    # Copy orig cacert and append the server chain (binary append)
+    shutil.copy(orig_cacert, new_cacert)
+    with open(new_cacert, "ab") as out_f, open(server_chain, "rb") as in_f:
+        out_f.write(b"\n")
+        out_f.write(in_f.read())
+
+    # Secure permissions
+    try:
+        os.chmod(new_cacert, 0o600)
+    except Exception:
+        pass
+
+    # Log path for inspection by caller
+    logger.info("created temporary cacert with server cert appended: %s", new_cacert)
+    return new_cacert
+
+
+def send_request(pandaserver: str, update_function: str, data: dict, job: JobData, ipv: str) -> Optional[dict]:
+    """Send a single request to the PanDA server and return the response.
+
+    Tries :func:`request2` (urllib) first; falls back to :func:`request`
+    (curl) for legacy endpoints.  Sensitive fields in the response are masked
+    before logging.
+
+    Args:
+        pandaserver: Fully-qualified PanDA server URL (e.g.
+            ``'https://pandaserver.cern.ch'``).
+        update_function: Endpoint path, e.g. ``'api/v1/pilot/update_job'``.
+        data: Payload dict to send.
+        job: Job object used to annotate log messages, or ``None``.
+        ipv: Internet-protocol version passed to the curl fallback.
+
+    Returns:
+        Server response dict, or ``None`` if both backends failed.
     """
     res = None
     time_before = int(time())
@@ -590,14 +1326,19 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     logger.debug(f"update_function = {update_function}, path = {path}")
     # first try the new request2 method based on urllib. If that fails, revert to the old request method using curl
     try:
-        res = request2(f'{path}', data=data, panda=True)
+        res = request2(f'{path}', json_body=data, panda=True)
     except Exception as exc:
-        logger.warning(f'exception caught in https.request(): {exc}')
+        logger.warning(f'exception caught in https.request2(): {exc}')
 
+    # test fallback to curl
+    #if "update_job" in update_function:
+    #    res = None
     if not res:
+        #if "api/v" in update_function:
+        #    return None
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
-            res = request(f'{pandaserver}/server/panda/{update_function}', data=data, ipv=ipv)
+            res = request(f'{pandaserver}/{update_function}', data=data, ipv=ipv)
         except Exception as exc:
             logger.warning(f'exception caught in https.request(): {exc}')
 
@@ -610,14 +1351,12 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
         if job:
             txt += f' for job {job.jobid}'
         logger.info(txt)
+
         # hide sensitive info
-        pilotsecrets = ''
-        if res and 'pilotSecrets' in res:
-            pilotsecrets = res['pilotSecrets']
-            res['pilotSecrets'] = '********'
-        logger.info(f'server responded with: res = {res}')
-        if pilotsecrets:
-            res['pilotSecrets'] = pilotsecrets
+        # Determine the nested dict that contains 'pilotSecrets'
+        #logger.debug(f"res={res}")
+        log_res, pilot_secrets = mask_sensitive_response(res)
+        logger.info(f'server responded with: res = {log_res}')
     else:
         logger.warning(f'server {update_function} request failed both with urllib and curl')
 
@@ -625,15 +1364,23 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
 
 
 def get_panda_server(url: str, port: int, update_server: bool = True) -> str:
-    """
-    Get the URL for the PanDA server.
+    """Resolve and optionally randomise the PanDA server URL.
 
-    The URL will be randomized if the server can be contacted (otherwise fixed).
+    When *url* is non-empty it is parsed and normalised; otherwise the value
+    from the pilot config is used.  If *update_server* is ``True`` (default)
+    the hostname ``pandaserver.cern.ch`` is replaced with a randomly chosen
+    IP address resolved via DNS, providing basic load balancing.
 
-    :param url: URL string, if set in pilot option (port not included) (str)
-    :param port: port number, if set in pilot option (int)
-    :param update_server: True if the server can be contacted, False otherwise (bool)
-    :return: full URL (either from pilot options or from config file) (str).
+    Args:
+        url: Server URL from pilot options (port may be embedded or supplied
+            separately); pass an empty string to use the config default.
+        port: Port number to embed in the URL when not already present in
+            *url*.
+        update_server: If ``True``, attempt DNS randomisation of the default
+            PanDA server address.
+
+    Returns:
+        Fully-qualified server URL string ready for use in requests.
     """
     if url != '':
         parsedurl = url.split('://')
@@ -681,28 +1428,37 @@ def get_panda_server(url: str, port: int, update_server: bool = True) -> str:
     return pandaserver
 
 
-def add_error_codes(data: dict, job: JobData):
-    """
-    Add error codes to data structure.
+def add_error_codes(data: dict, job: JobData) -> None:
+    """Populate *data* with error-code fields from *job*.
 
-    :param data: data dictionary (dict)
-    :param job: job object (JobData).
+    Extracts pilot error codes/diagnostics, transaction exit code, and
+    executable error code from the job object and writes them into *data*
+    ready for submission to the PanDA server.  Timestamps are stripped from
+    diagnostic strings.  SIGTERM errors on Kubernetes resources are remapped
+    to ``PREEMPTION``.
+
+    Args:
+        data: Mutable payload dict to update in-place.
+        job: Job object providing error codes and diagnostics.
     """
     # error codes
     pilot_error_code = job.piloterrorcode
     pilot_error_codes = job.piloterrorcodes
     if pilot_error_codes != []:
-        logger.warning(f'pilotErrorCodes = {pilot_error_codes} (will report primary/first error code)')
-        data['pilotErrorCode'] = pilot_error_codes[0]
+        logger.warning(f'pilot_error_code(s) = {pilot_error_codes} (will report primary/first error code)')
+        data['pilot_error_code'] = pilot_error_codes[0]
     else:
-        data['pilotErrorCode'] = pilot_error_code
+        data['pilot_error_code'] = pilot_error_code
 
     def remove_timestamp(log_entry: str) -> str:
-        """
-        Removes the timestamp in the format 'YYYY-MM-DD HH:MM:SS,mmm' from a log entry.
+        """Strip a ``YYYY-MM-DD HH:MM:SS[,mmm]`` timestamp from a log entry.
 
-        :param log_entry: The log entry string containing a timestamp (str)
-        :return: The log entry without the timestamp (str).
+        Args:
+            log_entry: Log entry string that may contain a leading timestamp.
+
+        Returns:
+            The entry with the timestamp removed and surrounding whitespace
+            stripped.
         """
         return sub(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{1,3})?', '', log_entry).strip()
 
@@ -719,34 +1475,41 @@ def add_error_codes(data: dict, job: JobData):
             else:
                 # Optionally log or convert to string
                 pilot_error_diags_cleaned.append(remove_timestamp(str(diag)))
-                logger.warning(f'pilotErrorDiags contains non-string value: {diag} (converted to string)')
+                logger.warning(f'pilot_error_diag(s) contains non-string value: {diag} (converted to string)')
         pilot_error_diags = pilot_error_diags_cleaned
 
-        logger.warning(f'pilotErrorDiags = {pilot_error_diags} (will report primary/first error diag)')
-        data['pilotErrorDiag'] = pilot_error_diags[0]
+        logger.warning(f'pilot_error_diag(s) = {pilot_error_diags} (will report primary/first error diag)')
+        data['pilot_error_diag'] = pilot_error_diags[0]
     else:
-        data['pilotErrorDiag'] = pilot_error_diag
+        data['pilot_error_diag'] = pilot_error_diag
 
     # special case for SIGTERM failures on Kubernetes resources
-    if data.get('pilotErrorCode') == errors.SIGTERM:
+    if data.get('pilot_error_code') == errors.SIGTERM:
         if is_kubernetes_resource():
             logger.warning('resetting SIGTERM error to PREEMPTION for Kubernetes resource')
-            data['pilotErrorCode'] = errors.PREEMPTION
-            data['pilotErrorDiag'] = errors.get_error_code(errors.PREEMPTION)
+            data['pilot_error_code'] = errors.PREEMPTION
+            data['pilot_error_diag'] = errors.get_error_code(errors.PREEMPTION)
 
-    data['transExitCode'] = job.transexitcode
-    data['exeErrorCode'] = job.exeerrorcode
-    data['exeErrorDiag'] = job.exeerrordiag
+    data['trans_exit_code'] = job.transexitcode
+    data['exe_error_code'] = job.exeerrorcode
+    data['exe_error_diag'] = job.exeerrordiag
 
 
-def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
-    """
-    Prepare the getJob server command.
+def get_server_command(url: str, port: int, cmd: str = 'api/v1/pilot/acquire_jobs') -> str:
+    """Build the full URL for a PanDA server API command.
 
-    :param url: PanDA server URL (str)
-    :param port: PanDA server port (int)
-    :param cmd: command (str)
-    :return: full server command (str).
+    Appends *port* to *url* when it is not already present, ensures an
+    ``https://`` scheme, applies DNS randomisation via :func:`get_panda_server`,
+    and returns the endpoint URL.
+
+    Args:
+        url: PanDA server base URL from pilot options, or empty string to use
+            the config default.
+        port: Server port number.
+        cmd: API path to append (default ``'api/v1/pilot/acquire_jobs'``).
+
+    Returns:
+        Fully-qualified URL string for the requested API endpoint.
     """
     if url != "":
         port_pattern = '.:([0-9]+)'
@@ -765,26 +1528,41 @@ def get_server_command(url: str, port: int, cmd: str = 'getJob') -> str:
     # randomize server name
     url = get_panda_server(url, port)
 
+    if "api/v" in cmd:
+        return f'{url}/{cmd}'
     return f'{url}/server/panda/{cmd}'
 
 
-def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origin: str = None,
+def get_headers(use_oidc_token: bool, auth_token_content: Optional[str] = None,
+                auth_origin: Optional[str] = None,
                 content_type: str = "application/json", accept: bool = False) -> dict:
-    """
-    Get the headers for the request.
+    """Build the HTTP request headers dict.
 
-    :param use_oidc_token: True if OIDC token should be used (bool)
-    :param auth_token_content: token content (str)
-    :param auth_origin: token origin (str)
-    :param content_type: content type (str)
-    :param accept: True if accept header should be added (bool)
-    :return: headers (dict).
+    Always includes ``User-Agent``.  When *use_oidc_token* is ``True``, adds
+    ``Authorization: Bearer <token>`` and ``Origin`` headers.  When
+    *content_type* is non-empty, adds ``Content-Type`` (and optionally
+    ``Accept`` when *accept* is ``True``).
+
+    Args:
+        use_oidc_token: If ``True``, include OIDC bearer-token auth headers.
+        auth_token_content: Raw bearer token string (required when
+            *use_oidc_token* is ``True``).
+        auth_origin: Token origin string for the ``Origin`` header (required
+            when *use_oidc_token* is ``True``).
+        content_type: Value for the ``Content-Type`` header; pass an empty
+            string to omit it.
+        accept: If ``True`` and *content_type* is non-empty, also set
+            ``Accept`` to *content_type*.
+
+    Returns:
+        Dict of HTTP header name/value pairs ready to pass to
+        :class:`urllib.request.Request`.
     """
     if use_oidc_token:
         headers = {
-            "Authorization": f"Bearer {shlex.quote(auth_token_content)}",
+            "Authorization": f"Bearer {auth_token_content}",
             # "Accept": "application/json",  # what is the difference with "Content-Type"? See else: below
-            "Origin": shlex.quote(auth_origin),
+            "Origin": auth_origin,
         }
     else:
         headers = {}
@@ -802,10 +1580,14 @@ def get_headers(use_oidc_token: bool, auth_token_content: str = None, auth_origi
 
 
 def get_ssl_context() -> ssl.SSLContext:
-    """
-    Get the SSL context.
+    """Create and return a bare :class:`ssl.SSLContext`.
 
-    :return: SSL context (ssl.SSLContext).
+    Uses ``ssl.SSLContext(protocol=None)`` on Python 3.10+ and falls back to
+    the no-argument form on older ssl versions.  The caller is responsible for
+    configuring certificate verification and loading cert chains.
+
+    Returns:
+        A new, unconfigured :class:`ssl.SSLContext`.
     """
     # should be
     # ssl_context = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_CLIENT)
@@ -820,13 +1602,19 @@ def get_ssl_context() -> ssl.SSLContext:
     return ssl_context
 
 
-def get_auth_token_content(auth_token: str, key: bool = False) -> str:
-    """
-    Get the content of the auth token.
+def get_auth_token_content2(auth_token: str, key: bool = False) -> str:
+    """Read and return the content of an OIDC token file.
 
-    :param auth_token: token name (str)
-    :param key: if true, token key is used (bool)
-    :return: token content (str).
+    Locates the token via :func:`locate_token` and reads its content.  Returns
+    an empty string and logs a warning if the file cannot be found or read.
+
+    Args:
+        auth_token: Token file name or path to locate and read.
+        key: If ``True``, locate the token key file rather than the token
+            itself.
+
+    Returns:
+        File content as a string, or an empty string on failure.
     """
     path = locate_token(auth_token, key=key)
     if os.path.exists(path):
@@ -847,6 +1635,12 @@ def get_auth_token_content(auth_token: str, key: bool = False) -> str:
 
 
 class IPv4HTTPHandler(urllib.request.HTTPHandler):
+    """urllib HTTP handler that forces connections to use IPv4 (``AF_INET``).
+
+    Install via :func:`install_ipv4_opener` to override the default opener
+    when the environment variable ``PILOT_IP_VERSION`` is ``'IPv4'``.
+    """
+
     def http_open(self, req):
         return self.do_open(self._create_connection, req)
 
@@ -854,107 +1648,382 @@ class IPv4HTTPHandler(urllib.request.HTTPHandler):
         return socket.create_connection((host, port), timeout, source_address, family=socket.AF_INET)
 
 
-def request2(url: str = "", data: dict = None, secure: bool = True, compressed: bool = True, panda: bool = False) -> str or dict:  # noqa: C901
+def _merge_query(url: str, params: Dict[str, Any]) -> str:
+    """Merge *params* into the query string of *url*.
+
+    Existing query parameters are preserved; *params* values override them.
+    ``None`` values are skipped.  Lists and tuples produce repeated query
+    arguments (``doseq=True``).
+
+    Args:
+        url: Base URL that may already contain a query string.
+        params: Additional query parameters to merge in.
+
+    Returns:
+        URL with the merged query string.
     """
-    Send a request using HTTPS (using urllib module).
+    if not params:
+        return url
 
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :param secure: use secure connection (bool)
-    :param compressed: compress data (bool)
-    :param panda: True for panda server interactions (bool)
-    :return: server response (str or dict).
+    parts = urllib.parse.urlsplit(url)
+    existing = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+
+    # Add/override with new params
+    for k, v in params.items():
+        if v is None:
+            continue
+        if isinstance(v, (list, tuple)):
+            existing[k] = [str(x) for x in v]
+        else:
+            existing[k] = [str(v)]
+
+    new_query = urllib.parse.urlencode(existing, doseq=True)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
+# --- small helpers to reduce complexity in request2() ---
+
+def _decide_method(json_body: Optional[Dict[str, Any]], method: Optional[str]) -> str:
+    """Return the HTTP method to use for a request.
+
+    Args:
+        json_body: Request body dict; its presence implies ``POST``.
+        method: Caller-supplied method string, or ``None`` to infer.
+
+    Returns:
+        Upper-cased HTTP method string: ``'GET'`` when *json_body* is ``None``
+        and *method* is unset, ``'POST'`` when *json_body* is provided, or the
+        upper-cased *method* string if explicitly given.
     """
-    if data is None:
-        data = {}
+    if method:
+        return method.upper()
+    return "GET" if json_body is None else "POST"
 
-    ipv = os.environ.get("PILOT_IP_VERSION")
 
-    # https might not have been set up if running in a [middleware] container
-    if not _ctx.cacert:
-        https_setup(None, get_pilot_version())
+def _get_auth_and_headers(url: str, panda: bool) -> Tuple[Dict[str, str], bool]:
+    """Build request headers and determine whether OIDC auth is active.
 
-    # should tokens be used?
+    Reads the local OIDC token info, optionally reads the token content, and
+    delegates to :func:`get_headers` to assemble the final header dict.  Never
+    raises; logs a warning if the token content cannot be read.
+
+    Args:
+        url: Target URL; used to decide whether to include ``Accept`` header
+            (present when the path contains ``'api/v'``).
+        panda: If ``True``, OIDC auth is enabled when a token and origin are
+            both available.
+
+    Returns:
+        A two-element tuple ``(headers, use_oidc_token)`` where *headers* is
+        ready for use in a :class:`urllib.request.Request` and
+        *use_oidc_token* indicates whether OIDC auth was applied.
+    """
     auth_token, auth_origin = get_local_oidc_token_info()
-    use_oidc_token = auth_token and auth_origin and panda
+
+    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
+        logger.debug('switched off OIDC tokens for CERN-PTEST (2)')
+        use_oidc_token = False
+    else:
+        use_oidc_token = bool(auth_token and auth_origin and panda)
+
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
     if not auth_token_content and use_oidc_token:
-        logger.warning('OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read')
-        return ""
-
-    # only add Accept to headers if new API is used
+        logger.warning("OIDC_AUTH_TOKEN/PANDA_AUTH_TOKEN content could not be read")
+        # calling function will decide what to do (we return headers but caller may bail)
     accept = True if "api/v" in url else False
-
-    # get the relevant headers
     headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
-    logger.info(f'data = {data}')
+    return headers, use_oidc_token
 
-    # encode data as compressed JSON
-    if compressed:
-        if "api/v" in url:
-            headers['Content-Encoding'] = 'gzip'
+
+def _prepare_body_and_headers(url: str, json_body: Optional[Dict[str, Any]], compressed: bool, headers: Dict[str, str]) -> Optional[bytes]:
+    """
+    Prepare request body bytes and adjust headers.
+
+    - If json_body is None -> returns None.
+    - If 'api/v' in URL and compressed=True -> gzip JSON and set Content-Encoding.
+    - Otherwise returns UTF-8 encoded JSON bytes.
+    """
+    if json_body is None:
+        return None
+
+    headers.setdefault("Content-Type", "application/json")
+    payload = json.dumps(json_body).encode("utf-8")
+    if compressed and "api/v" in url:
+        headers["Content-Encoding"] = "gzip"
         rdata_out = BytesIO()
         with GzipFile(fileobj=rdata_out, mode="w") as f_gzip:
-            f_gzip.write(json.dumps(data).encode())
-        data_json = rdata_out.getvalue()
+            f_gzip.write(payload)
+        return rdata_out.getvalue()
+    return payload
+
+
+def _get_ssl_context(use_oidc_token: bool) -> ssl.SSLContext:
+    """
+    Create an SSLContext configured with the module CA cert if available.
+
+    If OIDC is used we still want to verify server certificates; client cert
+    loading is handled separately by the caller when needed.
+    """
+    if use_oidc_token:
+        pass  # to bypass pylint error
+    capath_val = getattr(_ctx, "capath", None)
+    # cacert_val = getattr(_ctx, "cacert", None)
+
+    try:
+        # Pass capath (grid CA dir) AND cafile together — matches https_setup()
+        context = ssl.create_default_context(
+            capath=capath_val or None,
+            cafile=None,  # user proxy is NOT a CA file; don't pass it here
+        )
+        # Optionally also load certifi as a fallback if the grid CA dir is absent
+        if not capath_val:
+            try:
+                if certifi:
+                    context.load_verify_locations(cafile=certifi.where())
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning(f"failed to create SSL context with capath={capath_val}: {exc}, falling back to default")
+        context = ssl.create_default_context()
+
+    return context
+
+
+def _parse_response_text(text: str) -> Union[str, Dict[str, Any]]:
+    """
+    Parse a textual server response into a dict where possible, otherwise return string.
+
+    Attempts JSON, query-string style, then Python-literal dict parsing as fallbacks.
+    """
+    text = (text or "").strip()
+    if text == "Succeeded":
+        return {"StatusCode": "0"}
+
+    # Try JSON first (most common)
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+    # Try query-string style: "a=1&b=2"
+    try:
+        from urllib.parse import parse_qs
+
+        query_dict = parse_qs(text)
+        if query_dict:
+            return {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+    except Exception:
+        pass
+
+    # Try to salvage python dict-like text
+    try:
+        import ast
+
+        maybe = ast.literal_eval(text)
+        if isinstance(maybe, dict):
+            return maybe
+    except Exception:
+        pass
+
+    # Last resort: return raw string
+    return text
+
+
+def _ensure_numeric_fields(payload: Optional[Dict[str, Any]]) -> None:
+    """
+    Normalize common numeric fields to integers if they are strings.
+
+    This is a best-effort helper to avoid server-side type errors for fields
+    like 'memory' or 'disk_space' that sometimes arrive as strings.
+    """
+    if not isinstance(payload, dict):
+        return
+    for key in ("memory", "disk_space", "core_count", "attempt_nr", "attempt_number", "worker_id"):
+        if key in payload:
+            v = payload.get(key)
+            if isinstance(v, str):
+                try:
+                    # try to remove commas and plus signs if present
+                    cleaned = v.replace(",", "").split("+")[0]
+                    payload[key] = int(cleaned)
+                except Exception:
+                    # leave as-is if conversion fails
+                    pass
+
+
+def request2(url: str = "", *, params: Optional[Dict[str, Any]] = None, json_body: Optional[Dict[str, Any]] = None, secure: bool = True, compressed: bool = True, panda: bool = False, method: Optional[str] = None) -> Union[str, Dict[str, Any]]:  # noqa
+    """
+    Send an HTTPS request that supports both OIDC token and X.509 client cert auth.
+
+    This function:
+    - Decides method (GET if no body else POST) unless overridden
+    - Merges query params into the URL
+    - Prepares headers via `get_headers()` (uses OIDC token if panda=True)
+    - Optionally gzips JSON bodies for API endpoints (and retries once w/o gzip on 5xx)
+    - Loads X.509 client certificate into the SSL context when OIDC token is not used
+    - Parses response text into dicts where possible
+
+    Args:
+        url: Target URL.
+        params: Query-string parameters merged into URL.
+        json_body: Dict to JSON-serialize as request body.
+        secure: Whether to verify server TLS certificates. If False, TLS verification is disabled.
+        compressed: If True, gzip bodies for API endpoints where applicable.
+        panda: If True, attempt to use OIDC token authentication (if available).
+        method: Optional HTTP method override.
+
+    Returns:
+        Parsed response (dict) when possible, otherwise raw string. On network issues returns
+        an error string starting with "failed to send request:".
+    """
+    params = params or {}
+    method = _decide_method(json_body, method)
+
+    ipv = os.environ.get("PILOT_IP_VERSION")
+    logger.info(f"url = {url}, secure = {secure}, compressed = {compressed}, ipv = {ipv}, method = {method}")
+
+    # Ensure HTTPS setup is available
+    if not getattr(_ctx, "cacert", None):
+        logger.debug('calling https_setup to ensure SSL context is configured')
+        https_setup(None, get_pilot_version())
+
+    # Determine OIDC usage
+    auth_token_name, auth_origin = get_local_oidc_token_info()
+    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
+        logger.debug('switched off OIDC tokens for CERN-PTEST')
+        use_oidc_token = False
     else:
-        data_json = json.dumps(data).encode('utf-8')
-    logger.info(f'headers = {hide_token(headers.copy())}')
+        use_oidc_token = bool(auth_token_name and auth_origin and panda)
+    logger.info("will use OIDC token authentication" if use_oidc_token else "will not use OIDC token authentication")
 
-    # set up the request
-    req = urllib.request.Request(url, data_json, headers=headers)
+    auth_token_content = ""
+    if use_oidc_token:
+        auth_token_content = get_auth_token_content(auth_token_name)
+        if not auth_token_content:
+            logger.warning(f"OIDC token requested but token content unreadable for token '{auth_token_name}'")
+            return ""
 
-    # create a context with certificate verification
-    ssl_context = get_ssl_context()
-    #ssl_context.verify_mode = ssl.CERT_REQUIRED
+    # Only add Accept if new API is used
+    accept = True if "api/v" in url else False
+    headers = get_headers(use_oidc_token, auth_token_content, auth_origin, accept=accept)
+
+    # Merge params into URL
+    url = _merge_query(url, params)
+
+    # Disallow GET with body: explicit error (prevents silent misuse)
+    if method and method.upper() == "GET" and json_body is not None:
+        raise ValueError("GET requests must not include json_body; use 'params=' instead")
+
+    # Normalize some numeric fields to ints when possible (best-effort)
+    try:
+        _ensure_numeric_fields(json_body)
+    except Exception:
+        logger.debug("numeric field normalization skipped or failed")
+
+    # Log preview of outgoing JSON body for debugging
+    if json_body is not None:
+        try:
+            logger.debug(f"outgoing JSON payload preview: {json.dumps(json_body, ensure_ascii=False)[:1024]}")
+        except Exception:
+            logger.debug("failed to create outgoing payload preview")
+
+    # Prepare body bytes and headers (helper will set Content-Encoding if gzipped)
+    data_bytes = _prepare_body_and_headers(url, json_body, compressed, headers)
+
+    logger.info(f"params = {params}")
+    logger.info(f"json_body = {json_body}")
+    logger.info(f"headers = {hide_token(headers.copy())}")
+    logger.debug(f"data_bytes length = {len(data_bytes) if data_bytes is not None else 0}")
+
+    # Build urllib request
+    req = urllib.request.Request(url, data=data_bytes, headers=headers, method=method)
+
+    # SSL context and certificate handling
+    ssl_context = _get_ssl_context(use_oidc_token)
+
+    # If not using OIDC token, attempt to load X.509 client cert (mTLS) into context
     if not use_oidc_token:
-        ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+        try:
+            if getattr(_ctx, "cacert", None):
+                ssl_context.load_cert_chain(certfile=_ctx.cacert, keyfile=_ctx.cacert)
+                logger.debug(f"loaded X.509 client cert/key from '{_ctx.cacert}'")
+        except Exception as exc:
+            logger.warning(f"failed to load X.509 client cert/key ('{getattr(_ctx, 'cacert', None)}'): {exc}")
 
     if not secure:
-        ssl_context.verify_mode = False
         ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
-    if ipv == 'IPv4':
+    # IP family handling
+    if ipv == "IPv4":
         logger.info("will use IPv4 in server communication")
         install_ipv4_opener()
     else:
         logger.info("will use IPv6 in server communication")
 
-    # ssl_context = ssl.create_default_context(capath=_ctx.capath, cafile=_ctx.cacert)
-    # Send the request securely
+    # Send request
+    ret_text: Optional[str] = None
     try:
-        logger.debug('sending data to server')
+        logger.debug("sending request to server")
         with urllib.request.urlopen(req, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
-            # Handle the response here
             logger.info(f"response.status={response.status}, response.reason={response.reason}")
-            ret = response.read().decode('utf-8')
-            if 'getProxy' not in url:
-                logger.info(f"response={ret}")
-        logger.debug('sent request to server')
-    except (urllib.error.URLError, urllib.error.HTTPError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
+            ret_text = response.read().decode("utf-8")
+        logger.debug("sent request to server")
+    except urllib.error.HTTPError as http_exc:
+        # HTTPError may include body - attempt to read it for diagnostics
+        try:
+            body = http_exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = "<no body available>"
+
+        code = getattr(http_exc, "code", "<no-code>")
+        reason = getattr(http_exc, "reason", "<no-reason>")
+        logger.warning(f"failed to send request: HTTP Error {code}: {reason}. Server response body: {body[:2048]}")
+
+        # Retry once without gzip if server-side 5xx and we originally sent gzip
+        try:
+            code_int = int(code)
+        except Exception:
+            code_int = 0
+
+        if 500 <= code_int < 600 and json_body is not None and compressed:
+            logger.info("server returned 5xx -> retrying once without gzip compression")
+            try:
+                headers_retry = dict(headers)
+                headers_retry.pop("Content-Encoding", None)
+                payload_retry = json.dumps(json_body).encode("utf-8")
+                logger.debug(f"retry JSON payload preview: {payload_retry.decode('utf-8', errors='replace')[:1024]}")
+                req_retry = urllib.request.Request(url, data=payload_retry, headers=headers_retry, method=method)
+                with urllib.request.urlopen(req_retry, context=ssl_context, timeout=config.Pilot.http_maxtime) as response:
+                    logger.info(f"[retry no-gzip] response.status={response.status}, response.reason={response.reason}")
+                    ret_text = response.read().decode("utf-8")
+                logger.debug("sent retry (no-gzip) to server")
+            except Exception as retry_exc:
+                logger.warning(f"retry without gzip failed: {retry_exc}")
+                return f"failed to send request: HTTP Error {code}: {reason}"
+        else:
+            return f"failed to send request: HTTP Error {code}: {reason}"
+
+    except (urllib.error.URLError, http_client.RemoteDisconnected, TimeoutError, ssl.SSLError) as exc:
         ret = f"failed to send request: {exc}"
         logger.warning(ret)
-    else:
-        if secure and isinstance(ret, str):
-            if ret == 'Succeeded':  # this happens for sending modeOn (debug mode)
-                ret = {'StatusCode': '0'}
-            elif ret.startswith('{') and ret.endswith('}'):
-                try:
-                    ret = json.loads(ret)
-                except json.JSONDecodeError as e:
-                    logger.warning(f'failed to parse response: {e}')
-            else:  # response="StatusCode=_some number_"
-                # Parse the query string into a dictionary
-                query_dict = parse_qs(ret)
+        return ret
 
-                # Convert lists to single values
-                ret = {k: v[0] if len(v) == 1 else v for k, v in query_dict.items()}
+    # Parse textual response into dict when possible
+    if secure and isinstance(ret_text, str):
+        return _parse_response_text(ret_text)
 
-    return ret
+    return ret_text
 
 
-def install_ipv4_opener():
-    """Install the IPv4 opener."""
+def install_ipv4_opener() -> None:
+    """Install a urllib opener that forces all connections to use IPv4.
+
+    Builds an opener with :class:`IPv4HTTPHandler` (and a proxy handler if
+    ``http_proxy``/``all_proxy`` are set in the environment) and registers it
+    as the global default opener via :func:`urllib.request.install_opener`.
+    """
     http_proxy = os.environ.get("http_proxy")
     all_proxy = os.environ.get("all_proxy")
     if http_proxy and all_proxy:
@@ -972,11 +2041,19 @@ def install_ipv4_opener():
 
 
 def hide_token(headers: dict) -> dict:
-    """
-    Hide the token in the headers.
+    """Replace the bearer token value in *headers* with a redaction placeholder.
 
-    :param headers: Copy of headers (dict)
-    :return: headers with token hidden (dict).
+    Modifies the dict in-place and also returns it so callers can use it
+    inline (e.g. ``logger.info(f"headers={hide_token(headers.copy())}")``.
+    Always pass a *copy* of the real headers to avoid permanently redacting
+    the live dict.
+
+    Args:
+        headers: Copy of the request headers dict.
+
+    Returns:
+        The same dict with ``Authorization`` replaced by
+        ``'Bearer ********'`` if present.
     """
     if 'Authorization' in headers:
         headers['Authorization'] = 'Bearer ********'
@@ -985,12 +2062,19 @@ def hide_token(headers: dict) -> dict:
 
 
 def request3(url: str, data: dict = None) -> str:
-    """
-    Send a request using HTTPS (using requests module).
+    """Send an HTTPS POST request using the ``requests`` library.
 
-    :param url: the URL of the resource (str)
-    :param data: data to send (dict)
-    :return: server response (str).
+    Requires both the ``requests`` and ``certifi`` optional packages; returns
+    an empty string with a warning if either is unavailable.  Uses
+    ``_ctx.cacert`` for the server certificate and ``certifi.where()`` for the
+    client certificate.
+
+    Args:
+        url: Target URL.
+        data: Payload dict to serialise as JSON.
+
+    Returns:
+        Response text on success, or an empty string on failure.
     """
     if data is None:
         data = {}
@@ -1033,12 +2117,18 @@ def request3(url: str, data: dict = None) -> str:
 
 
 def upload_file(url: str, path: str) -> bool:
-    """
-    Upload the contents of the given JSON file to the given URL.
+    """Upload the contents of a local file to *url* via HTTP POST.
 
-    :param url: server URL (str)
-    :param path: path to the file (str)
-    :return: True if success, False otherwise (bool).
+    Reads the file as raw bytes and sends it with ``Content-Type:
+    application/json``.  Returns ``True`` only when the server responds with
+    the literal string ``'ok'``.
+
+    Args:
+        url: Destination URL for the POST request.
+        path: Local filesystem path of the file to upload.
+
+    Returns:
+        ``True`` if the server responded with ``'ok'``, ``False`` otherwise.
     """
     status = False
     # Define headers
@@ -1078,15 +2168,19 @@ def upload_file(url: str, path: str) -> bool:
 
 
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
-    """
-    Download url content.
+    """Download the content at *url* and return it as a string.
 
-    The optional headers should in fact be used for downloading OIDC tokens.
+    Uses the ``ctx`` SSL context (which includes client certificate chain).
+    Primarily used to download OIDC tokens from the PanDA server.
 
-    :param url: url (str)
-    :param timeout: optional timeout (int)
-    :param headers: optional headers (dict)
-    :return: url content (str).
+    Args:
+        url: URL to fetch.
+        timeout: Socket timeout in seconds (default 20).
+        headers: Optional HTTP headers dict; defaults to ``{'User-Agent': …}``
+            when ``None``.
+
+    Returns:
+        Response body as a string, or an empty string on failure.
     """
     # define the request headers
     if headers is None:
@@ -1100,7 +2194,7 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
         with urllib.request.urlopen(req, context=ctx.ssl_context, timeout=timeout) as response:
             content = response.read()
     except (urllib.error.URLError, http_client.RemoteDisconnected, ssl.SSLError) as exc:
-        logger.warning(f"error occurred with urlopen: {exc.reason}")
+        logger.warning(f"error occurred with urlopen: {getattr(exc, 'reason', exc)}")
         # Handle the error, set content to None or handle as needed
         content = ""
 
@@ -1109,13 +2203,187 @@ def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
 
 def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
     """
-    Refresh the OIDC token.
+    Refresh the OIDC access token by downloading a new token from the PanDA server
+    and overwriting the existing token file.
 
-    :param auth_token: token name (str)
-    :param auth_origin: token origin (str)
-    :param url: server URL (str)
-    :param port: server port (int)
-    :return: True if success, False otherwise (bool).
+    The token key is expected to be provided in the environment variable
+    PANDA_AUTH_TOKEN_KEY and the token itself in `auth_token`.
+
+    Args:
+        auth_token: Path to the local auth token file to overwrite (or token identifier
+            used by `get_auth_token_content()` and `rename()` in the pilot codebase).
+        auth_origin: Token origin string used for authentication headers.
+        url: PanDA server base URL.
+        port: PanDA server port.
+
+    Returns:
+        True if a new token was downloaded and stored successfully, otherwise False.
+    """
+    # first get the token key
+    token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
+    if not token_key:
+        logger.warning("PANDA_AUTH_TOKEN_KEY is not set - will not be able to download a new token")
+        return False
+
+    panda_token_key = get_auth_token_content(token_key, key=True)
+    if not panda_token_key:
+        logger.warning("failed to get panda_token_key - will not be able to download a new token")
+        return False
+
+    logger.info(f"read token key: {token_key}")
+
+    # now get the actual token content (used to authenticate the refresh call)
+    auth_token_content = get_auth_token_content(auth_token)
+    if not auth_token_content:
+        logger.warning(f"failed to get auth token content for {auth_token}")
+        return False
+
+    headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
+    server_command = get_server_command(url, port, cmd="api/v1/creds/get_access_token")
+
+    # the client name and token key should be added to the URL as parameters
+    server_command += f"?client_name=pilot_server&token_key={panda_token_key}"
+    logger.info(f"server_command: {server_command}")
+    content = download_file(server_command, headers=headers)
+    if not content:
+        logger.warning(f'failed to download data from "{url}" resource')
+        return False
+
+    return handle_file_content(content, auth_token)
+
+
+def _extract_token_from_refresh_response(payload: Dict[str, Any]) -> str:
+    """
+    Extract the refreshed token from either new-style or old-style response payloads.
+
+    New-style example:
+        {"success": true, "message": "", "data": {"access_token": "<TOKEN>"}}
+
+    Old-style example (historical pilot convention):
+        {"StatusCode": 0, "ErrorDialog": "", "userProxy": "<TOKEN>"}
+
+    Returns:
+        The token string.
+
+    Raises:
+        ValueError: if the response indicates an error or token cannot be found.
+    """
+    # Old-style
+    if "StatusCode" in payload:
+        statuscode = payload.get("StatusCode", 0)
+        diagnostics = payload.get("ErrorDialog", "")
+        if statuscode != 0:
+            raise ValueError(f"failed to get new token: StatusCode={statuscode}, ErrorDialog={diagnostics!r}")
+        token = payload.get("userProxy") or payload.get("access_token") or payload.get("token")
+        if not token:
+            raise ValueError("old-style response missing token field (expected userProxy)")
+        return str(token)
+
+    # New-style
+    if "success" in payload:
+        if payload.get("success") is not True:
+            msg = payload.get("message", "unknown error")
+            raise ValueError(f"failed to get new token: success=False, message={msg!r}")
+
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"unexpected 'data' type in response: {type(data)}")
+
+        token = data.get("access_token") or data.get("token") or data.get("user_proxy") or data.get("userProxy")
+        if not token:
+            raise ValueError("new-style response missing token field in data (expected access_token/token)")
+        return str(token)
+
+    raise ValueError("unrecognized token refresh response format")
+
+
+def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
+    """
+    Handle the content of the downloaded token payload and overwrite the existing token.
+
+    The refreshed token is written to a temporary file first and then renamed over
+    the original `auth_token` (overwrite).
+
+    Args:
+        content: The raw response content (bytes or str) returned from the server.
+        auth_token: Path/name of the token file to overwrite.
+
+    Returns:
+        True if the token was parsed and saved successfully, otherwise False.
+    """
+    # define the path if it does not exist already
+    path = os.environ.get("OIDC_REFRESHED_AUTH_TOKEN")
+    if path is None:
+        path = os.path.join(os.environ.get("PILOT_HOME", ""), "tmp_refreshed_token")
+
+    # normalize to text
+    if isinstance(content, bytes):
+        text = content.decode("utf-8", errors="replace")
+    else:
+        text = content
+
+    # Parse payload as JSON first (new API).
+    # If that fails, fall back to literal_eval-compatible dict strings (old behaviour).
+    payload: Optional[Dict[str, Any]] = None
+    try:
+        payload = json.loads(text)
+    except Exception:
+        try:
+            # very old endpoints sometimes returned python-ish dict strings
+            import ast
+            maybe = ast.literal_eval(text)
+            if isinstance(maybe, dict):
+                payload = maybe
+        except Exception:
+            payload = None
+
+    if not isinstance(payload, dict):
+        logger.warning(f"failed to parse token refresh response as dict; raw={text!r}")
+        return False
+
+    try:
+        token = _extract_token_from_refresh_response(payload)
+    except ValueError as exc:
+        logger.warning(str(exc))
+        return False
+
+    # write token to temp file then atomically replace via rename()
+    try:
+        with open(path, "w", encoding="utf-8") as _file:
+            _file.write(token)
+    except IOError as exc:
+        logger.warning(f"failed to write data to file {path}: {exc}")
+        return False
+
+    status = rename(path, auth_token)
+    if status:
+        logger.info(f"saved token data in file {auth_token}, length={len(token) / 1024.0:.1f} kB")
+        os.environ["OIDC_REFRESHED_AUTH_TOKEN"] = auth_token
+    else:
+        logger.warning(f"failed to rename {path} to {auth_token}")
+        return False
+
+    mtime = get_modification_time(auth_token)
+    if mtime:
+        logger.info(f"{os.path.basename(auth_token)} modification time: {ctime(mtime)}")
+    else:
+        logger.warning(f"failed to get modification time for {auth_token}")
+
+    return True
+
+
+def refresh_oidc_token_old(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
+    """Refresh the OIDC token using the legacy server endpoint (old version).
+
+    Args:
+        auth_token: Token name/path to refresh.
+        auth_origin: Token origin string used in the auth header.
+        url: PanDA server base URL.
+        port: PanDA server port.
+
+    Returns:
+        ``True`` if the token was refreshed and saved successfully, ``False``
+        otherwise.
     """
     status = False
 
@@ -1153,7 +2421,7 @@ def refresh_oidc_token(auth_token: str, auth_origin: str, url: str, port: int) -
     return status
 
 
-def handle_file_content(content: bytes or str, auth_token: str) -> bool:
+def handle_file_content_old(content: Union[bytes, str], auth_token: str) -> bool:
     """
     Handle the content of the downloaded file.
 
@@ -1210,12 +2478,17 @@ def handle_file_content(content: bytes or str, auth_token: str) -> bool:
     return status
 
 
-def update_local_oidc_token_info(url: str, port: int):
-    """
-    Update the local OIDC token info.
+def update_local_oidc_token_info(url: str, port: int) -> None:
+    """Refresh the local OIDC token if one is configured.
 
-    :param url: URL (str)
-    :param port: port number (int).
+    Reads the current token info via :func:`get_local_oidc_token_info` and,
+    when both token and origin are available, calls :func:`refresh_oidc_token`
+    to download a fresh token from the PanDA server.  On success the new
+    token's ``iat`` / ``exp`` fields are logged via :func:`decode_jwt_payload`.
+
+    Args:
+        url: PanDA server base URL.
+        port: PanDA server port.
     """
     auth_token, auth_origin = get_local_oidc_token_info()
     if auth_token and auth_origin:
@@ -1236,19 +2509,25 @@ def update_local_oidc_token_info(url: str, port: int):
         logger.debug('no OIDC token info to update')
 
 
-def decode_jwt_payload(token_or_path: str, return_times: bool = True):
-    """
-    Decode the payload of a JWT (OIDC token) and return its content.
+def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
+    """Decode and return the payload section of a JWT (OIDC token).
+
+    Accepts either a raw JWT string or a filesystem path to a file containing
+    one.  Optionally logs the ``iat`` (issued-at) and ``exp`` (expiry) times
+    in UTC.
 
     Args:
-        token_or_path (str): The JWT string or path to file containing the token.
-        return_times (bool): If True, print the 'iat' and 'exp' times in human-readable format.
+        token_or_path: JWT string (``header.payload.signature``) or path to a
+            file containing the token.
+        return_times: If ``True``, log the ``iat`` and ``exp`` timestamps from
+            the payload.
 
     Returns:
-        dict: Decoded JWT payload as a Python dictionary.
+        Decoded payload as a Python dict.
 
     Raises:
-        ValueError: If the token format is invalid or decoding fails.
+        ValueError: If the token does not have exactly three segments, or if
+            base64 decoding or JSON parsing fails.
     """
     # Load token from file if needed
     if os.path.exists(token_or_path):
@@ -1297,11 +2576,17 @@ def decode_jwt_payload(token_or_path: str, return_times: bool = True):
 
 
 def get_base_urls(args_base_urls: str) -> list:
-    """
-    Get base URLs for transform download.
+    """Return a list of base URLs for transform download.
 
-    :param args_base_urls: base URLs (str)
-    :return: list of base URLs (list).
+    Splits *args_base_urls* on commas if it is non-empty; otherwise falls back
+    to the ``PANDA_BASE_URLS`` environment variable.
+
+    Args:
+        args_base_urls: Comma-separated URL string from command-line arguments,
+            or an empty string to use the environment variable.
+
+    Returns:
+        List of URL strings, or an empty list if neither source is set.
     """
     base_urls = args_base_urls.split(",") if args_base_urls else []
     if not base_urls:
@@ -1324,19 +2609,21 @@ def get_memory_limits(url: str, port: int) -> dict:
     Returns:
         dict: A dictionary of resource types.
     """
-    cmd = get_server_command(url, port, cmd="getResourceTypes")
+    cmd = get_server_command(url, port, cmd="api/v1/metaconfig/get_resource_types")
+
     try:
-        response = request2(cmd, panda=True)  # will be a dictionary
+        response = request2(cmd, panda=True)
     except Exception as exc:
         logger.warning(f'exception caught in request2() while getting resource types: {exc}')
         return {}
+
     logger.debug(f"response from {cmd} = {response}")
 
     if not response:
         logger.warning(f'failed to get memory limits from {cmd}')
         return {}
 
-    # convert the response to a dictionary in case it is a string
+    # Convert to dict if needed
     if isinstance(response, str):
         try:
             response = json.loads(response)
@@ -1344,38 +2631,44 @@ def get_memory_limits(url: str, port: int) -> dict:
             logger.warning(f'failed to parse response as JSON: {exc}')
             return {}
 
-    resource_types_pre = response.get('ResourceTypes', {})
-    # Handle if resource_types_pre is a string (legacy server response)
-    if isinstance(resource_types_pre, str):
-        resource_types_str = resource_types_pre.replace("None", "null").replace("'", '"')
-        try:
-            resource_types_list = json.loads(resource_types_str)
-        except json.JSONDecodeError as exc:
-            logger.warning(f'failed to parse ResourceTypes as JSON: {exc}')
-            resource_types_list = []
-    elif isinstance(resource_types_pre, dict):
-        resource_types_list = resource_types_pre.get('ResourceTypes', [])
-    else:
-        resource_types_list = []
+    if not isinstance(response, dict):
+        logger.warning("unexpected response format (not a dict)")
+        return {}
 
-    # create the final dictionary
+    # --- NEW SERVER FORMAT HANDLING ---
+    success = response.get("success", False)
+    if not success:
+        message = response.get("message", "unknown error")
+        logger.warning(f'PanDA server returned failure: {message}')
+        return {}
+
+    resource_types_list = response.get("data", [])
+    if not isinstance(resource_types_list, list):
+        logger.warning("unexpected data format in server response")
+        return {}
+
+    # Build final dictionary
     resource_types = {}
+
     try:
         for entry in resource_types_list:
-            resource_name = entry.get('resource_name', '')
-            mincore = entry.get('mincore', 0)
-            maxcore = entry.get('maxcore', 0)
-            minrampercore = entry.get('minrampercore', 0)
-            maxrampercore = entry.get('maxrampercore', 0)
+            if not isinstance(entry, dict):
+                continue
+
+            resource_name = entry.get("resource_name")
+            if not resource_name:
+                continue
+
             resource_types[resource_name] = {
-                'mincore': mincore,
-                'maxcore': maxcore,
-                'minrampercore': minrampercore,
-                'maxrampercore': maxrampercore
+                "mincore": entry.get("mincore"),
+                "maxcore": entry.get("maxcore"),
+                "minrampercore": entry.get("minrampercore"),
+                "maxrampercore": entry.get("maxrampercore"),
             }
+
     except Exception as exc:
         logger.warning(f'failed to parse resource types: {exc}')
-        resource_types = {}
+        return {}
 
     return resource_types
 
@@ -1394,3 +2687,216 @@ def extract_protocol(url: str) -> Optional[str]:
     """
     parsed = urllib.parse.urlparse(url)
     return parsed.scheme or None
+
+
+# --- helper: parse dispatcher response (module-level, small and simple) ---
+def _parse_get_job_status_response(resp: Any, job_id: int) -> Tuple[str, int, int]:
+    """Parse the dispatcher ``get_job_status`` response into a normalised tuple.
+
+    Looks for an exact ``job_id`` match in the ``data`` list; falls back to
+    the first record if no exact match is found.
+
+    Args:
+        resp: Response value from :func:`request2`; must be a dict with
+            ``success`` and ``data`` fields.
+        job_id: PanDA job ID used to select the correct record from the
+            ``data`` list.
+
+    Returns:
+        A three-element tuple ``(status, attempt_nr, status_code)`` where
+        *status* is the job status string, *attempt_nr* is the attempt number
+        (``-1`` on parse failure), and *status_code* is always ``0`` on
+        success.
+
+    Raises:
+        ValueError: If the response is not a dict, ``success`` is ``False``,
+            or the ``data`` list cannot be parsed.
+    """
+    if not isinstance(resp, dict):
+        raise ValueError("response is not a dict")
+
+    if resp.get("success") is not True:
+        raise ValueError("dispatcher returned success=False")
+
+    data = resp.get("data")
+    if not isinstance(data, list) or len(data) == 0:
+        # success True but no data -> notfound (not an error)
+        return "notfound", 0, 0
+
+    # look for exact match first
+    for item in data:
+        if isinstance(item, dict) and item.get("job_id") == job_id:
+            record = item
+            break
+    else:
+        # fallback to first dict-like record
+        first = data[0]
+        if not isinstance(first, dict):
+            raise ValueError("data[0] is not a dict")
+        record = first
+
+    status = str(record.get("status", "unknown"))
+    attempt_raw = record.get("attempt_number", 0)
+    try:
+        attempt_nr = int(attempt_raw)
+    except (TypeError, ValueError):
+        attempt_nr = -1
+
+    return status, attempt_nr, 0
+
+
+# --- main function (refactored to be low complexity) ---
+def get_job_status_from_server(job_id: int, url: str, port: int) -> Tuple[str, int, int]:
+    """
+    Fetch the current status of a PanDA job from the dispatcher (pilot API).
+
+    Queries:
+        GET /api/v1/pilot/get_job_status?job_ids=<...>
+
+    Expected response:
+        {
+          "success": true,
+          "message": "",
+          "data": [
+            {"job_id": 7037255444, "status": "sent", "attempt_number": 0}
+          ]
+        }
+
+    Return status codes:
+        0  : Success (parsed OK)
+        10 : Transient error / timeout (may be retried)
+        20 : Response parsing error or API returned success=False
+        -1 : Unexpected exception
+
+    Args:
+        job_id: PanDA job ID.
+        url: PanDA server URL/alias for `get_panda_server()`.
+        port: PanDA server port.
+
+    Returns:
+        Tuple of (status, attempt_nr, status_code).
+    """
+    # defaults
+    status: str = "unknown"
+    attempt_nr: int = 0
+    status_code: int = 0
+
+    if config.Pilot.pandajob == "fake":
+        return status, attempt_nr, status_code
+
+    pandaserver = get_panda_server(url, port)
+    params = {"job_ids": str(job_id)}
+    max_trials = 2
+
+    for trial in range(1, max_trials + 1):
+        ret: Optional[Any] = None
+        try:
+            ret = request2(f"{pandaserver}/api/v1/pilot/get_job_status", params=params, method="GET")
+            status, attempt_nr, status_code = _parse_get_job_status_response(ret, job_id)
+            return status, attempt_nr, status_code
+
+        except ValueError as parse_err:
+            # Response shape or semantic error -> map to 20
+            logger.warning(f"parse error getting job status (trial {trial}): {parse_err} ret={ret}")
+            return "unknown", -1, 20
+
+        except (TimeoutError, ssl.SSLError, http_client.RemoteDisconnected, urllib.error.URLError, urllib.error.HTTPError) as transient_exc:
+            # Transient: map to 10 and retry if allowed
+            logger.warning(f"transient error contacting dispatcher (trial {trial}/{max_trials}): {transient_exc}")
+            if trial < max_trials:
+                sleep(10)
+                continue
+            return "unknown", -1, 10
+
+        except Exception as exc:
+            logger.warning(f"unexpected error interpreting job status: {exc} ret={ret}")
+            return "unknown", -1, -1
+
+    # fallback (shouldn't be reached, but safe default)
+    return "unknown", -1, -1
+
+
+def locate_token(auth_token: str, key: bool = False) -> str:
+    """Find the filesystem path for an OIDC token file.
+
+    Defensive: if auth_token is falsy, return empty string immediately to avoid TypeErrors.
+    """
+    if not auth_token:
+        logger.debug("locate_token(): no auth_token provided -> returning empty path")
+        return ""
+
+    primary_basedir = os.path.dirname(
+        os.environ.get('OIDC_AUTH_DIR',
+                       os.environ.get('PANDA_AUTH_DIR',
+                                      os.environ.get('X509_USER_PROXY', '')))
+    )
+    paths = []
+    if primary_basedir:
+        paths.append(os.path.join(primary_basedir, auth_token))
+    # common candidate locations
+    for envvar in ('PILOT_SOURCE_DIR', 'PILOT_WORK_DIR', 'HOME'):
+        base = os.environ.get(envvar, '')
+        if base:
+            paths.append(os.path.join(base, auth_token))
+
+    # if the refreshed token exists, prepend it to the paths list and use it first (unless looking for key)
+    if not key:
+        _refreshed = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')  # full path to any refreshed token
+        if _refreshed and os.path.exists(_refreshed):
+            paths.insert(0, _refreshed)
+
+    # remove duplicates while preserving order
+    seen = set()
+    uniq_paths = []
+    for p in paths:
+        if p and p not in seen:
+            seen.add(p)
+            uniq_paths.append(p)
+    paths = uniq_paths
+
+    path = ""
+    for _path in paths:
+        try:
+            if _path and os.path.exists(_path):
+                logger.debug(f'found {_path}')
+                path = _path
+                break
+        except Exception:
+            logger.debug(f'failed to stat candidate path: {_path}', exc_info=True)
+            continue
+
+    if path == "":
+        logger.info(f'did not find any local token file ({auth_token}) in paths={paths}')
+
+    return path
+
+
+def get_auth_token_content(auth_token: str, key: bool = False) -> str:
+    """Read and return the content of an OIDC token file.
+
+    Defensive: return empty string immediately if auth_token is falsy.
+    """
+    if not auth_token:
+        logger.debug("get_auth_token_content(): no auth_token provided -> returning empty content")
+        return ""
+
+    path = locate_token(auth_token, key=key)
+    if not path:
+        logger.warning('token could not be located (path is not set - make sure OIDC env vars are set)')
+        return ""
+
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                auth_token_content = f.read().strip()
+            if not auth_token_content:
+                logger.warning(f'failed to read file {path} or file is empty')
+                return ""
+            logger.info(f'read contents from file {path} (length = {len(auth_token_content)})')
+            return auth_token_content
+        else:
+            logger.warning(f'path does not exist: {path}')
+            return ""
+    except Exception as exc:
+        logger.warning(f'failed to read token file {path}: {exc}')
+        return ""

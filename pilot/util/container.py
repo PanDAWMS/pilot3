@@ -19,7 +19,36 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
-"""Functions for executing commands."""
+"""Subprocess execution utilities.
+
+This module is the single entry point for running external commands within the
+pilot.  It provides several variants of a subprocess wrapper, each suited to
+different execution contexts:
+
+- :func:`execute` — the primary wrapper used throughout the pilot.  Launches a
+  command under ``/bin/bash -c``, optionally wraps it in a container via
+  :func:`containerise_executable`, enforces a configurable timeout through
+  ``subprocess.communicate()``, and optionally moves the child process into a
+  cgroup.  Returns ``(exit_code, stdout, stderr)`` or a bare
+  :class:`subprocess.Popen` object when ``returnproc=True`` is passed.
+
+- :func:`execute_nothreads` — a simpler variant that does *not* use background
+  reader threads.  Required for commands (e.g. ``arcproxy``) whose stdout must
+  be consumed in time order.
+
+- :func:`execute2` — a file-redirect variant that writes stdout/stderr directly
+  to caller-supplied file objects and uses an internal
+  :class:`threading.Timer`-based timeout.  Returns only an exit code.
+
+- :func:`execute_command` / :func:`execute_command_with_timeout` /
+  :func:`execute_command_with_timeout2` — lightweight helpers for simple
+  one-shot commands.
+
+Helper functions include :func:`containerise_executable` (which delegates to
+the user plugin's ``container.wrapper()``), :func:`kill_all` (SIGTERM/SIGKILL
+cleanup after a timeout), :func:`print_executable` (log-safe command
+printing), and :func:`obscure_token` (redacts credentials from log output).
+"""
 
 import errno
 import os
@@ -52,12 +81,39 @@ pilot_cache = get_pilot_cache()
 execute_lock = threading.Lock()
 
 
-def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
-    """
-    Executes the command with its options in the provided executable list using subprocess time-out handler.
-    :param executable: command to be executed (str or list)
-    :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+def execute(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
+    """Execute a shell command, optionally inside a container.
+
+    The primary subprocess wrapper used throughout the pilot.  Normalises
+    *executable* to a string, optionally wraps it with the user container
+    plugin, spawns a ``/bin/bash -c`` child process, and optionally moves it
+    to a cgroup.  ``subprocess.communicate()`` is used with a configurable
+    timeout to collect output.
+
+    Keyword Args:
+        usecontainer (bool): Wrap the command in a container. Default ``False``.
+        job: Job object; used to check ``imagename`` and ``usecontainer``.
+        obscure (str): Sensitive substring to redact in log output.
+        mute (bool): Suppress the pre-execution log line. Default ``False``.
+        timeout (int): Timeout in seconds passed to ``communicate()``.
+            Defaults to 10 days if not set.
+        mode (str): ``'python'`` to prefix with ``/usr/bin/python``;
+            otherwise ``/bin/bash -c`` is used.
+        stdout: File-like object for child stdout; defaults to
+            ``subprocess.PIPE``.
+        stderr: File-like object for child stderr; defaults to
+            ``subprocess.PIPE``.
+        cwd (str): Working directory for the child process.
+        returnproc (bool): When ``True``, return the bare
+            :class:`subprocess.Popen` object instead of
+            ``(exit_code, stdout, stderr)``.
+
+    Args:
+        executable: Command string or list of strings to execute.
+
+    Returns:
+        A 3-tuple ``(exit_code, stdout, stderr)`` on normal completion, or a
+        :class:`subprocess.Popen` instance when ``returnproc=True``.
     """
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
@@ -74,7 +130,9 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
-            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
+            if kwargs.get('returnproc', False):
+                return None
+            return -1, "", diagnostics
 
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
@@ -152,15 +210,21 @@ def execute(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
                 pass
 
 
-def execute_old3(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
-    """
-    Executes the command with its options in the provided executable list using subprocess time-out handler.
+def execute_old3(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
+    """Execute a command using background reader threads for stdout/stderr.
 
-    The function also determines whether the command should be executed within a container.
+    .. deprecated::
+        This is a legacy implementation superseded by :func:`execute`.  It uses
+        background :class:`threading.Thread` workers and ``select``-based I/O
+        to read stdout/stderr asynchronously.  Retained for reference only.
 
-    :param executable: command to be executed (str or list)
-    :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    Args:
+        executable: Command string or list of strings to execute.
+        **kwargs: Same keyword arguments as :func:`execute`.
+
+    Returns:
+        A 3-tuple ``(exit_code, stdout, stderr)`` on normal completion, or a
+        :class:`subprocess.Popen` instance when ``returnproc=True``.
     """
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
@@ -296,18 +360,21 @@ def execute_old3(executable: Any, **kwargs: dict) -> Any:  # noqa: C901
     return exit_code, stdout, stderr
 
 
-def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
-    """
-    Execute the command with its options in the provided executable list using subprocess time-out handler.
+def execute_nothreads(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
+    """Execute a command without background reader threads.
 
-    The function also determines whether the command should be executed within a container.
+    A thread-free variant of :func:`execute` required for commands (such as
+    ``arcproxy``) whose stdout is consumed in strict time order.  Uses
+    ``preexec_fn=os.setsid`` to create a new process group and calls
+    ``process.communicate()`` directly without auxiliary reader threads.
 
-    This variant of execute() is not using threads to read stdout and stderr. This is required for some use-cases like
-    executing arcproxy where the stdout is time-ordered.
+    Args:
+        executable: Command string or list of strings to execute.
+        **kwargs: Same keyword arguments as :func:`execute`.
 
-    :param executable: command to be executed (str or list)
-    :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    Returns:
+        A 3-tuple ``(exit_code, stdout, stderr)`` on normal completion, or a
+        :class:`subprocess.Popen` instance when ``returnproc=True``.
     """
     usecontainer = kwargs.get('usecontainer', False)
     job = kwargs.get('job')
@@ -328,7 +395,9 @@ def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
     if usecontainer:
         executable, diagnostics = containerise_executable(executable, **kwargs)
         if not executable:
-            return None if kwargs.get('returnproc', False) else -1, "", diagnostics
+            if kwargs.get('returnproc', False):
+                return None
+            return -1, "", diagnostics
 
     if not kwargs.get('mute', False):
         print_executable(executable, obscure=obscure)
@@ -343,7 +412,7 @@ def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
     stdout = ''
     stderr = ''
 
-    # Acquire the lock before creating the subprocess
+    # Acquire the lock only for Popen creation, not for the full subprocess lifetime
     process = None
     with execute_lock:
         process = subprocess.Popen(exe,
@@ -357,22 +426,22 @@ def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
         if kwargs.get('returnproc', False):
             return process
 
-        try:
-            logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            # make sure that stdout buffer gets flushed - in case of time-out exceptions
-            # flush_handler(name="stream_handler")
-            stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
-            logger.warning(stderr)
-            exit_code = errors.COMMANDTIMEDOUT
-            stderr = kill_all(process, stderr)
-        except Exception as exc:
-            logger.warning(f'exception caused when executing command: {executable}: {exc}')
-            exit_code = errors.UNKNOWNEXCEPTION
-            stderr = kill_all(process, str(exc))
-        else:
-            exit_code = process.poll()
+    try:
+        logger.debug(f'subprocess.communicate() will use timeout {timeout} s')
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        # make sure that stdout buffer gets flushed - in case of time-out exceptions
+        # flush_handler(name="stream_handler")
+        stderr += f'subprocess communicate sent TimeoutExpired: {exc}'
+        logger.warning(stderr)
+        exit_code = errors.COMMANDTIMEDOUT
+        stderr = kill_all(process, stderr)
+    except Exception as exc:
+        logger.warning(f'exception caused when executing command: {executable}: {exc}')
+        exit_code = errors.UNKNOWNEXCEPTION
+        stderr = kill_all(process, str(exc))
+    else:
+        exit_code = process.poll()
 
     # wait for the process to finish
     # (not strictly necessary when process.communicate() is used)
@@ -393,15 +462,26 @@ def execute_nothreads(executable: Any, **kwargs: dict) -> Any:
     return exit_code, stdout, stderr
 
 
-def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: dict) -> int:
-    """
-    Execute the command with its options in the provided executable list using an internal timeout handler.
+def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_seconds: int, **kwargs: Any) -> int:
+    """Execute a command redirecting output to files, with a timer-based timeout.
 
-    The function also determines whether the command should be executed within a container.
+    Launches the command under ``/bin/bash -c`` and writes stdout/stderr
+    directly to the supplied file objects.  A :class:`threading.Timer` fires
+    after *timeout_seconds* and calls ``process.terminate()``; a secondary
+    ``process.wait()`` guard catches any additional delay.
 
-    :param executable: command to be executed (string or list)
-    :param kwargs: kwargs (dict)
-    :return: exit code (int), stdout (str) and stderr (str) (or process if requested via returnproc argument).
+    Args:
+        executable: Command string or list of strings to execute.
+        stdout_file: Open file object receiving the child's standard output.
+        stderr_file: Open file object receiving the child's standard error.
+        timeout_seconds: Maximum execution time in seconds before the process
+            is terminated.
+        **kwargs: Additional keyword arguments (e.g. ``mute``, ``obscure``,
+            ``mode``, ``cwd``).
+
+    Returns:
+        Exit code of the subprocess, or ``errors.COMMANDTIMEDOUT`` if it was
+        killed due to a timeout.
     """
     exit_code = None
 
@@ -469,25 +549,31 @@ def execute2(executable: Any, stdout_file: TextIO, stderr_file: TextIO, timeout_
 
 
 def get_timeout(requested_timeout: int) -> int:
-    """
-    Define the timeout to be used with subprocess.communicate().
+    """Return the effective timeout for ``subprocess.communicate()``.
 
-    If no timeout was requested by the execute() caller, a large default 10 days timeout will be returned.
-    It is better to give a really large timeout than no timeout at all, since the subprocess python module otherwise
-    can get stuck processing stdout on nodes with many cores.
+    A large fallback (10 days) is used when no timeout is requested so that
+    the subprocess module never hangs indefinitely on nodes with many cores.
 
-    :param requested_timeout: timeout in seconds set by execute() caller (int)
-    :return: timeout in seconds (int).
+    Args:
+        requested_timeout: Caller-supplied timeout in seconds, or ``None``/
+            ``0`` to use the default.
+
+    Returns:
+        Timeout in seconds; either *requested_timeout* if truthy, or
+        ``864000`` (10 days).
     """
     return requested_timeout if requested_timeout else 10 * 24 * 60 * 60  # using a ridiculously large default timeout
 
 
-def execute_command(command: str) -> str:
-    """
-    Execute a command using subprocess without using the shell.
+def execute_command(command: str) -> int:
+    """Execute a command using subprocess without invoking a shell.
 
-    :param command: The command to execute (str)
-    :return: The output of the command (str).
+    Args:
+        command: The command string to execute (split internally with
+            :func:`shlex.split`).
+
+    Returns:
+        The exit code of the subprocess.
     """
     try:
         logger.info(f'executing command: {command}')
@@ -505,12 +591,22 @@ def execute_command(command: str) -> str:
 
 
 def kill_all(process: Any, stderr: str) -> str:
-    """
-    Kill all processes after a time-out exception in process.communication().
+    """Kill a timed-out subprocess and its entire process group.
 
-    :param process: process object (Any)
-    :param stderr: stderr (str)
-    :return: stderr (str).
+    Sends SIGTERM to the process group via
+    :func:`~pilot.util.processgroups.kill_process_group`, then individually
+    sends SIGTERM and (after 10 s) SIGKILL to the process PID.  Any
+    ``ProcessLookupError`` (process already gone) is silently appended to
+    *stderr* as context.
+
+    Args:
+        process: The :class:`subprocess.Popen` object to kill.
+        stderr: Accumulated stderr text; error details are appended and the
+            updated string is returned.
+
+    Returns:
+        The updated *stderr* string with any kill-related error details
+        appended.
     """
     try:
         logger.warning('killing lingering subprocess and process group')
@@ -537,20 +633,19 @@ def kill_all(process: Any, stderr: str) -> str:
 
 
 def print_executable(executable: str, obscure: str = '') -> None:
-    """
-    Print out the command to be executed, omitting any secrets.
+    """Log the command to be executed with all secrets redacted.
 
-    Any S3_SECRET_KEY=... parts will be removed.
+    Removes ``S3_SECRET_KEY=<value>`` substrings, replaces any string
+    matching *obscure* with ``'********'``, and calls
+    :func:`obscure_token` to strip ``-p <token>`` patterns before writing
+    to the logger at INFO level.
 
-    :param executable: executable (str)
-    :param obscure: sensitive string to be obscured before dumping to log (str).
+    Args:
+        executable: The full command string about to be executed.
+        obscure: An additional sensitive substring to redact, e.g. a
+            password or token passed via a ``--password`` flag.
     """
-    executable_readable = executable
-    for sub_cmd in executable_readable.split(";"):
-        if 'S3_SECRET_KEY=' in sub_cmd:
-            secret_key = sub_cmd.split('S3_SECRET_KEY=')[1]
-            secret_key = 'S3_SECRET_KEY=' + secret_key
-            executable_readable = executable_readable.replace(secret_key, 'S3_SECRET_KEY=********')
+    executable_readable = re.sub(r'S3_SECRET_KEY=\S+', 'S3_SECRET_KEY=********', executable)
     if obscure:
         executable_readable = executable_readable.replace(obscure, '********')
 
@@ -560,19 +655,35 @@ def print_executable(executable: str, obscure: str = '') -> None:
     logger.info(f'executing command: {executable_readable}')
 
 
-def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
-    """
-    Wrap the containerisation command around the executable.
+def containerise_executable(executable: str, **kwargs: Any) -> tuple:
+    """Wrap a command with the user-plugin container invocation.
 
-    :param executable: command to be wrapper (str)
-    :param kwargs: kwargs dictionary (dict)
-    :return: containerised executable (list or None), diagnostics (str).
+    Imports the ``pilot.user.<user>.container`` module and calls its
+    ``wrapper()`` function to prepend the container runtime command
+    (e.g. Singularity/Apptainer arguments) to *executable*.  The container
+    is skipped for event-service grid jobs and when ``do_use_container``
+    resolves to ``False``.
+
+    Args:
+        executable: The bare command string to containerise.
+        **kwargs: Forwarded to the user container plugin; typically includes
+            ``job``, ``workdir``, etc.
+
+    Returns:
+        A 2-tuple ``(containerised_executable, diagnostics)`` where
+        *containerised_executable* is the wrapped command string, or
+        ``None`` on failure, and *diagnostics* is an empty string on success
+        or an error message on failure.
     """
     job = kwargs.get('job')
     logger.debug(f'containerising executable called for exe={executable}')
 
     user = environ.get('PILOT_USER', 'generic').lower()  # TODO: replace with singleton
-    container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
+    try:
+        container = __import__(f'pilot.user.{user}.container', globals(), locals(), [user], 0)
+    except ImportError as exc:
+        logger.warning(f'container module could not be imported: {exc}')
+        return executable, ""
     if container:
         # should a container really be used?
         do_use_container = job.usecontainer if job else container.do_use_container(**kwargs)
@@ -603,14 +714,21 @@ def containerise_executable(executable: str, **kwargs: dict) -> (Any, str):
 
 
 def obscure_token(cmd: str) -> str:
-    """
-    Obscure any user token from the payload command.
+    """Redact a ``-p <token>`` credential from a command string.
 
-    :param cmd: payload command (str)
-    :return: updated command (str).
+    Uses a regex to find the first ``-p <non-whitespace>`` token and replaces
+    the value with ``'********'``.  Returns an empty string if the regex
+    raises an exception.
+
+    Args:
+        cmd: The command string that may contain a ``-p <token>`` argument.
+
+    Returns:
+        The command string with the token value replaced, or an empty string
+        if a regex error occurred.
     """
     try:
-        match = re.search(r'-p (\S+)\ ', cmd)
+        match = re.search(r'-p (\S+)', cmd)
         if match:
             cmd = cmd.replace(match.group(1), '********')
     except (re.error, AttributeError, IndexError):
@@ -620,15 +738,21 @@ def obscure_token(cmd: str) -> str:
     return cmd
 
 
-def execute_command_with_timeout2(command, timeout=30):
-    """Executes a command with a timeout.
+def execute_command_with_timeout2(command: Any, timeout: int = 30) -> tuple:
+    """Execute a command with a ``SIGALRM``-based timeout.
+
+    Uses :func:`signal.alarm` to send ``SIGALRM`` after *timeout* seconds,
+    which triggers SIGTERM on the child process.  Note: ``SIGALRM`` is only
+    available on Unix.
 
     Args:
-        command: The command to execute as a list of strings.
-        timeout: The maximum execution time in seconds.
+        command: The command to execute; either a string (split with
+            :func:`shlex.split`) or a list of strings.
+        timeout: Maximum execution time in seconds. Default ``30``.
 
     Returns:
-        A tuple containing the return code of the command and the output.
+        A 2-tuple ``(return_code, output)`` where *output* is the decoded
+        stdout string, or ``(-1, None)`` if the command was interrupted.
     """
 
     # convert to list if necessary
@@ -655,24 +779,36 @@ def execute_command_with_timeout2(command, timeout=30):
     return return_code, output.decode()
 
 
-def execute_command_with_timeout(command, timeout=30):
-    """Executes a command with a timeout.
+def execute_command_with_timeout(command: Any, timeout: int = 30) -> tuple:
+    """Execute a command in a thread with a queue-based timeout.
+
+    Runs the command in a dedicated :class:`threading.Thread` and collects
+    the result via a :class:`queue.Queue`.  Unlike
+    :func:`execute_command_with_timeout2` this does not rely on ``SIGALRM``
+    and is therefore safe to call from non-main threads.
 
     Args:
-        command: The command to execute as a list of strings.
-        timeout: The maximum execution time in seconds.
+        command: The command to execute; either a string (split with
+            :func:`shlex.split`) or a list of strings.
+        timeout: Maximum execution time in seconds. Default ``30``.
 
     Returns:
-        A tuple containing the return code of the command and the output.
+        A 2-tuple ``(return_code, output)`` where *output* is the decoded
+        stdout string, ``"Command timed out"`` on timeout, or
+        ``"Command interrupted"`` on keyboard interrupt.
     """
     result_queue = queue.Queue()
 
     def _execute_command():
         _command = shlex.split(command) if isinstance(command, str) else command
-        process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception as exc:
+            result_queue.put((-1, f"Failed to start process: {exc}"))
+            return
 
         try:
-            output, errors = process.communicate(timeout=timeout)
+            output, _ = process.communicate(timeout=timeout)
             return_code = process.returncode
             result_queue.put((return_code, output.decode()))
         except subprocess.TimeoutExpired:
@@ -681,6 +817,9 @@ def execute_command_with_timeout(command, timeout=30):
         except KeyboardInterrupt:
             process.kill()
             result_queue.put((-1, "Command interrupted"))
+        except Exception as exc:
+            process.kill()
+            result_queue.put((-1, f"Unexpected error: {exc}"))
 
     # Create a thread to execute the command
     thread = threading.Thread(target=_execute_command)
