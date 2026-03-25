@@ -379,7 +379,7 @@ def extract_error_info(errc: str) -> (int, str):
 
     _code = re.search(r'error code: (\d+)', errc)
     if _code:
-        error_code = _code.group(1)
+        error_code = int(_code.group(1))  # int, e.g.  1099
 
     _msg = re.search('details: (.+)', errc)
     if _msg:

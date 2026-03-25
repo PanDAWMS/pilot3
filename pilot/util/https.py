@@ -1446,9 +1446,9 @@ def add_error_codes(data: dict, job: JobData) -> None:
     pilot_error_codes = job.piloterrorcodes
     if pilot_error_codes != []:
         logger.warning(f'pilot_error_code(s) = {pilot_error_codes} (will report primary/first error code)')
-        data['pilot_error_code'] = pilot_error_codes[0]
+        data['pilot_error_code'] = int(pilot_error_codes[0])
     else:
-        data['pilot_error_code'] = pilot_error_code
+        data['pilot_error_code'] = int(pilot_error_code)
 
     def remove_timestamp(log_entry: str) -> str:
         """Strip a ``YYYY-MM-DD HH:MM:SS[,mmm]`` timestamp from a log entry.
