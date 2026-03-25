@@ -417,7 +417,7 @@ def get_payload_environment_variables(cmd: str, job_id: int, task_id: str, attem
     if analysis_job:
         variables.append('export ROOT_TTREECACHE_SIZE=1;')
         try:
-            core_count = int(os.environ.get('ATHENA_PROC_NUMBER'))
+            core_count = int(os.environ.get('ATHENA_PROC_NUMBER') or os.environ.get('ATHENA_PROC_NUMBER_JOB'))
         except Exception:
             _core_count = 'export ROOTCORE_NCPUS=1;'
         else:

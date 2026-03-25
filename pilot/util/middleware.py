@@ -373,7 +373,7 @@ def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in"
         error_code = file_dictionary["error"][1]
         if error_code:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
-                error_code, msg=error_diag
+                int(error_code), msg=error_diag
             )
     else:
         msg = f"{label} file dictionary not found"

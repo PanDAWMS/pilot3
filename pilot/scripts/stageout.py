@@ -277,7 +277,7 @@ def extract_error_info(_err: str) -> tuple:
 
     _code = re.search(r'error code: (\d+)', _err)
     if _code:
-        error_code = _code.group(1)
+        error_code = int(_code.group(1))
 
     _msg = re.search('details: (.+)', _err)
     if _msg:
