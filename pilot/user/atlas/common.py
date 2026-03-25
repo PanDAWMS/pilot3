@@ -2009,6 +2009,7 @@ def get_redundants() -> list:
                 "/panda_pilot*",
                 "/work",
                 "README*",
+                "CLAUDE.md",
                 "MANIFEST*",
                 "*.part*",
                 "docs",

@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Error codes set by the pilot."""
@@ -397,6 +397,7 @@ class ErrorCodes:
         pilot_error_diags = ErrorCodes.pilot_error_diags
         if errorcode not in pilot_error_codes:
             error_msg = msg if msg else self.get_error_message(errorcode)
+            errorcode = int(errorcode)  # make sure errorcode is an int (in case it was passed as a string)
             if priority:
                 pilot_error_codes.insert(0, errorcode)
                 pilot_error_diags.insert(0, error_msg)
