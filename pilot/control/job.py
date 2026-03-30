@@ -3878,6 +3878,7 @@ def job_monitor(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             for i in range(len(jobs)):
                 try:
                     current_id = jobs[i].jobid
+                    final_job = jobs[i]
                     error_code = None
                     if abort_job and args.signal:
                         # if abort_job and a kill signal was set
