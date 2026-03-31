@@ -929,7 +929,7 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
 
     starttime = get_postgetjob_time(job.jobid, args)
     if starttime:
-        data['start_time'] = datetime.fromtimestamp(starttime).strftime("%Y-%m-%d %H:%M:%S")
+        data['start_time'] = datetime.fromtimestamp(starttime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     if xml is not None:
         data['job_output_report'] = xml
