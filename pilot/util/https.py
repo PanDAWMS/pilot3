@@ -2297,9 +2297,114 @@ def _extract_token_from_refresh_response(payload: Dict[str, Any]) -> str:
     raise ValueError("unrecognized token refresh response format")
 
 
-def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
+def _resolve_token_path(auth_token: str) -> str:
+    """Resolve a token name or path to an absolute filesystem path.
+
+    Uses :func:`locate_token` so the same candidate-directory search used
+    when *reading* a token is also used when *writing* one.  This prevents
+    a bare filename (e.g. ``"panda_token"``) from being resolved relative to
+    the pilot's CWD rather than the directory that actually holds the token.
+
+    Args:
+        auth_token: Token filename or path as supplied by the caller.
+
+    Returns:
+        Absolute path if found, otherwise the original value unchanged.
     """
-    Handle the content of the downloaded token payload and overwrite the existing token.
+    resolved = locate_token(auth_token)
+    if resolved:
+        if resolved != auth_token:
+            logger.debug(f'resolved token path: {auth_token!r} -> {resolved!r}')
+        return resolved
+    # locate_token already logs a warning; fall back to the original value
+    # (may still work if auth_token is already a valid absolute path)
+    logger.warning(f'could not resolve token path for {auth_token!r} - will use as-is')
+    return auth_token
+
+
+def _parse_token_response(content: Union[bytes, str]) -> Optional[str]:
+    """Parse a PanDA token-refresh response and return the raw token string.
+
+    Accepts both the new JSON API format and the legacy Python-dict-string
+    format returned by very old endpoints.
+
+    Args:
+        content: Raw response bytes or text from the PanDA server.
+
+    Returns:
+        The token string on success, or ``None`` if parsing fails.
+    """
+    text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
+
+    payload: Optional[Dict[str, Any]] = None
+    try:
+        payload = json.loads(text)
+    except Exception:
+        try:
+            import ast
+            maybe = ast.literal_eval(text)
+            if isinstance(maybe, dict):
+                payload = maybe
+        except Exception:
+            pass
+
+    if not isinstance(payload, dict):
+        logger.warning(f"failed to parse token refresh response as dict; raw={text!r}")
+        return None
+
+    try:
+        return _extract_token_from_refresh_response(payload)
+    except ValueError as exc:
+        logger.warning(str(exc))
+        return None
+
+
+def _atomic_write_token(token: str, auth_token: str) -> bool:
+    """Write *token* to disk, atomically replacing *auth_token*.
+
+    The token is written to a sibling temp file first and then renamed over
+    the destination so readers never see a partial write.  The temp file is
+    placed in the same directory as the destination to guarantee both are on
+    the same filesystem (a requirement for ``os.rename`` atomicity).
+
+    On success, sets ``OIDC_REFRESHED_AUTH_TOKEN`` to *auth_token* and logs
+    the file size and modification time.
+
+    Args:
+        token: Token string to persist.
+        auth_token: Absolute path of the token file to overwrite.
+
+    Returns:
+        ``True`` on success, ``False`` otherwise.
+    """
+    token_dir = os.path.dirname(auth_token) or os.environ.get("PILOT_HOME", "")
+    tmp_path = os.path.join(token_dir, "tmp_refreshed_token")
+
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(token)
+    except IOError as exc:
+        logger.warning(f"failed to write data to file {tmp_path}: {exc}")
+        return False
+
+    if not rename(tmp_path, auth_token):
+        logger.warning(f"failed to rename {tmp_path} to {auth_token}")
+        return False
+
+    logger.info(f"saved token data in file {auth_token}, length={len(token) / 1024.0:.1f} kB")
+    os.environ["OIDC_REFRESHED_AUTH_TOKEN"] = auth_token
+
+    mtime = get_modification_time(auth_token)
+    if mtime:
+        logger.info(f"{os.path.basename(auth_token)} modification time: {ctime(mtime)}")
+    else:
+        logger.warning(f"failed to get modification time for {auth_token}")
+
+    return True
+
+
+def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
+    """Handle the content of the downloaded token payload and overwrite the existing token.
 
     The refreshed token is written to a temporary file first and then renamed over
     the original `auth_token` (overwrite).
@@ -2311,65 +2416,11 @@ def handle_file_content(content: Union[bytes, str], auth_token: str) -> bool:
     Returns:
         True if the token was parsed and saved successfully, otherwise False.
     """
-    # define the path if it does not exist already
-    path = os.environ.get("OIDC_REFRESHED_AUTH_TOKEN")
-    if path is None:
-        path = os.path.join(os.environ.get("PILOT_HOME", ""), "tmp_refreshed_token")
-
-    # normalize to text
-    if isinstance(content, bytes):
-        text = content.decode("utf-8", errors="replace")
-    else:
-        text = content
-
-    # Parse payload as JSON first (new API).
-    # If that fails, fall back to literal_eval-compatible dict strings (old behaviour).
-    payload: Optional[Dict[str, Any]] = None
-    try:
-        payload = json.loads(text)
-    except Exception:
-        try:
-            # very old endpoints sometimes returned python-ish dict strings
-            import ast
-            maybe = ast.literal_eval(text)
-            if isinstance(maybe, dict):
-                payload = maybe
-        except Exception:
-            payload = None
-
-    if not isinstance(payload, dict):
-        logger.warning(f"failed to parse token refresh response as dict; raw={text!r}")
+    auth_token = _resolve_token_path(auth_token)
+    token = _parse_token_response(content)
+    if token is None:
         return False
-
-    try:
-        token = _extract_token_from_refresh_response(payload)
-    except ValueError as exc:
-        logger.warning(str(exc))
-        return False
-
-    # write token to temp file then atomically replace via rename()
-    try:
-        with open(path, "w", encoding="utf-8") as _file:
-            _file.write(token)
-    except IOError as exc:
-        logger.warning(f"failed to write data to file {path}: {exc}")
-        return False
-
-    status = rename(path, auth_token)
-    if status:
-        logger.info(f"saved token data in file {auth_token}, length={len(token) / 1024.0:.1f} kB")
-        os.environ["OIDC_REFRESHED_AUTH_TOKEN"] = auth_token
-    else:
-        logger.warning(f"failed to rename {path} to {auth_token}")
-        return False
-
-    mtime = get_modification_time(auth_token)
-    if mtime:
-        logger.info(f"{os.path.basename(auth_token)} modification time: {ctime(mtime)}")
-    else:
-        logger.warning(f"failed to get modification time for {auth_token}")
-
-    return True
+    return _atomic_write_token(token, auth_token)
 
 
 def refresh_oidc_token_old(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
