@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Alexander Bogdanchikov, Alexander.Bogdanchikov@cern.ch, 2019-20
 
 """Functions related to containerisation for ATLAS."""
@@ -404,7 +404,7 @@ def get_container_options(container_options: str, workdir: str = '') -> str:
     apptainer creates a small 64 MB tmpfs for /tmp which can be exhausted by payloads that
     write significant data there (e.g. user jobs that compile code).  To avoid this, the pilot
     creates a ``tmp`` subdirectory inside the job workdir and bind-mounts it over /tmp via the
-    ``-m <workdir>/tmp:/tmp`` option.  The bind-mount is only added when a contain flag is
+    ``-B <workdir>/tmp:/tmp`` option.  The bind-mount is only added when a contain flag is
     detected and a ``workdir`` is provided.
 
     :param container_options: container options from AGIS (str)
@@ -427,8 +427,8 @@ def get_container_options(container_options: str, workdir: str = '') -> str:
             # the payload is not limited to the 64 MB apptainer tmpfs
             if workdir and _contains_contain_option(container_options):
                 tmp_dir = _ensure_tmp_dir(workdir)
-                container_options = container_options.rstrip() + f' -m {tmp_dir}:/tmp'
-                logger.info(f'added -m {tmp_dir}:/tmp to container options to avoid apptainer tmpfs limit')
+                container_options = container_options.rstrip() + f' -B {tmp_dir}:/tmp'
+                logger.info(f'added -B {tmp_dir}:/tmp to container options to avoid apptainer tmpfs limit')
             opts += '-e "' + container_options + '"'
     # consider using options "-c -i -p" instead of "-C". The difference is that the latter blocks all environment
     # variables by default and the former does not
@@ -442,8 +442,8 @@ def get_container_options(container_options: str, workdir: str = '') -> str:
         default_opts = '-c -i'
         if workdir:
             tmp_dir = _ensure_tmp_dir(workdir)
-            default_opts += f' -m {tmp_dir}:/tmp'
-            logger.info(f'added -m {tmp_dir}:/tmp to default container options to avoid apptainer tmpfs limit')
+            default_opts += f' -B {tmp_dir}:/tmp'
+            logger.info(f'added -B {tmp_dir}:/tmp to default container options to avoid apptainer tmpfs limit')
         opts += '-e "' + default_opts + '"'
 
     return opts
