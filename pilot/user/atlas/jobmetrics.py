@@ -125,6 +125,13 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
             # job_metrics += get_job_metrics_entry("cpuFrequency", _mean)
             logger.info(f"could have reported an average CPU frequency of {_mean} MHz ({len(job.cpufrequencies)} samples)")
 
+    # report any files that were transferred to an alternative destination (alt stage-out)
+    # format: altTransferred=lfn1,lfn2,...
+    if job.outdata:
+        alt_lfns = [entry.lfn for entry in job.outdata if entry.is_altstaged]
+        if alt_lfns:
+            job_metrics += get_job_metrics_entry("altTransferred", ",".join(alt_lfns))
+
     # add any additional info
     if extra:
         for entry in extra:

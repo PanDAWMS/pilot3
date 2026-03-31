@@ -599,21 +599,33 @@ class JobData(BaseData):
 
     def allow_altstageout(self):
         """
-        Resolve if alternative stageout is allowed for given job taking into account `queuedata` settings as well.
-        `queuedata` specific settings overwrites job preferences for altstageout.
+        Resolve if alternative stageout is allowed for this job.
+
+        Priority order (highest first):
+
+        1. **Job-level explicit off** (``altStageOut=off`` sent by the PanDA
+           server): always disables alt stage-out regardless of queue settings.
+           This is used e.g. for pre-merged jobs where alt stage-out would
+           break the merge step.
+        2. **Queue-level setting** (``allow_altstageout`` in queuedata): can
+           force on or off for all jobs at that queue.
+        3. **Job-level default**: the parsed ``altStageOut`` value, or
+           ``False`` if not set.
 
         :return: boolean.
         """
+        # job-level explicit disable always wins (PanDA server sent altStageOut=off)
+        if self.altstageout is False:
+            logger.info('alt stage-out explicitly disabled by PanDA server (altStageOut=off)')
+            return False
 
-        # consider first the queue specific settings (if any)
+        # queue-level setting (may force on or off for all jobs at this queue)
         if self.infosys and self.infosys.queuedata:
             qval = self.infosys.queuedata.altstageout
             if qval is not None:
                 return qval
         else:
             logger.info('job.infosys.queuedata is not initialized: PandaQueue specific settings for altstageout will not be considered')
-
-        # apply additional job specific checks here if need
 
         return bool(self.altstageout)
 
