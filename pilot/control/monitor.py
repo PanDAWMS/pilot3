@@ -179,15 +179,24 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
             if start_time and queuedata:  # in epoch seconds
                 time_since_job_start = int(time.time()) - start_time
                 # in this case, max_running_time is the max job walltime
-                limit = max_running_time * queuedata.pilot_walltime_grace  # queuedata.pilot_walltime_grace = 1 + PQ.pilot_walltime_grace/100
+                # apply an intrinsic buffer so the pilot can finish cleanly before the batch system kills it:
+                #   - minimum 120s for all jobs (covers wrapper startup and final server update)
+                #   - 300s for long jobs (walltime > 6 hours) to allow clean log collection
+                _SIX_HOURS = 6 * 3600
+                intrinsic_buffer = 300 if max_running_time > _SIX_HOURS else 120
+                effective_max = max_running_time - intrinsic_buffer
+                limit = effective_max * queuedata.pilot_walltime_grace  # queuedata.pilot_walltime_grace = 1 + PQ.pilot_walltime_grace/100
                 if time_since_job_start > limit:
                     logger.fatal(f"time since job start ({time_since_job_start}s) has exceeded the limit ({limit}s) - time to abort pilot")
-                    logger.fatal(f'limit = max running time ({max_running_time}s) * pilot walltime grace ({queuedata.pilot_walltime_grace})')
+                    logger.fatal(f'limit = (max running time ({max_running_time}s) - intrinsic buffer ({intrinsic_buffer}s)) '
+                                 f'* pilot walltime grace ({queuedata.pilot_walltime_grace})')
                     reached_maxtime_abort(args)
                     break
                 else:
-                    logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
-                    logger.debug(f'max running time = {max_running_time}s, queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
+                    if n_iterations % 60 == 0:
+                        logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
+                    logger.debug(f'max running time = {max_running_time}s, intrinsic buffer = {intrinsic_buffer}s, '
+                                 f'queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
                     start_time_ok = True
 
             # fallback to max_running_time if start_time is not known
