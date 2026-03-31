@@ -348,13 +348,67 @@ def set_platform(job: JobData, alrb_setup: str) -> str:
     return alrb_setup
 
 
-def get_container_options(container_options: str) -> str:
+def _contains_contain_option(options: str) -> bool:
+    """
+    Return True if the given apptainer/singularity options string requests --contain mode.
+
+    This covers the short forms -c / -C and the long forms --contain / --containall.
+
+    :param options: options string to inspect (str)
+    :return: True if a contain flag is present (bool)
+    """
+    import shlex
+    try:
+        tokens = shlex.split(options)
+    except ValueError:
+        tokens = options.split()
+    for token in tokens:
+        if token in ('-c', '-C', '--contain', '--containall'):
+            return True
+        # also catch combined short flags like -ci, -cip, -Ci etc.
+        if token.startswith('-') and not token.startswith('--') and \
+                ('c' in token[1:] or 'C' in token[1:]):
+            return True
+    return False
+
+
+def _ensure_tmp_dir(workdir: str) -> str:
+    """
+    Create <workdir>/tmp if it does not exist and return its absolute path.
+
+    The directory is used as the bind-mount source for /tmp inside the container
+    when --contain mode is active.  Using the job workdir avoids the 64 MB tmpfs
+    limit that apptainer imposes on its own /tmp, and the directory is cleaned up
+    automatically when the batch job finishes.
+
+    :param workdir: job working directory (str)
+    :return: absolute path to the tmp directory (str)
+    """
+    tmp_dir = os.path.join(workdir, 'tmp')
+    if not os.path.isdir(tmp_dir):
+        try:
+            os.makedirs(tmp_dir, exist_ok=True)
+            logger.info(f'created tmp directory for container bind-mount: {tmp_dir}')
+        except OSError as exc:
+            logger.warning(f'failed to create tmp directory {tmp_dir}: {exc}')
+    return tmp_dir
+
+
+def get_container_options(container_options: str, workdir: str = '') -> str:
     """
     Get the container options from AGIS for the container execution command.
 
     For Raythena ES jobs, replace the -C with "" (otherwise IPC does not work, needed by yampl).
 
+    When --contain / -c mode is active (either from AGIS options or from the pilot default),
+    apptainer creates a small 64 MB tmpfs for /tmp which can be exhausted by payloads that
+    write significant data there (e.g. user jobs that compile code).  To avoid this, the pilot
+    creates a ``tmp`` subdirectory inside the job workdir and bind-mounts it over /tmp via the
+    ``-m <workdir>/tmp:/tmp`` option.  The bind-mount is only added when a contain flag is
+    detected and a ``workdir`` is provided.
+
     :param container_options: container options from AGIS (str)
+    :param workdir: job working directory used to create the tmp bind-mount (str)
     :return: updated container command (str).
     """
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
@@ -369,16 +423,28 @@ def get_container_options(container_options: str) -> str:
             if '--containall' in container_options:
                 container_options = container_options.replace('--containall', '')
         if container_options:
-            opts += f'-e "{container_options}"'
+            # if --contain / -c is active, bind-mount the job workdir's tmp subdir over /tmp so
+            # the payload is not limited to the 64 MB apptainer tmpfs
+            if workdir and _contains_contain_option(container_options):
+                tmp_dir = _ensure_tmp_dir(workdir)
+                container_options = container_options.rstrip() + f' -m {tmp_dir}:/tmp'
+                logger.info(f'added -m {tmp_dir}:/tmp to container options to avoid apptainer tmpfs limit')
+            opts += '-e "' + container_options + '"'
     # consider using options "-c -i -p" instead of "-C". The difference is that the latter blocks all environment
     # variables by default and the former does not
     # update: skip the -i to allow IPC, otherwise yampl won't work
     elif is_raythena:
         pass
-        # opts += 'export ALRB_CONT_CMDOPTS=\"$ALRB_CONT_CMDOPTS -c -i -p\";'
+        # opts += 'export ALRB_CONT_CMDOPTS=\\"$ALRB_CONT_CMDOPTS -c -i -p\\";'
     else:
-        #opts += '-e \"-C\"'
-        opts += '-e \"-c -i\"'
+        #opts += '-e \\"-C\\"'
+        # default --contain mode: bind-mount the workdir tmp subdir over /tmp
+        default_opts = '-c -i'
+        if workdir:
+            tmp_dir = _ensure_tmp_dir(workdir)
+            default_opts += f' -m {tmp_dir}:/tmp'
+            logger.info(f'added -m {tmp_dir}:/tmp to default container options to avoid apptainer tmpfs limit')
+        opts += '-e "' + default_opts + '"'
 
     return opts
 
@@ -593,8 +659,8 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
     alrb_setup += ' -r /srv/' + container_script
     alrb_setup = alrb_setup.replace('  ', ' ').replace(';;', ';')
 
-    # add container options
-    alrb_setup += ' ' + get_container_options(container_options)
+    # add container options (pass workdir so /tmp can be bind-mounted when --contain is active)
+    alrb_setup += ' ' + get_container_options(container_options, workdir=job.workdir)
     alrb_setup = alrb_setup.replace('  ', ' ')
     cmd = alrb_setup
 
@@ -1114,7 +1180,7 @@ def create_middleware_container_command(job: JobData, cmd: str, label: str = 'st
         if label == 'setup':
             command += f' -s /srv/{script_name} -r /srv/{container_script_name}'
         else:
-            command += ' ' + get_container_options(job.infosys.queuedata.container_options)
+            command += ' ' + get_container_options(job.infosys.queuedata.container_options, workdir=job.workdir)
         command = command.replace('  ', ' ')
 
     logger.debug(f'container command: {command}')
