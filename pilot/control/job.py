@@ -1235,7 +1235,7 @@ def add_timing_and_extracts(data: dict, job: Any, state: str, args: Any):
         if extracts != "":
             logger.warning(f'\n[begin log extracts]\n{extracts}\n[end log extracts]')
     data['pilot_log'] = extracts[:1024]
-    data['end_time'] = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M:%S")
+    data['end_time'] = datetime.fromtimestamp(time.time(), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def add_memory_info(data: dict, workdir: str, name: str = ""):
