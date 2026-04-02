@@ -113,6 +113,10 @@ from .utilities import (
     get_metadata_dict_from_txt,
 )
 
+# Maximum number of TURLs to pass on the command line.  Above this the list is
+# written to a file and --turl-file is used instead, avoiding ARG_MAX failures.
+_TURL_CMDLINE_LIMIT = 500
+
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
@@ -388,14 +392,33 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
     """
     Return the command for opening remote files.
 
+    When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
+    a plain-text file (one TURL per line) next to the script, and --turl-file is
+    passed instead of --turls, preventing 'Argument list too long' errors.
+
     :param script_path: path to script (str)
     :param turls: comma-separated turls (str)
     :param nthreads: number of concurrent file open threads (int)
     :param stdout: stdout file name (str)
     :param stderr: stderr file name (str)
-    :return: comma-separated list of turls (str).
+    :return: command string (str).
     """
-    cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
+    turl_list = turls.split(',')
+
+    if len(turl_list) > _TURL_CMDLINE_LIMIT:
+        turl_file = os.path.join(os.path.dirname(script_path), 'turls.txt')
+        try:
+            write_file(turl_file, '\n'.join(turl_list))
+        except FileHandlingFailure as exc:
+            logger.warning(f'failed to write turl file {turl_file!r}: {exc} - falling back to --turls')
+            turls_arg = f"--turls='{turls}'"
+        else:
+            logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using --turl-file')
+            turls_arg = f"--turl-file='{turl_file}'"
+    else:
+        turls_arg = f"--turls='{turls}'"
+
+    cmd = f"{script_path} {turls_arg} -w {os.path.dirname(script_path)} -t {nthreads}"
     if stdout and stderr:
         cmd += f' 1>{stdout} 2>{stderr}'
 
@@ -2005,16 +2028,16 @@ def get_redundants() -> list:
                 "panda_secrets.json",
                 "singularity",
                 "apptainer",
-                "/cores",
-                "/panda_pilot*",
-                "/work",
+                "work",
+                "PILOTVERSION",
                 "README*",
                 "CLAUDE.md",
                 "MANIFEST*",
                 "*.part*",
+                "__pycache__*",
+                "x509*",
                 "docs",
-                "/venv",
-                "/pilot3",
+                "venv",
                 "usr",
                 "%1",
                 "open_remote_file_cmd.sh"]

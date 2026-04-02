@@ -72,15 +72,54 @@ def get_args() -> argparse.Namespace:
                             help='Working directory')
     arg_parser.add_argument('--turls',
                             dest='turls',
-                            required=True,
-                            help='TURL list (e.g., filepath1,filepath2')
+                            required=False,          # no longer required; --turl-file is the alternative
+                            default=None,
+                            help='TURL list (e.g., filepath1,filepath2)')
+    arg_parser.add_argument('--turl-file',
+                            dest='turl_file',
+                            required=False,
+                            default=None,
+                            help='Path to a file containing one TURL per line (alternative to --turls)')
     arg_parser.add_argument('--no-pilot-log',
                             dest='nopilotlog',
                             action='store_true',
                             default=False,
                             help='Do not write the pilot log to file')
 
-    return arg_parser.parse_args()
+    args = arg_parser.parse_args()
+    if not args.turls and not args.turl_file:
+        arg_parser.error('one of --turls or --turl-file is required')
+    return args
+
+
+def get_file_lists(turls_string: str, turl_file: str = None) -> dict:
+    """
+    Return a dictionary with the turls.
+
+    Format: {'turls': <turl list>}
+
+    Turls can be supplied either as a comma-separated string (turls_string) or
+    as a path to a plain-text file containing one TURL per line (turl_file).
+    turl_file takes priority when both are provided.
+
+    :param turls_string: comma-separated turls, or None (str)
+    :param turl_file: path to file with one TURL per line, or None (str)
+    :return: turls dictionary (dict)
+    """
+    _turls = []
+
+    if turl_file:
+        try:
+            with open(turl_file, encoding='utf-8') as fh:
+                _turls = [line.strip() for line in fh if line.strip()]
+        except OSError as exc:
+            message(f"failed to read turl file {turl_file!r}: {exc}")
+    elif isinstance(turls_string, str):
+        _turls = turls_string.split(',')
+    else:
+        message(f"unexpected type for turls_string: {type(turls_string).__name__}")
+
+    return {'turls': _turls}
 
 
 def message(msg: str):
@@ -99,25 +138,6 @@ def message(msg: str):
     # always write message to instant log file (message might otherwise get lost in case of time-outs)
     with open(config.Pilot.remotefileverification_instant, 'a', encoding='utf-8') as _file:
         _file.write(msg + '\n')
-
-
-def get_file_lists(turls_string: str) -> dict:
-    """
-    Return a dictionary with the turls.
-
-    Format: {'turls': <turl list>}
-
-    :param turls_string: comma separated turls (str)
-    :return: turls dictionary (dict).
-    """
-    _turls = []
-
-    if isinstance(turls_string, str):
-        _turls = turls_string.split(',')
-    else:
-        message(f"unexpected type for turls_string: {type(turls_string).__name__}")
-
-    return {'turls': _turls}
 
 
 # pylint: disable=useless-param-doc
@@ -293,7 +313,7 @@ if __name__ == '__main__':  # noqa: C901
     register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS], args)
 
     # get the file info
-    file_list_dictionary = get_file_lists(args.turls)
+    file_list_dictionary = get_file_lists(args.turls, turl_file=args.turl_file)
     turls = file_list_dictionary.get('turls')
     processed_turls_dictionary = {}
 
