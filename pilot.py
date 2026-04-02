@@ -504,6 +504,7 @@ def send_worker_status(
     """
     # worker node structure to be sent to the server
     data = {}
+    data["worker_id"] = None
     try:
         data["worker_id"] = int(os.environ.get("HARVESTER_WORKER_ID", None))
     except (ValueError, TypeError):
