@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 import json
 import os
@@ -59,6 +59,19 @@ from .metadata import (
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# XRootD and ROOT file-open error patterns that can appear in payload stdout when
+# direct-access (remoteIO) file reads fail after the pilot's pre-flight check passed.
+_DIRECT_ACCESS_ERROR_PATTERNS: list[str] = [
+    r'TNetXNGFile::Open\s+ERROR',
+    r'Unable to open ROOT file',
+    r'\[ERROR\] Operation expired',
+    r'\[ERROR\] No servers are available',
+    r'\[ERROR\] Server responded with an error',
+    r'XrdCl::\S+\s+Error',
+    r'ERROR\s+.*root://',
+    r'FileReadError.*root://',
+]
 
 
 def interpret(job: JobData) -> int:
@@ -162,6 +175,11 @@ def interpret_payload_exit_info(job: JobData):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.MISSINGUSERCODE, priority=True)
         return
 
+    # did a direct-access (remoteIO) file open fail inside the payload?
+    if job.has_remoteio() and is_direct_access_error(job):
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True)
+        return
+
     # set a general Pilot error code if the payload error could not be identified
     if job.transexitcode == 0 and job.exitcode != 0:
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.UNKNOWNPAYLOADFAILURE, priority=True)
@@ -209,6 +227,38 @@ def is_user_code_missing(job: JobData) -> bool:
     return scan_file(stdout,
                      error_messages,
                      warning_message=f"identified an '{error_messages[0]}' message in {os.path.basename(stdout)}")
+
+
+def is_direct_access_error(job: JobData) -> bool:
+    """Check whether a direct-access (remoteIO) file-open error occurred inside the payload.
+
+    Scans the full payload stdout for XRootD and ROOT file-open error patterns that are
+    only visible inside the payload log, not at the pilot stage-in layer. The function
+    should only be called for jobs that used direct access (``job.has_remoteio()``).
+
+    Up to five matched lines are logged at WARNING level. The first matched line is also
+    stored in ``job.piloterrordiag`` so it can be reported as error diagnostics to the server.
+
+    Args:
+        job: Job object containing workdir and payload file path configuration.
+
+    Returns:
+        True if at least one direct-access error pattern was found, False otherwise.
+    """
+    stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
+    if not os.path.exists(stdout):
+        logger.warning(f'payload stdout does not exist, cannot scan for direct-access errors: {stdout}')
+        return False
+
+    matched_lines = grep(_DIRECT_ACCESS_ERROR_PATTERNS, stdout)
+    if matched_lines:
+        logger.warning('detected direct-access (remoteIO) error pattern(s) in payload stdout:')
+        for line in matched_lines[:5]:  # cap output to avoid flooding the pilot log
+            logger.warning(f'  {line.rstrip()}')
+        job.piloterrordiag = matched_lines[0].strip()
+        return True
+
+    return False
 
 
 def is_out_of_space(job: JobData):
