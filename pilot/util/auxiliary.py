@@ -40,6 +40,7 @@ from pilot.util.constants import (
     FAILURE,
     SERVER_UPDATE_FINAL,
     SERVER_UPDATE_NOT_DONE,
+    SERVER_UPDATE_RUNNING,
     SERVER_UPDATE_TROUBLE,
     get_pilot_version,
 )
@@ -385,6 +386,15 @@ def check_for_final_server_update(update_server: bool) -> None:
     logger.info(f'current server update state: {server_update}')
     logger.info(f'update_server={update_server}')
     if server_update == SERVER_UPDATE_NOT_DONE:
+        return
+
+    # if the server update is still in the RUNNING state (i.e. the job is still executing normally
+    # and has not yet entered its terminal update path), do not block here. This situation arises
+    # in the MAXTIME path where the monitor thread calls this function before the job thread has
+    # had a chance to drive the job to a terminal state and issue the final server update.
+    # Blocking in this case wastes up to 20*30 s unnecessarily.
+    if server_update == SERVER_UPDATE_RUNNING:
+        logger.info('server update is still in RUNNING state - not blocking for final update')
         return
 
     while counter < max_i and update_server:
