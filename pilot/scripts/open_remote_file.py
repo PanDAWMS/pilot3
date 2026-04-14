@@ -49,11 +49,16 @@ from pilot.util.processes import kill_processes
 logger = logging.getLogger(__name__)
 
 
-def get_args() -> argparse.Namespace:
+def get_args(argv: list = None) -> argparse.Namespace:
     """
     Return the args from the arg parser.
 
-    :return: args (arg parser object).
+    Args:
+        argv: optional list of arguments to parse (defaults to sys.argv when None,
+              which is the normal runtime behaviour). Pass an explicit list in tests.
+
+    Returns:
+        Parsed argument namespace.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -89,7 +94,7 @@ def get_args() -> argparse.Namespace:
                             default=False,
                             help='Do not write the pilot log to file')
 
-    args = arg_parser.parse_args()
+    args = arg_parser.parse_args(argv)
     if not args.turls and not args.turl_file:
         arg_parser.error('one of --turls or --turl-file is required')
     return args
