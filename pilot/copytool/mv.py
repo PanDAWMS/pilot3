@@ -42,8 +42,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -59,8 +62,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -70,12 +76,13 @@ def is_valid_for_copy_out(files: list) -> bool:
     return True  ## FIX ME LATER
 
 
-def create_output_list(files: list, init_dir: str):
+def create_output_list(files: list, init_dir: str) -> None:
     """
     Add files to the output list which tells ARC CE which files to upload.
 
-    :param files: list of FileSpec objects (list)
-    :param init_dir: start directory (str).
+    Args:
+        files: list of FileSpec objects.
+        init_dir: start directory.
     """
     for fspec in files:
         arcturl = fspec.turl
@@ -106,20 +113,26 @@ def get_dir_path(turl: str, prefix: str = 'file://localhost') -> str:
         -> '/sphenix/lustre01/sphnxpro/rucio/user/jwebb2/01/9f'
     (some of these directories will typically have to be created in the next step).
 
-    :param turl: TURL (str)
-    :param prefix: file prefix (str)
-    :return: directory path (str).
+    Args:
+        turl: TURL.
+        prefix: file prefix.
+
+    Returns:
+        Directory path.
     """
     return os.path.dirname(turl.replace(prefix, ''))
 
 
-def build_final_path(turl: str, prefix: str = 'file://localhost') -> (int, str, str):
+def build_final_path(turl: str, prefix: str = 'file://localhost') -> tuple[int, str, str]:
     """
     Build the final path for the storage.
 
-    :param turl: TURL (str)
-    :param prefix: file prefix (str)
-    :return: error code (int), diagnostics (str), path (str).
+    Args:
+        turl: TURL.
+        prefix: file prefix.
+
+    Returns:
+        Tuple of error code, diagnostics, and path.
     """
     path = ''
 
@@ -150,11 +163,16 @@ def copy_in(files: list, copy_type: str = "symlink", **kwargs: dict) -> list:
     """
     Download the given files using mv directly.
 
-    :param files: list of `FileSpec` objects (list)
-    :param copy_type: copy type (str)
-    :param kwargs: kwargs dictionary (dict)
-    :raises PilotException: StageInFailure
-    :return: updated files (list).
+    Args:
+        files: list of FileSpec objects.
+        copy_type: copy type.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated files.
+
+    Raises:
+        StageInFailure: In case of controlled stage-in error.
     """
     # make sure direct access is not attempted (wrong queue configuration - pilot should fail job)
     allow_direct_access = kwargs.get('allow_direct_access')
@@ -192,11 +210,17 @@ def copy_out(files: list, copy_type: str = "mv", **kwargs: dict) -> list:
     """
     Upload the given files using mv directly.
 
-    :param files: list of `FileSpec` objects (list)
-    :param copy_type: copy type (str)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raises PilotException: StageOutFailure, MKDirFailure.
+    Args:
+        files: list of FileSpec objects.
+        copy_type: copy type.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated files.
+
+    Raises:
+        StageOutFailure: In case of controlled stage-out error.
+        MKDirFailure: In case of directory creation failure.
     """
     if copy_type not in ["cp", "mv"]:
         raise StageOutFailure("incorrect method for copy out")
@@ -225,16 +249,19 @@ def copy_out(files: list, copy_type: str = "mv", **kwargs: dict) -> list:
 
 
 def move_all_files(files: list, copy_type: str, workdir: str, jobworkdir: str,
-                   mvfinaldest: bool = False) -> (int, str, str):
+                   mvfinaldest: bool = False) -> tuple[int, str, str]:
     """
     Move all files.
 
-    :param files: list of `FileSpec` objects (list)
-    :param copy_type: copy type (str)
-    :param workdir: work directory (str)
-    :param jobworkdir: work directory for job (str)
-    :param mvfinaldest: True if we can transfer to final SE destination, False otherwise (bool)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        files: list of FileSpec objects.
+        copy_type: copy type.
+        workdir: work directory.
+        jobworkdir: work directory for job.
+        mvfinaldest: True if we can transfer to final SE destination, False otherwise.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     exit_code = 0
     stdout = ""
@@ -296,37 +323,46 @@ def move_all_files(files: list, copy_type: str, workdir: str, jobworkdir: str,
     return exit_code, stdout, stderr
 
 
-def move(source: str, destination: str) -> (int, str, str):
+def move(source: str, destination: str) -> tuple[int, str, str]:
     """
     Upload the given files using mv directly.
 
-    :param source: file source path (str)
-    :param destination: file destination path (str)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        source: file source path.
+        destination: file destination path.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     executable = ['/usr/bin/env', 'mv', source, destination]
     return execute(' '.join(executable))
 
 
-def copy(source: str, destination: str) -> (int, str, str):
+def copy(source: str, destination: str) -> tuple[int, str, str]:
     """
     Upload the given files using cp directly.
 
-    :param source: file source path (str)
-    :param destination: file destination path (str)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        source: file source path.
+        destination: file destination path.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     executable = ['/usr/bin/env', 'cp', source, destination]
     return execute(' '.join(executable))
 
 
-def symlink(source: str, destination: str) -> (int, str, str):
+def symlink(source: str, destination: str) -> tuple[int, str, str]:
     """
     Create symbolic link ln the given file.
 
-    :param source: file source path (str)
-    :param destination: file destination path (str)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        source: file source path.
+        destination: file destination path.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     executable = ['/usr/bin/env', 'ln', '-s', source, destination]
     return execute(' '.join(executable))

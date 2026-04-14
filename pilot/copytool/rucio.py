@@ -67,8 +67,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -84,8 +87,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -100,10 +106,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using rucio copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     ignore_errors = kwargs.get('ignore_errors')
     trace_report = kwargs.get('trace_report')
@@ -207,8 +218,11 @@ def get_protocol(trace_report_out: dict) -> str:
     """
     Extract the protocol used for the transfer from the dictionary returned by rucio.
 
-    :param trace_report_out: returned rucio transfer dictionary (dict)
-    :return: protocol (str).
+    Args:
+        trace_report_out: returned rucio transfer dictionary.
+
+    Returns:
+        Protocol string.
     """
     try:
         protocol = trace_report_out[0].get('protocol')
@@ -224,12 +238,15 @@ def handle_rucio_error(error_msg: str, trace_report: dict, trace_report_out: lis
     """
     Handle any error from Rucio.
 
-    :param error_msg: error message (str)
-    :param trace_report: trace report dictionary (dict)
-    :param trace_report_out: trace report from Rucio (list)
-    :param fspec: FileSpec object (Any)
-    :param stagein: True for stage-in, False for stage-out (bool)
-    :return: error deetails dictionary, {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
+    Args:
+        error_msg: error message.
+        trace_report: trace report dictionary.
+        trace_report_out: trace report from Rucio.
+        fspec: FileSpec object.
+        stagein: True for stage-in, False for stage-out.
+
+    Returns:
+        Error details dictionary of the form {'rcode': rcode, 'state': state, 'error': error_msg}.
     """
     # try to get a better error message from the traces
     error_msg_org = error_msg
@@ -258,10 +275,15 @@ def copy_in_bulk(files: list, **kwargs: dict) -> list:
     """
     Download given files using rucio copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: list of done files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        List of successfully transferred files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     #allow_direct_access = kwargs.get('allow_direct_access')
     ignore_errors = kwargs.get('ignore_errors')
@@ -362,9 +384,12 @@ def _get_trace(fspec: Any, traces: list) -> list:
     Traces returned by Rucio are not orderred the same as input files from pilot.
     This method finds the proper trace.
 
-    :param: fspec: the file that is wanted (Any)
-    :param: traces: list of all traces that are received by Rucio (list)
-    :return: trace_candidates that correspond to the given file (list).
+    Args:
+        fspec: the file that is wanted.
+        traces: list of all traces that are received by Rucio.
+
+    Returns:
+        Trace candidates that correspond to the given file.
     """
     try:
         trace_candidates = list(t for t in traces if t['filename'] == fspec.lfn and t['scope'] == fspec.scope)
@@ -380,8 +405,11 @@ def get_json_summary(filename: str) -> str:
     """
     Return the content of the JSON summary file created by Rucio.
 
-    :param filename: logical filename (str)
-    :return: path to the JSON summary file (str).
+    Args:
+        filename: path to the JSON summary file.
+
+    Returns:
+        Parsed JSON content of the summary file, or empty string if the file does not exist.
     """
     summary_json = ""
     if os.path.exists(filename):
@@ -398,10 +426,15 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
     """
     Upload given files using rucio copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files list (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -522,18 +555,21 @@ def copy_out(files: list, **kwargs: dict) -> list:  # noqa: C901
 
 
 def _stage_in_api(dst: str, fspec: Any, trace_report: dict, trace_report_out: list, transfer_timeout: int,
-                  use_pcache: bool, rucio_host: str) -> (int, list):
+                  use_pcache: bool, rucio_host: str) -> tuple[int, list]:
     """
     Stage-in files using the Rucio API.
 
-    :param dst: destination directory (str)
-    :param fspec: FileSpec object (Any)
-    :param trace_report: trace report (dict)
-    :param trace_report_out: list of trace reports from Rucio (list)
-    :param transfer_timeout: transfer timeout in seconds (int)
-    :param use_pcache: True if pcache should be used, False otherwise (bool)
-    :param rucio_host: Rucio host URL (str)
-    :return: exit code (int), trace report from Rucio (list).
+    Args:
+        dst: destination directory.
+        fspec: FileSpec object.
+        trace_report: trace report.
+        trace_report_out: list of trace reports from Rucio.
+        transfer_timeout: transfer timeout in seconds.
+        use_pcache: True if pcache should be used, False otherwise.
+        rucio_host: Rucio host URL.
+
+    Returns:
+        Tuple of (exit_code, trace_report_out).
     """
     ec = 0
 
@@ -602,16 +638,19 @@ def _stage_in_api(dst: str, fspec: Any, trace_report: dict, trace_report_out: li
 
 
 def _stage_in_bulk(dst: str, files: list, trace_report_out: list = None, trace_common_fields: dict = None,
-                   rucio_host: str = ''):
+                   rucio_host: str = '') -> None:
     """
     Stage-in files in bulk using the Rucio API.
 
-    :param dst: destination (string).
-    :param files: list of fspec objects.
-    :param trace_report_out:
-    :param trace_common_fields: trace report (dict)
-    :param rucio_host: optional rucio host (string).
-    :raises Exception: download_client.download_pfns exception.
+    Args:
+        dst: destination directory.
+        files: list of fspec objects.
+        trace_report_out: List that will be populated with trace reports from Rucio.
+        trace_common_fields: trace report common fields.
+        rucio_host: optional Rucio host URL.
+
+    Raises:
+        Exception: download_client.download_pfns exception.
     """
     if trace_report_out is None:
         trace_report_out = []
@@ -684,7 +723,8 @@ def get_number_of_attempts() -> int:
     """
     Get the number of stage-out attempts.
 
-    :return: number of attempts (int).
+    Returns:
+        Number of stage-out attempts.
     """
     try:
         stageout_attempts = int(os.environ.get('PILOT_STAGEOUT_ATTEMPTS', 1))
@@ -696,17 +736,20 @@ def get_number_of_attempts() -> int:
 
 
 def _stage_out_api(fspec: Any, summary_file_path: str, trace_report: dict, trace_report_out: list,  # noqa: C901
-                   transfer_timeout: int, rucio_host: str) -> (int, list):
+                   transfer_timeout: int, rucio_host: str) -> tuple[int, list]:
     """
     Stage-out files using the Rucio API.
 
-    :param fspec: FileSpec object (Any)
-    :param summary_file_path: path to summary file (str)
-    :param trace_report: trace report (dict)
-    :param trace_report_out: trace report from Rucio (list)
-    :param transfer_timeout: transfer time-out in seconds (int)
-    :param rucio_host: Rucio host URL (str)
-    :return: exit code (int), trace report from Rucio (list).
+    Args:
+        fspec: FileSpec object.
+        summary_file_path: path to summary file.
+        trace_report: trace report.
+        trace_report_out: trace report from Rucio.
+        transfer_timeout: transfer time-out in seconds.
+        rucio_host: Rucio host URL.
+
+    Returns:
+        Tuple of (exit_code, trace_report_out).
     """
     ec = 0
 
