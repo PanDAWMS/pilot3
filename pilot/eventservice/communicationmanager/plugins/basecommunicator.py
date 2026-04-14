@@ -33,25 +33,27 @@ class BaseCommunicator:
 
     _instance = None
 
-    def __new__(cls, *args: Any, **kwargs: dict) -> Any:
-        """
-        Create new instance of class.
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        """Create new instance of class.
 
-        :param args: args object (Any)
-        :param kwargs: kwargs dictionary (dict)
-        :return: new class instance (Any).
+        Args:
+            args: args object.
+            kwargs: kwargs dictionary.
+
+        Returns:
+            Any: new class instance.
         """
         if not isinstance(cls._instance, cls):
             cls._instance = object.__new__(cls, *args, **kwargs)
 
         return cls._instance
 
-    def __init__(self, *args: Any, **kwargs: dict):
-        """
-        Initialize variables.
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize variables.
 
-        :param args: args object (Any)
-        :param kwargs: kwargs dictionary (dict)
+        Args:
+            args: args object.
+            kwargs: kwargs dictionary.
         """
         if args:  # to get rid of pylint warning
             pass
@@ -59,110 +61,134 @@ class BaseCommunicator:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    def pre_check_get_jobs(self, req: Any):
-        """
-        Check whether it's ok to send a request to get jobs.
+    def pre_check_get_jobs(self, req: Any) -> None:
+        """Check whether it's ok to send a request to get jobs.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
-        """
-        raise NotImplementedError()
+        Args:
+            req: request.
 
-    def request_get_jobs(self, req: Any):
-        """
-        Send a request to get jobs.
-
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def check_get_jobs_status(self, req: Any):
-        """
-        Check whether jobs are prepared.
+    def request_get_jobs(self, req: Any) -> None:
+        """Send a request to get jobs.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
-        """
-        raise NotImplementedError()
+        Args:
+            req: request.
 
-    def get_jobs(self, req: Any):
-        """
-        Get the jobs.
-
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def update_jobs(self, req: Any):
-        """
-        Update job statuses.
+    def check_get_jobs_status(self, req: Any) -> None:
+        """Check whether jobs are prepared.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
-        """
-        raise NotImplementedError()
+        Args:
+            req: request.
 
-    def pre_check_get_events(self, req: Any):
-        """
-        Check whether it's ok to send a request to get events.
-
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def request_get_events(self, req: Any):
-        """
-        Send a request to get events.
+    def get_jobs(self, req: Any) -> None:
+        """Get the jobs.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
-        """
-        raise NotImplementedError()
+        Args:
+            req: request.
 
-    def check_get_events_status(self, req: Any):
-        """
-        Check whether events prepared.
-
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def get_events(self, req: Any):
-        """
-        Get events.
+    def update_jobs(self, req: Any) -> None:
+        """Update job statuses.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
-        """
-        raise NotImplementedError()
+        Args:
+            req: request.
 
-    def pre_check_update_events(self, req: Any):
-        """
-        Check whether it's ok to update events.
-
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def update_events(self, req: Any):
-        """
-        Update events.
+    def pre_check_get_events(self, req: Any) -> None:
+        """Check whether it's ok to send a request to get events.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()
 
-    def pre_check_update_jobs(self, req: Any):
-        """
-        Check whether it's ok to update event ranges.
+    def request_get_events(self, req: Any) -> None:
+        """Send a request to get events.
 
-        :param req: request (Any)
-        :raises: NotImplementedError.
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
+        """
+        raise NotImplementedError()
+
+    def check_get_events_status(self, req: Any) -> None:
+        """Check whether events prepared.
+
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
+        """
+        raise NotImplementedError()
+
+    def get_events(self, req: Any) -> None:
+        """Get events.
+
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
+        """
+        raise NotImplementedError()
+
+    def pre_check_update_events(self, req: Any) -> None:
+        """Check whether it's ok to update events.
+
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
+        """
+        raise NotImplementedError()
+
+    def update_events(self, req: Any) -> None:
+        """Update events.
+
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
+        """
+        raise NotImplementedError()
+
+    def pre_check_update_jobs(self, req: Any) -> None:
+        """Check whether it's ok to update event ranges.
+
+        Args:
+            req: request.
+
+        Raises:
+            NotImplementedError: always raised by base class.
         """
         raise NotImplementedError()

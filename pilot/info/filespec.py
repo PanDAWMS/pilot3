@@ -19,15 +19,14 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
-"""
-The implementation of data structure to host File related data description.
+"""The implementation of data structure to host File related data description.
 
 The main reasons for such encapsulation are to
  - apply in one place all data validation actions (for attributes and values)
  - introduce internal information schema (names of attributes) to remove direct dependency to ext storage/structures
 
-:author: Alexey Anisenkov
-:date: April 2018
+Author: Alexey Anisenkov
+Date: April 2018
 """
 
 import logging
@@ -87,23 +86,23 @@ class FileSpec(BaseData):
              bool: ['allow_lan', 'allow_wan', 'direct_access_lan', 'direct_access_wan', 'checkinputsize']
              }
 
-    def __init__(self, filetype: str = 'input', **data: dict):
-        """
-        Init class instance.
+    def __init__(self, filetype: str = 'input', **data: Any) -> None:
+        """Init class instance.
 
         FileSpec can be split into FileSpecInput + FileSpecOuput classes in case of significant logic changes.
 
-        :param filetype: type of File: either input, output or log
-        :param data: input dictionary with object description (dict)
+        Args:
+            filetype: Type of File: either input, output or log.
+            **data: Input dictionary with object description.
         """
         self.filetype = filetype
         self.load(data)
 
-    def load(self, data: dict):
-        """
-        Construct and initialize data from ext source for input `FileSpec`.
+    def load(self, data: dict) -> None:
+        """Construct and initialize data from ext source for input `FileSpec`.
 
-        :param data: input dictionary of object description.
+        Args:
+            data: Input dictionary of object description.
         """
         # the translation map of the key attributes from external data to internal schema
         # if key is not explicitly specified then ext name will be used as is
@@ -122,14 +121,16 @@ class FileSpec(BaseData):
     ##    return value
 
     def clean__checksum(self, raw: Any, value: Any) -> dict:
-        """
-        Validate given value for the checksum key.
+        """Validate given value for the checksum key.
 
         Expected raw format is 'ad:value' or 'md:value'.
 
-        :param raw: raw value passed from ext source as input (Any)
-        :param value: preliminary cleaned and cast to proper type value (Any)
-        :return: dictionary with checksum values (dict).
+        Args:
+            raw: Raw value passed from ext source as input.
+            value: Preliminary cleaned and cast to proper type value.
+
+        Returns:
+            dict: Dictionary with checksum values.
         """
         if isinstance(value, dict):
             return value
@@ -144,9 +145,8 @@ class FileSpec(BaseData):
 
         return {ctype: checksum}
 
-    def clean(self):
-        """
-        Validate and finally clean up required data values (required object properties) if needed.
+    def clean(self) -> None:
+        """Validate and finally clean up required data values (required object properties) if needed.
 
         Executed once all fields have already passed field-specific validation checks.
         Could be customized by child object.
@@ -159,12 +159,14 @@ class FileSpec(BaseData):
             self.lfn = os.path.basename(self.lfn)
 
     def is_directaccess(self, ensure_replica: bool = True, allowed_replica_schemas: list = None) -> bool:
-        """
-        Check if given (input) file can be used for direct access mode by job transformation script.
+        """Check if given (input) file can be used for direct access mode by job transformation script.
 
-        :param ensure_replica: if True then check by allowed schemas of file replica turl will be considered as well (bool)
-        :param allowed_replica_schemas: list of allowed replica schemas (list)
-        :return: True if file can be used for direct access mode (bool).
+        Args:
+            ensure_replica: If True then check by allowed schemas of file replica turl will be considered as well.
+            allowed_replica_schemas: List of allowed replica schemas.
+
+        Returns:
+            bool: True if file can be used for direct access mode.
         """
         # check by filename pattern
         filename = self.lfn.lower()
@@ -193,14 +195,14 @@ class FileSpec(BaseData):
 
         return _is_directaccess
 
-    def get_storage_id_and_path_convention(self) -> (str, str):
-        """
-        Parse storage_token to get storage_id and path_convention.
+    def get_storage_id_and_path_convention(self) -> tuple:
+        """Parse storage_token to get storage_id and path_convention.
 
         Format for storage token: expected format is '<normal storage token as string>', '<storage_id as int>',
         <storage_id as int/path_convention as int>.
 
-        :returns: storage_id (str), path_convention (str).
+        Returns:
+            tuple: storage_id, path_convention.
         """
         storage_id = None
         path_convention = None
@@ -219,8 +221,6 @@ class FileSpec(BaseData):
         return storage_id, path_convention
 
     def require_transfer(self) -> bool:
-        """
-        Check if File needs to be transferred (in error state or never has been started)
-        """
+        """Check if File needs to be transferred (in error state or never has been started)."""
 
         return self.status not in ['remote_io', 'transferred', 'no_transfer']

@@ -59,10 +59,10 @@ TRANSFER_ERROR = 12
 
 
 def get_args() -> argparse.Namespace:
-    """
-    Return the args from the arg parser.
+    """Return the args from the arg parser.
 
-    :return: args (arg parser object).
+    Returns:
+        argparse.Namespace: Parsed argument namespace.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -203,12 +203,16 @@ def get_args() -> argparse.Namespace:
 
 # pylint: disable=useless-param-doc
 def str2bool(_str: str) -> bool:
-    """
-    Convert string to bool.
+    """Convert string to bool.
 
-    :param _str: string to be converted (str)
-    :return: boolean (bool)
-    :raise: argparse.ArgumentTypeError.
+    Args:
+        _str: String to be converted.
+
+    Returns:
+        bool: Boolean value.
+
+    Raises:
+        argparse.ArgumentTypeError: If the string does not represent a boolean value.
     """
     if isinstance(_str, bool):
         return _str
@@ -222,11 +226,11 @@ def str2bool(_str: str) -> bool:
 
 # logger is set in the main function
 # pylint: disable=used-before-assignment
-def message(msg: str):
-    """
-    Print message to stdout or to log.
+def message(msg: str) -> None:
+    """Print message to stdout or to log.
 
-    :param msg: message (str).
+    Args:
+        msg: Message to print.
     """
     if not logger:
         print(msg)
@@ -235,11 +239,13 @@ def message(msg: str):
 
 
 def str_to_int_list(_list: list) -> list:
-    """
-    Convert list of strings to list of integers.
+    """Convert list of strings to list of integers.
 
-    :param _list: list of strings (list)
-    :return: list of integers (list).
+    Args:
+        _list: List of strings.
+
+    Returns:
+        list: List of integers.
     """
     _new_list = []
     for val in _list:
@@ -253,11 +259,13 @@ def str_to_int_list(_list: list) -> list:
 
 
 def str_to_bool_list(_list: list) -> list:
-    """
-    Convert list of strings to list of booleans.
+    """Convert list of strings to list of booleans.
 
-    :param _list: list of strings (list)
-    :return: list of booleans (list).
+    Args:
+        _list: List of strings.
+
+    Returns:
+        list: List of booleans.
     """
     changes = {"True": True, "False": False, "None": None, "NULL": None}
 
@@ -267,27 +275,29 @@ def str_to_bool_list(_list: list) -> list:
 def get_file_lists(lfns: str, scopes: str, filesizes: str, checksums: str, allowlans: str, allowwans: str,
                    directaccesslans: str, directaccesswans: str, istars: str, accessmodes: str,
                    storagetokens: str, guids: str) -> dict:
-    """
-    Return a dictionary with the file lists.
+    """Return a dictionary with the file lists.
 
     Format: {'lfns': <lfn list>, 'scopes': <scope list>, 'filesizes': <filesize list>, 'checksums': <checksum list>,
                 'allowlans': <allowlan list>, 'allowwans': <allowwan list>, 'directaccesslans': <directaccesslan list>,
                 'directaccesswans': <directaccesswan list>, 'istars': <istar list>, 'accessmodes': <accessmode list>,
                 'storagetokens': <storagetoken list>, 'guids': <guid list>}
 
-    :param lfns: comma separated lfns (str)
-    :param scopes: comma separated scopes (str)
-    :param filesizes: comma separated filesizes (str)
-    :param checksums: comma separated checksums (str)
-    :param allowlans: comma separated allowlans (str)
-    :param allowwans: comma separated allowwans (str)
-    :param directaccesslans: comma separated directaccesslans (str)
-    :param directaccesswans: comma separated directaccesswans (str)
-    :param istars: comma separated istars (str)
-    :param accessmodes: comma separated accessmodes (str)
-    :param storagetokens: comma separated storagetokens (str)
-    :param guids: comma separated guids (str)
-    :return: file lists dictionary (dict).
+    Args:
+        lfns: Comma separated lfns.
+        scopes: Comma separated scopes.
+        filesizes: Comma separated filesizes.
+        checksums: Comma separated checksums.
+        allowlans: Comma separated allowlans.
+        allowwans: Comma separated allowwans.
+        directaccesslans: Comma separated directaccesslans.
+        directaccesswans: Comma separated directaccesswans.
+        istars: Comma separated istars.
+        accessmodes: Comma separated accessmodes.
+        storagetokens: Comma separated storagetokens.
+        guids: Comma separated guids.
+
+    Returns:
+        dict: File lists dictionary.
     """
     _lfns = []
     _scopes = []
@@ -333,14 +343,14 @@ class Job:
     taskid = ""
     jobdefinitionid = 0
 
-    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0):
-        """
-        Initialize the Job class.
+    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0) -> None:
+        """Initialize the Job class.
 
-        :param produserid: produserid (str)
-        :param jobid: jobid (int)
-        :param taskid: taskid (str)
-        :param jobdefinitionid: jobdefinitionid (int).
+        Args:
+            produserid: Producer user ID.
+            jobid: Job ID.
+            taskid: Task ID.
+            jobdefinitionid: Job definition ID.
         """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid
@@ -349,30 +359,34 @@ class Job:
 
 
 def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, value3: str, value4: str) -> dict:
-    """
-    Add key: [value1, value2, ..] to dictionary.
+    """Add key: [value1, value2, ..] to dictionary.
 
     In practice; lfn: [status, status_code, turl, DDM endpoint].
 
-    :param dictionary: dictionary to be updated (dict)
-    :param key: lfn key to be added (str)
-    :param value1: status to be added to list belonging to key (str)
-    :param value2: status_code to be added to list belonging to key (str)
-    :param value3: turl (str)
-    :param value4: DDM endpoint (str)
-    :return: updated dictionary (dict).
+    Args:
+        dictionary: Dictionary to be updated.
+        key: LFN key to be added.
+        value1: Status to be added to list belonging to key.
+        value2: Status code to be added to list belonging to key.
+        value3: TURL.
+        value4: DDM endpoint.
+
+    Returns:
+        dict: Updated dictionary.
     """
     dictionary[key] = [value1, value2, value3, value4]
 
     return dictionary
 
 
-def extract_error_info(errc: str) -> (int, str):
-    """
-    Extract error code and message from the error string.
+def extract_error_info(errc: str) -> tuple[int, str]:
+    """Extract error code and message from the error string.
 
-    :param errc: error string (str)
-    :return: error code (int), error message (str).
+    Args:
+        errc: Error string.
+
+    Returns:
+        tuple[int, str]: Error code and error message.
     """
     error_code = 0
     error_message = ""

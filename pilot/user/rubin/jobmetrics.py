@@ -31,12 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_job_metrics_string(job: JobData, extra: dict = None) -> str:
-    """
-    Get the job metrics string.
+    """Get the job metrics string.
 
-    :param job: job object (JobData)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job: job object.
+        extra: any extra information to be added.
+
+    Returns:
+        str: job metrics.
     """
     if extra is None:
         extra = {}
@@ -59,8 +61,7 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:
 
 
 def get_job_metrics(job: JobData, extra: dict = None) -> str:
-    """
-    Return a properly formatted job metrics string.
+    """Return a properly formatted job metrics string.
 
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
@@ -69,9 +70,12 @@ def get_job_metrics(job: JobData, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (JobData)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job: job object.
+        extra: any extra information to be added.
+
+    Returns:
+        str: job metrics.
     """
     if extra is None:
         extra = {}

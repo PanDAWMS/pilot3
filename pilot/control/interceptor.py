@@ -33,13 +33,13 @@ from pilot.util.processes import threads_aborted
 logger = logging.getLogger(__name__)
 
 
-def run(args: object):
-    """
-    Set up all interceptor threads.
+def run(args: object) -> None:
+    """Set up all interceptor threads.
 
     Main execution function for the interceptor communication layer.
 
-    :param args: pilot arguments (object)
+    Args:
+        args: Pilot arguments.
     """
     targets = {'receive': receive, 'send': send}
     threads = [ExcThread(bucket=queue.Queue(), target=target, kwargs={'args': args},
@@ -77,11 +77,11 @@ def run(args: object):
     logger.debug('[interceptor] run thread has finished')
 
 
-def receive(args: object):
-    """
-    Look for interceptor messages.
+def receive(args: object) -> None:
+    """Look for interceptor messages.
 
-    :param args: Pilot args object (object).
+    Args:
+        args: Pilot args object.
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)
@@ -96,11 +96,11 @@ def receive(args: object):
     logger.debug('[interceptor] receive thread has finished')
 
 
-def send(args: object):
-    """
-    Send message to interceptor.
+def send(args: object) -> None:
+    """Send message to interceptor.
 
-    :param args: Pilot args object (Any).
+    Args:
+        args: Pilot args object.
     """
     while not args.graceful_stop.is_set():
         time.sleep(0.5)

@@ -23,6 +23,7 @@
 
 import logging
 from os import getcwd
+from typing import Any
 
 from .services import Services
 
@@ -37,11 +38,12 @@ class MemoryMonitoring(Services):
     workdir = ""  # Job work directory
     _cmd = ""     # Memory monitoring command (full path, all options)
 
-    def __init__(self, **kwargs: dict):
-        """
-        Init function.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the memory monitoring service.
 
-        :param kwargs: kwargs dictionary (dict).
+        Args:
+            **kwargs: Keyword arguments set as instance attributes. Recognized
+                keys include ``user``, ``pid``, and ``workdir``.
         """
         for key, value in kwargs.items():
             setattr(self, key, value)
@@ -54,33 +56,33 @@ class MemoryMonitoring(Services):
             self._cmd = user_utility.get_memory_monitor_setup(self.pid, self.workdir)
 
     def get_command(self) -> str:
-        """
-        Return the full command for the memory monitor.
+        """Return the full command for the memory monitor.
 
-        :return: command string (str).
+        Returns:
+            Full memory monitor command string.
         """
         return self._cmd
 
-    def execute(self):
-        """
-        Execute the memory monitor command.
+    def execute(self) -> None:
+        """Execute the memory monitor command.
 
-        return: process (currently None).
+        Returns:
+            None
         """
         return None
 
     def get_filename(self) -> str:
-        """
-        Return the filename from the memory monitor tool.
+        """Return the filename produced by the memory monitor tool.
 
-        :return: filename (str).
+        Returns:
+            Memory monitor output filename (empty string by default).
         """
         return ""
 
-    def get_results(self):
-        """
-        Return the results from the memory monitoring.
+    def get_results(self) -> None:
+        """Return the results from the memory monitoring.
 
-        return: results (currently None).
+        Returns:
+            None
         """
         return None

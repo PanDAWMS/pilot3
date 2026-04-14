@@ -21,6 +21,7 @@
 
 import os
 import logging
+from typing import Optional
 from xml.dom import minidom
 from xml.etree import ElementTree
 
@@ -30,8 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_input_file_metadata(file_dictionary: dict, workdir: str, filename: str = "PoolFileCatalog.xml") -> str:
-    """
-    Create a Pool File Catalog for the files listed in the input dictionary.
+    """Create a Pool File Catalog for the files listed in the input dictionary.
 
     The function creates properly formatted XML (pretty printed) and writes the XML to file.
     Note: any environment variables in the pfn tags will be expanded (see pilot/control/data::get_input_file_dictionary()).
@@ -49,10 +49,13 @@ def create_input_file_metadata(file_dictionary: dict, workdir: str, filename: st
     </File>
     <POOLFILECATALOG>
 
-    :param file_dictionary: file dictionary (dict)
-    :param workdir: job work directory (str)
-    :param filename: PFC file name (str)
-    :return: xml (str).
+    Args:
+        file_dictionary: file dictionary.
+        workdir: job work directory.
+        filename: PFC file name.
+
+    Returns:
+        str: xml.
     """
     # create the file structure
     data = ElementTree.Element('POOLFILECATALOG')
@@ -79,8 +82,7 @@ def create_input_file_metadata(file_dictionary: dict, workdir: str, filename: st
 
 
 def get_file_info_from_xml(workdir: str, filename: str = "PoolFileCatalog.xml") -> dict:
-    """
-    Return a file info dictionary based on the metadata in the given XML file.
+    """Return a file info dictionary based on the metadata in the given XML file.
 
     The file info dictionary is used to replace the input file LFN list in the job parameters with the full PFNs
     which are needed for direct access in production jobs.
@@ -102,9 +104,12 @@ def get_file_info_from_xml(workdir: str, filename: str = "PoolFileCatalog.xml") 
     {'AOD.11164242._001522.pool.root.1': ['root://dcgftp.usatlas.bnl.gov:1096//../AOD.11164242._001522.pool.root.1',
     '4ACC5018-2EA3-B441-BC11-0C0992847FD1']}
 
-    :param workdir: directory of PoolFileCatalog.xml (str)
-    :param filename: file name (default: PoolFileCatalog.xml) (str)
-    :return: dictionary { LFN: [PFN, GUID], .. } (dict).
+    Args:
+        workdir: directory of PoolFileCatalog.xml.
+        filename: file name (default: PoolFileCatalog.xml).
+
+    Returns:
+        dict: dictionary { LFN: [PFN, GUID], .. }.
     """
     file_info_dictionary = {}
     tree = ElementTree.parse(os.path.join(workdir, filename))
@@ -126,8 +131,7 @@ def get_file_info_from_xml(workdir: str, filename: str = "PoolFileCatalog.xml") 
 
 
 def get_metadata_from_xml(workdir: str, filename: str = "metadata.xml") -> dict:
-    """
-    Parse the payload metadata.xml file.
+    """Parse the payload metadata.xml file.
 
     Example of metadata.xml:
 
@@ -153,9 +157,12 @@ def get_metadata_from_xml(workdir: str, filename: str = "metadata.xml") -> dict:
     'beamType': 'collisions', 'fileType': 'RDO', 'geometryVersion': 'ATLAS-R2-2015-03-01-00', 'events': '3',
     'size': '3250143'}}
 
-    :param workdir: payload work directory (str)
-    :param filename: metadata file name (str)
-    :return: metadata dictionary (dict).
+    Args:
+        workdir: payload work directory.
+        filename: metadata file name.
+
+    Returns:
+        dict: metadata dictionary.
     """
     # metadata_dictionary = { lfn: { att_name1: att_value1, .. }, ..}
     metadata_dictionary = {}
@@ -195,12 +202,14 @@ def get_metadata_from_xml(workdir: str, filename: str = "metadata.xml") -> dict:
 
 
 def get_number_of_events(metadata_dictionary: dict, filename: str = "") -> int:
-    """
-    Get the number of events for the given file from the metadata dictionary (from metadata.xml).
+    """Get the number of events for the given file from the metadata dictionary (from metadata.xml).
 
-    :param metadata_dictionary: dictionary from parsed metadata.xml file (dict)
-    :param filename: file name for which the number of events relates to (str)
-    :return: number of events; -1 is returned if the events could not be extracted from the dictionary (int).
+    Args:
+        metadata_dictionary: dictionary from parsed metadata.xml file.
+        filename: file name for which the number of events relates to.
+
+    Returns:
+        int: number of events; -1 is returned if the events could not be extracted from the dictionary.
     """
     nevents = -1
 
@@ -216,11 +225,13 @@ def get_number_of_events(metadata_dictionary: dict, filename: str = "") -> int:
 
 
 def get_total_number_of_events(metadata_dictionary: dict) -> int:
-    """
-    Get the total number of events for all files in the metadata dictionary.
+    """Get the total number of events for all files in the metadata dictionary.
 
-    :param metadata_dictionary: dictionary from parsed metadata.xml file (dict)
-    :return: total number of processed events (int).
+    Args:
+        metadata_dictionary: dictionary from parsed metadata.xml file.
+
+    Returns:
+        int: total number of processed events.
     """
     nevents = 0
 
@@ -232,13 +243,15 @@ def get_total_number_of_events(metadata_dictionary: dict) -> int:
     return nevents
 
 
-def get_guid(metadata_dictionary: dict, filename: str = "") -> str or None:
-    """
-    Get the guid from the metadata dictionary for the given LFN.
+def get_guid(metadata_dictionary: dict, filename: str = "") -> Optional[str]:
+    """Get the guid from the metadata dictionary for the given LFN.
 
-    :param metadata_dictionary: dictionary from parsed metadata.xml file (dict)
-    :param filename: file name for which the number of events relates to (str)
-    :return: guid (None is returned if guid could not be extracted) (str or None).
+    Args:
+        metadata_dictionary: dictionary from parsed metadata.xml file.
+        filename: file name for which the number of events relates to.
+
+    Returns:
+        Optional[str]: guid (None is returned if guid could not be extracted).
     """
     guid = None
 
@@ -253,13 +266,15 @@ def get_guid(metadata_dictionary: dict, filename: str = "") -> str or None:
     return guid
 
 
-def get_guid_from_xml(metadata_dictionary: dict, lfn: str) -> str or None:
-    """
-    Get the guid for the given LFN in the metadata dictionary.
+def get_guid_from_xml(metadata_dictionary: dict, lfn: str) -> Optional[str]:
+    """Get the guid for the given LFN in the metadata dictionary.
 
-    :param metadata_dictionary: dictionary from parsed metadata.xml file (dict)
-    :param lfn: LFN (str)
-    :return: total number of processed events (int or None).
+    Args:
+        metadata_dictionary: dictionary from parsed metadata.xml file.
+        lfn: LFN.
+
+    Returns:
+        Optional[str]: guid.
     """
     guid = None
 

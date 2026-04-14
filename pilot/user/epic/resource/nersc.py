@@ -32,12 +32,14 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def verify_setup_command(cmd: str) -> (int, str):
-    """
-    Verify the setup command.
+def verify_setup_command(cmd: str) -> tuple[int, str]:
+    """Verify the setup command.
 
-    :param cmd: command string to be verified (string).
-    :return: pilot error code (int), diagnostics (string).
+    Args:
+        cmd: command string to be verified.
+
+    Returns:
+        tuple[int, str]: pilot error code, diagnostics.
     """
     if not cmd:
         logger.debug('cmd is not used by this function')
@@ -46,8 +48,7 @@ def verify_setup_command(cmd: str) -> (int, str):
 
 
 def get_setup_command(job: Any, prepareasetup: bool) -> str:
-    """
-    Return the path to asetup command, the asetup command itself and add the options (if desired).
+    """Return the path to asetup command, the asetup command itself and add the options (if desired).
 
     If prepareasetup is False, the function will only return the path to the asetup script. It is then assumed
     to be part of the job parameters.
@@ -56,9 +57,12 @@ def get_setup_command(job: Any, prepareasetup: bool) -> str:
     HARVESTER_CONTAINER_RELEASE_SETUP_FILE, HARVESTER_LD_LIBRARY_PATH, HARVESTER_PYTHONPATH
     This will create the string need for the pilot to execute to setup the environment.
 
-    :param job: job object (Any)
-    :param prepareasetup: not used (bool)
-    :return: setup command (str).
+    Args:
+        job: job object.
+        prepareasetup: not used.
+
+    Returns:
+        str: setup command.
     """
     if not prepareasetup:
         logger.debug('prepareasetup is not used by this function')

@@ -53,12 +53,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C901
-    """
-    Get the job metrics string.
+    """Get the job metrics string.
 
-    :param job: job object (JobData)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job: job object.
+        extra: any extra information to be added.
+
+    Returns:
+        str: job metrics.
     """
     if extra is None:
         extra = {}
@@ -141,11 +143,13 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
 
 
 def get_trace_exit_code(workdir: str) -> str:
-    """
-    Look for any rucio trace curl problems using an env var and a file.
+    """Look for any rucio trace curl problems using an env var and a file.
 
-    :param workdir: payload work directory (str)
-    :return: curl exit code (str).
+    Args:
+        workdir: payload work directory.
+
+    Returns:
+        str: curl exit code.
     """
     trace_exit_code = os.environ.get('RUCIO_TRACE_ERROR', '0')
     if trace_exit_code == '0':
@@ -163,15 +167,17 @@ def get_trace_exit_code(workdir: str) -> str:
 
 
 def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
-    """
-    Add job and machine feature data to the job metrics if available.
+    """Add job and machine feature data to the job metrics if available.
 
     If a non-empty add list is specified, only include the corresponding features. If empty/not specified, add all.
 
-    :param job_metrics: job metrics (str)
-    :param corecount: core count (int)
-    :param add: features to be added (list)
-    :return: updated job metrics (str).
+    Args:
+        job_metrics: job metrics.
+        corecount: core count.
+        add: features to be added.
+
+    Returns:
+        str: updated job metrics.
     """
     if add is None:
         add = []
@@ -214,13 +220,15 @@ def add_features(job_metrics: str, corecount: int, add: list = None) -> str:
 
 
 def add_analytics_data(job_metrics: str, workdir: str, state: str) -> str:
-    """
-    Add the memory leak+chi2 analytics data to the job metrics.
+    """Add the memory leak+chi2 analytics data to the job metrics.
 
-    :param job_metrics: job metrics (str)
-    :param workdir: work directory (str)
-    :param state: job state (str)
-    :return: updated job metrics (str).
+    Args:
+        job_metrics: job metrics.
+        workdir: work directory.
+        state: job state.
+
+    Returns:
+        str: updated job metrics.
     """
     path = os.path.join(workdir, get_memory_monitor_output_filename())
     if os.path.exists(path):
@@ -242,12 +250,14 @@ def add_analytics_data(job_metrics: str, workdir: str, state: str) -> str:
 
 
 def add_event_number(job_metrics: str, workdir: str) -> str:
-    """
-    Extract event number from file and add to job metrics if it exists.
+    """Extract event number from file and add to job metrics if it exists.
 
-    :param job_metrics: job metrics (str)
-    :param workdir: work directory (str)
-    :return: updated job metrics (str).
+    Args:
+        job_metrics: job metrics.
+        workdir: work directory.
+
+    Returns:
+        str: updated job metrics.
     """
     path = os.path.join(workdir, 'eventLoopHeartBeat.txt')
     if os.path.exists(path):
@@ -263,8 +273,7 @@ def add_event_number(job_metrics: str, workdir: str) -> str:
 
 
 def get_job_metrics(job: JobData, extra: dict = None) -> str:
-    """
-    Return a properly formatted job metrics string.
+    """Return a properly formatted job metrics string.
 
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
@@ -273,9 +282,12 @@ def get_job_metrics(job: JobData, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (JobData)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job: job object.
+        extra: any extra information to be added.
+
+    Returns:
+        str: job metrics.
     """
     if extra is None:
         extra = {}
@@ -303,16 +315,18 @@ def get_job_metrics(job: JobData, extra: dict = None) -> str:
 
 
 def get_number_in_string(line: str, pattern: str = r'\ done\ processing\ event\ \#(\d+)\,') -> int:
-    """
-    Extract a number from the given string.
+    """Extract a number from the given string.
 
     E.g. file eventLoopHeartBeat.txt contains
         done processing event #20166959, run #276689 22807 events read so far  <<<===
     This function will return 20166959 as in int.
 
-    :param line: line from a file (str)
-    :param pattern: reg ex pattern (raw str)
-    :return: extracted number (int).
+    Args:
+        line: line from a file.
+        pattern: reg ex pattern.
+
+    Returns:
+        int: extracted number.
     """
     event_number = None
     match = re.search(pattern, line)

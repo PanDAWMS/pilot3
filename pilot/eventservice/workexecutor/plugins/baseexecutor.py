@@ -23,6 +23,7 @@
 import logging
 import os
 import threading
+from typing import Any
 
 from pilot.common.pluginfactory import PluginFactory
 from pilot.control.job import create_job
@@ -37,11 +38,11 @@ Base Executor with one process to manage EventService
 
 class BaseExecutor(threading.Thread, PluginFactory):
 
-    def __init__(self, **kwargs: dict):
-        """
-        Init function for BaseExecutor.
+    def __init__(self, **kwargs: Any) -> None:
+        """Init function for BaseExecutor.
 
-        :param kwargs: keyword arguments (dict).
+        Args:
+            **kwargs: keyword arguments.
         """
         super().__init__()
         self.name = "BaseExecutor"
@@ -58,11 +59,11 @@ class BaseExecutor(threading.Thread, PluginFactory):
         self.proc = None
         self.current_dir = os.getcwd()
 
-    def get_pid(self) -> int or None:
-        """
-        Return the process ID.
+    def get_pid(self) -> int | None:
+        """Return the process ID.
 
-        :return: process ID (int or None).
+        Returns:
+            int | None: process ID.
         """
         return self.proc.pid if self.proc else None
 
@@ -78,12 +79,12 @@ class BaseExecutor(threading.Thread, PluginFactory):
             self.communication_manager.stop()
 
     def is_payload_started(self) -> bool:
-        """
-        Return a boolean indicating whether the payload has started.
+        """Return a boolean indicating whether the payload has started.
 
         (Not properly implemented).
 
-        :return: True if the payload has started, False otherwise (bool).
+        Returns:
+            bool: True if the payload has started, False otherwise.
         """
         return False
 
@@ -103,11 +104,11 @@ class BaseExecutor(threading.Thread, PluginFactory):
         logger.info(f"changing current dir from {os.getcwd()} to {self.current_dir}")
         os.chdir(self.current_dir)
 
-    def is_stop(self):
-        """
-        Return a boolean indicating whether the BaseExecutor should be stopped.
+    def is_stop(self) -> bool:
+        """Return a boolean indicating whether the BaseExecutor should be stopped.
 
-        :return: True if the BaseExecutor should be stopped, False otherwise (bool).
+        Returns:
+            bool: True if the BaseExecutor should be stopped, False otherwise.
         """
         return self.__stop.is_set()
 
@@ -121,11 +122,11 @@ class BaseExecutor(threading.Thread, PluginFactory):
 
         logger.info("Communication manager stopped")
 
-    def set_payload(self, payload: dict):
-        """
-        Set the payload.
+    def set_payload(self, payload: dict) -> None:
+        """Set the payload.
 
-        :param payload: payload (dict).
+        Args:
+            payload: payload.
         """
         self.payload = payload
         self.__is_set_payload = True
@@ -135,10 +136,10 @@ class BaseExecutor(threading.Thread, PluginFactory):
             os.chdir(job.workdir)
 
     def is_set_payload(self) -> bool:
-        """
-        Return a boolean indicating whether the payload has been set.
+        """Return a boolean indicating whether the payload has been set.
 
-        :return: True if the payload has been set, False otherwise (bool).
+        Returns:
+            bool: True if the payload has been set, False otherwise.
         """
         return self.__is_set_payload
 
@@ -147,18 +148,18 @@ class BaseExecutor(threading.Thread, PluginFactory):
         self.__is_retrieve_payload = True
 
     def is_retrieve_payload(self) -> bool:
-        """
-        Return the retrieve payload flag.
+        """Return the retrieve payload flag.
 
-        :return: True if the retrieve payload flag is set, False otherwise (bool).
+        Returns:
+            bool: True if the retrieve payload flag is set, False otherwise.
         """
         return self.__is_retrieve_payload
 
-    def retrieve_payload(self) -> dict or None:
-        """
-        Retrieve the payload.
+    def retrieve_payload(self) -> dict | None:
+        """Retrieve the payload.
 
-        :return: payload (dict) or None.
+        Returns:
+            dict | None: payload.
         """
         logger.info(f"retrieving payload: {self.args}")
         jobs = self.communication_manager.get_jobs(njobs=1, args=self.args)
@@ -180,32 +181,34 @@ class BaseExecutor(threading.Thread, PluginFactory):
 
         return None
 
-    def get_payload(self) -> dict or None:
-        """
-        Return the payload.
+    def get_payload(self) -> dict | None:
+        """Return the payload.
 
-        :return: payload (dict or None).
+        Returns:
+            dict | None: payload.
         """
         if self.__is_set_payload:
             return self.payload
 
         return None
 
-    def get_job(self):
-        """
-        Return the job.
+    def get_job(self) -> dict | None:
+        """Return the job.
 
-        :return: job (dict or None).
+        Returns:
+            dict | None: job.
         """
         return self.payload['job'] if self.payload and 'job' in list(self.payload.keys()) else None  # Python 2/3
 
     def get_event_ranges(self, num_event_ranges: int = 1, queue_factor: int = 2) -> list:
-        """
-        Get event ranges from the communication manager.
+        """Get event ranges from the communication manager.
 
-        :param num_event_ranges: number of event ranges (int)
-        :param queue_factor: queue factor (int)
-        :return: event ranges (list).
+        Args:
+            num_event_ranges: number of event ranges.
+            queue_factor: queue factor.
+
+        Returns:
+            list: event ranges.
         """
         if os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena':
             old_queue_factor = queue_factor
@@ -228,11 +231,13 @@ class BaseExecutor(threading.Thread, PluginFactory):
         return ret
 
     def update_events(self, messages: list) -> bool:
-        """
-        Update event ranges.
+        """Update event ranges.
 
-        :param messages: messages (list)
-        :return: True if the event ranges were updated successfully, False otherwise (bool).
+        Args:
+            messages: messages.
+
+        Returns:
+            bool: True if the event ranges were updated successfully, False otherwise.
         """
         logger.info(f"updating event ranges: {messages}")
         ret = self.communication_manager.update_events(messages)
@@ -241,11 +246,13 @@ class BaseExecutor(threading.Thread, PluginFactory):
         return ret
 
     def update_jobs(self, jobs: list) -> bool:
-        """
-        Update jobs.
+        """Update jobs.
 
-        :param jobs: jobs (list)
-        :return: True if the jobs were updated successfully, False otherwise (bool).
+        Args:
+            jobs: jobs.
+
+        Returns:
+            bool: True if the jobs were updated successfully, False otherwise.
         """
         logger.info(f"updating jobs: {jobs}")
         ret = self.communication_manager.update_jobs(jobs)

@@ -25,17 +25,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def precleanup():
+def precleanup() -> None:
     """Perform pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir."""
     pass  # pylint: disable=unnecessary-pass
 
 
 def get_cpu_arch() -> str:
-    """
-    Return the CPU architecture string.
+    """Return the CPU architecture string.
 
     If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
 
-    :return: CPU arch (str).
+    Returns:
+        str: CPU arch string.
     """
     return ""

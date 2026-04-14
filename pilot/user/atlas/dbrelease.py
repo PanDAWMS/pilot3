@@ -38,11 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 def extract_version(name: str) -> str:
-    """
-    Try to extract the version from the DBRelease string.
+    """Try to extract the version from the DBRelease string.
 
-    :param name: DBRelease (str)
-    :return: version (str).
+    Args:
+        name: DBRelease.
+
+    Returns:
+        str: version.
     """
     version = ""
 
@@ -60,20 +62,22 @@ def extract_version(name: str) -> str:
 
 
 def get_dbrelease_version(jobpars: str) -> str:
-    """
-    Get the DBRelease version from the job parameters.
+    """Get the DBRelease version from the job parameters.
 
-    :param jobpars: job parameters (str)
-    :return: DBRelease version (str).
+    Args:
+        jobpars: job parameters.
+
+    Returns:
+        str: DBRelease version.
     """
     return extract_version(jobpars)
 
 
 def get_dbrelease_dir() -> str:
-    """
-    Return the proper DBRelease directory
+    """Return the proper DBRelease directory.
 
-    :return: path to DBRelease (str).
+    Returns:
+        str: path to DBRelease.
     """
     path = os.path.join(os.environ.get('VO_ATLAS_SW_DIR', 'OSG_APP'), 'database/DBRelease')
     if path == "" or path.startswith('OSG_APP'):
@@ -88,11 +92,13 @@ def get_dbrelease_dir() -> str:
 
 
 def is_dbrelease_available(version: str) -> bool:
-    """
-    Check whether a given DBRelease file is already available.
+    """Check whether a given DBRelease file is already available.
 
-    :param version: DBRelease version (str)
-    :return: True is DBRelease is locally available, False otherwise (bool).
+    Args:
+        version: DBRelease version.
+
+    Returns:
+        bool: True if DBRelease is locally available, False otherwise.
     """
     status = False
 
@@ -124,12 +130,14 @@ def is_dbrelease_available(version: str) -> bool:
 
 
 def create_setup_file(version: str, path: str) -> bool:
-    """
-    Create the DBRelease setup file.
+    """Create the DBRelease setup file.
 
-    :param version: DBRelease version (str)
-    :param path: path to local DBReleases (str)
-    :return: True if DBRelease setup file was successfully created, False otherwise (bool).
+    Args:
+        version: DBRelease version.
+        path: path to local DBReleases.
+
+    Returns:
+        bool: True if DBRelease setup file was successfully created, False otherwise.
     """
     status = False
 
@@ -158,12 +166,14 @@ def create_setup_file(version: str, path: str) -> bool:
 
 
 def create_dbrelease(version: str, path: str) -> bool:
-    """
-    Create the DBRelease file only containing a setup file.
+    """Create the DBRelease file only containing a setup file.
 
-    :param version: DBRelease version (str)
-    :param path: path to DBRelease (str)
-    :return: True is DBRelease file was successfully created, False otherwise (bool).
+    Args:
+        version: DBRelease version.
+        path: path to DBRelease.
+
+    Returns:
+        bool: True if DBRelease file was successfully created, False otherwise.
     """
     status = False
 

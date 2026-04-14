@@ -19,15 +19,14 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
-"""
-Pilot Config specific info provider.
+"""Pilot Config specific info provider.
 
 Mainly used to customize Queue, Site, etc data of Information Service with details fetched directly from local
 Pilot instance configuration.
 
-:author: Alexey Anisenkov
-:contact: anisyonk@cern.ch
-:date: January 2018
+Author: Alexey Anisenkov
+Contact: anisyonk@cern.ch
+Date: January 2018
 """
 
 import ast
@@ -50,16 +49,15 @@ class PilotConfigProvider:
     config = None  # Pilot Config instance
 
     def __init__(self, conf: Any = None):
-        """
-        Init class instance.
+        """Init class instance.
 
-        :param conf: Pilot Config instance (Any).
+        Args:
+            conf: Pilot Config instance.
         """
         self.config = conf or config
 
     def resolve_schedconf_sources(self) -> None:
-        """
-        Resolve prioritized list of source names to be used for SchedConfig data load.
+        """Resolve prioritized list of source names to be used for SchedConfig data load.
 
         Could return a prioritized list of source names (list).
         """
@@ -69,13 +67,15 @@ class PilotConfigProvider:
 
         return None  # ## Not implemented yet
 
-    def resolve_queuedata(self, pandaqueue: str, **kwargs: dict) -> dict:
-        """
-        Resolve queue data details.
+    def resolve_queuedata(self, pandaqueue: str, **kwargs: Any) -> dict:
+        """Resolve queue data details.
 
-        :param pandaqueue: name of PandaQueue (str)
-        :param kwargs: other parameters (dict)
-        :return: dictionary of settings for given PandaQueue as a key (dict).
+        Args:
+            pandaqueue: Name of PandaQueue.
+            **kwargs: Other parameters.
+
+        Returns:
+            dict: Dictionary of settings for given PandaQueue as a key.
         """
         data = {
             'maxwdir_broken': self.config.Pilot.maximum_input_file_sizes,  # ## Config API is broken -- FIXME LATER

@@ -50,11 +50,11 @@ errors = ErrorCodes()
 class GenericExecutor(BaseExecutor):
     """Generic executor class."""
 
-    def __init__(self, **kwargs: dict):
-        """
-        Initialize generic executor.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize generic executor.
 
-        :param kwargs: kwargs dictionary (dict).
+        Args:
+            **kwargs: kwargs dictionary.
         """
         super().__init__(**kwargs)
         self.name = "GenericExecutor"
@@ -67,39 +67,39 @@ class GenericExecutor(BaseExecutor):
         self.exit_code = None
 
     def is_payload_started(self) -> bool:
-        """
-        Check if payload is started.
+        """Check if payload is started.
 
-        :return: True if payload is started, False if not (bool).
+        Returns:
+            bool: True if payload is started, False if not.
         """
         return self.proc.is_payload_started() if self.proc else False
 
     def get_pid(self) -> int:
-        """
-        Get the process id of the payload process.
+        """Get the process id of the payload process.
 
-        :return: process id (int).
+        Returns:
+            int: process id.
         """
         return self.proc.pid if self.proc else None
 
-    def get_exit_code(self):
-        """
-        Get exit code of the payload process.
+    def get_exit_code(self) -> int:
+        """Get exit code of the payload process.
 
-        :return: exit code (int).
+        Returns:
+            int: exit code.
         """
         return self.exit_code
 
     def update_finished_event_ranges(self, out_messages: Any, output_file: str, fsize: int, checksum: str,
                                      storage_id: Any) -> None:
-        """
-        Update finished event ranges.
+        """Update finished event ranges.
 
-        :param out_messages: messages from AthenaMP (Any)
-        :param output_file: output file name (str)
-        :param fsize: file size (int)
-        :param checksum: checksum (adler32) of the file (str)
-        :param storage_id: the id of the storage (Any).
+        Args:
+            out_messages: messages from AthenaMP.
+            output_file: output file name.
+            fsize: file size.
+            checksum: checksum (adler32) of the file.
+            storage_id: the id of the storage.
         """
         if len(out_messages) == 0:
             return
@@ -122,10 +122,10 @@ class GenericExecutor(BaseExecutor):
         job.nevents += len(event_ranges)
 
     def update_failed_event_ranges(self, out_messages: Any) -> None:
-        """
-        Update failed event ranges.
+        """Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP (Any).
+        Args:
+            out_messages: messages from AthenaMP.
         """
         if len(out_messages) == 0:
             return
@@ -138,16 +138,16 @@ class GenericExecutor(BaseExecutor):
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def handle_out_message(self, message: dict):
-        """
-        Handle ES output or error messages hook function for tests.
+    def handle_out_message(self, message: dict) -> None:
+        """Handle ES output or error messages hook function for tests.
 
-        Example
+        Example:
             For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
             For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
-        :param message: a dict of parsed message (dict).
+        Args:
+            message: a dict of parsed message.
         """
         logger.info(f"handling out message: {message}")
 
@@ -158,11 +158,11 @@ class GenericExecutor(BaseExecutor):
         else:
             self.__queued_out_messages.append(message)
 
-    def tarzip_output_es(self) -> (Any, str):
-        """
-        Tar/zip event service outputs.
+    def tarzip_output_es(self) -> tuple[Any, str]:
+        """Tar/zip event service outputs.
 
-        :return: out_messages (Any), output_file (str).
+        Returns:
+            tuple[Any, str]: out_messages and output_file.
         """
         out_messages = []
         while len(self.__queued_out_messages) > 0:
@@ -196,13 +196,17 @@ class GenericExecutor(BaseExecutor):
 
         return ret_messages, output_file
 
-    def stageout_es_real(self, output_file: str) -> (str, Any, int, str):  # noqa: C901
-        """
-        Stage out event service output file.
+    def stageout_es_real(self, output_file: str) -> tuple[str, Any, int, str]:  # noqa: C901
+        """Stage out event service output file.
 
-        :param output_file: output file name (str)
-        :return: storage (str), storage_id (Any), fsize (int), checksum (str)
-        :raises StageOutFailure: when stage-out failed.
+        Args:
+            output_file: output file name.
+
+        Returns:
+            tuple[str, Any, int, str]: storage, storage_id, fsize, checksum.
+
+        Raises:
+            StageOutFailure: when stage-out failed.
         """
         job = self.get_job()
         logger.info('prepare to stage-out event service files')
@@ -284,13 +288,13 @@ class GenericExecutor(BaseExecutor):
 
         return file_spec.ddmendpoint, storage_id, file_spec.filesize, file_spec.checksum
 
-    def stageout_es(self, force: bool = False):
-        """
-        Stage out event service outputs.
+    def stageout_es(self, force: bool = False) -> None:
+        """Stage out event service outputs.
 
         When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
 
-        :param force: force to stage out (bool).
+        Args:
+            force: force to stage out.
         """
         job = self.get_job()
         if self.__queued_out_messages:
@@ -317,7 +321,7 @@ class GenericExecutor(BaseExecutor):
                             self.__queued_out_messages += out_messages
                             self.__stageout_failures += 1
 
-    def clean(self):
+    def clean(self) -> None:
         """Clean temp produced files."""
         for msg in self.__all_out_messages:
             if msg['status'] in {'failed', 'fatal'}:

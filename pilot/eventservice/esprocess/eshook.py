@@ -27,22 +27,25 @@ class ESHook:
     """Event Service Hook class."""
 
     def get_payload(self) -> dict:
-        """
-        Get payload to execute.
+        """Get payload to execute.
 
-        Should return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>} (dict).
-        :raises Exception: if anything goes wrong.
+        Should return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>}.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
-        """
-        Get event ranges.
+        """Get event ranges.
 
-        Should returns: dictionary of event ranges (dict).
+        Should return: dictionary of event ranges.
 
-        :param num_ranges: Number of event ranges to download, default is 1 (int)
-        :raises Exception: if anything goes wrong.
+        Args:
+            num_ranges: Number of event ranges to download, default is 1.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 

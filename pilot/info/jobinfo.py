@@ -20,13 +20,12 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 
-"""
-Job specific info provider mainly used to customize Queue, Site, etc data of Information Service
-with details fetched directly from Job instance
+"""Job specific info provider mainly used to customize Queue, Site, etc data of Information Service
+with details fetched directly from Job instance.
 
-:author: Alexey Anisenkov
-:contact: anisyonk@cern.ch
-:date: January 2018
+Author: Alexey Anisenkov
+Contact: anisyonk@cern.ch
+Date: January 2018
 """
 
 from typing import Any
@@ -44,18 +43,18 @@ class JobInfoProvider:
     job = None  # Job instance
 
     def __init__(self, job: Any):
-        """
-        Initialize JobInfoProvider with Job instance.
+        """Initialize JobInfoProvider with Job instance.
 
-        :param job: Job object (Any).
+        Args:
+            job: Job object.
         """
         self.job = job
 
     def resolve_schedconf_sources(self) -> None:
-        """
-        Resolve Job specific prioritized list of source names to be used for SchedConfig data load
+        """Resolve Job specific prioritized list of source names to be used for SchedConfig data load.
 
-        :return: prioritized list of source names (None if not implemented yet)
+        Returns:
+            None: Not implemented yet (would return prioritized list of source names).
         """
         ## FIX ME LATER
         ## quick stub implementation: extract later from jobParams, e.g. from overwriteAGISData..
@@ -64,11 +63,15 @@ class JobInfoProvider:
         ##
         return None  ## Not implemented yet
 
-    def resolve_queuedata(self, pandaqueue: str, **kwargs: dict) -> dict:
-        """
-        Resolve Job specific settings for queue data (overwriteQueueData)
+    def resolve_queuedata(self, pandaqueue: str, **kwargs: Any) -> dict:
+        """Resolve Job specific settings for queue data (overwriteQueueData).
 
-        :return: Dictionary of settings for given PandaQueue as a key (dict).
+        Args:
+            pandaqueue: Name of PandaQueue.
+            **kwargs: Other parameters.
+
+        Returns:
+            dict: Dictionary of settings for given PandaQueue as a key.
         """
         # use following keys from job definition
         # keys format: [(inputkey, outputkey), inputkey2]
@@ -90,11 +93,15 @@ class JobInfoProvider:
 
         return {pandaqueue: data}
 
-    def resolve_storage_data(self, ddmendpoints: list = None, **kwargs: dict) -> dict:
-        """
-        Resolve Job specific settings for storage data (including data passed via --overwriteStorageData)
+    def resolve_storage_data(self, ddmendpoints: list = None, **kwargs: Any) -> dict:
+        """Resolve Job specific settings for storage data (including data passed via --overwriteStorageData).
 
-        :return: dict of settings for requested DDMEndpoints with ddmendpoin as a key
+        Args:
+            ddmendpoints: List of DDMEndpoint names to filter results.
+            **kwargs: Other parameters.
+
+        Returns:
+            dict: Dictionary of settings for requested DDMEndpoints with ddmendpoint as a key.
         """
         if ddmendpoints is None:
             ddmendpoints = []

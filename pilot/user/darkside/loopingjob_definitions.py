@@ -23,25 +23,27 @@
 
 
 def allow_loopingjob_detection() -> bool:
-    """
-    Determine if the looping job detection algorithm should be allowed.
+    """Determine if the looping job detection algorithm should be allowed.
 
     The looping job detection algorithm finds recently touched files within the job's workdir. If a found file has not
     been touched during the allowed time limit (see looping job section in util/default.cfg), the algorithm will kill
     the job/payload process.
 
-    :return: True if looping job algorithm is to be used, False otherwise (bool).
+    Returns:
+        bool: True if looping job algorithm is to be used, False otherwise.
     """
     return True
 
 
 def remove_unwanted_files(workdir: str, files: list) -> list:
-    """
-    Remove files from the list that are to be ignored by the looping job algorithm.
+    """Remove files from the list that are to be ignored by the looping job algorithm.
 
-    :param workdir: working directory (str)
-    :param files: list of recently touched files (list)
-    :return: filtered files (list).
+    Args:
+        workdir: working directory.
+        files: list of recently touched files.
+
+    Returns:
+        list: filtered files.
     """
     _files = []
     for _file in files:

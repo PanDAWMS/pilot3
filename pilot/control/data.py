@@ -985,8 +985,7 @@ def get_tar_timeout(dirsize: float) -> int:
 
 
 def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title: str, ipv: str = 'IPv6') -> bool:
-    """
-    Use the `StageOutClient` in the Data API to perform stage-out.
+    """Use the ``StageOutClient`` in the Data API to perform stage-out.
 
     This function orchestrates the stage-out process, including a fallback mechanism known as
     "alternative stage-out." This allows the pilot to attempt transferring output files to a

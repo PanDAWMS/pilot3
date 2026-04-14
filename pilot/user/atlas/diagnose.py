@@ -75,11 +75,13 @@ _DIRECT_ACCESS_ERROR_PATTERNS: list[str] = [
 
 
 def interpret(job: JobData) -> int:
-    """
-    Interpret the payload, look for specific errors in the stdout.
+    """Interpret the payload, look for specific errors in the stdout.
 
-    :param job: job object (JobData)
-    :return: exit code (payload) (int).
+    Args:
+        job: job object.
+
+    Returns:
+        int: exit code (payload).
     """
     exit_code = 0
 
@@ -126,11 +128,11 @@ def interpret(job: JobData) -> int:
     return exit_code
 
 
-def interpret_payload_exit_info(job: JobData):
-    """
-    Interpret the exit info from the payload.
+def interpret_payload_exit_info(job: JobData) -> None:
+    """Interpret the exit info from the payload.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # try to identify out of memory errors in the stderr
     if is_out_of_memory(job):
@@ -186,11 +188,13 @@ def interpret_payload_exit_info(job: JobData):
 
 
 def is_out_of_memory(job: JobData) -> bool:
-    """
-    Check of the payload ran out of memory.
+    """Check if the payload ran out of memory.
 
-    :param job: job object (JobData)
-    :return: True means the error was found (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the error was found.
     """
     out_of_memory = False
 
@@ -215,11 +219,13 @@ def is_out_of_memory(job: JobData) -> bool:
 
 
 def is_user_code_missing(job: JobData) -> bool:
-    """
-    Check if the user code (tarball) is missing on the server.
+    """Check if the user code (tarball) is missing on the server.
 
-    :param job: job object (JobData)
-    :return: True means the user code was found (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the user code was not found on the server.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     error_messages = ["ERROR: unable to fetch source tarball from web"]
@@ -261,12 +267,14 @@ def is_direct_access_error(job: JobData) -> bool:
     return False
 
 
-def is_out_of_space(job: JobData):
-    """
-    Check if the disk ran out of space.
+def is_out_of_space(job: JobData) -> bool:
+    """Check if the disk ran out of space.
 
-    :param job: job object (JobData)
-    :return: True means the error was found (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the error was found.
     """
     stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
     error_messages = ["No space left on device"]
@@ -277,11 +285,13 @@ def is_out_of_space(job: JobData):
 
 
 def is_installation_error(job: JobData) -> bool:
-    """
-    Check if the payload failed to run due to faulty/missing installation.
+    """Check if the payload failed to run due to faulty/missing installation.
 
-    :param job: job object (JobData)
-    :return: BTrue means the error was found bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the error was found.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     _tail = tail(stdout)
@@ -291,11 +301,13 @@ def is_installation_error(job: JobData) -> bool:
 
 
 def is_atlassetup_error(job: JobData) -> bool:
-    """
-    Check if AtlasSetup failed with a fatal error.
+    """Check if AtlasSetup failed with a fatal error.
 
-    :param job: job object (JobData)
-    :return: True means the error was found (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the error was found.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     _tail = tail(stdout)
@@ -305,11 +317,13 @@ def is_atlassetup_error(job: JobData) -> bool:
 
 
 def is_nfssqlite_locking_problem(job: JobData) -> bool:
-    """
-    Check if there were any NFS SQLite locking problems.
+    """Check if there were any NFS SQLite locking problems.
 
-    :param job: job object (JobData)
-    :return: True means the error was found (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True means the error was found.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     error_messages = ["prepare 5 database is locked", "Error SQLiteStatement"]
@@ -319,11 +333,11 @@ def is_nfssqlite_locking_problem(job: JobData) -> bool:
                      warning_message=f"identified an NFS/Sqlite locking problem in {os.path.basename(stdout)}")
 
 
-def extract_special_information(job: JobData):
-    """
-    Extract special information from different sources, such as number of events and database fields.
+def extract_special_information(job: JobData) -> None:
+    """Extract special information from different sources, such as number of events and database fields.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # try to find the number(s) of processed events (will be set in the relevant job fields)
     find_number_of_events(job)
@@ -335,11 +349,11 @@ def extract_special_information(job: JobData):
         logger.warning(f'detected problem with parsing job report (in find_db_info()): {exc}')
 
 
-def find_number_of_events(job: JobData):
-    """
-    Find the number of events.
+def find_number_of_events(job: JobData) -> None:
+    """Find the number of events.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     if job.nevents:
         logger.info(f'number of events already known: {job.nevents}')
@@ -367,11 +381,11 @@ def find_number_of_events(job: JobData):
         logger.info(f'found {nev2} processed (written) events')
 
 
-def find_number_of_events_in_jobreport(job: JobData):
-    """
-    Look for the number of events in the jobReport.json file.
+def find_number_of_events_in_jobreport(job: JobData) -> None:
+    """Look for the number of events in the jobReport.json file.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     try:
         work_attributes = parse_jobreport_data(job.metadata)
@@ -388,12 +402,14 @@ def find_number_of_events_in_jobreport(job: JobData):
             logger.warning(f'failed to convert number of events to int: {exc}')
 
 
-def find_number_of_events_in_xml(job: JobData):
-    """
-    Look for the number of events in the metadata.xml file.
+def find_number_of_events_in_xml(job: JobData) -> None:
+    """Look for the number of events in the metadata.xml file.
 
-    :param job: job object (JobData)
-    :raises: BadXML exception if metadata cannot be parsed.
+    Args:
+        job: job object.
+
+    Raises:
+        BadXML: if metadata cannot be parsed.
     """
     try:
         metadata = get_metadata_from_xml(job.workdir)
@@ -408,11 +424,13 @@ def find_number_of_events_in_xml(job: JobData):
 
 
 def process_athena_summary(job: JobData) -> tuple[int, int]:
-    """
-    Look for the number of events in the Athena summary file.
+    """Look for the number of events in the Athena summary file.
 
-    :param job: job object (JobData)
-    :return: number of read events (int), number of written events (int) (tuple).
+    Args:
+        job: job object.
+
+    Returns:
+        tuple[int, int]: number of read events, number of written events.
     """
     nev1 = 0
     nev2 = 0
@@ -450,11 +468,13 @@ def process_athena_summary(job: JobData) -> tuple[int, int]:
 
 
 def find_most_recent_and_oldest_summary_files(file_list: list) -> tuple[str, int, str, int]:
-    """
-    Find the most recent and the oldest athena summary files.
+    """Find the most recent and the oldest athena summary files.
 
-    :param file_list: list of athena summary files (list)
-    :return: most recent summary file (str), recent time (int), oldest summary file (str), oldest time (int) (tuple).
+    Args:
+        file_list: list of athena summary files.
+
+    Returns:
+        tuple[str, int, str, int]: most recent summary file, recent time, oldest summary file, oldest time.
     """
     oldest_summary_file = ""
     recent_summary_file = ""
@@ -488,11 +508,13 @@ def find_most_recent_and_oldest_summary_files(file_list: list) -> tuple[str, int
 
 
 def get_number_of_events_from_summary_file(oldest_summary_file: str) -> tuple[int, int]:
-    """
-    Get the number of events from the oldest summary file.
+    """Get the number of events from the oldest summary file.
 
-    :param oldest_summary_file: athena summary file name (str)
-    :return: number of read events (int), number of written events (int) (tuple).
+    Args:
+        oldest_summary_file: athena summary file name.
+
+    Returns:
+        tuple[int, int]: number of read events, number of written events.
     """
     nev1 = 0
     nev2 = 0
@@ -525,11 +547,11 @@ def get_number_of_events_from_summary_file(oldest_summary_file: str) -> tuple[in
     return nev1, nev2
 
 
-def find_db_info(job: JobData):
-    """
-    Find the DB info in the jobReport.
+def find_db_info(job: JobData) -> None:
+    """Find the DB info in the jobReport.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     work_attributes = parse_jobreport_data(job.metadata)
 
@@ -548,11 +570,11 @@ def find_db_info(job: JobData):
         logger.info(f'dbdata (total): {job.dbdata}')
 
 
-def set_error_nousertarball(job: JobData):
-    """
-    Set error code for NOUSERTARBALL.
+def set_error_nousertarball(job: JobData) -> None:
+    """Set error code for NOUSERTARBALL.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # get the tail of the stdout since it will contain the URL of the user log
     filename = os.path.join(job.workdir, config.Payload.payloadstdout)
@@ -568,11 +590,13 @@ def set_error_nousertarball(job: JobData):
 
 
 def extract_tarball_url(payload_tail: str) -> str:
-    """
-    Extract the tarball URL for missing user code if possible from stdout tail.
+    """Extract the tarball URL for missing user code if possible from stdout tail.
 
-    :param payload_tail: tail of payload stdout (str)
-    :return: url (str).
+    Args:
+        payload_tail: tail of payload stdout.
+
+    Returns:
+        str: url.
     """
     tarball_url = "(source unknown)"
 
@@ -585,11 +609,11 @@ def extract_tarball_url(payload_tail: str) -> str:
     return tarball_url
 
 
-def process_metadata_from_xml(job: JobData):
-    """
-    Extract necessary metadata from XML when job report is not available.
+def process_metadata_from_xml(job: JobData) -> None:
+    """Extract necessary metadata from XML when job report is not available.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # get the metadata from the xml file instead, which must exist for most production transforms
     path = os.path.join(job.workdir, config.Payload.metadata)
@@ -620,16 +644,16 @@ def process_metadata_from_xml(job: JobData):
                 logger.info(f'generated guid for lfn={dat.lfn}: {dat.guid}')
 
 
-def process_job_report(job: JobData):
-    """
-    Process the job report produced by the payload/transform if it exists.
+def process_job_report(job: JobData) -> None:
+    """Process the job report produced by the payload/transform if it exists.
 
     Payload error codes and diagnostics, as well as payload metadata (for output files) and stageout type will be
     extracted. The stageout type is either "all" (i.e. stage-out both output and log files) or "log" (i.e. only log file
     will be staged out).
     Note: some fields might be experiment specific. A call to a user function is therefore also done.
 
-    :param job: job dictionary will be updated by the function and several fields set (JobData).
+    Args:
+        job: job object that will be updated by the function and several fields set.
     """
     # get the job report
     path = os.path.join(job.workdir, config.Payload.jobreport)
@@ -706,14 +730,16 @@ def process_job_report(job: JobData):
 
 
 def truncate_metadata(job_report_dictionary: dict) -> dict:
-    """
-    Truncate the metadata if necessary.
+    """Truncate the metadata if necessary.
 
     This function will truncate the job.metadata if some fields are too large. This can at least happen with the 'WARNINGS'
     field.
 
-    :param job_report_dictionary: original job.metadata (dict)
-    :return: updated metadata, empty if no updates (dict).
+    Args:
+        job_report_dictionary: original job.metadata.
+
+    Returns:
+        dict: updated metadata, empty if no updates.
     """
     _metadata = {}
 
@@ -736,14 +762,14 @@ def truncate_metadata(job_report_dictionary: dict) -> dict:
     return _metadata
 
 
-def overwrite_metadata(metadata: dict, path: str):
-    """
-    Overwrite the original metadata with updated info.
+def overwrite_metadata(metadata: dict, path: str) -> None:
+    """Overwrite the original metadata with updated info.
 
     Also make a backup of the original file.
 
-    :param metadata: updated metadata (dict)
-    :param path: path to the metadata file (str).
+    Args:
+        metadata: updated metadata.
+        path: path to the metadata file.
     """
     # make a backup of the original metadata file
     try:
@@ -762,11 +788,13 @@ def overwrite_metadata(metadata: dict, path: str):
 
 
 def get_frontier_details(job_report_dictionary: dict) -> str:  # noqa: C901
-    """
-    Extract special Frontier related errors from the job report.
+    """Extract special Frontier related errors from the job report.
 
-    :param job_report_dictionary: job report (dict)
-    :return: extracted error message (str).
+    Args:
+        job_report_dictionary: job report.
+
+    Returns:
+        str: extracted error message.
     """
     try:
         error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
@@ -813,13 +841,15 @@ def get_frontier_details(job_report_dictionary: dict) -> str:  # noqa: C901
 
 
 def get_job_report_errors(job_report_dictionary: dict) -> list[str]:
-    """
-    Extract the error list from the jobReport.json dictionary.
+    """Extract the error list from the jobReport.json dictionary.
 
     The returned list is scanned for special errors.
 
-    :param job_report_dictionary: job report (dict)
-    :return: job_report_errors (list).
+    Args:
+        job_report_dictionary: job report.
+
+    Returns:
+        list[str]: job_report_errors.
     """
     job_report_errors = []
     if 'reportVersion' in job_report_dictionary:
@@ -845,11 +875,13 @@ def get_job_report_errors(job_report_dictionary: dict) -> list[str]:
 
 
 def is_bad_alloc(job_report_errors: list[str]) -> tuple[bool, str]:
-    """
-    Check for bad_alloc errors.
+    """Check for bad_alloc errors.
 
-    :param job_report_errors: errors extracted from the job report (list)
-    :return: bad_alloc (bool), diagnostics (str) (tuple).
+    Args:
+        job_report_errors: errors extracted from the job report.
+
+    Returns:
+        tuple[bool, str]: bad_alloc flag, diagnostics.
     """
     bad_alloc = False
     diagnostics = ""
@@ -864,14 +896,16 @@ def is_bad_alloc(job_report_errors: list[str]) -> tuple[bool, str]:
 
 
 def get_log_extracts(job: JobData, state: str) -> str:
-    """
-    Extract special warnings and other info from special logs.
+    """Extract special warnings and other info from special logs.
 
     This function also discovers if the payload had any outbound connections.
 
-    :param job: job object (JobData)
-    :param state: job state (str)
-    :return: log extracts (str).
+    Args:
+        job: job object.
+        state: job state.
+
+    Returns:
+        str: log extracts.
     """
     logger.info("building log extracts (sent to the server as \'pilotLog\')")
 
@@ -893,13 +927,15 @@ def get_log_extracts(job: JobData, state: str) -> str:
 
 
 def get_panda_tracer_log(job: JobData) -> str:
-    """
-    Return the contents of the PanDA tracer log if it exists.
+    """Return the contents of the PanDA tracer log if it exists.
 
     This file will contain information about outbound connections.
 
-    :param job: job object (JobData)
-    :return: log extracts from pandatracerlog.txt (str).
+    Args:
+        job: job object.
+
+    Returns:
+        str: log extracts from pandatracerlog.txt.
     """
     extracts = ""
 
@@ -921,11 +957,13 @@ def get_panda_tracer_log(job: JobData) -> str:
 
 
 def get_pilot_log_extracts(job: JobData) -> str:
-    """
-    Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
+    """Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
 
-    :param job: job object (JobData)
-    :return: tail of pilot log (str).
+    Args:
+        job: job object.
+
+    Returns:
+        str: tail of pilot log.
     """
     extracts = ""
 

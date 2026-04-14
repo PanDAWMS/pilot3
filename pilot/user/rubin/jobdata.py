@@ -26,17 +26,19 @@
 #logger = logging.getLogger(__name__)
 
 
-def jobparams_prefiltering(value: str) -> (dict, str):
-    """
-    Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
+def jobparams_prefiltering(value: str) -> tuple[dict, str]:
+    """Perform pre-filtering of raw job parameters to avoid problems with especially quotation marks.
 
     The function can extract some fields from the job parameters to be put back later after actual filtering.
 
     E.g. ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" ' will otherwise become
     ' --athenaopts 'HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER' ' which will prevent the environmental variable to be unfolded.
 
-    :param value: job parameters (string).
-    :return: dictionary of fields excluded from job parameters (dict), updated job parameters (str).
+    Args:
+        value: job parameters.
+
+    Returns:
+        tuple[dict, str]: dictionary of fields excluded from job parameters, updated job parameters.
     """
     exclusions = {}
 
@@ -46,14 +48,16 @@ def jobparams_prefiltering(value: str) -> (dict, str):
 
 
 def jobparams_postfiltering(value: str, exclusions: dict = None) -> str:
-    """
-    Perform post-filtering of raw job parameters.
+    """Perform post-filtering of raw job parameters.
 
     Any items in the optional exclusion list will be added (space separated) at the end of the job parameters.
 
-    :param value: job parameters (str)
-    :param exclusions: exclusions dictionary from pre-filtering function (dict)
-    :return: updated job parameters (str).
+    Args:
+        value: job parameters.
+        exclusions: exclusions dictionary from pre-filtering function.
+
+    Returns:
+        str: updated job parameters.
     """
     if exclusions is None:  # avoid pylint warning
         exclusions = {}
@@ -65,9 +69,9 @@ def jobparams_postfiltering(value: str, exclusions: dict = None) -> str:
 
 
 def fail_at_getjob_none() -> bool:
-    """
-    Return a boolean value indicating whether to fail when getJob returns None.
+    """Return a boolean value indicating whether to fail when getJob returns None.
 
-    :return: False (bool).
+    Returns:
+        bool: False.
     """
     return False

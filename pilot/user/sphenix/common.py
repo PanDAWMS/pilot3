@@ -23,6 +23,7 @@ import logging
 import os
 import re
 from signal import SIGTERM
+from typing import Any, Optional
 
 from pilot.common.exception import (
     TrfDownloadFailure,
@@ -53,22 +54,25 @@ logger = logging.getLogger(__name__)
 
 
 def sanity_check() -> int:
-    """
-    Perform an initial sanity check before doing anything else in a given workflow.
+    """Perform an initial sanity check before doing anything else in a given workflow.
+
     This function can be used to verify importing of modules that are otherwise used much later, but it is better to abort
     the pilot if a problem is discovered early.
 
-    :return: exit code (0 if all is ok, otherwise non-zero exit code) (int).
+    Returns:
+        int: exit code (0 if all is ok, otherwise non-zero exit code).
     """
     return 0
 
 
 def validate(job: object) -> bool:
-    """
-    Perform user specific payload/job validation.
+    """Perform user specific payload/job validation.
 
-    :param job: job object (object)
-    :return: True if validation is successful (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if validation is successful.
     """
     if job:  # to bypass pylint score 0
         pass
@@ -77,15 +81,17 @@ def validate(job: object) -> bool:
 
 
 def get_payload_command(job: JobData, args: object = None) -> str:
-    """
-    Return the full command for executing the payload.
+    """Return the full command for executing the payload.
 
     This includes the sourcing of all setup files and setting of environment variables.
     By default, the full payload command is assumed to be in the job.jobparams.
 
-    :param job: job object (object)
-    :param args: pilot arguments (object)
-    :return: command (str).
+    Args:
+        job: job object.
+        args: pilot arguments.
+
+    Returns:
+        str: command.
     """
     # Try to download the trf
     # if job.imagename != "" or "--containerImage" in job.jobparams:
@@ -104,14 +110,16 @@ def get_payload_command(job: JobData, args: object = None) -> str:
 
 
 def get_analysis_run_command(job: object, trf_name: str) -> str:
-    """
-    Return the proper run command for the user job.
+    """Return the proper run command for the user job.
 
     Example output: export X509_USER_PROXY=<..>;./runAthena <job parameters> --usePFCTurl --directIn
 
-    :param job: job object (object)
-    :param trf_name: name of the transform that will run the job (str)
-    :return: command (str).
+    Args:
+        job: job object.
+        trf_name: name of the transform that will run the job.
+
+    Returns:
+        str: command.
     """
     cmd = ""
 
@@ -130,15 +138,15 @@ def get_analysis_run_command(job: object, trf_name: str) -> str:
     return cmd
 
 
-def update_job_data(job: object):
-    """
-    Update job data with user specific information.
+def update_job_data(job: object) -> None:
+    """Update job data with user specific information.
 
     This function can be used to update/add data to the job object.
     E.g. user specific information can be extracted from other job object fields. In the case of ATLAS, information
     is extracted from the metaData field and added to other job object fields.
 
-    :param job: job object (object).
+    Args:
+        job: job object.
     """
     # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
     # output files and add them to the output file list
@@ -182,14 +190,14 @@ def update_job_data(job: object):
         logger.debug('no regex found in outdata file list')
 
 
-def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False):
-    """
-    Remove redundant files and directories prior to creating the log file.
+def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False) -> None:
+    """Remove redundant files and directories prior to creating the log file.
 
-    :param workdir: working directory (str)
-    :param outputfiles: list of output files (list)
-    :param piloterrors: list of Pilot assigned error codes (list)
-    :param debugmode: debug mode (bool).
+    Args:
+        workdir: working directory.
+        outputfiles: list of output files.
+        piloterrors: list of Pilot assigned error codes.
+        debugmode: debug mode.
     """
     if workdir or outputfiles or piloterrors or debugmode:  # to bypass pylint score 0
         pass
@@ -204,9 +212,8 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     #             logger.warning(f'failed to remove {_file}: {e}')
 
 
-def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict or None:
-    """
-    Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
+def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> Optional[dict]:
+    """Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
     This could e.g. be memory and network monitor commands. A separate function can be used to determine the
     corresponding command setups using the utility command name. If the optional order parameter is set, the
@@ -228,10 +235,13 @@ def get_utility_commands(order: int = None, job: JobData = None, base_urls: list
 
     FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>, 'ignore_failure': <Boolean>}
 
-    :param order: optional sorting order (see pilot.util.constants) (int)
-    :param job: optional job object (JobData)
-    :param base_urls: optional list of base URLs (list)
-    :return: dictionary of utilities to be executed in parallel with the payload (dict or None).
+    Args:
+        order: optional sorting order (see pilot.util.constants).
+        job: optional job object.
+        base_urls: optional list of base URLs.
+
+    Returns:
+        Optional[dict]: dictionary of utilities to be executed in parallel with the payload, or None.
     """
     if base_urls:  # to bypass pylint score 0
         pass
@@ -261,12 +271,12 @@ def get_utility_commands(order: int = None, job: JobData = None, base_urls: list
 
 
 def get_utility_after_payload_started() -> dict:
-    """
-    Return the command dictionary for the utility after the payload has started.
+    """Return the command dictionary for the utility after the payload has started.
 
     Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
 
-    :return: command (dict).
+    Returns:
+        dict: command.
     """
     com = {}
     try:
@@ -281,15 +291,17 @@ def get_utility_after_payload_started() -> dict:
 
 
 def get_utility_command_setup(name: str, job: object, setup: str = None) -> str:
-    """
-    Return the proper setup for the given utility command.
+    """Return the proper setup for the given utility command.
 
     If a payload setup is specified, then the utility command string should be prepended to it.
 
-    :param name: name of utility (str)
-    :param job: job object (object)
-    :param setup: optional payload setup string (str)
-    :return: utility command setup (str).
+    Args:
+        name: name of utility.
+        job: job object.
+        setup: optional payload setup string.
+
+    Returns:
+        str: utility command setup.
     """
     if setup:  # to bypass pylint score 0
         pass
@@ -327,13 +339,15 @@ def get_utility_command_setup(name: str, job: object, setup: str = None) -> str:
 
 
 def get_utility_command_execution_order(name: str) -> int:
-    """
-    Decide the execution order for the given utility command.
+    """Decide the execution order for the given utility command.
 
     Should the given utility command be executed before or after the payload?
 
-    :param name: utility name (str)
-    :return: execution order constant (UTILITY_BEFORE_PAYLOAD or UTILITY_AFTER_PAYLOAD_STARTED) (int).
+    Args:
+        name: utility name.
+
+    Returns:
+        int: execution order constant (UTILITY_BEFORE_PAYLOAD or UTILITY_AFTER_PAYLOAD_STARTED).
     """
     # example implementation
     if name == 'monitor':
@@ -342,23 +356,25 @@ def get_utility_command_execution_order(name: str) -> int:
     return UTILITY_AFTER_PAYLOAD_STARTED
 
 
-def post_utility_command_action(name: str, job: object):
-    """
-    Perform post action for given utility command.
+def post_utility_command_action(name: str, job: object) -> None:
+    """Perform post action for given utility command.
 
-    :param name: name of utility command (str)
-    :param job: job object (object).
+    Args:
+        name: name of utility command.
+        job: job object.
     """
     if name == 'MemoryMonitor':
         post_memory_monitor_action(job)
 
 
 def get_utility_command_kill_signal(name: str) -> int:
-    """
-    Return the proper kill signal used to stop the utility command.
+    """Return the proper kill signal used to stop the utility command.
 
-    :param name: utility name (str)
-    :return: kill signal (int).
+    Args:
+        name: utility name.
+
+    Returns:
+        int: kill signal.
     """
     if name:  # to bypass pylint score 0
         pass
@@ -367,12 +383,14 @@ def get_utility_command_kill_signal(name: str) -> int:
 
 
 def get_utility_command_output_filename(name: str, selector: bool = None) -> str:
-    """
-    Return the filename to the output of the utility command.
+    """Return the filename to the output of the utility command.
 
-    :param name: utility name (str)
-    :param selector: optional special conditions flag (bool)
-    :return: filename (str).
+    Args:
+        name: utility name.
+        selector: optional special conditions flag.
+
+    Returns:
+        str: filename.
     """
     if name == 'MemoryMonitor':
         filename = get_memory_monitor_summary_filename(selector=selector)
@@ -383,15 +401,17 @@ def get_utility_command_output_filename(name: str, selector: bool = None) -> str
 
 
 def verify_job(job: object) -> bool:
-    """
-    Verify job parameters for specific errors.
+    """Verify job parameters for specific errors.
 
     Note:
       in case of problem, the function should set the corresponding pilot error code using
       job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code())
 
-    :param job: job object (object)
-    :return: True if job parameters are verified (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if job parameters are verified.
     """
     status = True
 
@@ -405,25 +425,27 @@ def verify_job(job: object) -> bool:
     return status
 
 
-def update_stagein(job: object):
-    """
-    Update the stage-in list if necessary.
+def update_stagein(job: object) -> None:
+    """Update the stage-in list if necessary.
 
     In case special files need to be skipped during stage-in, the job.indata list can be updated here.
     See ATLAS code for an example.
 
-    :param job: job object (object).
+    Args:
+        job: job object.
     """
     if job:  # to bypass pylint score 0
         pass
 
 
-def get_metadata(workdir: str) -> str or None:
-    """
-    Return the metadata from file.
+def get_metadata(workdir: str) -> Optional[str]:
+    """Return the metadata from file.
 
-    :param workdir: work directory (str)
-    :return: metadata (str or None).
+    Args:
+        workdir: work directory.
+
+    Returns:
+        Optional[str]: metadata or None.
     """
     path = os.path.join(workdir, config.Payload.jobreport)
     try:
@@ -435,23 +457,23 @@ def get_metadata(workdir: str) -> str or None:
     return metadata
 
 
-def update_server(job: object):
-    """
-    Perform any user specific server actions.
+def update_server(job: object) -> None:
+    """Perform any user specific server actions.
 
     E.g. this can be used to send special information to a logstash.
 
-    :param job: job object (object).
+    Args:
+        job: job object.
     """
     if job:  # to bypass pylint score 0
         pass
 
 
-def post_prestagein_utility_command(**kwargs: dict):
-    """
-    Execute any post pre-stage-in utility commands.
+def post_prestagein_utility_command(**kwargs: Any) -> None:
+    """Execute any post pre-stage-in utility commands.
 
-    :param kwargs: kwargs (dict).
+    Args:
+        **kwargs: keyword arguments.
     """
     # label = kwargs.get('label', 'unknown_label')
     # stdout = kwargs.get('output', None)
@@ -460,16 +482,18 @@ def post_prestagein_utility_command(**kwargs: dict):
 
 
 def process_debug_command(debug_command: str, pandaid: int) -> str:
-    """
-    Process a debug command.
+    """Process a debug command.
 
     In debug mode, the server can send a special debug command to the pilot via the updateJob backchannel.
     This function can be used to process that command, i.e. to identify a proper pid to debug (which is unknown
     to the server).
 
-    :param debug_command: debug command (str)
-    :param pandaid: PanDA id (int)
-    :return: updated debug command (str).
+    Args:
+        debug_command: debug command.
+        pandaid: PanDA id.
+
+    Returns:
+        str: updated debug command.
     """
     if pandaid:  # to bypass pylint score 0
         pass
@@ -478,11 +502,13 @@ def process_debug_command(debug_command: str, pandaid: int) -> str:
 
 
 def allow_timefloor(submitmode: str) -> bool:
-    """
-    Decide if the timefloor mechanism should be allowed for the given submit mode.
+    """Decide if the timefloor mechanism should be allowed for the given submit mode.
 
-    :param submitmode: submit mode (str).
-    :return: True (bool).
+    Args:
+        submitmode: submit mode.
+
+    Returns:
+        bool: True.
     """
     if submitmode:  # to bypass pylint score 0
         pass
@@ -491,13 +517,15 @@ def allow_timefloor(submitmode: str) -> bool:
 
 
 def get_pilot_id(jobid: int) -> str:
-    """
-    Get the pilot id from the environment variable GTAG.
+    """Get the pilot id from the environment variable GTAG.
 
-    Update if necessary (do not used if you want the same pilot id for all multi-jobs).
+    Update if necessary (do not use if you want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (int)
-    :return: pilot id (str).
+    Args:
+        jobid: PanDA job id (UNUSED).
+
+    Returns:
+        str: pilot id.
     """
     if jobid:  # to bypass pylint score 0
         pass
@@ -506,27 +534,27 @@ def get_pilot_id(jobid: int) -> str:
 
 
 def get_rtlogging() -> str:
-    """
-    Return the proper rtlogging value.
+    """Return the proper rtlogging value.
 
-    :return: rtlogging (str).
+    Returns:
+        str: rtlogging.
     """
     return 'logstash;http://splogstash.sdcc.bnl.gov:8080'
 
 
-def get_rtlogging_ssl() -> (bool, bool):
-    """
-    Return the proper ssl_enable and ssl_verify for real-time logging.
+def get_rtlogging_ssl() -> tuple[bool, bool]:
+    """Return the proper ssl_enable and ssl_verify for real-time logging.
 
-    :return: ssl_enable (bool), ssl_verify (bool).
+    Returns:
+        tuple[bool, bool]: ssl_enable, ssl_verify.
     """
     return False, False
 
 
 def allow_send_workernode_map() -> bool:
-    """
-    Return True if the workernode map should be sent to the server.
+    """Return True if the workernode map should be sent to the server.
 
-    :return: False unless requested (bool).
+    Returns:
+        bool: False unless requested.
     """
     return False

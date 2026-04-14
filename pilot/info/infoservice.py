@@ -57,25 +57,31 @@ class InfoService:
     # and not a class method. pylint will otherwise suggest to add self as first argument to the method.
     # pylint: disable=no-self-argument
     def require_init(func: Any) -> Any:  # noqa
-        """
-        Check if object is initialized.
+        """Check if object is initialized.
 
         Method decorator.
 
-        :param func: function to decorate (Any)
-        :return: decorated function (Any).
+        Args:
+            func: function to decorate.
+
+        Returns:
+            Any: decorated function.
         """
         key = 'pandaqueue'
 
         # pylint: disable=not-callable
-        def inner(self, *args: Any, **kwargs: dict) -> Any:
-            """
-            Inner function.
+        def inner(self, *args: Any, **kwargs: Any) -> Any:
+            """Inner function.
 
-            :param args: arguments (Any)
-            :param kwargs: keyword arguments (dict).
-            :return: decorated function (Any)
-            :raises PilotException: in case of error.
+            Args:
+                args: arguments.
+                kwargs: keyword arguments.
+
+            Returns:
+                Any: decorated function.
+
+            Raises:
+                PilotException: in case of error.
             """
             if getattr(self, key, None) is None:
                 # pylint: disable=no-member
@@ -99,15 +105,17 @@ class InfoService:
         self.storage_id2ddmendpoint = {}
         self.ddmendpoint2storage_id = {}
 
-    def init(self, pandaqueue: str, confinfo: Any = None, extinfo: Any = None, jobinfo: Any = None):
-        """
-        Initialize InfoService instance.
+    def init(self, pandaqueue: str, confinfo: Any = None, extinfo: Any = None, jobinfo: Any = None) -> None:
+        """Initialize InfoService instance.
 
-        :param pandaqueue: name of PandaQueue (str)
-        :param confinfo: PilotConfigProvider instance (Any)
-        :param extinfo: ExtInfoProvider instance (Any)
-        :param jobinfo: JobInfoProvider instance (Any)
-        :raises PilotException: in case of error.
+        Args:
+            pandaqueue: name of PandaQueue.
+            confinfo: PilotConfigProvider instance.
+            extinfo: ExtInfoProvider instance.
+            jobinfo: JobInfoProvider instance.
+
+        Raises:
+            PilotException: in case of error.
         """
         self.confinfo = confinfo or PilotConfigProvider()
         self.jobinfo = jobinfo  # or JobInfoProvider()
@@ -132,29 +140,31 @@ class InfoService:
         self.resolve_storage_data()  ## prefetch details for all storages
 
     @classmethod
-    def whoami(cls):
-        """
-        Return current function name being executed.
+    def whoami(cls) -> str:
+        """Return current function name being executed.
 
-        :return: Current function name (str).
+        Returns:
+            str: current function name.
         """
         return inspect.stack()[1][3]
 
     @classmethod
     def _resolve_data(cls, fname: Any, providers: Any = None, args: list = None, kwargs: dict = None, merge: bool = False) -> Any:
-        """
-        Resolve data by calling function `fname` of passed provider objects.
+        """Resolve data by calling function `fname` of passed provider objects.
 
         Iterate over `providers`, merge data from all providers if merge is True,
         (consider 1st success result from prioritized list if `merge` mode is False)
         and resolve data by execution function `fname` with passed arguments `args` and `kwargs`
 
-        :param fname: name of function to be called (Any)
-        :param providers: list or tuple of provider objects (Any)
-        :param args: list of arguments to be passed to function (list)
-        :param kwargs: list of keyword arguments to be passed to function (dict)
-        :param merge: if True then merge data from all providers (bool)
-        :return: The result of first successful execution will be returned (Any).
+        Args:
+            fname: name of function to be called.
+            providers: list or tuple of provider objects.
+            args: list of arguments to be passed to function.
+            kwargs: list of keyword arguments to be passed to function.
+            merge: if True then merge data from all providers.
+
+        Returns:
+            Any: the result of first successful execution will be returned.
         """
         if providers is None:
             providers = []
@@ -183,11 +193,13 @@ class InfoService:
 
     @require_init
     def resolve_queuedata(self, pandaqueue: str) -> Any:  ## high level API
-        """
-        Resolve final full queue data details.
+        """Resolve final full queue data details.
 
-        :param pandaqueue: name of PandaQueue (str)
-        :return: `QueueData` object or None if it does not exist (Any).
+        Args:
+            pandaqueue: name of PandaQueue.
+
+        Returns:
+            Any: `QueueData` object or None if it does not exist.
         """
         cache = self.queues_info
 
@@ -204,12 +216,16 @@ class InfoService:
 
     #@require_init
     def resolve_storage_data(self, ddmendpoints: list = None) -> dict:  ## high level API
-        """
-        Resolve final full storage data details.
+        """Resolve final full storage data details.
 
-        :param ddmendpoints: list of DDMEndpoint names (list)
-        :return: dictionary of DDMEndpoint settings by DDMEndpoint name as a key (dict)
-        :raises PilotException: in case of error.
+        Args:
+            ddmendpoints: list of DDMEndpoint names.
+
+        Returns:
+            dict: dictionary of DDMEndpoint settings by DDMEndpoint name as a key.
+
+        Raises:
+            PilotException: in case of error.
         """
         if ddmendpoints is None:
             ddmendpoints = []
@@ -234,14 +250,14 @@ class InfoService:
 
     @require_init
     def resolve_schedconf_sources(self) -> Any:  ## high level API
-        """
-        Resolve prioritized list of source names for Schedconfig data load.
+        """Resolve prioritized list of source names for Schedconfig data load.
 
         Consider first the config settings of pilot instance (via `confinfo`)
         and then Job specific settings (via `jobinfo` instance),
         and failover to default value (LOCAL, CVMFS, AGIS, PANDA).
 
-        :return: list of source names (list).
+        Returns:
+            Any: list of source names.
         """
         defval = ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
@@ -261,11 +277,11 @@ class InfoService:
     #    # look up priority order: either from job, local config, extinfo provider
     #    return self._resolve_data(self.whoami(), providers=(self.confinfo, self.jobinfo, self.extinfo), args=[name])
 
-    def resolve_ddmendpoint_storageid(self, ddmendpoint: list = None):
-        """
-        Resolve the map between ddmendpoint and storage_id.
+    def resolve_ddmendpoint_storageid(self, ddmendpoint: list = None) -> None:
+        """Resolve the map between ddmendpoint and storage_id.
 
-        :param ddmendpoint: ddmendpoint name (list).
+        Args:
+            ddmendpoint: ddmendpoint name.
         """
         if ddmendpoint is None:
             ddmendpoint = []
@@ -281,12 +297,16 @@ class InfoService:
                         self.storage_id2ddmendpoint[bucket_id] = storage_name
 
     def get_storage_id(self, ddmendpoint: str) -> int:
-        """
-        Return the storage_id of a ddmendpoint.
+        """Return the storage_id of a ddmendpoint.
 
-        :param ddmendpoint: ddmendpoint name (str)
-        :returns storage_id: storage_id of the ddmendpoint (int)
-        :raises NotDefined: when storage_id is not defined.
+        Args:
+            ddmendpoint: ddmendpoint name.
+
+        Returns:
+            int: storage_id of the ddmendpoint.
+
+        Raises:
+            NotDefined: when storage_id is not defined.
         """
         if ddmendpoint not in self.ddmendpoint2storage_id:
             self.resolve_ddmendpoint_storageid(ddmendpoint)
@@ -299,12 +319,16 @@ class InfoService:
         raise NotDefined(f"cannot find the storage id for ddmendpoint: {ddmendpoint}")
 
     def get_ddmendpoint(self, storage_id: int) -> str:
-        """
-        Return the ddmendpoint name from a storage id.
+        """Return the ddmendpoint name from a storage id.
 
-        :param storage_id: storage_id (int)
-        :returns ddmendpoint: ddmendpoint name (str)
-        :raises NotDefined: when ddmendpoint is not defined for the given storage id.
+        Args:
+            storage_id: storage_id.
+
+        Returns:
+            str: ddmendpoint name.
+
+        Raises:
+            NotDefined: when ddmendpoint is not defined for the given storage id.
         """
         storage_id = int(storage_id)
         if storage_id not in self.storage_id2ddmendpoint:

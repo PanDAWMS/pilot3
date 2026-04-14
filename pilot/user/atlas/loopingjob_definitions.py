@@ -23,25 +23,27 @@ from os.path import join
 
 
 def allow_loopingjob_detection() -> bool:
-    """
-    Check of the looping job detection algorithm should be allowed to run.
+    """Check of the looping job detection algorithm should be allowed to run.
 
     The looping job detection algorithm finds recently touched files within the job's workdir. If a found file has not
     been touched during the allowed time limit (see looping job section in util/default.cfg), the algorithm will kill
     the job/payload process.
 
-    :return: True if allowed, False otherwise (bool).
+    Returns:
+        bool: True if allowed, False otherwise.
     """
     return True
 
 
 def remove_unwanted_files(workdir: str, files: list[str]) -> list[str]:
-    """
-    Remove files from the list that are to be ignored by the looping job algorithm.
+    """Remove files from the list that are to be ignored by the looping job algorithm.
 
-    :param workdir: working directory (str)
-    :param files: recently touched files (list).
-    :return: filtered files (list).
+    Args:
+        workdir: working directory.
+        files: recently touched files.
+
+    Returns:
+        list[str]: filtered files.
     """
     _files = []
     for _file in files:

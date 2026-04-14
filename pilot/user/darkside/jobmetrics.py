@@ -22,13 +22,13 @@
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: object, extra: dict = None) -> str:
-    """
-    Return a properly formatted job metrics string.
+def get_job_metrics(job: object, extra: Optional[dict] = None) -> str:
+    """Return a properly formatted job metrics string.
 
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
@@ -37,9 +37,12 @@ def get_job_metrics(job: object, extra: dict = None) -> str:
     Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
-    :param job: job object (object)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+    Args:
+        job: job object.
+        extra: any extra information to be added.
+
+    Returns:
+        str: job metrics.
     """
     if job or extra:  # to bypass pylint score 0
         pass

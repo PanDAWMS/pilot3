@@ -37,7 +37,7 @@ from subprocess import (
     Popen,
     PIPE
 )
-from typing import Any
+from typing import Any, Optional
 
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
 from pilot.common.pilotcache import get_pilot_cache
@@ -99,15 +99,15 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     logger.info("[monitor] cgroup control has ended")
 
 
-def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
-    """
-    Monitor threads.
+def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C901
+    """Monitor threads.
 
     Main control function, run from the relevant workflow module.
 
-    :param queues: internal queues for job handling (namedtuple)
-    :param traces: tuple containing internal pilot states (Any)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
+    Args:
+        queues: Internal queues for job handling.
+        traces: Tuple containing internal pilot states.
+        args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
     """
     t_0 = time.time()
     traces.pilot['lifetime_start'] = t_0  # ie referring to when pilot monitoring began
@@ -261,11 +261,11 @@ def control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
     logger.info('[monitor] control thread has ended')
 
 
-def get_oidc_check_time() -> int or None:
-    """
-    Return the time interval for checking the OIDC token.
+def get_oidc_check_time() -> Optional[int]:
+    """Return the time interval for checking the OIDC token.
 
-    :return: time interval for checking the OIDC token (int or None).
+    Returns:
+        Optional[int]: Time interval in seconds for checking the OIDC token, or ``None`` if not using OIDC.
     """
     auth_token, auth_origin = get_local_oidc_token_info()
     use_oidc_token = True if auth_token and auth_origin else False
@@ -332,14 +332,14 @@ def run_shutdowntime_minute_check(time_since_start: int) -> bool:
     return False
 
 
-def reached_maxtime_abort(args: Any):
-    """
-    Set REACHED_MAXTIME and graceful_stop, since max time has been reached.
+def reached_maxtime_abort(args: Any) -> None:
+    """Set REACHED_MAXTIME and graceful_stop, since max time has been reached.
 
-    Also close any ActiveMQ connections
+    Also close any ActiveMQ connections.
     Wait for final server update before setting graceful_stop.
 
-    :param args: Pilot arguments object (Any).
+    Args:
+        args: Pilot arguments object.
     """
     logger.info('setting REACHED_MAXTIME and graceful stop')
     environ['REACHED_MAXTIME'] = 'REACHED_MAXTIME'  # TODO: use singleton instead
@@ -361,8 +361,7 @@ def reached_maxtime_abort(args: Any):
 
 
 def get_process_info_old(cmd: str, user: str = "", args: str = 'aufx', pid: int = 0) -> list:
-    """
-    Return process info for given command.
+    """Return process info for given command.
 
     The function returns a list with format [cpu, mem, command, number of commands] as returned by 'ps -u user args' for
     a given command (e.g. python3 pilot3/pilot.py).
@@ -377,11 +376,17 @@ def get_process_info_old(cmd: str, user: str = "", args: str = 'aufx', pid: int 
 
       -> ['0.0', '0.0', 'sshd: nilspal@pts/28', 1]
 
-    :param cmd: command (str)
-    :param user: user (str)
-    :param args: ps arguments (str)
-    :param pid: process id (int)
-    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)) (list).
+    Args:
+        cmd: Command to search for.
+        user: User name; defaults to current UID if empty.
+        args: ps arguments string.
+        pid: Process ID to match.
+
+    Returns:
+        list: Process info as ``[cpu_usage, mem_usage, command, num_processes]``,
+        where ``l[0]`` is CPU usage (%), ``l[1]`` is memory usage (%),
+        ``l[2]`` is the command string, and ``l[3]`` is the number of matching processes.
+        Returns an empty list if no matching process is found.
     """
     processes = []
     num = 0
@@ -410,10 +415,10 @@ def get_process_info_old(cmd: str, user: str = "", args: str = 'aufx', pid: int 
 
 
 def get_proper_pilot_heartbeat() -> int:
-    """
-    Return the proper pilot heartbeat time limit from config.
+    """Return the proper pilot heartbeat time limit from config.
 
-    :return: pilot heartbeat time limit (int).
+    Returns:
+        int: Pilot heartbeat time limit in seconds.
     """
 
     try:
@@ -424,12 +429,15 @@ def get_proper_pilot_heartbeat() -> int:
 
 
 def run_checks(queues: namedtuple, args: object) -> None:
-    """
-    Perform non-job related monitoring checks.
+    """Perform non-job related monitoring checks.
 
-    :param queues: queues object (namedtuple)
-    :param args: Pilot arguments object (object)
-    :raises: ExceedMaxWaitTime.
+    Args:
+        queues: Queues object.
+        args: Pilot arguments object.
+
+    Raises:
+        ExceededMaxWaitTime: If too much time has passed without a successful heartbeat,
+            or if the maximum waiting time for threads to finish is reached.
     """
     # check how long time has passed since last successful heartbeat
     if is_pilot_check(check='last_heartbeat'):
@@ -505,18 +513,21 @@ def run_checks(queues: namedtuple, args: object) -> None:
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool) -> tuple[int or None, int or None]:
-    """
-    Return the maximum allowed running time for the pilot and any start time for the running job.
+def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool) -> tuple[Optional[int], Optional[int]]:
+    """Return the maximum allowed running time for the pilot and any start time for the running job.
 
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
     If running in a Kubernetes pod, always use the args.lifetime as maxtime (it will be determined by the harvester submitter).
 
-    :param lifetime: optional pilot option time in seconds (int)
-    :param queuedata: queuedata object (Any)
-    :param queues: queues object (namedtuple)
-    :param pod: pod mode (bool)
-    :return: max running time in seconds (int or None), start time in seconds (int or None) (tuple).
+    Args:
+        lifetime: Optional pilot option time in seconds.
+        queuedata: Queuedata object.
+        queues: Queues object.
+        pod: Pod mode flag.
+
+    Returns:
+        tuple[Optional[int], Optional[int]]: Max running time in seconds and start time in seconds;
+        either value may be ``None`` if not available.
     """
     if pod:
         return lifetime, None

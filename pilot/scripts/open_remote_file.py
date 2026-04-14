@@ -50,15 +50,14 @@ logger = logging.getLogger(__name__)
 
 
 def get_args(argv: list = None) -> argparse.Namespace:
-    """
-    Return the args from the arg parser.
+    """Return the args from the arg parser.
 
     Args:
         argv: optional list of arguments to parse (defaults to sys.argv when None,
               which is the normal runtime behaviour). Pass an explicit list in tests.
 
     Returns:
-        Parsed argument namespace.
+        argparse.Namespace: Parsed argument namespace.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -101,8 +100,7 @@ def get_args(argv: list = None) -> argparse.Namespace:
 
 
 def get_file_lists(turls_string: str, turl_file: str = None) -> dict:
-    """
-    Return a dictionary with the turls.
+    """Return a dictionary with the turls.
 
     Format: {'turls': <turl list>}
 
@@ -110,9 +108,12 @@ def get_file_lists(turls_string: str, turl_file: str = None) -> dict:
     as a path to a plain-text file containing one TURL per line (turl_file).
     turl_file takes priority when both are provided.
 
-    :param turls_string: comma-separated turls, or None (str)
-    :param turl_file: path to file with one TURL per line, or None (str)
-    :return: turls dictionary (dict)
+    Args:
+        turls_string: Comma-separated turls, or None.
+        turl_file: Path to file with one TURL per line, or None.
+
+    Returns:
+        dict: Turls dictionary.
     """
     _turls = []
 
@@ -130,11 +131,11 @@ def get_file_lists(turls_string: str, turl_file: str = None) -> dict:
     return {'turls': _turls}
 
 
-def message(msg: str):
-    """
-    Print message to stdout or to log.
+def message(msg: str) -> None:
+    """Print message to stdout or to log.
 
-    :param msg: message (str).
+    Args:
+        msg: Message to print.
     """
     if logger:
         logger.info(msg)
@@ -149,16 +150,16 @@ def message(msg: str):
 
 
 # pylint: disable=useless-param-doc
-def try_open_file_old(turl_str: str, _queues: namedtuple):
-    """
-    Attempt to open a remote file.
+def try_open_file_old(turl_str: str, _queues: namedtuple) -> None:
+    """Attempt to open a remote file.
 
     Successfully opened turls will be put in the queues.opened queue. Unsuccessful turls will be placed in
     the queues.unopened queue.
 
-    :param turl_str: turl (str)
-    :param _queues: Namedtuple containing queues for opened and unopened turls.
-                    Should have 'opened' and 'unopened' attributes to store respective turls.
+    Args:
+        turl_str: TURL string.
+        _queues: Namedtuple containing queues for opened and unopened turls.
+                 Should have 'opened' and 'unopened' attributes to store respective turls.
     """
     turl_opened = False
     _timeout = 30 * 1000  # 30 s per file
@@ -182,15 +183,15 @@ def try_open_file_old(turl_str: str, _queues: namedtuple):
 
 
 # pylint: disable=useless-param-doc
-def try_open_file(turl_str: str, _queues: namedtuple):
-    """
-    Attempt to open a remote file.
+def try_open_file(turl_str: str, _queues: namedtuple) -> None:
+    """Attempt to open a remote file.
 
     Successfully opened turls will be put in the queues.opened queue.
     Unsuccessful turls will be placed in the queues.unopened queue.
 
-    :param turl_str: turl (str)
-    :param _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
+    Args:
+        turl_str: TURL string.
+        _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
     """
 
     def attempt_open(path: str) -> bool:
@@ -237,12 +238,14 @@ def try_open_file(turl_str: str, _queues: namedtuple):
 
 # pylint: disable=useless-param-doc
 def spawn_file_open_thread(_queues: Any, file_list: list) -> threading.Thread:
-    """
-    Spawn a thread for the try_open_file()..
+    """Spawn a thread for the try_open_file().
 
-    :param _queues: queue collection (Any)
-    :param file_list: files to open (list)
-    :return: thread (threading.Thread).
+    Args:
+        _queues: Queue collection.
+        file_list: Files to open.
+
+    Returns:
+        threading.Thread: The spawned thread.
     """
     _thread = None
     try:
@@ -258,28 +261,28 @@ def spawn_file_open_thread(_queues: Any, file_list: list) -> threading.Thread:
     return _thread
 
 
-def register_signals(signals: list, _args: Any):
-    """
-    Register kill signals for intercept function.
+def register_signals(signals: list, _args: Any) -> None:
+    """Register kill signals for intercept function.
 
-    :param signals: list of signals (list)
-    :param _args: pilot arguments object (Any).
+    Args:
+        signals: List of signals.
+        _args: Pilot arguments object.
     """
     for sig in signals:
         signal.signal(sig, functools.partial(interrupt, _args))
 
 
-def interrupt(_args: Any, signum: Any, frame: Any):
-    """
-    Receive and handle kill signals.
+def interrupt(_args: Any, signum: Any, frame: Any) -> None:
+    """Receive and handle kill signals.
 
     Interrupt function on the receiving end of kill signals.
     This function is forwarded any incoming signals (SIGINT, SIGTERM, etc) and will set abort_job which instructs
     the threads to abort the job.
 
-    :param _args: pilot arguments object (Any).
-    :param signum: signal.
-    :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
+    Args:
+        _args: Pilot arguments object.
+        signum: Signal number.
+        frame: Stack/execution frame pointing to the frame that was interrupted by the signal.
     """
     if _args.signal:
         logger.warning('process already being killed')

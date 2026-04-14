@@ -24,13 +24,17 @@
 # import logging
 # logger = logging.getLogger(__name__)
 
+from typing import Any
 
-def do_use_container(**kwargs: dict) -> bool:
-    """
-    Decide whether to use a container or not.
 
-    :param kwargs: dictionary of key-word arguments (dict)
-    :return: True is function has decided that a container should be used, False otherwise (bool).
+def do_use_container(**kwargs: Any) -> bool:
+    """Decide whether to use a container or not.
+
+    Args:
+        **kwargs: dictionary of key-word arguments.
+
+    Returns:
+        bool: True if function has decided that a container should be used, False otherwise.
     """
     if kwargs:  # to bypass pylint score 0
         pass
@@ -38,15 +42,17 @@ def do_use_container(**kwargs: dict) -> bool:
     return True
 
 
-def wrapper(executable: str, **kwargs: dict) -> str:
-    """
-    Wrap given function for any container specific usage.
+def wrapper(executable: str, **kwargs: Any) -> str:
+    """Wrap given function for any container specific usage.
 
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
-    :param executable: command to be executed (str)
-    :param kwargs: dictionary of key-word arguments (dict)
-    :return: executable wrapped with container command (str).
+    Args:
+        executable: command to be executed.
+        **kwargs: dictionary of key-word arguments.
+
+    Returns:
+        str: executable wrapped with container command.
     """
     if kwargs:  # to bypass pylint score 0
         pass
@@ -55,16 +61,18 @@ def wrapper(executable: str, **kwargs: dict) -> str:
 
 
 def create_stagein_container_command(workdir: str, cmd: str) -> str:
-    """
-    Create the stage-in container command.
+    """Create the stage-in container command.
 
     The function takes the isolated stage-in command, adds bits and pieces needed for the containerisation and stores
     it in a stagein.sh script file. It then generates the actual command that will execute the stage-in script in a
     container.
 
-    :param workdir: working directory where script will be stored (string).
-    :param cmd: isolated stage-in command (string).
-    :return: container command to be executed (string).
+    Args:
+        workdir: working directory where script will be stored.
+        cmd: isolated stage-in command.
+
+    Returns:
+        str: container command to be executed.
     """
     if workdir:  # to bypass pylint score 0
         pass

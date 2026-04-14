@@ -31,11 +31,11 @@ def precleanup():
 
 
 def get_cpu_arch() -> str:
-    """
-    Return the CPU architecture string.
+    """Return the CPU architecture string.
 
     If not returned by this function, the pilot will resort to use the internal scripts/cpu_arch.py.
 
-    :return: CPU arch (str).
+    Returns:
+        str: CPU arch.
     """
     return ""
