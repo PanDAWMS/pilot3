@@ -3,6 +3,10 @@ on:
     push:
         branches:
             - master
+    pull_request:
+        branches:
+            - master
+            - next
     workflow_dispatch:
 jobs:
     build-docs:
@@ -24,7 +28,11 @@ jobs:
             - name: Check sphinx version
               run: python -c "import sphinx;print(sphinx.__version__)"
 
+            - name: Build docs locally to catch errors
+              run: cd doc && make html
+
             - name: Trigger panda-docs webhook
+              if: github.event_name == 'push' && github.ref == 'refs/heads/master'
               env:
                 READDOCS_TOKEN: ${{ secrets.READDOCS_TOKEN }}
                 READDOCS_HOOK: ${{ secrets.READDOCS_HOOK }}
