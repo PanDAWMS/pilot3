@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
 
@@ -117,6 +117,11 @@ from pilot.util.parameters import get_maximum_input_sizes
 from pilot.util.workernode import get_local_disk_space
 from pilot.util.auxiliary import TimeoutException
 from pilot.util.tracereport import TraceReport
+
+# Chunk size chosen to stay well within Rucio's documented limits.
+_RUCIO_LIST_REPLICAS_CHUNK_SIZE = 1000
+_RUCIO_MAX_ATTEMPTS = 3
+_RUCIO_BACKOFF_BASE_SECONDS = 2
 
 
 class StagingClient:
@@ -465,7 +470,152 @@ class StagingClient:
 
         return files
 
+    def _list_replicas_chunk(self, rucio_client, query: dict, chunk_idx: int,
+                             n_chunks: int, retriable_exceptions: tuple) -> list:
+        """
+        Call rucio.list_replicas() for a single chunk with retry logic.
+
+        Args:
+            rucio_client: Rucio Client instance.
+            query: Complete query dict including the 'dids' key for this chunk.
+            chunk_idx: 1-based index of this chunk (for log messages).
+            n_chunks: Total number of chunks (for log messages).
+            retriable_exceptions: Tuple of exception types that trigger a retry.
+
+        Raises:
+            PilotException: If all retry attempts are exhausted or an unexpected
+                exception is raised.
+
+        Returns:
+            list: Raw replica dicts for this chunk.
+        """
+        for attempt in range(1, _RUCIO_MAX_ATTEMPTS + 1):
+            try:
+                chunk_replicas = list(rucio_client.list_replicas(**query))
+                self.logger.debug(
+                    'chunk %d/%d: received %d replica(s) from Rucio',
+                    chunk_idx, n_chunks, len(chunk_replicas),
+                )
+                return chunk_replicas
+
+            except retriable_exceptions as exc:
+                self.logger.warning(
+                    'Chunk %d/%d, attempt %d/%d: transient error while listing replicas: %s',
+                    chunk_idx, n_chunks, attempt, _RUCIO_MAX_ATTEMPTS, exc,
+                )
+                if attempt < _RUCIO_MAX_ATTEMPTS:
+                    sleep_for = _RUCIO_BACKOFF_BASE_SECONDS ** (attempt - 1)
+                    self.logger.info('Retrying after %s seconds...', sleep_for)
+                    time.sleep(sleep_for)
+                else:
+                    raise PilotException(
+                        f'Failed to get replicas from Rucio after {_RUCIO_MAX_ATTEMPTS} attempts '
+                        f'(chunk {chunk_idx}/{n_chunks}): {exc}',
+                        code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                    ) from exc
+
+            except Exception as exc:
+                self.logger.exception(
+                    'Unexpected exception while listing replicas from Rucio (chunk %d/%d).',
+                    chunk_idx, n_chunks,
+                )
+                raise PilotException(
+                    f'Failed to get replicas from Rucio (chunk {chunk_idx}/{n_chunks}): {exc}',
+                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                ) from exc
+
     def list_replicas(self, xfiles: list, use_vp: bool) -> list:
+        """Query Rucio for all available replicas of the given files.
+
+        Wraps ``rucio.client.Client.list_replicas()``.  The query requests
+        geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
+        the schema is restricted to ``root://`` and availability checks are
+        enforced.
+
+        Large file lists are automatically split into chunks of
+        _RUCIO_LIST_REPLICAS_CHUNK_SIZE to avoid Rucio server-side limits.
+        Results from all chunks are merged before returning.
+
+        Args:
+            xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
+                look up.
+            use_vp: Set to ``True`` for VP jobs to apply VP-specific query
+                parameters.
+
+        Raises:
+            PilotException: If the Rucio call fails.
+
+        Returns:
+            list: Raw replica dicts as returned by the Rucio client.
+        """
+        from rucio.client import Client
+
+        # Optional imports (do NOT require requests to exist)
+        retriable_exceptions = []
+        try:
+            import urllib3
+            retriable_exceptions.append(urllib3.exceptions.ProtocolError)
+        except Exception:
+            pass
+
+        try:
+            from requests.exceptions import ChunkedEncodingError, RequestException
+            retriable_exceptions.extend([ChunkedEncodingError, RequestException])
+        except Exception:
+            pass
+
+        try:
+            retriable_exceptions.append(ConnectionError)
+            retriable_exceptions.append(TimeoutError)
+        except Exception:
+            pass
+
+        retriable_exceptions = tuple(retriable_exceptions) if retriable_exceptions else (Exception,)
+        rucio_client = Client()
+
+        location, diagnostics = self.detect_client_location(use_vp=use_vp)
+        if diagnostics:
+            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
+
+        base_query = {
+            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
+            'sort': 'geoip',
+            'client_location': location,
+            'signature_lifetime': 24 * 3600,
+        }
+        if use_vp:
+            base_query['schemes'] = ['root']
+            base_query['rse_expression'] = 'istape=False\\type=SPECIAL'
+            base_query['ignore_availability'] = False
+
+        # Split into chunks to avoid Rucio server-side limits with large input lists
+        chunks = [xfiles[i:i + _RUCIO_LIST_REPLICAS_CHUNK_SIZE]
+                  for i in range(0, len(xfiles), _RUCIO_LIST_REPLICAS_CHUNK_SIZE)]
+        n_chunks = len(chunks)
+        if n_chunks > 1:
+            self.logger.info(f'splitting {len(xfiles)} files into {n_chunks} '
+                             f'chunks of up to {_RUCIO_LIST_REPLICAS_CHUNK_SIZE} '
+                             f'for rucio.list_replicas()')
+
+        all_replicas = []
+        for chunk_idx, chunk in enumerate(chunks, start=1):
+            query = dict(base_query)
+            query['dids'] = [{'scope': e.scope, 'name': e.lfn} for e in chunk]
+            if n_chunks > 1:
+                self.logger.info(
+                    'calling rucio.list_replicas() for chunk %d/%d (%d files)',
+                    chunk_idx, n_chunks, len(chunk),
+                )
+            else:
+                self.logger.info('calling rucio.list_replicas() with query=%s', query)
+            all_replicas.extend(
+                self._list_replicas_chunk(rucio_client, query, chunk_idx, n_chunks, retriable_exceptions)
+            )
+
+        self.logger.debug('rucio.list_replicas() total replicas received: %d', len(all_replicas))
+        return all_replicas
+
+    def list_replicas_old(self, xfiles: list, use_vp: bool) -> list:
         """Query Rucio for all available replicas of the given files.
 
         Wraps ``rucio.client.Client.list_replicas()``.  The query requests
@@ -581,60 +731,6 @@ class StagingClient:
             f"Failed to get replicas from Rucio: {last_exc}",
             code=ErrorCodes.RUCIOLISTREPLICASFAILED,
         ) from last_exc
-
-    def list_replicas_old(self, xfiles: list, use_vp: bool) -> list:
-        """Query Rucio for all available replicas of the given files.
-
-        Wraps ``rucio.client.Client.list_replicas()``.  The query requests
-        geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
-        the schema is restricted to ``root://`` and availability checks are
-        enforced.
-
-        Args:
-            xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
-                look up.
-            use_vp: Set to ``True`` for VP jobs to apply VP-specific query
-                parameters.
-
-        Raises:
-            PilotException: If the Rucio call fails.
-
-        Returns:
-            list: Raw replica dicts as returned by the Rucio client.
-        """
-        # load replicas from Rucio
-        from rucio.client import Client
-        rucio_client = Client()
-        location, diagnostics = self.detect_client_location(use_vp=use_vp)
-        if diagnostics:
-            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
-            #raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
-
-        query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
-        }
-        query.update(sort='geoip', client_location=location)
-        # reset the schemas for VP jobs
-        if use_vp:
-            query['schemes'] = ['root']
-            query['rse_expression'] = 'istape=False\\type=SPECIAL'
-            query['ignore_availability'] = False
-
-        # add signature lifetime for signed URL storages
-        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
-
-        self.logger.info(f'calling rucio.list_replicas() with query={query}')
-
-        try:
-            replicas = rucio_client.list_replicas(**query)
-        except Exception as exc:
-            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED) from exc
-
-        replicas = list(replicas)
-        self.logger.debug(f"replicas received from Rucio: {replicas}")
-
-        return replicas
 
     def add_replicas(self, fdat: Any, replica: Any) -> Any:
         """Populate ``fdat.replicas`` from a raw Rucio replica record.
