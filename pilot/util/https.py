@@ -82,6 +82,7 @@ from time import (
     time
 )
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     List,
@@ -91,7 +92,14 @@ from typing import (
 )
 
 from pilot.common.errorcodes import ErrorCodes
-from pilot.info.jobdata import JobData
+
+# JobData is only referenced in type annotations. The TYPE_CHECKING guard means
+# this import is evaluated by static analysis tools and Sphinx but never executed
+# at runtime, which breaks the circular import:
+#   pilot.util.https -> pilot.info.jobdata -> pilot.info -> pilot.info.dataloader
+#                    -> pilot.util.https
+if TYPE_CHECKING:
+    from pilot.info.jobdata import JobData
 
 from .auxiliary import (
     is_kubernetes_resource,
