@@ -22,7 +22,7 @@
 
 """Hooks for Harvester EventService."""
 
-from pilot.eventservice.eshook import ESHook
+from pilot.eventservice.esprocess.eshook import ESHook
 
 
 class HarvesterESHook(ESHook):

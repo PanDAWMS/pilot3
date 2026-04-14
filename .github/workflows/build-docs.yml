@@ -1,28 +1,25 @@
 name: build-docs-workflow
 on:
     push:
-       branches:
+        branches:
             - master
     workflow_dispatch:
 jobs:
     build-docs:
         name: "Build Sphinx docs"
         runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                python-version: ['3.7']
         steps:
             - name: Checkout Pilot 3 repo
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             - name: Setup Python
-              uses: actions/setup-python@v4
+              uses: actions/setup-python@v5
               with:
-                python-version: ${{ matrix.python-version }}
+                python-version: '3.12'
                 architecture: x64
 
             - name: Pip install
-              run: pip install sphinx
+              run: pip install sphinx furo
 
             - name: Check sphinx version
               run: python -c "import sphinx;print(sphinx.__version__)"

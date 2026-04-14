@@ -50,12 +50,19 @@ class ESHook:
         """
         Handle ES output or error message.
 
-        Example
-            For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
-                                                   'wall': <wall>, 'message': <full message>}.
-            For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
+        Example:
+            For 'finished' event ranges::
 
-        :param message: dictionary of a parsed message (dict).
-        :raises Exception: if anything goes wrong.
+                {'id': <id>, 'status': 'finished', 'output': <o>, 'cpu': <cpu>, 'wall': <wall>, 'message': <full message>}
+
+            For 'failed' event ranges::
+
+                {'id': <id>, 'status': 'finished', 'message': <full message>}
+
+        Args:
+            message: dictionary of a parsed message.
+
+        Raises:
+            NotImplementedError: always, as this is an abstract method.
         """
         raise NotImplementedError("Not Implemented")

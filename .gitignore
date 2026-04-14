@@ -12,3 +12,4 @@ build
 .idea*
 rucio_upload.json
 tools
+doc/_build/
