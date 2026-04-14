@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """Script for remote file open verification."""
 
@@ -33,7 +33,10 @@ import traceback
 from collections import namedtuple
 from typing import Any
 
-import ROOT
+try:
+    import ROOT  # optional runtime dependency; only available in ATLAS environments
+except ModuleNotFoundError:
+    ROOT = None  # type: ignore[assignment]
 
 from pilot.util.config import config
 from pilot.util.filehandling import write_json
