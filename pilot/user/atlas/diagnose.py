@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 import json
 import os
@@ -73,15 +73,31 @@ _DIRECT_ACCESS_ERROR_PATTERNS: list[str] = [
     r'FileReadError.*root://',
 ]
 
+# Matches the first file path token in an error line.
+# Covers: scheme-based URLs (root://, file://, …), absolute POSIX paths with at least
+# one interior slash, and long simple absolute paths.  A minimum length is required to
+# avoid matching bare hostnames or single-component paths that are not file names.
+_FILE_PATH_RE = re.compile(
+    r'(?<!\S)'                               # preceded by whitespace or start of string
+    r'('
+    r'(?:[a-z][a-z0-9+\-.]*://)\S{10,}'     # scheme-based URL (e.g. root://host/path)
+    r'|'
+    r'/\S*/\S{3,}'                           # absolute path with at least one inner slash
+    r'|'
+    r'/\S{10,}'                              # simple absolute path >=10 chars
+    r')'
+)
+
 
 def interpret(job: JobData) -> int:
-    """Interpret the payload, look for specific errors in the stdout.
+    """Interpret the payload, looking for specific errors in the stdout.
 
     Args:
-        job: job object.
+        job: Job object whose stdout and metadata will be examined.
 
     Returns:
-        int: exit code (payload).
+        Payload exit code, or -1 if diagnosis was aborted because an error
+        code had already been assigned.
     """
     exit_code = 0
 
@@ -128,11 +144,17 @@ def interpret(job: JobData) -> int:
     return exit_code
 
 
-def interpret_payload_exit_info(job: JobData) -> None:
-    """Interpret the exit info from the payload.
+def interpret_payload_exit_info(job: JobData):
+    """Interpret the exit information from the payload and set the appropriate error code.
+
+    Checks for out-of-memory, installation, AtlasSetup, disk-space, NFS/SQLite,
+    missing user code, and direct-access errors in that order. The first matching
+    condition sets the pilot error code with priority and returns. If none match and
+    the payload exited non-zero without a transform error, ``UNKNOWNPAYLOADFAILURE``
+    is set as a catch-all.
 
     Args:
-        job: job object.
+        job: Job object whose error codes and diagnostics will be updated in place.
     """
     # try to identify out of memory errors in the stderr
     if is_out_of_memory(job):
@@ -178,9 +200,11 @@ def interpret_payload_exit_info(job: JobData) -> None:
         return
 
     # did a direct-access (remoteIO) file open fail inside the payload?
-    if job.has_remoteio() and is_direct_access_error(job):
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True)
-        return
+    if job.has_remoteio():
+        _diag = is_direct_access_error(job)
+        if _diag:
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True, msg=_diag)
+            return
 
     # set a general Pilot error code if the payload error could not be identified
     if job.transexitcode == 0 and job.exitcode != 0:
@@ -188,13 +212,16 @@ def interpret_payload_exit_info(job: JobData) -> None:
 
 
 def is_out_of_memory(job: JobData) -> bool:
-    """Check if the payload ran out of memory.
+    """Check whether the payload ran out of memory.
+
+    Searches ``payload.stderr`` for Athena fatal OOM messages and
+    ``payload.stdout`` for C++ ``bad_alloc`` signatures.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the error was found.
+        True if an out-of-memory error pattern was found, False otherwise.
     """
     out_of_memory = False
 
@@ -219,13 +246,14 @@ def is_out_of_memory(job: JobData) -> bool:
 
 
 def is_user_code_missing(job: JobData) -> bool:
-    """Check if the user code (tarball) is missing on the server.
+    """Check whether the user code tarball could not be fetched from the server.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the user code was not found on the server.
+        True if the tarball-fetch error message was found in payload stdout,
+        False otherwise.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     error_messages = ["ERROR: unable to fetch source tarball from web"]
@@ -235,46 +263,63 @@ def is_user_code_missing(job: JobData) -> bool:
                      warning_message=f"identified an '{error_messages[0]}' message in {os.path.basename(stdout)}")
 
 
-def is_direct_access_error(job: JobData) -> bool:
+def is_direct_access_error(job: JobData) -> str:
     """Check whether a direct-access (remoteIO) file-open error occurred inside the payload.
 
     Scans the full payload stdout for XRootD and ROOT file-open error patterns that are
     only visible inside the payload log, not at the pilot stage-in layer. The function
     should only be called for jobs that used direct access (``job.has_remoteio()``).
 
-    Up to five matched lines are logged at WARNING level. The first matched line is also
-    stored in ``job.piloterrordiag`` so it can be reported as error diagnostics to the server.
+    Among all matched lines, the first one that contains a recognisable file path (a
+    scheme-based URL such as ``root://…`` or an absolute POSIX path) is preferred as the
+    diagnostics string, because it identifies the specific file that could not be read.
+    If no line contains a path, the first matched line is used as a fallback. Up to five
+    matched lines are also logged at WARNING level.
+
+    The returned string is intended to be passed directly to
+    ``errors.add_error_code(..., msg=<return value>)`` so it reaches the server as the
+    human-readable error diagnostics rather than the generic STAGEINFAILED message.
 
     Args:
         job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        True if at least one direct-access error pattern was found, False otherwise.
+        The best diagnostics line (stripped) if a direct-access error pattern was found,
+        otherwise an empty string.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     if not os.path.exists(stdout):
         logger.warning(f'payload stdout does not exist, cannot scan for direct-access errors: {stdout}')
-        return False
+        return ""
 
     matched_lines = grep(_DIRECT_ACCESS_ERROR_PATTERNS, stdout)
-    if matched_lines:
-        logger.warning('detected direct-access (remoteIO) error pattern(s) in payload stdout:')
-        for line in matched_lines[:5]:  # cap output to avoid flooding the pilot log
-            logger.warning(f'  {line.rstrip()}')
-        job.piloterrordiag = matched_lines[0].strip()
-        return True
+    if not matched_lines:
+        return ""
 
-    return False
+    logger.warning('detected direct-access (remoteIO) error pattern(s) in payload stdout:')
+    for line in matched_lines[:5]:  # cap output to avoid flooding the pilot log
+        logger.warning(f'  {line.rstrip()}')
+
+    # Prefer the first line that contains a recognisable file path so the diagnostics
+    # string identifies the specific file that could not be read.
+    for line in matched_lines:
+        m = _FILE_PATH_RE.search(line)
+        if m:
+            return line.strip()
+
+    # Fallback: no line contained a path — return the first matched line as-is.
+    return matched_lines[0].strip()
 
 
 def is_out_of_space(job: JobData) -> bool:
-    """Check if the disk ran out of space.
+    """Check whether the payload ran out of local disk space.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the error was found.
+        True if a "No space left on device" message was found in payload stderr,
+        False otherwise.
     """
     stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
     error_messages = ["No space left on device"]
@@ -285,13 +330,16 @@ def is_out_of_space(job: JobData) -> bool:
 
 
 def is_installation_error(job: JobData) -> bool:
-    """Check if the payload failed to run due to faulty/missing installation.
+    """Check whether the payload failed due to a faulty or missing installation.
+
+    Inspects the tail of payload stdout for a ``sh: … setup.sh: No such file
+    or directory`` signature.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the error was found.
+        True if an installation error pattern was found, False otherwise.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     _tail = tail(stdout)
@@ -301,13 +349,14 @@ def is_installation_error(job: JobData) -> bool:
 
 
 def is_atlassetup_error(job: JobData) -> bool:
-    """Check if AtlasSetup failed with a fatal error.
+    """Check whether AtlasSetup failed with a fatal exception.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the error was found.
+        True if an ``AtlasSetup(FATAL): Fatal exception`` message was found in
+        the tail of payload stdout, False otherwise.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     _tail = tail(stdout)
@@ -317,13 +366,14 @@ def is_atlassetup_error(job: JobData) -> bool:
 
 
 def is_nfssqlite_locking_problem(job: JobData) -> bool:
-    """Check if there were any NFS SQLite locking problems.
+    """Check whether an NFS SQLite locking problem occurred in the payload.
 
     Args:
-        job: job object.
+        job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        bool: True means the error was found.
+        True if an NFS/SQLite locking error pattern was found in payload stdout,
+        False otherwise.
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     error_messages = ["prepare 5 database is locked", "Error SQLiteStatement"]
@@ -333,11 +383,14 @@ def is_nfssqlite_locking_problem(job: JobData) -> bool:
                      warning_message=f"identified an NFS/Sqlite locking problem in {os.path.basename(stdout)}")
 
 
-def extract_special_information(job: JobData) -> None:
-    """Extract special information from different sources, such as number of events and database fields.
+def extract_special_information(job: JobData):
+    """Extract special information from the job report and related sources.
+
+    Populates event-count fields (``job.nevents``, ``job.neventsw``) and
+    database-usage fields (``job.dbtime``, ``job.dbdata``) on the job object.
 
     Args:
-        job: job object.
+        job: Job object whose fields will be updated in place.
     """
     # try to find the number(s) of processed events (will be set in the relevant job fields)
     find_number_of_events(job)
@@ -349,11 +402,16 @@ def extract_special_information(job: JobData) -> None:
         logger.warning(f'detected problem with parsing job report (in find_db_info()): {exc}')
 
 
-def find_number_of_events(job: JobData) -> None:
-    """Find the number of events.
+def find_number_of_events(job: JobData):
+    """Find the number of processed events and store it on the job object.
+
+    Tries three sources in order: ``jobReport.json``, ``metadata.xml``, and
+    Athena summary files. Stops as soon as a non-zero value is found. Both the
+    read count (``job.nevents``) and the write count (``job.neventsw``) may be
+    set by the Athena summary path.
 
     Args:
-        job: job object.
+        job: Job object whose ``nevents`` and ``neventsw`` fields will be updated.
     """
     if job.nevents:
         logger.info(f'number of events already known: {job.nevents}')
@@ -381,11 +439,13 @@ def find_number_of_events(job: JobData) -> None:
         logger.info(f'found {nev2} processed (written) events')
 
 
-def find_number_of_events_in_jobreport(job: JobData) -> None:
-    """Look for the number of events in the jobReport.json file.
+def find_number_of_events_in_jobreport(job: JobData):
+    """Look for the number of processed events in ``jobReport.json``.
+
+    Sets ``job.nevents`` if the ``nEvents`` key is present and non-zero.
 
     Args:
-        job: job object.
+        job: Job object whose ``nevents`` field may be updated.
     """
     try:
         work_attributes = parse_jobreport_data(job.metadata)
@@ -402,14 +462,16 @@ def find_number_of_events_in_jobreport(job: JobData) -> None:
             logger.warning(f'failed to convert number of events to int: {exc}')
 
 
-def find_number_of_events_in_xml(job: JobData) -> None:
-    """Look for the number of events in the metadata.xml file.
+def find_number_of_events_in_xml(job: JobData):
+    """Look for the number of processed events in ``metadata.xml``.
+
+    Sets ``job.nevents`` if a non-zero count is found.
 
     Args:
-        job: job object.
+        job: Job object whose ``nevents`` field may be updated.
 
     Raises:
-        BadXML: if metadata cannot be parsed.
+        BadXML: If the XML metadata file exists but cannot be parsed.
     """
     try:
         metadata = get_metadata_from_xml(job.workdir)
@@ -424,13 +486,19 @@ def find_number_of_events_in_xml(job: JobData) -> None:
 
 
 def process_athena_summary(job: JobData) -> tuple[int, int]:
-    """Look for the number of events in the Athena summary file.
+    """Look for the number of processed events in Athena summary files.
+
+    Searches the job work directory for ``AthSummary*`` and ``AthenaSummary*``
+    files. When multiple files are found, the oldest is used for event counts
+    and the most recent would be used for error extraction (not yet
+    implemented).
 
     Args:
-        job: job object.
+        job: Job object providing the work directory to search.
 
     Returns:
-        tuple[int, int]: number of read events, number of written events.
+        A tuple of ``(n_read, n_written)`` event counts. Either value is zero
+        if it could not be determined.
     """
     nev1 = 0
     nev2 = 0
@@ -468,13 +536,15 @@ def process_athena_summary(job: JobData) -> tuple[int, int]:
 
 
 def find_most_recent_and_oldest_summary_files(file_list: list) -> tuple[str, int, str, int]:
-    """Find the most recent and the oldest athena summary files.
+    """Find the most recently and least recently modified Athena summary files.
 
     Args:
-        file_list: list of athena summary files.
+        file_list: Paths of candidate summary files to examine.
 
     Returns:
-        tuple[str, int, str, int]: most recent summary file, recent time, oldest summary file, oldest time.
+        A tuple of ``(recent_file, recent_mtime, oldest_file, oldest_mtime)``
+        where modification times are Unix timestamps. When only one file is
+        provided both slots refer to that file.
     """
     oldest_summary_file = ""
     recent_summary_file = ""
@@ -508,13 +578,14 @@ def find_most_recent_and_oldest_summary_files(file_list: list) -> tuple[str, int
 
 
 def get_number_of_events_from_summary_file(oldest_summary_file: str) -> tuple[int, int]:
-    """Get the number of events from the oldest summary file.
+    """Extract the read and written event counts from an Athena summary file.
 
     Args:
-        oldest_summary_file: athena summary file name.
+        oldest_summary_file: Path to the Athena summary file to parse.
 
     Returns:
-        tuple[int, int]: number of read events, number of written events.
+        A tuple of ``(n_read, n_written)`` event counts. Either value is zero
+        if the corresponding line was absent or could not be parsed.
     """
     nev1 = 0
     nev2 = 0
@@ -547,11 +618,14 @@ def get_number_of_events_from_summary_file(oldest_summary_file: str) -> tuple[in
     return nev1, nev2
 
 
-def find_db_info(job: JobData) -> None:
-    """Find the DB info in the jobReport.
+def find_db_info(job: JobData):
+    """Find database usage information in the job report and store it on the job object.
+
+    Reads ``__db_time`` and ``__db_data`` from the parsed job report and sets
+    ``job.dbtime`` and ``job.dbdata`` respectively when present.
 
     Args:
-        job: job object.
+        job: Job object whose ``dbtime`` and ``dbdata`` fields may be updated.
     """
     work_attributes = parse_jobreport_data(job.metadata)
 
@@ -570,11 +644,15 @@ def find_db_info(job: JobData) -> None:
         logger.info(f'dbdata (total): {job.dbdata}')
 
 
-def set_error_nousertarball(job: JobData) -> None:
-    """Set error code for NOUSERTARBALL.
+def set_error_nousertarball(job: JobData):
+    """Set the NOUSERTARBALL error code and extract the tarball URL from payload stdout.
+
+    Reads the tail of payload stdout to find the URL of the tarball that could
+    not be downloaded, then stores the NOUSERTARBALL error code and a
+    descriptive diagnostic message on the job object.
 
     Args:
-        job: job object.
+        job: Job object whose error code and diagnostic fields will be updated.
     """
     # get the tail of the stdout since it will contain the URL of the user log
     filename = os.path.join(job.workdir, config.Payload.payloadstdout)
@@ -590,13 +668,14 @@ def set_error_nousertarball(job: JobData) -> None:
 
 
 def extract_tarball_url(payload_tail: str) -> str:
-    """Extract the tarball URL for missing user code if possible from stdout tail.
+    """Extract the tarball URL from the tail of payload stdout.
 
     Args:
-        payload_tail: tail of payload stdout.
+        payload_tail: Tail of the payload stdout as a plain string.
 
     Returns:
-        str: url.
+        The first ``http://`` or ``https://`` URL found in the tail, or the
+        string ``"(source unknown)"`` if no URL could be extracted.
     """
     tarball_url = "(source unknown)"
 
@@ -609,11 +688,17 @@ def extract_tarball_url(payload_tail: str) -> str:
     return tarball_url
 
 
-def process_metadata_from_xml(job: JobData) -> None:
-    """Extract necessary metadata from XML when job report is not available.
+def process_metadata_from_xml(job: JobData):
+    """Extract payload metadata from ``metadata.xml`` when no job report is available.
+
+    Reads the XML file into ``job.metadata`` and sets NOPAYLOADMETADATA on the
+    job if the file is absent and the job is a non-analysis production transform.
+    Also fills any missing GUIDs on output file specs, first by reading them
+    from the XML and falling back to generating them.
 
     Args:
-        job: job object.
+        job: Job object whose ``metadata`` field and output file GUIDs will be
+            updated in place.
     """
     # get the metadata from the xml file instead, which must exist for most production transforms
     path = os.path.join(job.workdir, config.Payload.metadata)
@@ -644,16 +729,20 @@ def process_metadata_from_xml(job: JobData) -> None:
                 logger.info(f'generated guid for lfn={dat.lfn}: {dat.guid}')
 
 
-def process_job_report(job: JobData) -> None:
-    """Process the job report produced by the payload/transform if it exists.
+def process_job_report(job: JobData):
+    """Process the job report produced by the payload transform, if it exists.
 
-    Payload error codes and diagnostics, as well as payload metadata (for output files) and stageout type will be
-    extracted. The stageout type is either "all" (i.e. stage-out both output and log files) or "log" (i.e. only log file
-    will be staged out).
-    Note: some fields might be experiment specific. A call to a user function is therefore also done.
+    Extracts payload exit codes and diagnostics, output file metadata, and
+    stageout type (``"all"`` or ``"log"``). When the job report is absent,
+    falls back to ``process_metadata_from_xml()``. Truncates oversized WARNING
+    fields in the report and overwrites the file if any changes were made.
+    Handles SIGSEGV, Frontier, and bad_alloc error signatures found inside the
+    report. Some fields are experiment-specific and are handled via
+    ``update_job_data()``.
 
     Args:
-        job: job object that will be updated by the function and several fields set.
+        job: Job object whose metadata, exit code, error code, and stageout
+            fields will be updated in place.
     """
     # get the job report
     path = os.path.join(job.workdir, config.Payload.jobreport)
@@ -730,16 +819,18 @@ def process_job_report(job: JobData) -> None:
 
 
 def truncate_metadata(job_report_dictionary: dict) -> dict:
-    """Truncate the metadata if necessary.
+    """Truncate oversized fields in the job report metadata.
 
-    This function will truncate the job.metadata if some fields are too large. This can at least happen with the 'WARNINGS'
-    field.
+    Currently caps the ``executor[0].logfileReport.details.WARNING`` list at
+    25 entries to prevent excessively large metadata payloads.
 
     Args:
-        job_report_dictionary: original job.metadata.
+        job_report_dictionary: The raw ``job.metadata`` dictionary as loaded
+            from ``jobReport.json``.
 
     Returns:
-        dict: updated metadata, empty if no updates.
+        The updated metadata dictionary if any field was truncated, otherwise
+        an empty dict signalling that no changes were made.
     """
     _metadata = {}
 
@@ -762,14 +853,15 @@ def truncate_metadata(job_report_dictionary: dict) -> dict:
     return _metadata
 
 
-def overwrite_metadata(metadata: dict, path: str) -> None:
-    """Overwrite the original metadata with updated info.
+def overwrite_metadata(metadata: dict, path: str):
+    """Overwrite the original metadata file with updated content.
 
-    Also make a backup of the original file.
+    A backup of the original file is created at ``<path>.original`` before
+    writing. Failures at either step are logged as warnings but do not raise.
 
     Args:
-        metadata: updated metadata.
-        path: path to the metadata file.
+        metadata: Updated metadata dictionary to serialise as JSON.
+        path: Absolute path to the metadata file to overwrite.
     """
     # make a backup of the original metadata file
     try:
@@ -788,13 +880,20 @@ def overwrite_metadata(metadata: dict, path: str) -> None:
 
 
 def get_frontier_details(job_report_dictionary: dict) -> str:  # noqa: C901
-    """Extract special Frontier related errors from the job report.
+    """Extract Frontier-related error details from the job report.
+
+    Searches the ``executor[0].logfileReport.details`` section for lines
+    matching known Frontier connection failure and configuration patterns,
+    then strips the leading log-level prefix (``INFO`` / ``WARNING``) from
+    the returned message.
 
     Args:
-        job_report_dictionary: job report.
+        job_report_dictionary: The raw ``job.metadata`` dictionary as loaded
+            from ``jobReport.json``.
 
     Returns:
-        str: extracted error message.
+        The extracted Frontier error message, or an empty string if none was
+        found or the expected keys were absent.
     """
     try:
         error_details = job_report_dictionary['executor'][0]['logfileReport']['details']
@@ -841,15 +940,19 @@ def get_frontier_details(job_report_dictionary: dict) -> str:  # noqa: C901
 
 
 def get_job_report_errors(job_report_dictionary: dict) -> list[str]:
-    """Extract the error list from the jobReport.json dictionary.
+    """Extract the ERROR-level message list from the job report dictionary.
 
-    The returned list is scanned for special errors.
+    Navigates to ``executor[0].logfileReport.details.ERROR`` and returns each
+    entry's ``message`` value. The returned list is typically passed on to
+    specialised checkers such as ``is_bad_alloc()``.
 
     Args:
-        job_report_dictionary: job report.
+        job_report_dictionary: The raw ``job.metadata`` dictionary as loaded
+            from ``jobReport.json``.
 
     Returns:
-        list[str]: job_report_errors.
+        List of error message strings found in the report. Empty if the
+        expected keys were absent or the details were not a list.
     """
     job_report_errors = []
     if 'reportVersion' in job_report_dictionary:
@@ -875,13 +978,16 @@ def get_job_report_errors(job_report_dictionary: dict) -> list[str]:
 
 
 def is_bad_alloc(job_report_errors: list[str]) -> tuple[bool, str]:
-    """Check for bad_alloc errors.
+    """Check whether any job report error message indicates a C++ bad_alloc failure.
 
     Args:
-        job_report_errors: errors extracted from the job report.
+        job_report_errors: List of error message strings extracted from the
+            job report by ``get_job_report_errors()``.
 
     Returns:
-        tuple[bool, str]: bad_alloc flag, diagnostics.
+        A tuple of ``(found, diagnostics)`` where ``found`` is True if a
+        ``bad_alloc`` message was detected and ``diagnostics`` is the
+        offending message string, or an empty string when not found.
     """
     bad_alloc = False
     diagnostics = ""
@@ -896,16 +1002,18 @@ def is_bad_alloc(job_report_errors: list[str]) -> tuple[bool, str]:
 
 
 def get_log_extracts(job: JobData, state: str) -> str:
-    """Extract special warnings and other info from special logs.
+    """Build a log-extract string to be sent to the server as ``pilotLog``.
 
-    This function also discovers if the payload had any outbound connections.
+    Always includes the PanDA tracer log content when present. For failed or
+    holding jobs, also appends a tail of the pilot log file.
 
     Args:
-        job: job object.
-        state: job state.
+        job: Job object providing the work directory and job ID.
+        state: Current job state string (e.g. ``"failed"``, ``"holding"``).
 
     Returns:
-        str: log extracts.
+        Concatenated log extracts as a plain string, or an empty string if
+        nothing relevant was found.
     """
     logger.info("building log extracts (sent to the server as \'pilotLog\')")
 
@@ -927,15 +1035,18 @@ def get_log_extracts(job: JobData, state: str) -> str:
 
 
 def get_panda_tracer_log(job: JobData) -> str:
-    """Return the contents of the PanDA tracer log if it exists.
+    """Return the contents of the PanDA tracer log, if it exists and is non-empty.
 
-    This file will contain information about outbound connections.
+    The tracer log (``pandatracerlog.txt``) is produced when the payload
+    attempts outbound network connections. Its presence is reported as a
+    warning.
 
     Args:
-        job: job object.
+        job: Job object providing the work directory and job ID.
 
     Returns:
-        str: log extracts from pandatracerlog.txt.
+        The full contents of the tracer log prefixed with a PandaID header,
+        or an empty string if the file does not exist or is empty.
     """
     extracts = ""
 
@@ -957,13 +1068,14 @@ def get_panda_tracer_log(job: JobData) -> str:
 
 
 def get_pilot_log_extracts(job: JobData) -> str:
-    """Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
+    """Return the last 20 lines of the pilot log file.
 
     Args:
-        job: job object.
+        job: Job object providing the work directory.
 
     Returns:
-        str: tail of pilot log.
+        A formatted string containing the pilot log tail, or an empty string
+        if the log file does not exist or is empty.
     """
     extracts = ""
 
