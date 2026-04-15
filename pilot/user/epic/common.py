@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2026
 
 """Generic user specific functionality."""
 
@@ -510,7 +510,9 @@ def allow_timefloor(submitmode: str) -> bool:
 def get_pilot_id(jobid: int) -> str:
     """Get the pilot id from the environment variable GTAG.
 
-    Update if necessary (do not used if you want the same pilot id for all multi-jobs).
+    For NERSC Perlmutter: Constructs URL pointing to job-specific log directory on CFS.
+    Format: {GTAG}/{PandaID}
+    Example: https://portal.nersc.gov/cfs/m3763/panda/jobs/NERSC_Perlmutter_epic_test/268150
 
     Args:
         jobid: PanDA job id - UNUSED.
@@ -518,10 +520,20 @@ def get_pilot_id(jobid: int) -> str:
     Returns:
         str: pilot id.
     """
-    if jobid:  # to bypass pylint score 0
-        pass
+    base_url = os.environ.get("GTAG", "unknown")
 
-    return os.environ.get("GTAG", "unknown")
+    # If GTAG is not set or not a URL, return as-is
+    if base_url == "unknown" or not base_url.startswith("http"):
+        return base_url
+
+    # Append PandaID to construct job-specific log directory URL
+    try:
+        # Construct URL: {base_url}/{pandaID}
+        # This points to the directory containing all logs for this specific job
+        return f"{base_url}/{jobid}"
+    except Exception:
+        # Fall back to base URL if URL construction fails
+        return base_url
 
 
 def download_command(process: dict, workdir: str, base_urls: list) -> dict:

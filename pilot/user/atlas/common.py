@@ -2983,10 +2983,20 @@ def get_pilot_id(jobid: int) -> str:
     Returns:
         str: pilot id.
     """
-    if jobid:  # to bypass pylint score 0
-        pass
+    base_url = os.environ.get("GTAG", "unknown")
 
-    return os.environ.get("GTAG", "unknown")
+    # If GTAG is not set or not a URL, return as-is
+    if base_url == "unknown" or not base_url.startswith("http"):
+        return base_url
+
+    # Append PandaID to construct job-specific log directory URL
+    try:
+        # Construct URL: {base_url}/{pandaID}
+        # This points to the directory containing all logs for this specific job
+        return f"{base_url}/{jobid}"
+    except Exception:
+        # Fall back to base URL if URL construction fails
+        return base_url
 
 
 def allow_send_workernode_map() -> bool:
