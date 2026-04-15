@@ -291,9 +291,16 @@ class JobData(BaseData):
                 idat[attrname] = ksources[item][ind] if len(ksources[item]) > ind else None
             accessmode = 'copy'  ## default settings
 
-            # for prod jobs: use remoteio if transferType=direct and prodDBlockToken!=local
+            # for prod jobs: use remoteio if transfertype implies direct I/O and prodDBlockToken!=local
             # for analy jobs: use remoteio if prodDBlockToken!=local
-            if (self.is_analysis() or self.transfertype == 'direct') and idat.get('storage_token') != 'local':  ## Job settings
+            # transfertypes that imply direct I/O: 'direct', 'root', 'davs' (and comma-separated
+            # combinations thereof).  'file' means Rucio copy via POSIX link, not remote I/O.
+            _ttype = (self.transfertype or '').lower()
+            _directio_types = frozenset({'direct', 'root', 'davs'})
+            _is_directio_ttype = bool(_ttype) and all(
+                t.strip() in _directio_types for t in _ttype.split(',') if t.strip()
+            )
+            if (self.is_analysis() or _is_directio_ttype) and idat.get('storage_token') != 'local':  ## Job settings
                 accessmode = 'direct'
             if self.accessmode:  ## Job input options (job params) overwrite any other settings
                 accessmode = self.accessmode
