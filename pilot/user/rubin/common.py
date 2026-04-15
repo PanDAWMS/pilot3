@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Common functions for Rubin."""
 
@@ -369,13 +369,13 @@ def allow_timefloor(submitmode: str) -> bool:
     return allow
 
 
-def get_pilot_id(jobid: int) -> str:
+def get_pilot_id(data: dict) -> str:
     """Get the pilot id from the environment variable GTAG.
 
     Update for each job to get a unique pilot id per job.
 
     Args:
-        jobid: PanDA job id.
+        data: data dictionary.
 
     Returns:
         str: Pilot id.
@@ -384,6 +384,7 @@ def get_pilot_id(jobid: int) -> str:
     regex = r'PandaJob\_(\d+)+'
     _id = findall(regex, pilotid)
     if _id:
+        jobid = data.get("jobid", "unknown")
         pilotid = pilotid.replace(_id[0], str(jobid))
 
     return pilotid

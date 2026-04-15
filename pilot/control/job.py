@@ -905,7 +905,7 @@ def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     logger.debug(
         f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
 
-    pilotid = user.get_pilot_id(data['job_id'])
+    pilotid = user.get_pilot_id(data)
     if pilotid:
         pilotversion = os.environ.get('PILOT_VERSION')
         # report the batch system job id, if available

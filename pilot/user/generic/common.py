@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Generic user specific functionality."""
 
@@ -490,18 +490,18 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: int) -> str:
+def get_pilot_id(data: dict) -> str:
     """Get the pilot id from the environment variable GTAG.
 
     Update if necessary (do not used if you want the same pilot id for all multi-jobs).
 
     Args:
-        jobid: PanDA job id - UNUSED.
+        data: data dictionary.
 
     Returns:
         str: pilot id.
     """
-    if jobid:  # to bypass pylint score 0
+    if data:  # to bypass pylint score 0
         pass
 
     return os.environ.get("GTAG", "unknown")

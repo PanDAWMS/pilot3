@@ -507,20 +507,19 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: int) -> str:
+def get_pilot_id(data: dict) -> str:
     """Get the pilot id from the environment variable GTAG.
 
-    For NERSC Perlmutter: Constructs URL pointing to job-specific log directory on CFS.
-    Format: {GTAG}/{PandaID}
-    Example: https://portal.nersc.gov/cfs/m3763/panda/jobs/NERSC_Perlmutter_epic_test/268150
+    Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
 
     Args:
-        jobid: PanDA job id - UNUSED.
-
+        data: data dictionary.
     Returns:
         str: pilot id.
     """
     base_url = os.environ.get("GTAG", "unknown")
+    jobid = data.get("jobid")
+    site_name = data.get("site_name", "unknown")
 
     # If GTAG is not set or not a URL, return as-is
     if base_url == "unknown" or not base_url.startswith("http"):
@@ -528,9 +527,11 @@ def get_pilot_id(jobid: int) -> str:
 
     # Append PandaID to construct job-specific log directory URL
     try:
-        # Construct URL: {base_url}/{pandaID}
         # This points to the directory containing all logs for this specific job
-        return f"{base_url}/{jobid}"
+        if "perlmutter" in site_name.lower():
+            return f"{base_url}/{jobid}"
+        else:
+            return base_url
     except Exception:
         # Fall back to base URL if URL construction fails
         return base_url
