@@ -18,7 +18,9 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2023-24
-# - Paul Nilsson, paul.nilsson@cern.ch, 2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024-26
+
+from __future__ import annotations
 
 import json
 import logging

@@ -33,6 +33,8 @@ The main reasons for such incapsulation are to
 :date: February 2018
 """
 
+from __future__ import annotations
+
 import ast
 import logging
 import os
