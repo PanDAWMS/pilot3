@@ -23,6 +23,7 @@
 
 import logging
 import os
+import re
 
 from signal import SIGTERM
 from typing import Any
@@ -48,6 +49,11 @@ from pilot.util.filehandling import (
 from pilot.util.https import get_base_urls
 
 from .setup import get_analysis_trf
+from .utilities import (
+    get_memory_monitor_setup,
+    post_memory_monitor_action,
+    get_memory_monitor_summary_filename,
+)
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -320,19 +326,47 @@ def get_precopostprocess_command(process: dict, workdir: str, label: str, base_u
     return com
 
 
-def get_utility_command_setup(name: str, job: object, setup: str = None) -> str:
+def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str:
     """Return the proper setup for the given utility command.
 
+    If a payload setup is specified, then the utility command string should be prepended to it.
+
     Args:
-        name: name of utility command.
+        name: name of utility.
         job: job object.
-        setup: setup string.
+        setup: optional payload setup string.
 
     Returns:
-        str: full setup string of the utility command.
+        str: utility command setup.
     """
-    if name or job or setup:  # to bypass pylint score 0
-        pass
+    if name == 'MemoryMonitor':
+        # must know if payload is running in a container or not
+        # (enables search for pid in ps output)
+        use_container = job.usecontainer or 'runcontainer' in job.transformation
+
+        setup, pid = get_memory_monitor_setup(
+            job.pid,
+            job.jobid,
+            job.workdir,
+            use_container=use_container
+        )
+
+        _pattern = r"([\S]+)\ ."
+        pattern = re.compile(_pattern)
+        _name = re.findall(pattern, setup.split(';')[-1])
+        if _name:
+            job.memorymonitor = _name[0]
+        else:
+            logger.warning('trf name could not be identified in setup string')
+
+        # update the pgrp if the pid changed
+        if pid not in (job.pid, -1):
+            logger.debug(f'updating pgrp={job.pgrp} for pid={pid}')
+            try:
+                job.pgrp = os.getpgid(pid)
+            except ProcessLookupError as exc:
+                logger.warning(f'os.getpgid({pid}) failed with: {exc}')
+        return setup
 
     return ""
 
@@ -360,8 +394,8 @@ def post_utility_command_action(name: str, job: object) -> None:
         name: name of utility command.
         job: job object.
     """
-    if name or job:  # to bypass pylint score 0
-        pass
+    if name == 'MemoryMonitor':
+        post_memory_monitor_action(job)
 
 
 def get_utility_command_kill_signal(name: str) -> int:
@@ -389,10 +423,7 @@ def get_utility_command_output_filename(name: str, selector: bool = None) -> str
     Returns:
         str: filename.
     """
-    if name or selector:  # to bypass pylint score 0
-        pass
-
-    return ""
+    return get_memory_monitor_summary_filename(selector=selector) if name == 'MemoryMonitor' else ""
 
 
 def verify_job(job: object) -> bool:
@@ -518,7 +549,7 @@ def get_pilot_id(data: dict) -> str:
         str: pilot id.
     """
     base_url = os.environ.get("GTAG", "unknown")
-    jobid = data.get("jobid")
+    jobid = data.get("job_id")
     site_name = data.get("site_name", "unknown")
 
     # If GTAG is not set or not a URL, return as-is

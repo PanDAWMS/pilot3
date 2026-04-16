@@ -902,8 +902,7 @@ def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
 
     logger.debug(f"add_data_structure_ids keys: {sorted(data.keys())}")
-    logger.debug(
-        f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
+    logger.debug(f"job identifiers: PandaID={getattr(job, 'PandaID', None)} jobid={getattr(job, 'jobid', None)} taskid={getattr(job, 'taskid', None)}")
 
     pilotid = user.get_pilot_id(data)
     if pilotid:
