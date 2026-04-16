@@ -73,6 +73,13 @@ _DIRECT_ACCESS_ERROR_PATTERNS: list[str] = [
     r'FileReadError.*root://',
 ]
 
+# Cling JIT "Cannot allocate memory" appears in payload stdout/stderr when the worker
+# node exhausts its 64k VMA limit.  Increasing the memory request does not help; the
+# correct retry action is to reduce the number of input files per job (action 5).
+_CLING_JIT_ERROR_PATTERNS: list[str] = [
+    r'cling JIT session error: Cannot allocate memory',
+]
+
 # Matches the first file path token in an error line.
 # Covers: scheme-based URLs (root://, file://, …), absolute POSIX paths with at least
 # one interior slash, and long simple absolute paths.  A minimum length is required to
@@ -159,6 +166,12 @@ def interpret_payload_exit_info(job: JobData):
     # try to identify out of memory errors in the stderr
     if is_out_of_memory(job):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, priority=True)
+        return
+
+    # check for cling JIT "Cannot allocate memory" — distinct from a true OOM: caused by
+    # the worker node hitting its 64k VMA limit; retry with fewer input files (action 5)
+    if is_cling_jit_error(job):
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.ALLOCATIONERROR, priority=True)
         return
 
     # look for specific errors in the stdout (tail)
@@ -261,6 +274,38 @@ def is_user_code_missing(job: JobData) -> bool:
     return scan_file(stdout,
                      error_messages,
                      warning_message=f"identified an '{error_messages[0]}' message in {os.path.basename(stdout)}")
+
+
+def is_cling_jit_error(job: JobData) -> bool:
+    """Check whether the payload hit the 64k VMA limit via a cling JIT allocation failure.
+
+    Scans both ``payload.stdout`` and ``payload.stderr`` for the cling JIT
+    ``"Cannot allocate memory"`` message.  This error is caused by the worker
+    node exhausting its kernel VMA limit (typically 65536 mappings) and is
+    distinct from a genuine out-of-memory condition: increasing the memory
+    allocation will not help.  The appropriate retry action is to reduce the
+    number of input files per job (retryModule action 5).
+
+    Args:
+        job: Job object containing workdir and payload file path configuration.
+
+    Returns:
+        True if the cling JIT allocation-failure pattern was found in either
+        payload stdout or stderr, False otherwise.
+    """
+    stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
+    stderr = os.path.join(job.workdir, config.Payload.payloadstderr)
+
+    for path in (stdout, stderr):
+        if not os.path.exists(path):
+            logger.warning(f'file does not exist: {path} (cannot scan for cling JIT allocation error)')
+            continue
+        if scan_file(path,
+                     _CLING_JIT_ERROR_PATTERNS,
+                     warning_message=f"identified a cling JIT allocation failure in {os.path.basename(path)}"):
+            return True
+
+    return False
 
 
 def is_direct_access_error(job: JobData) -> str:

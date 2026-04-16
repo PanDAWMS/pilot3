@@ -188,6 +188,7 @@ class ErrorCodes:
     QUEUENOTSETUPFORCONTAINERS = 1384
     NOJOBSINPANDA = 1385  # internally used code
     PANDAQUEUENOTONLINE = 1386
+    ALLOCATIONERROR = 1387
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -337,7 +338,7 @@ class ErrorCodes:
         QUEUENOTSETUPFORCONTAINERS: "Queue is not set up for containers",
         NOJOBSINPANDA: "No jobs in PanDA",
         PANDAQUEUENOTONLINE: "PanDA queue is not online",
-
+        ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
