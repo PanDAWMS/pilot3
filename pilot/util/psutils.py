@@ -474,3 +474,72 @@ def get_clock_speed() -> float or None:
 
     freq = psutil.cpu_freq()  # scpufreq(current=2300, min=2300, max=2300)
     return freq.current if freq is not None else 0.0
+
+
+def get_pilot_process_tree(root_pid: int) -> str:
+    """Return a formatted snapshot of the pilot process tree rooted at ``root_pid``.
+
+    Walks the descendant tree via psutil so only processes belonging to this
+    pilot are included, avoiding the noise of unrelated jobs running on the
+    same worker node.  Falls back to an empty string when psutil is
+    unavailable rather than raising an exception.
+
+    Args:
+        root_pid: PID of the process to use as the root of the tree.
+
+    Returns:
+        A formatted multi-line string with one row per process, indented to
+        reflect parent/child depth, or an empty string if psutil is not
+        available.
+    """
+    if not _is_psutil_available:
+        logger.warning('get_pilot_process_tree(): psutil not available - skipping')
+        return ''
+
+    lines = [f"{'PID':>7} {'PPID':>7} {'STAT':>6}  COMMAND"]
+
+    def _walk(pid: int, depth: int = 0) -> None:
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                ppid = proc.ppid()
+                status = proc.status()
+                cmdline = ' '.join(proc.cmdline()) or proc.name()
+            indent = '  ' * depth
+            lines.append(f"{pid:>7} {ppid:>7} {status:>6}  {indent}{cmdline}")
+            for child in proc.children(recursive=False):
+                _walk(child.pid, depth + 1)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    _walk(root_pid)
+    return '\n'.join(lines)
+
+
+def get_process_details(pid: int) -> str:
+    """Return a single-line summary of the given process.
+
+    Includes the PID, parent PID, status, and full command line.  Falls back
+    gracefully when psutil is unavailable or the process no longer exists.
+
+    Args:
+        pid: Process ID to describe.
+
+    Returns:
+        A formatted string of the form
+        ``"PID <pid> (ppid=<ppid>, status=<status>): <cmdline>"``, or a
+        short unavailability notice if the process cannot be inspected.
+    """
+    if not _is_psutil_available:
+        logger.warning('get_process_details(): psutil not available - skipping')
+        return f'PID {pid}: (psutil not available)'
+
+    try:
+        proc = psutil.Process(pid)
+        with proc.oneshot():
+            ppid = proc.ppid()
+            status = proc.status()
+            cmdline = ' '.join(proc.cmdline()) or proc.name()
+        return f"PID {pid} (ppid={ppid}, status={status}): {cmdline}"
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
+        return f"PID {pid}: (unavailable: {exc})"
