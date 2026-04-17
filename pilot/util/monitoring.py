@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """ This module contains implementations of job monitoring tasks. """
 
@@ -330,11 +330,20 @@ def get_score(pid: int) -> str:
 
 
 def get_exception_error_code(diagnostics: str) -> int:
-    """
-    Identify a suitable error code to a given exception.
+    """Map an exception diagnostics string to a suitable pilot error code.
 
-    :param diagnostics: exception diagnostics (str)
-    :return: exit_code (int).
+    The ``getpwuid`` / ``uid not found`` case arises on worker nodes where the
+    pilot's UID has no ``/etc/passwd`` entry (e.g. Kubernetes pods or HPC nodes
+    with numeric UIDs). It is mapped to ``RESOURCEUNAVAILABLE`` rather than the
+    generic ``GENERALCPUCALCPROBLEM`` because it is a transient site
+    configuration condition — not a pilot bug — and ``RESOURCEUNAVAILABLE`` is
+    a recoverable error code, allowing PanDA to retry the job.
+
+    Args:
+        diagnostics: Exception message string returned by the failing function.
+
+    Returns:
+        Pilot error code corresponding to the exception.
     """
     logger.warning(traceback.format_exc())
     if "Resource temporarily unavailable" in diagnostics:
@@ -343,6 +352,8 @@ def get_exception_error_code(diagnostics: str) -> int:
         exit_code = errors.STATFILEPROBLEM
     elif "No such process" in diagnostics:
         exit_code = errors.NOSUCHPROCESS
+    elif "getpwuid" in diagnostics or "uid not found" in diagnostics:
+        exit_code = errors.RESOURCEUNAVAILABLE
     else:
         exit_code = errors.GENERALCPUCALCPROBLEM
 

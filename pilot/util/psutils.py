@@ -17,9 +17,8 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-26
 
-import getpass
 import logging
 import os
 import subprocess
@@ -38,24 +37,28 @@ logger = logging.getLogger(__name__)
 
 
 def is_process_running_by_pid(pid: int) -> bool:
-    """
-    Is the given process still running?
+    """Check whether the given process is still running via /proc.
 
-    :param pid: process id (int)
-    :return: True (process still running), False (process not running).
+    Args:
+        pid: Process ID to check.
+
+    Returns:
+        True if the process is still running, False otherwise.
     """
     return os.path.exists(f"/proc/{pid}")
 
 
 def is_process_running(pid: int) -> bool:
-    """
-    Is the given process still running?
+    """Check whether the given process is still running.
 
-    Note: if psutil module is not available, this function will raise an exception.
+    Uses psutil when available, falling back to ``/proc/{pid}`` existence check
+    if psutil is not importable.
 
-    :param pid: process id (int)
-    :return: True (process still running), False (process not running)
-    :raises: MiddlewareImportFailure if psutil module is not available.
+    Args:
+        pid: Process ID to check.
+
+    Returns:
+        True if the process is still running, False otherwise.
     """
     if not _is_psutil_available:
         is_running = is_process_running_by_pid(pid)
@@ -67,13 +70,15 @@ def is_process_running(pid: int) -> bool:
 
 
 def get_pid(jobpid: int) -> int:
-    """
-    Try to figure out the pid for the memory monitoring tool.
+    """Return the PID of the memory monitoring tool (prmon) for the given job.
 
-    Attempt to use psutil, but use a fallback to ps-command based code if psutil is not available.
+    Uses psutil when available, falling back to parsing ``ps aux`` output if not.
 
-    :param jobpid: job.pid (int)
-    :return: pid (int|None).
+    Args:
+        jobpid: PID of the job process (``job.pid``).
+
+    Returns:
+        PID of the prmon process, or None if not found.
     """
     pid = None
 
@@ -102,12 +107,14 @@ def get_pid(jobpid: int) -> int:
 
 
 def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
-    """
-    Find the process id corresponding to the given command, and ensure that it belongs to the given payload.
+    """Find the PID of a process by command name, verifying it belongs to the given payload.
 
-    :param command: command (str)
-    :param payload_pid: payload process id (int)
-    :return: process id (int) or None.
+    Args:
+        command: Command name to search for (e.g. ``"prmon"``).
+        payload_pid: Expected payload process ID (used to verify ownership via cmdline).
+
+    Returns:
+        PID of the matching process, or None if not found.
     """
     if not _is_psutil_available:
         logger.warning('find_pid_by_command_and_ppid(): psutil not available - aborting')
@@ -129,11 +136,13 @@ def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
 
 
 def get_parent_pid(pid: int) -> int or None:
-    """
-    Return the parent process id for the given pid.
+    """Return the parent process ID for the given PID.
 
-    :param pid: process id (int)
-    :return: parent process id (int or None).
+    Args:
+        pid: Process ID to query.
+
+    Returns:
+        Parent process ID, or None if the process does not exist.
     """
     try:
         process = psutil.Process(pid)
@@ -144,13 +153,16 @@ def get_parent_pid(pid: int) -> int or None:
 
 
 def get_child_processes(parent_pid: int) -> list:
-    """
-    Return a list of all child processes belonging to the same parent process id.
+    """Return all child processes of the given parent PID as a list of (pid, cmdline) tuples.
 
-    Uses a fallback to /proc/{pid} in case psutil is not available.
+    Uses psutil when available, falling back to the legacy ``/proc``-based
+    implementation if not.
 
-    :param parent_pid: parent process id (int)
-    :return: child processes (list).
+    Args:
+        parent_pid: Parent process ID.
+
+    Returns:
+        List of ``(pid, cmdline)`` tuples for all descendant processes.
     """
     if not _is_psutil_available:
         logger.warning('get_child_processes(): psutil not available - using legacy code as a fallback')
@@ -160,14 +172,21 @@ def get_child_processes(parent_pid: int) -> list:
 
 
 def get_all_descendant_processes(parent_pid: int, top_pid: int = os.getpid()) -> list:
-    """
-    Recursively find child processes using the given parent pid as a starting point.
+    """Recursively find all descendant processes of the given parent PID.
 
-    :param parent_pid: parent process id (int)
-    :param top_pid: do not include os.getpid() in the list (int)
-    :return: descendant process ids and cmdline (list).
+    Args:
+        parent_pid: PID to use as the root of the search.
+        top_pid: PID to exclude from results (defaults to the current process).
+
+    Returns:
+        List of ``(pid, cmdline)`` tuples for all descendants.
     """
     def find_descendant_processes(pid: int, top_pid: int) -> list:
+        """Recursively collect all descendant (pid, cmdline) pairs for the given pid.
+
+        Returns:
+            List of ``(pid, cmdline)`` tuples for all descendants.
+        """
         try:
             descendants = []
             for process in psutil.process_iter(attrs=['pid', 'ppid', 'cmdline']):
@@ -187,15 +206,17 @@ def get_all_descendant_processes(parent_pid: int, top_pid: int = os.getpid()) ->
 
 
 def get_child_processes_legacy(parent_pid: int) -> list:
-    """
-    Return a list of all child processes belonging to the same parent process id.
+    """Return child processes of the given parent PID using /proc (legacy fallback).
 
-    Note: this approach is not efficient if one is to find all child processes using
-    the parent pid as a starting point. Better to use a recursive function using psutil.
-    This method should be removed once psutil is available everywhere.
+    This implementation scans ``/proc`` directly and is less efficient than the
+    psutil-based recursive approach. It should be removed once psutil is
+    available everywhere.
 
-    :param parent_pid: parent process id (int)
-    :return: child processes (list).
+    Args:
+        parent_pid: Parent process ID.
+
+    Returns:
+        List of ``(pid, cmdline)`` tuples for direct child processes.
     """
     child_processes = []
 
@@ -232,12 +253,15 @@ def get_child_processes_legacy(parent_pid: int) -> list:
 
 
 def get_subprocesses(pid: int, debug: bool = False) -> list:
-    """
-    Return the subprocesses belonging to the given PID as a list.
+    """Return the PIDs of all subprocesses belonging to the given PID.
 
-    :param pid: main process PID (int)
-    :param debug: control debug mode (bool)
-    :return: list of subprocess PIDs.
+    Args:
+        pid: Main process PID.
+        debug: If True, log the child process list at INFO level (used for looping
+            job diagnostics); otherwise log at DEBUG level.
+
+    Returns:
+        List of child process PIDs.
     """
     pids = get_child_processes(pid)
     if debug:  # always dump for looping jobs e.g.
@@ -252,11 +276,14 @@ def get_subprocesses(pid: int, debug: bool = False) -> list:
 
 
 def get_command_by_pid(pid: int) -> str or None:
-    """
-    Return the command corresponding to the given process id.
+    """Return the full command line for the given process ID.
 
-    :param pid: process id (int)
-    :return: command (str or None).
+    Args:
+        pid: Process ID to query.
+
+    Returns:
+        Full command line string, or None if psutil is unavailable or the
+        process no longer exists.
     """
     try:
         process = psutil.Process(pid)
@@ -271,11 +298,13 @@ def get_command_by_pid(pid: int) -> str or None:
 
 
 def find_process_by_jobid(jobid: int) -> int or None:
-    """
-    Find the process ID of a process whose command arguments contain the given job ID.
+    """Find the PID of a process whose command arguments contain the given job ID.
 
-    :param jobid: the job ID to search for (int)
-    :return: the process ID of the matching process, or None if no match is found (int or None).
+    Args:
+        jobid: PanDA job ID to search for.
+
+    Returns:
+        PID of the matching process, or None if not found.
     """
     if not _is_psutil_available:
         logger.warning('find_process_by_jobid(): psutil not available - aborting')
@@ -295,14 +324,18 @@ def find_process_by_jobid(jobid: int) -> int or None:
 
 
 def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
-    """
-    Find the actual payload PID.
+    """Find the PID of the actual payload process launched under the given bash PID.
 
-    Identify all subprocesses of the given bash PID and search for the payload command. Return its PID.
+    Walks the subprocesses of ``bash_pid`` looking for one whose command line
+    contains ``payload_cmd``.
 
-    :param bash_pid: bash PID (int)
-    :param payload_cmd: payload command (partial) (str)
-    :return: payload PID (int or None).
+    Args:
+        bash_pid: PID of the bash wrapper process.
+        payload_cmd: Partial command string to match against (e.g. ``"Reco_tf.py"``).
+
+    Returns:
+        PID of the matching payload process, or ``bash_pid`` if no children are
+        found, or None if psutil is unavailable.
     """
     if not _is_psutil_available:
         logger.warning('find_actual_payload_pid(): psutil not available - aborting')
@@ -325,11 +358,13 @@ def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
 
 
 def find_lingering_processes(parent_pid: int) -> list:
-    """
-    Find processes that are still running after the specified parent process has terminated.
+    """Find non-zombie child processes still running after the parent has terminated.
 
-    :param parent_pid: The PID of the parent process (int)
-    :return: A list of lingering process PIDs (list).
+    Args:
+        parent_pid: PID of the (terminated) parent process.
+
+    Returns:
+        List of PIDs of lingering child processes.
     """
     if not _is_psutil_available:
         logger.warning('psutil not available, cannot find lingering processes - aborting')
@@ -351,12 +386,10 @@ def find_lingering_processes(parent_pid: int) -> list:
 
 
 def check_cpu_load():
-    """
-    Check if the system is under heavy CPU load.
+    """Check whether the system is under heavy CPU load (above 80%).
 
-    High CPU load is here defined to be above 80%.
-
-    :return: True (system is under heavy CPU load), False (system load is normal).
+    Returns:
+        True if the system CPU usage exceeds 80%, False otherwise.
     """
     if not _is_psutil_available:
         logger.warning('psutil not available, cannot check CPU load (pretending it is normal)')
@@ -377,16 +410,16 @@ def check_cpu_load():
 
 
 def get_process_info(cmd: str, user: str = "", pid: int = 0) -> list:
-    """
-    Return process info for given command.
+    """Return CPU and memory usage for a process matching the given command.
 
-    The function returns a list with format [cpu, mem, command, number of commands] for
-    a given command (e.g. python3 pilot3/pilot.py).
+    Args:
+        cmd: Command string to search for (e.g. ``"python3 pilot3/pilot.py"``).
+        user: If non-empty, restrict the search to processes owned by this user.
+        pid: If non-zero, return detailed info only for this specific PID.
 
-    :param cmd: command (str)
-    :param user: user (str)
-    :param pid: process id (int)
-    :return: list with process info (l[0]=cpu usage(%), l[1]=mem usage(%), l[2]=command(string)) (list).
+    Returns:
+        List of ``[cpu_percent, memory_percent, cmdline, count]`` for the
+        matching process, or an empty list if not found or psutil is unavailable.
     """
     if not _is_psutil_available:
         logger.warning('psutil not available, cannot check pilot CPU load')
@@ -414,24 +447,33 @@ def get_process_info(cmd: str, user: str = "", pid: int = 0) -> list:
 
 
 def list_processes_and_threads() -> list:
-    """
-    List all processes and threads owned by the current user.
+    """List all processes and threads owned by the current user.
 
-    This function corresponds to the command "ps -eo pid,ppid -m".
+    Filters by the real UID of the current process (``os.getuid()``) rather
+    than by username, so this function works correctly on worker nodes where
+    the pilot's UID has no entry in ``/etc/passwd`` (e.g. Kubernetes pods or
+    HPC nodes with numeric UIDs). This avoids the ``KeyError`` raised by
+    ``getpass.getuser()`` / ``pwd.getpwuid()`` on such systems.
 
-    :return: list of processes and threads (list).
+    The output format mimics ``ps -eo pid,ppid -m``, restricted to processes
+    owned by the current UID.
+
+    Returns:
+        List of formatted PID/PPID strings, one entry per process plus an
+        extra dash-row for each process that has additional threads. Returns
+        an empty list if psutil is not available.
     """
     if not _is_psutil_available:
-        logger.warning('psutil not available, cannot check pilot CPU load')
+        logger.warning('psutil not available, cannot list processes and threads')
         return []
 
-    current_user = getpass.getuser()
+    current_uid = os.getuid()
     processes = []
-    # Gather only processes owned by the current user (and skip PID 1)
-    for proc in psutil.process_iter(attrs=['pid', 'ppid', 'username']):
+    for proc in psutil.process_iter(attrs=['pid', 'ppid', 'uids']):
         try:
             info = proc.info
-            if info.get('username') != current_user:
+            uids = info.get('uids')
+            if uids is None or uids.real != current_uid:
                 continue
             if info['pid'] == 1:
                 continue
@@ -439,34 +481,29 @@ def list_processes_and_threads() -> list:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    # Sort by PID so the output order roughly matches ps
     processes.sort(key=lambda x: x[0])
 
-    lines = []
-    lines.append(f"{'PID':>6} {'PPID':>6}")
+    lines = [f"{'PID':>6} {'PPID':>6}"]
     for pid, ppid, proc in processes:
         ppid_str = str(ppid) if ppid is not None else '-'
-        # Print the main process line
         lines.append(f"{pid:6} {ppid_str:6}")
-        # Try to fetch threads (if available)
         try:
             threads = proc.threads()
         except (psutil.AccessDenied, psutil.NoSuchProcess):
             threads = []
-        # Filter out the main thread (whose id equals the process id)
         extra_threads = [t for t in threads if t.id != pid]
         if extra_threads:
-            # Mimic ps -m: print one extra line with dashes for threads
             lines.append(f"{'-':6} {'-':6}")
 
     return lines
 
 
 def get_clock_speed() -> float or None:
-    """
-    Return the clock speed in MHz.
+    """Return the current CPU clock speed in MHz.
 
-    :return: clock speed (float or None).
+    Returns:
+        Current clock speed in MHz, 0.0 if the frequency cannot be read, or
+        None if psutil is not available.
     """
     if not _is_psutil_available:
         logger.warning('get_clock_speed(): psutil not available - aborting')
@@ -474,72 +511,3 @@ def get_clock_speed() -> float or None:
 
     freq = psutil.cpu_freq()  # scpufreq(current=2300, min=2300, max=2300)
     return freq.current if freq is not None else 0.0
-
-
-def get_pilot_process_tree(root_pid: int) -> str:
-    """Return a formatted snapshot of the pilot process tree rooted at ``root_pid``.
-
-    Walks the descendant tree via psutil so only processes belonging to this
-    pilot are included, avoiding the noise of unrelated jobs running on the
-    same worker node.  Falls back to an empty string when psutil is
-    unavailable rather than raising an exception.
-
-    Args:
-        root_pid: PID of the process to use as the root of the tree.
-
-    Returns:
-        A formatted multi-line string with one row per process, indented to
-        reflect parent/child depth, or an empty string if psutil is not
-        available.
-    """
-    if not _is_psutil_available:
-        logger.warning('get_pilot_process_tree(): psutil not available - skipping')
-        return ''
-
-    lines = [f"{'PID':>7} {'PPID':>7} {'STAT':>6}  COMMAND"]
-
-    def _walk(pid: int, depth: int = 0) -> None:
-        try:
-            proc = psutil.Process(pid)
-            with proc.oneshot():
-                ppid = proc.ppid()
-                status = proc.status()
-                cmdline = ' '.join(proc.cmdline()) or proc.name()
-            indent = '  ' * depth
-            lines.append(f"{pid:>7} {ppid:>7} {status:>6}  {indent}{cmdline}")
-            for child in proc.children(recursive=False):
-                _walk(child.pid, depth + 1)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-
-    _walk(root_pid)
-    return '\n'.join(lines)
-
-
-def get_process_details(pid: int) -> str:
-    """Return a single-line summary of the given process.
-
-    Includes the PID, parent PID, status, and full command line.  Falls back
-    gracefully when psutil is unavailable or the process no longer exists.
-
-    Args:
-        pid: Process ID to describe.
-
-    Returns:
-        A formatted string of the form
-        ``"PID <pid> (ppid=<ppid>, status=<status>): <cmdline>"``, or a
-        short unavailability notice if the process cannot be inspected.
-    """
-    if not _is_psutil_available:
-        logger.warning('get_process_details(): psutil not available - skipping')
-        return f'PID {pid}: (psutil not available)'
-
-    try:
-        proc = psutil.Process(pid)
-        with proc.oneshot():
-            ppid = proc.ppid()
-            status = proc.status()
-            cmdline = ' '.join(proc.cmdline()) or proc.name()
-        return f"PID {pid} (ppid={ppid}, status={status}): {cmdline}"
-    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as exc:
-        return f"PID {pid}: (unavailable: {exc})"
