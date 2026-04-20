@@ -117,6 +117,12 @@ def interpret(job: JobData) -> int:
         if job.piloterrorcodes[0] < 1000:
             logger.warning(f"recorded error code is not a pilot error code: {job.piloterrorcodes[0]} - resetting to UNKNOWNTRFFAILURE")
             job.piloterrorcodes[0] = errors.UNKNOWNTRFFAILURE
+        elif job.piloterrorcodes[0] == errors.PAYLOADEXECUTIONFAILURE and job.has_remoteio():
+            # PAYLOADEXECUTIONFAILURE (1305) is a generic placeholder set before the
+            # more specific direct-access error scan runs.  For remoteIO jobs allow
+            # interpret_payload_exit_info() to proceed so it can replace 1305 with the
+            # more informative STAGEINFAILED (1099) when XRootD patterns are detected.
+            logger.info('allowing direct-access error scan to proceed despite PAYLOADEXECUTIONFAILURE already set (remoteIO job)')
         else:
             logger.warning(f'aborting payload error diagnosis since an error has already been set: {job.piloterrorcodes}')
             return -1
