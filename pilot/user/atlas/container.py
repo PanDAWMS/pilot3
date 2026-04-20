@@ -926,7 +926,7 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
     Returns:
         tuple[int, str, int]: exit code, stdout, lsetup time.
     """
-    lsetup_timeout = 600  # Timeout for 'lsetup' step
+    lsetup_timeout = 900  # Timeout for 'lsetup' step
     exit_code = 1
     stdout = ""
 
@@ -957,6 +957,34 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
                 logger.warning("timeout for 'lsetup' exceeded - killing script")
                 exit_code = 2  # 'lsetup' timeout
                 process.kill()
+
+                # Recovery: lsetup may have finished just as the timeout fired, with the python
+                # script completing successfully before the kill took effect.  Check whether
+                # open_remote_file.py left its sentinel line in remote_open.stdout.
+                workdir = os.path.dirname(path)
+                remote_open_stdout = os.path.join(workdir, 'remote_open.stdout')
+                sentinel = 'file remote open script has finished'
+                if os.path.exists(remote_open_stdout):
+                    matches = grep([sentinel], remote_open_stdout)
+                    if matches:
+                        logger.info(
+                            "lsetup timeout fired but open_remote_file.py completed successfully "
+                            f"(sentinel found in {remote_open_stdout}) - recovering exit code to 0"
+                        )
+                        exit_code = 0
+                        # lsetup_completed_at is unknown; use a conservative lower-bound so that
+                        # lsetup_time is reported as >= lsetup_timeout rather than 0.
+                        lsetup_completed_at = lsetup_start_time + lsetup_timeout
+                    else:
+                        logger.warning(
+                            f"lsetup timeout fired and sentinel not found in {remote_open_stdout} "
+                            "- file open likely did not complete"
+                        )
+                else:
+                    logger.warning(
+                        f"lsetup timeout fired and {remote_open_stdout} does not exist "
+                        "- file open did not reach the python script"
+                    )
                 break
 
             # Use select to check if there is data to read (to byspass any blocking operation that will prevent time-out checks)
