@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 import logging
 import os
@@ -100,7 +100,7 @@ def get_local_disk_space(path: Optional[str]) -> float:
 
     # -mP = blocks of 1024*1024 (MB) and POSIX format
     cmd = f"df -mP {path}"
-    _, stdout, stderr = execute(cmd)
+    _, stdout, stderr = execute(cmd, timeout=60)
 
     # Ensure stdout is a string
     if isinstance(stdout, bytes):
