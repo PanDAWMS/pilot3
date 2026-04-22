@@ -110,10 +110,10 @@ class ESProcessFineGrainedProc(threading.Thread):
     Main EventService Process.
     """
     def __init__(self, payload, waiting_time=30 * 60):
-        """
-        Init ESProcessFineGrainedProc.
+        """Init ESProcessFineGrainedProc.
 
-        :param payload: a dict of {'executable': <cmd string>, 'output_file': <filename or without it>, 'error_file': <filename or without it>}
+        Args:
+            payload: a dict of {'executable': <cmd string>, 'output_file': <filename or without it>, 'error_file': <filename or without it>}
         """
         threading.Thread.__init__(self, name='esprocessFineGrainedProc')
 
@@ -189,12 +189,15 @@ class ESProcessFineGrainedProc(threading.Thread):
         return 1
 
     def get_file(self, workdir, file_label='output_file', file_name='payload.stdout'):
-        """
-        Return the requested file.
+        """Return the requested file.
 
-        :param file_label:
-        :param workdir:
-        :return:
+        Args:
+            workdir: work directory.
+            file_label: label for the file in the payload dict.
+            file_name: fallback file name.
+
+        Returns:
+            file object.
         """
         file_type = io.IOBase
 
@@ -210,13 +213,16 @@ class ESProcessFineGrainedProc(threading.Thread):
 
         return _file_fd
 
-    def get_workdir(self):
-        """
-        Return the workdir.
+    def get_workdir(self) -> str:
+        """Return the workdir.
+
         If the workdir is set but is not a directory, return None.
 
-        :return: workdir (string or None).
-        :raises SetupFailure: in case workdir is not a directory.
+        Returns:
+            str: workdir (string or None).
+
+        Raises:
+            SetupFailure: in case workdir is not a directory.
         """
 
         workdir = ''
@@ -228,12 +234,14 @@ class ESProcessFineGrainedProc(threading.Thread):
                 raise SetupFailure('workdir exists but is not a directory')
         return workdir
 
-    def get_executable(self, workdir):
-        """
-        Return the executable string.
+    def get_executable(self, workdir: str) -> str:
+        """Return the executable string.
 
-        :param workdir: work directory (string).
-        :return: executable (string).
+        Args:
+            workdir: work directory (string).
+
+        Returns:
+            str: executable (string).
         """
         executable = self.__payload['executable']
         # return 'cd %s; %s' % (workdir, executable)
@@ -292,46 +300,44 @@ class ESProcessFineGrainedProc(threading.Thread):
         except Exception as ex:
             logger.error(f"Failed to close logs: {ex}")
 
-    def set_get_event_ranges_hook(self, hook):
-        """
-        set get_event_ranges hook.
+    def set_get_event_ranges_hook(self, hook) -> None:
+        """Set get_event_ranges hook.
 
-        :param hook: a hook method to get event ranges.
+        Args:
+            hook: a hook method to get event ranges.
         """
 
         self.get_event_ranges_hook = hook
 
     def get_get_event_ranges_hook(self):
-        """
-        get get_event_ranges hook.
+        """Get get_event_ranges hook.
 
-        :returns: The hook method to get event ranges.
+        Returns:
+            The hook method to get event ranges.
         """
 
         return self.get_event_ranges_hook
 
-    def set_handle_out_message_hook(self, hook):
-        """
-        set handle_out_message hook.
+    def set_handle_out_message_hook(self, hook) -> None:
+        """Set handle_out_message hook.
 
-        :param hook: a hook method to handle payload output and error messages.
+        Args:
+            hook: a hook method to handle payload output and error messages.
         """
 
         self.handle_out_message_hook = hook
 
     def get_handle_out_message_hook(self):
-        """
-        get handle_out_message hook.
+        """Get handle_out_message hook.
 
-        :returns: The hook method to handle payload output and error messages.
+        Returns:
+            The hook method to handle payload output and error messages.
         """
 
         return self.handle_out_message_hook
 
-    def init(self):
-        """
-        initialize message thread and payload process.
-        """
+    def init(self) -> None:
+        """Initialize message thread and payload process."""
 
         try:
             self.init_logs()
@@ -595,11 +601,13 @@ class ESProcessFineGrainedProc(threading.Thread):
             logger.debug(traceback.format_exc())
 
     def wait_graceful(self, proc: Any) -> int:
-        """
-        Wait for payload process to finish.
+        """Wait for payload process to finish.
 
-        :param proc: subprocess object (Any)
-        :return: exit code (int).
+        Args:
+            proc: subprocess object (Any).
+
+        Returns:
+            int: exit code.
         """
         breaker = False
         exit_code = None
@@ -745,11 +753,11 @@ class ESProcessFineGrainedProc(threading.Thread):
         for output in outputs:
             self.handle_out_message(output)
 
-    def monitor(self, terminate=False):
-        """
-        Monitor whether a process is dead.
+    def monitor(self, terminate=False) -> None:
+        """Monitor whether a process is dead.
 
-        raises: RunPayloadFailure: when the payload process is dead or exited.
+        Raises:
+            RunPayloadFailure: when the payload process is dead or exited.
         """
         if self.__thread_pool:
             self.__thread_pool.scan()
@@ -769,13 +777,15 @@ class ESProcessFineGrainedProc(threading.Thread):
                 self.send_terminate_events(outputs)
 
     def get_event_ranges(self, num_ranges=None, queue_factor=1):
-        """
-        Calling get_event_ranges hook to get event ranges.
+        """Call get_event_ranges hook to get event ranges.
 
-        :param num_ranges: number of event ranges to get.
+        Args:
+            num_ranges: number of event ranges to get.
+            queue_factor: queue factor for prefetching.
 
-        :raises: SetupFailure: If get_event_ranges_hook is not set.
-                 MessageFailure: when failed to get event ranges.
+        Raises:
+            SetupFailure: If get_event_ranges_hook is not set.
+            MessageFailure: when failed to get event ranges.
         """
         if not num_ranges:
             num_ranges = self.corecount
@@ -793,28 +803,33 @@ class ESProcessFineGrainedProc(threading.Thread):
             raise MessageFailure(f"Failed to get event ranges: {e}") from e
 
     def parse_out_message(self, message):
-        """
-        Parse output or error messages from payload.
+        """Parse output or error messages from payload.
 
-        :param message: The message string received from payload.
+        Args:
+            message: The message string received from payload.
 
-        :returns: a dict {'id': <id>, 'status': <status>, 'output': <output if produced>, 'cpu': <cpu>, 'wall': <wall>, 'message': <full message>}
-        :raises: PilotExecption: when a PilotException is caught.
-                 UnknownException: when other unknown exception is caught.
+        Returns:
+            dict: a dict {'id': <id>, 'status': <status>, 'output': <output if produced>, 'cpu': <cpu>, 'wall': <wall>, 'message': <full message>}.
+
+        Raises:
+            PilotException: when a PilotException is caught.
+            UnknownException: when other unknown exception is caught.
         """
 
         logger.debug(f'parsing message: {message}')
         return message
 
-    def handle_out_message(self, message):
-        """
-        Handle output or error messages from payload.
+    def handle_out_message(self, message) -> None:
+        """Handle output or error messages from payload.
+
         Messages from payload will be parsed and the handle_out_message hook is called.
 
-        :param message: The message string received from payload.
+        Args:
+            message: The message string received from payload.
 
-        :raises: SetupFailure: when handle_out_message_hook is not set.
-                 RunPayloadFailure: when failed to handle an output or error message.
+        Raises:
+            SetupFailure: when handle_out_message_hook is not set.
+            RunPayloadFailure: when failed to handle an output or error message.
         """
 
         logger.debug(f'handling out message: {message}')
@@ -829,23 +844,21 @@ class ESProcessFineGrainedProc(threading.Thread):
         except Exception as e:
             raise RunPayloadFailure(f"Failed to handle out message: {e}")
 
-    def is_payload_running(self):
-        """
-        Check whether the payload is still running
+    def is_payload_running(self) -> bool:
+        """Check whether the payload is still running.
 
-        :return: True if the payload is running, otherwise False
+        Returns:
+            bool: True if the payload is running, otherwise False.
         """
         if (self.__stop.is_set() or self.is_no_more_events) and self.__thread_pool.get_num_running_workers() < 1:
             return False
         return True
 
     def poll(self):
-        """
-        poll whether the process is still running.
+        """Poll whether the process is still running.
 
-        :returns: None: still running.
-                  0: finished successfully.
-                  others: failed.
+        Returns:
+            None if still running, 0 if finished successfully, or a non-zero int if failed.
         """
         # if self.is_payload_running():
         #     return None
@@ -854,21 +867,20 @@ class ESProcessFineGrainedProc(threading.Thread):
         #     return None
         return self.__ret_code
 
-    def clean(self):
-        """
-        Clean left resources
-        """
+    def clean(self) -> None:
+        """Clean left resources."""
         self.stop()
         if self.__ret_code is None:
             self.__ret_code = 0
 
-    def run(self):
-        """
-        Main run loops: monitor message thread and payload process.
-                        handle messages from payload and response messages with injecting new event ranges or process outputs.
+    def run(self) -> None:
+        """Main run loop: monitor message thread and payload process.
 
-        :raises: PilotExecption: when a PilotException is caught.
-                 UnknownException: when other unknown exception is caught.
+        Handles messages from payload and responds with new event ranges or process outputs.
+
+        Raises:
+            PilotException: when a PilotException is caught.
+            UnknownException: when other unknown exception is caught.
         """
 
         self.__is_payload_started = True

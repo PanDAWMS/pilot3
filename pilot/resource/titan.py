@@ -46,12 +46,14 @@ from .jobdescription import JobDescription
 logger = logging.getLogger(__name__)
 
 
-def get_job(harvesterpath: str) -> (JobDescription, int):
-    """
-    Return job description in dictionary form and MPI rank (if applicable).
+def get_job(harvesterpath: str) -> tuple[JobDescription, int]:
+    """Return job description in dictionary form and MPI rank (if applicable).
 
-    :param harvesterpath: path to config.Harvester.jobs_list_file (string).
-    :return: job object (JobDescription), rank (int).
+    Args:
+        harvesterpath: path to config.Harvester.jobs_list_file.
+
+    Returns:
+        tuple[JobDescription, int]: job object and MPI rank.
     """
     rank = 0
     job = None
@@ -82,11 +84,13 @@ def get_job(harvesterpath: str) -> (JobDescription, int):
 
 
 def get_setup(job: Any = None) -> list:
-    """
-    Return the resource specific setup.
+    """Return the resource specific setup.
 
-    :param job: optional job object (Any)
-    :return: setup commands (list).
+    Args:
+        job: optional job object.
+
+    Returns:
+        list: setup commands.
     """
     if not job:
         logger.warning('job object not sent to get_setup')
@@ -114,12 +118,14 @@ def get_setup(job: Any = None) -> list:
 
 
 def set_job_workdir(job: Any, path: str) -> str:
-    """
-    Point pilot to job working directory (job id).
+    """Point pilot to job working directory (job id).
 
-    :param job: job object (Any)
-    :param path: local path to Harvester access point (str)
-    :return: job working directory (str).
+    Args:
+        job: job object.
+        path: local path to Harvester access point.
+
+    Returns:
+        str: job working directory.
     """
     work_dir = os.path.join(path, str(job.jobid))
     os.chdir(work_dir)
@@ -128,14 +134,18 @@ def set_job_workdir(job: Any, path: str) -> str:
 
 
 def set_scratch_workdir(job: Any, work_dir: str, args: dict) -> str:
-    """
-    Copy input files and some db files to RAM disk.
+    """Copy input files and some db files to RAM disk.
 
-    :param job: job object (Any)
-    :param work_dir: job working directory (permanent FS) (str)
-    :param args: args dictionary to collect timing metrics (dict)
-    :return: job working directory in scratch (str)
-    :raises FileHandlingFailure: in case of IOError.
+    Args:
+        job: job object.
+        work_dir: job working directory (permanent FS).
+        args: args dictionary to collect timing metrics.
+
+    Returns:
+        str: job working directory in scratch.
+
+    Raises:
+        FileHandlingFailure: in case of IOError.
     """
     scratch_path = config.HPC.scratch
     job_scratch_dir = os.path.join(scratch_path, str(job.jobid))
@@ -201,14 +211,16 @@ def set_scratch_workdir(job: Any, work_dir: str, args: dict) -> str:
     return job_scratch_dir
 
 
-def process_jobreport(payload_report_file: str, job_scratch_path: str, job_communication_point: str):
-    """
-    Copy job report file to make it accessible by Harvester. Shrink job report file.
+def process_jobreport(payload_report_file: str, job_scratch_path: str, job_communication_point: str) -> None:
+    """Copy job report file to make it accessible by Harvester. Shrink job report file.
 
-    :param payload_report_file: name of job report (str)
-    :param job_scratch_path: path to scratch directory (str)
-    :param job_communication_point: path to updated job report accessible by Harvester (str)
-    :raises FileHandlingFailure: in case of IOError.
+    Args:
+        payload_report_file: name of job report.
+        job_scratch_path: path to scratch directory.
+        job_communication_point: path to updated job report accessible by Harvester.
+
+    Raises:
+        FileHandlingFailure: in case of IOError.
     """
     src_file = os.path.join(job_scratch_path, payload_report_file)
     dst_file = os.path.join(job_communication_point, payload_report_file)
@@ -230,12 +242,14 @@ def process_jobreport(payload_report_file: str, job_scratch_path: str, job_commu
         raise FileHandlingFailure("job report copy from RAM failed") from exc
 
 
-def postprocess_workdir(workdir: str):
-    """
-    Post-processing of working directory. Unlink paths.
+def postprocess_workdir(workdir: str) -> None:
+    """Post-processing of working directory. Unlink paths.
 
-    :param workdir: path to directory to be processed (str)
-    :raises FileHandlingFailure: in case of IOError.
+    Args:
+        workdir: path to directory to be processed.
+
+    Raises:
+        FileHandlingFailure: in case of IOError.
     """
     pseudo_dir = "poolcond"
     try:
@@ -246,12 +260,14 @@ def postprocess_workdir(workdir: str):
 
 
 def command_fix(command: str, job_scratch_dir: str) -> str:
-    """
-    Modification of payload parameters, to be executed on Titan on RAM disk. Some cleanup.
+    """Modification of payload parameters, to be executed on Titan on RAM disk. Some cleanup.
 
-    :param command: payload command (str)
-    :param job_scratch_dir: local path to input files (str)
-    :return: updated/fixed payload command (str).
+    Args:
+        command: payload command.
+        job_scratch_dir: local path to input files.
+
+    Returns:
+        str: updated/fixed payload command.
     """
     subs_a = command.split()
     for i, sub in enumerate(subs_a):

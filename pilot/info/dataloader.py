@@ -35,7 +35,7 @@ from datetime import (
     datetime,
     timedelta
 )
-from typing import Any
+from typing import Any, Optional
 
 from pilot.util.timer import timeout
 from pilot.util.https import download_file
@@ -48,12 +48,14 @@ class DataLoader:
 
     @classmethod
     def is_file_expired(cls, fname: str, cache_time: int = 0) -> bool:
-        """
-        Check if file fname is older than cache_time seconds from its last_update_time.
+        """Check if file fname is older than cache_time seconds from its last_update_time.
 
-        :param fname: file name (str)
-        :param cache_time: cache time in seconds (int)
-        :return: True if file is expired, False otherwise (bool).
+        Args:
+            fname: file name.
+            cache_time: cache time in seconds.
+
+        Returns:
+            bool: True if file is expired, False otherwise.
         """
         if cache_time:
             lastupdate = cls.get_file_last_update_time(fname)
@@ -62,12 +64,14 @@ class DataLoader:
         return True
 
     @classmethod
-    def get_file_last_update_time(cls, fname: str) -> datetime or None:
-        """
-        Return the last update time of the given file.
+    def get_file_last_update_time(cls, fname: str) -> Optional[datetime]:
+        """Return the last update time of the given file.
 
-        :param fname: file name (str)
-        :return: last update time in seconds or None if file does not exist (datetime or None).
+        Args:
+            fname: file name.
+
+        Returns:
+            Optional[datetime]: last update time in seconds or None if file does not exist.
         """
         try:
             lastupdate = datetime.fromtimestamp(os.stat(fname).st_mtime)
@@ -78,28 +82,32 @@ class DataLoader:
 
     @classmethod  # noqa: C901
     def load_url_data(cls, url: str, fname: str = None, cache_time: int = 0, nretry: int = 3, sleep_time: int = 60) -> Any:  # noqa: C901
-        """
-        Download data from url or file resource and optionally save it into cache file fname.
+        """Download data from url or file resource and optionally save it into cache file fname.
 
         The file will not be (re-)loaded again if cache age from last file modification does not exceed cache_time
         seconds.
 
         If url is None then data will be read from cache file fname (if any).
 
-        :param url: URL to source of data (str)
-        :param fname: cache file name. If given then loaded data will be saved into it (str)
-        :param cache_time: cache time in seconds (int)
-        :param nretry: number of retries (default is 3) (int)
-        :param sleep_time: sleep time (default is 60 s) between retry attempts (int)
-        :return: data loaded from the url or file content if url passed is a filename (Any).
+        Args:
+            url: URL to source of data.
+            fname: cache file name. If given then loaded data will be saved into it.
+            cache_time: cache time in seconds.
+            nretry: number of retries (default is 3).
+            sleep_time: sleep time (default is 60 s) between retry attempts.
+
+        Returns:
+            Any: data loaded from the url or file content if url passed is a filename.
         """
         @timeout(seconds=20)
         def _readfile(url: str) -> str:
-            """
-            Read file content.
+            """Read file content.
 
-            :param url: file name (str)
-            :return: file content (str).
+            Args:
+                url: file name.
+
+            Returns:
+                str: file content.
             """
             if os.path.isfile(url):
                 try:
@@ -164,8 +172,7 @@ class DataLoader:
 
     @classmethod
     def load_data(cls, sources: dict, priority: list, cache_time: int = 60, parser: Any = None) -> Any:
-        """
-        Download data from various sources (prioritized).
+        """Download data from various sources (prioritized).
 
         Try to get data from sources according to priority values passed
 
@@ -173,11 +180,14 @@ class DataLoader:
         sources = {'NAME':{'url':"source url", 'nretry':int, 'fname':'cache file (optional)',
                    'cache_time':int (optional), 'sleep_time':opt}}
 
-        :param sources: dict of source configuration (dict)
-        :param priority: ordered list of source names (list)
-        :param cache_time: default cache time in seconds. Can be overwritten by cache_time value passed in sources (dict)
-        :param parser: callback function to interpret/validate data which takes read data from source as input. Default is json.loads (Any)
-        :return: data loaded and processed by parser callback (Any)
+        Args:
+            sources: dict of source configuration.
+            priority: ordered list of source names.
+            cache_time: default cache time in seconds. Can be overwritten by cache_time value passed in sources.
+            parser: callback function to interpret/validate data which takes read data from source as input. Default is json.loads.
+
+        Returns:
+            Any: data loaded and processed by parser callback.
         """
         if not priority:  # no priority set ## randomly order if need (FIX ME LATER)
             priority = list(sources.keys())
@@ -220,19 +230,21 @@ class DataLoader:
 
 def merge_dict_data(dic1: dict, dic2: dict, keys: list = None, common: bool = True, left: bool = True,
                     right: bool = True, rec: bool = False) -> dict:
-    """
-    Recursively merge two dictionary objects.
+    """Recursively merge two dictionary objects.
 
     Merge content of dic2 dict into copy of dic1.
 
-    :param dic1: dictionary to merge into (dict)
-    :param dic2: dictionary to merge from (dict)
-    :param keys: list of keys to merge (list)
-    :param common: if True then merge keys exist in both dictionaries (bool)
-    :param left: if True then preserve keys exist only in dic1 (bool)
-    :param right: if True then preserve keys exist only in dic2 (bool)
-    :param rec: if True then merge recursively (bool)
-    :return: merged dictionary (dict).
+    Args:
+        dic1: dictionary to merge into.
+        dic2: dictionary to merge from.
+        keys: list of keys to merge.
+        common: if True then merge keys exist in both dictionaries.
+        left: if True then preserve keys exist only in dic1.
+        right: if True then preserve keys exist only in dic2.
+        rec: if True then merge recursively.
+
+    Returns:
+        dict: merged dictionary.
     """
     if keys is None:
         keys = []

@@ -24,7 +24,7 @@
 import logging
 import os
 from glob import glob
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 try:
@@ -56,8 +56,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list)
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -73,8 +76,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list)
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -84,30 +90,35 @@ def is_valid_for_copy_out(files: list) -> bool:
     return True  ## FIX ME LATER
 
 
-def get_pilot_s3_profile() -> str:
+def get_pilot_s3_profile() -> Optional[str]:
     """
     Get the PANDA_PILOT_AWS_PROFILE environment variable.
 
-    :return: PANDA_PILOT_AWS_PROFILE (str).
+    Returns:
+        Value of PANDA_PILOT_AWS_PROFILE, or None if not set.
     """
     return os.environ.get("PANDA_PILOT_AWS_PROFILE", None)
 
 
-def get_copy_out_extend() -> str:
+def get_copy_out_extend() -> Optional[str]:
     """
     Get the PANDA_PILOT_COPY_OUT_EXTEND environment variable.
 
-    :return: PANDA_PILOT_COPY_OUT_EXTEND (str).
+    Returns:
+        Value of PANDA_PILOT_COPY_OUT_EXTEND, or None if not set.
     """
     return os.environ.get("PANDA_PILOT_COPY_OUT_EXTEND", None)
 
 
-def get_endpoint_bucket_key(surl: str) -> (str, str, str):
+def get_endpoint_bucket_key(surl: str) -> tuple[str, str, str]:
     """
     Get the endpoint, bucket and key from the given SURL.
 
-    :param surl: SURL (str)
-    :return: endpoint (str), bucket (str), key (str).
+    Args:
+        surl: SURL.
+
+    Returns:
+        Tuple of (endpoint, bucket, key).
     """
     parsed = urlparse(surl)
     endpoint = parsed.scheme + '://' + parsed.netloc
@@ -128,11 +139,14 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
 
     Can be customized at the level of specific copytool.
 
-    :param fspec: FileSpec object (Any)
-    :param protocol: suggested protocol (dict)
-    :param ddmconf: full ddm storage data (dict)
-    :param kwargs: kwargs dictionary (dict)
-    :return: SURL dictionary {'surl': surl} (dict).
+    Args:
+        fspec: FileSpec object.
+        protocol: suggested protocol.
+        ddmconf: full ddm storage data.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        SURL dictionary of the form {'surl': surl}.
     """
     if kwargs:  # to get rid of pylint warning
         pass
@@ -181,10 +195,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files from an S3 bucket.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated list of files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     for fspec in files:
 
@@ -207,14 +226,17 @@ def copy_in(files: list, **kwargs: dict) -> list:
     return files
 
 
-def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
+def download_file(path: str, surl: str, object_name: str = None) -> tuple[bool, str]:
     """
     Download a file from an S3 bucket.
 
-    :param path: path to local file after download (str)
-    :param surl: source url to download from (str)
-    :param object_name: S3 object name. If not specified then file_name from path is used (str)
-    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
+    Args:
+        path: path to local file after download.
+        surl: source url to download from.
+        object_name: S3 object name. If not specified then file_name from path is used.
+
+    Returns:
+        Tuple of (success, diagnostics) where success is True if the file was downloaded, False otherwise.
     """
     try:
         endpoint, bucket, object_name = get_endpoint_bucket_key(surl)
@@ -238,10 +260,15 @@ def copy_out_extend(files: list, **kwargs: dict) -> list:
     """
     Upload given files to S3 storage.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated list of files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     workdir = kwargs.pop('workdir')
 
@@ -295,10 +322,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files to S3 storage.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raise: PilotException in case of controlled error
-    :return: updated list of files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     if get_copy_out_extend():
         return copy_out_extend(files, **kwargs)
@@ -333,13 +365,16 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def upload_file(file_name: str, full_url: str) -> (bool, str):
+def upload_file(file_name: str, full_url: str) -> tuple[bool, str]:
     """
     Upload a file to an S3 bucket.
 
-    :param file_name: file to upload (str)
-    :param full_url: full URL to upload to (str)
-    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
+    Args:
+        file_name: file to upload.
+        full_url: full URL to upload to.
+
+    Returns:
+        Tuple of (success, diagnostics) where success is True if the file was uploaded, False otherwise.
     """
     # upload the file
     try:

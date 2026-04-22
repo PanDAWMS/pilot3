@@ -40,12 +40,12 @@ logger = logging.getLogger(__name__)
 class PandaCommunicator(BaseCommunicator):
     """PanDA communicator class."""
 
-    def __init__(self, *args: Any, **kwargs: dict):
-        """
-        Initialize variables.
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize variables.
 
-        :param args: args object (Any)
-        :param kwargs: kwargs dictionary (dict)
+        Args:
+            args: args object.
+            kwargs: kwargs dictionary.
         """
         super().__init__(args, kwargs)
         self.get_jobs_lock = threading.Lock()
@@ -54,38 +54,46 @@ class PandaCommunicator(BaseCommunicator):
         self.update_jobs_lock = threading.Lock()
 
     def pre_check_get_jobs(self, req: Any = None) -> Any:
-        """
-        Check whether it's ok to send a request to get jobs.
+        """Check whether it's ok to send a request to get jobs.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
     def request_get_jobs(self, req: Any) -> Any:
-        """
-        Send a request to get jobs.
+        """Send a request to get jobs.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
-    def check_get_jobs_status(self, req: Any = None):
-        """
-        Check whether jobs are prepared.
+    def check_get_jobs_status(self, req: Any = None) -> Any:
+        """Check whether jobs are prepared.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
     def get_data(self, req: Any) -> dict:
-        """
-        Get data from request.
+        """Get data from request.
 
-        :param req: request (Any)
-        :return: data dictionary (dict).
+        Args:
+            req: request.
+
+        Returns:
+            dict: data dictionary.
         """
         data = {'getProxyKey': 'False'}
         kmap = {'node': 'node', 'mem': 'mem', 'getProxyKey': 'getProxyKey', 'computingElement': 'queue',
@@ -98,11 +106,13 @@ class PandaCommunicator(BaseCommunicator):
         return data
 
     def get_jobs(self, req: Any) -> dict:
-        """
-        Get the job definition from panda server.
+        """Get the job definition from panda server.
 
-        :param req: request (Any)
-        :return: job definition dictionary (dict).
+        Args:
+            req: request.
+
+        Returns:
+            dict: job definition dictionary.
         """
         self.get_jobs_lock.acquire()
 
@@ -150,38 +160,46 @@ class PandaCommunicator(BaseCommunicator):
         return resp
 
     def pre_check_get_events(self, req: Any = None) -> Any:
-        """
-        Precheck whether it's ok to send a request to get events.
+        """Precheck whether it's ok to send a request to get events.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
     def request_get_events(self, req: Any) -> Any:
-        """
-        Send a request to get events.
+        """Send a request to get events.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
     def check_get_events_status(self, req: Any = None) -> Any:
-        """
-        Check whether events prepared.
+        """Check whether events prepared.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         return CommunicationResponse({'status': 0})
 
     def get_events(self, req: Any) -> Any:
-        """
-        Get events.
+        """Get events.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with event ranges or error status.
         """
         self.get_events_lock.acquire()
 
@@ -222,11 +240,13 @@ class PandaCommunicator(BaseCommunicator):
         return resp
 
     def pre_check_update_events(self, req: Any = None) -> Any:
-        """
-        Precheck whether it's ok to update events.
+        """Precheck whether it's ok to update events.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         self.update_events_lock.acquire()
         try:
@@ -238,11 +258,13 @@ class PandaCommunicator(BaseCommunicator):
         return CommunicationResponse({'status': 0})
 
     def update_events(self, req: Any) -> Any:
-        """
-        Update events.
+        """Update events.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         self.update_events_lock.acquire()
 
@@ -264,11 +286,13 @@ class PandaCommunicator(BaseCommunicator):
         return resp
 
     def pre_check_update_jobs(self, req: Any = None) -> Any:
-        """
-        Check whether it's ok to update jobs.
+        """Check whether it's ok to update jobs.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         try:
             self.update_jobs_lock.acquire()
@@ -279,11 +303,13 @@ class PandaCommunicator(BaseCommunicator):
         return CommunicationResponse({'status': 0})
 
     def update_job(self, job: Any) -> int:
-        """
-        Update job.
+        """Update job.
 
-        :param job: job definition (Any)
-        :return: status code (int).
+        Args:
+            job: job definition.
+
+        Returns:
+            int: status code.
         """
         try:
             logger.info(f"Updating job: {job}")
@@ -297,11 +323,13 @@ class PandaCommunicator(BaseCommunicator):
             return -1
 
     def update_jobs(self, req: Any) -> Any:
-        """
-        Update jobs.
+        """Update jobs.
 
-        :param req: request (Any)
-        :return: CommunicationResponse({'status': 0}) (Any).
+        Args:
+            req: request.
+
+        Returns:
+            Any: CommunicationResponse with status 0.
         """
         self.update_jobs_lock.acquire()
 

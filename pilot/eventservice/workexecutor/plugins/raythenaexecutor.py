@@ -50,11 +50,11 @@ errors = ErrorCodes()
 class RaythenaExecutor(BaseExecutor):
     """Raythena executor class."""
 
-    def __init__(self, **kwargs):
-        """
-        Initialize Raythena executor.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize Raythena executor.
 
-        :param kwargs: kwargs dictionary (dict).
+        Args:
+            **kwargs: kwargs dictionary.
         """
         super().__init__(**kwargs)
         self.name = "RaythenaExecutor"
@@ -65,35 +65,37 @@ class RaythenaExecutor(BaseExecutor):
         self.exit_code = None
 
     def is_payload_started(self) -> bool:
-        """
-        Check if payload is started.
+        """Check if payload is started.
 
-        :return: True if payload is started, False otherwise (bool).
+        Returns:
+            bool: True if payload is started, False otherwise.
         """
         return self.proc.is_payload_started() if self.proc else False
 
     def get_pid(self) -> int:
-        """
-        Get the process id of the payload process.
+        """Get the process id of the payload process.
 
-        :return: the process id of the payload process (int).
+        Returns:
+            int: the process id of the payload process.
         """
         return self.proc.pid if self.proc else None
 
     def get_exit_code(self) -> int:
-        """
-        Get the exit code of the payload process.
+        """Get the exit code of the payload process.
 
-        :return: the exit code of the payload process (int).
+        Returns:
+            int: the exit code of the payload process.
         """
         return self.exit_code
 
     def create_file_spec(self, pfn: str) -> FileSpec:
-        """
-        Create a FileSpec object from a given PFN.
+        """Create a FileSpec object from a given PFN.
 
-        :param pfn: physical file name (string).
-        :return: a FileSpec object (FileSpec).
+        Args:
+            pfn: physical file name.
+
+        Returns:
+            FileSpec: a FileSpec object.
         """
         try:
             checksum = calculate_checksum(pfn, algorithm=config.File.checksum_type)
@@ -111,11 +113,11 @@ class RaythenaExecutor(BaseExecutor):
 
         return file_spec
 
-    def move_output(self, pfn: str):
-        """
-        Move output file from given PFN path to PILOT_OUTPUT_DIR if set.
+    def move_output(self, pfn: str) -> None:
+        """Move output file from given PFN path to PILOT_OUTPUT_DIR if set.
 
-        :param pfn: physical file name (str).
+        Args:
+            pfn: physical file name.
         """
         outputdir = os.environ.get('PILOT_OUTPUT_DIR', None)
         if outputdir:
@@ -125,10 +127,10 @@ class RaythenaExecutor(BaseExecutor):
                 logger.warning(f'failed to move output: {exc}')
 
     def update_finished_event_ranges(self, out_messages: Any) -> None:
-        """
-        Update finished event ranges.
+        """Update finished event ranges.
 
-        :param out_messages: messages from AthenaMP (Any).
+        Args:
+            out_messages: messages from AthenaMP.
         """
         logger.info("update_finished_event_ranges:")
 
@@ -155,10 +157,10 @@ class RaythenaExecutor(BaseExecutor):
         job.nevents += len(event_ranges)
 
     def update_failed_event_ranges(self, out_messages: Any) -> None:
-        """
-        Update failed event ranges.
+        """Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP (Any).
+        Args:
+            out_messages: messages from AthenaMP.
         """
         if len(out_messages) == 0:
             return
@@ -171,16 +173,16 @@ class RaythenaExecutor(BaseExecutor):
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def handle_out_message(self, message: dict):
-        """
-        Handle ES output or error messages hook function for tests.
+    def handle_out_message(self, message: dict) -> None:
+        """Handle ES output or error messages hook function for tests.
 
         Example:
                 For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
                 For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
-        :param message: dictionary of parsed message (dict).
+        Args:
+            message: dictionary of parsed message.
         """
         logger.info(f"Handling out message: {message}")
 
@@ -193,11 +195,11 @@ class RaythenaExecutor(BaseExecutor):
                 message['output'] = os.path.join(self.get_job().workdir, message['output'])
             self.__queued_out_messages.append(message)
 
-    def stageout_es(self, force: bool = False):
-        """
-        Stage out event service outputs.
+    def stageout_es(self, force: bool = False) -> None:
+        """Stage out event service outputs.
 
-        :param force: force stage out (bool).
+        Args:
+            force: force stage out.
         """
         job = self.get_job()
         if self.__queued_out_messages:
@@ -207,7 +209,7 @@ class RaythenaExecutor(BaseExecutor):
                     out_messages.append(self.__queued_out_messages.pop())
                 self.update_finished_event_ranges(out_messages)
 
-    def clean(self):
+    def clean(self) -> None:
         """Clean temp produced files."""
         logger.info("shutting down...")
 
@@ -222,7 +224,7 @@ class RaythenaExecutor(BaseExecutor):
 
         self.stop_communicator()
 
-    def run(self):
+    def run(self) -> None:
         """Initialize and run ESProcess."""
         try:
             logger.info(f"starting ES RaythenaExecutor with thread ident: {self.ident}")

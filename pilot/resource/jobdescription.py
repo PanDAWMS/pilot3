@@ -29,32 +29,39 @@ import numbers
 import sys
 import traceback
 import threading
-from typing import Any
+from typing import (
+    Any,
+    Optional
+)
 
 logger = logging.getLogger(__name__)
 
 
 def camel_to_snake(name: str) -> str:
-    """
-    Change CamelCase to snake_case.
+    """Change CamelCase to snake_case.
 
     Used by Python.
 
-    :param name: name to change (str)
-    :return: name in snake_case (str).
+    Args:
+        name: name to change.
+
+    Returns:
+        str: name in snake_case.
     """
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
 def snake_to_camel(snake_str: str) -> str:
-    """
-    Change snake_case to firstLowCamelCase.
+    """Change snake_case to firstLowCamelCase.
 
     Used by server.
 
-    :param snake_str: name to change (str)
-    :return: name in camelCase (str).
+    Args:
+        snake_str: name to change.
+
+    Returns:
+        str: name in camelCase.
     """
     components = snake_str.split('_')
     # We capitalize the first letter of each component except the first one
@@ -63,15 +70,17 @@ def snake_to_camel(snake_str: str) -> str:
 
 
 def split(val: str, separator: str = ",", min_len: int = 0, fill_last: bool = False) -> list:
-    """
-    Split comma separated values and parse them.
+    """Split comma separated values and parse them.
 
-    :param val: values to split (str)
-    :param separator: comma or whatever (str)
-    :param min_len: minimum needed length of array, array is filled up to this value (int)
-    :param fill_last: flag stating the array filler, if min_value is greater then extracted array length.
-                        If true, array is filled with last value, else, with Nones (bool)
-    :return: parsed array (list).
+    Args:
+        val: values to split.
+        separator: comma or whatever.
+        min_len: minimum needed length of array, array is filled up to this value.
+        fill_last: flag stating the array filler, if min_value is greater then extracted array length.
+            If true, array is filled with last value, else, with Nones.
+
+    Returns:
+        list: parsed array.
     """
     if val is None:
         return [None for _ in range(min_len)]
@@ -88,22 +97,26 @@ def split(val: str, separator: str = ",", min_len: int = 0, fill_last: bool = Fa
     return v_arr
 
 
-def get_nulls(val: str) -> str or None:
-    """
-    Convert every "NULL" string to None.
+def get_nulls(val: str) -> Optional[str]:
+    """Convert every "NULL" string to None.
 
-    :param val: string or whatever
-    :return: val or None if val is "NULL"
+    Args:
+        val: string or whatever.
+
+    Returns:
+        Optional[str]: val or None if val is "NULL".
     """
     return val if val != "NULL" else None
 
 
 def is_float(val: Any) -> bool:
-    """
-    Test floatliness of the string value.
+    """Test floatliness of the string value.
 
-    :param val: string or whatever (Any)
-    :return: True if the value may be converted to Float (bool).
+    Args:
+        val: string or whatever.
+
+    Returns:
+        bool: True if the value may be converted to Float.
     """
     try:
         float(val)
@@ -114,11 +127,13 @@ def is_float(val: Any) -> bool:
 
 
 def is_int(val: Any) -> bool:
-    """
-    Test if the given string is an integer.
+    """Test if the given string is an integer.
 
-    :param val: string or whatever (Any)
-    :return: True if the value may be converted to int (bool).
+    Args:
+        val: string or whatever.
+
+    Returns:
+        bool: True if the value may be converted to int.
     """
     try:
         int(val)
@@ -129,14 +144,16 @@ def is_int(val: Any) -> bool:
 
 
 def parse_value(value: Any) -> Any:
-    """
-    Try to parse value as number or None.
+    """Try to parse value as number or None.
 
     If some of this can be done, parsed value is returned. Otherwise returns
     value unparsed.
 
-    :param value: value to be tested (Any)
-    :return: mixed (Any).
+    Args:
+        value: value to be tested.
+
+    Returns:
+        Any: parsed value, or value unparsed if conversion is not possible.
     """
     if not isinstance(value, str):
         return value
@@ -151,11 +168,13 @@ def parse_value(value: Any) -> Any:
 
 
 def stringify_weird(arg: Any) -> str:
-    """
-    Convert None to "NULL".
+    """Convert None to "NULL".
 
-    :param arg: value to stringify (Any)
-    :return: arg or "NULL" if arg is None (str).
+    Args:
+        arg: value to stringify.
+
+    Returns:
+        str: arg or "NULL" if arg is None.
     """
     if arg is None:
         return "NULL"
@@ -166,21 +185,25 @@ def stringify_weird(arg: Any) -> str:
 
 
 def join(arr: list) -> str:
-    """
-    Join arrays, converting contents to strings.
+    """Join arrays, converting contents to strings.
 
-    :param arr: array (list)
-    :return: joined array (str).
+    Args:
+        arr: array.
+
+    Returns:
+        str: joined array.
     """
     return ",".join(str(stringify_weird(x)) for x in arr)
 
 
 def get_input_files(description: dict) -> dict:
-    """
-    Extract input files from the description.
+    """Extract input files from the description.
 
-    :param description: job decsription (dict)
-    :return: file dictionary (dict).
+    Args:
+        description: job description.
+
+    Returns:
+        dict: file dictionary.
     """
     logger.info("extracting input files from job description")
     files = {}
@@ -219,12 +242,14 @@ def get_input_files(description: dict) -> dict:
 
 
 def fix_log(description: dict, files: dict) -> dict:
-    """
-    Fix log file description in output files (change GUID and scope).
+    """Fix log file description in output files (change GUID and scope).
 
-    :param description: job description (dict)
-    :param files: output files (dict)
-    :return: fixed output files (dict).
+    Args:
+        description: job description.
+        files: output files.
+
+    Returns:
+        dict: fixed output files.
     """
     logger.info("modifying log-specific values in a log file description")
     if description["logFile"] and description["logFile"] != "NULL":
@@ -237,11 +262,13 @@ def fix_log(description: dict, files: dict) -> dict:
 
 
 def get_output_files(description: dict) -> dict:
-    """
-    Extract output files from the description.
+    """Extract output files from the description.
 
-    :param description: job description (dict)
-    :return: output files (dict).
+    Args:
+        description: job description.
+
+    Returns:
+        dict: output files.
     """
     logger.info("extracting output files in description")
     files = {}
@@ -274,11 +301,13 @@ def get_output_files(description: dict) -> dict:
 
 
 def one_or_set(array: list) -> str:
-    """
-    Return the only element of array if it's the only one.
+    """Return the only element of array if it's the only one.
 
-    :param array: array (list)
-    :return: array[0] or array (str).
+    Args:
+        array: array.
+
+    Returns:
+        str: array[0] if all elements are equal, otherwise a joined representation of the array.
     """
     if len(array) < 1:
         return join(array)
@@ -373,11 +402,13 @@ class JobDescription():
             self.__key_aliases_snake[camel_to_snake(key)] = alias
 
     def get_input_file_prop(self, key: str) -> str:
-        """
-        Get input file property.
+        """Get input file property.
 
-        :param key: property name (str)
-        :return: property value (str).
+        Args:
+            key: property name.
+
+        Returns:
+            str: property value.
         """
         corresponding_key = self.__input_file_keys[key]
         ret = []
@@ -391,11 +422,13 @@ class JobDescription():
         return join(ret)
 
     def get_output_file_prop(self, key: str) -> str:
-        """
-        Get output file property.
+        """Get output file property.
 
-        :param key: property name (str)
-        :return: property value (str).
+        Args:
+            key: property name.
+
+        Returns:
+            str: property value.
         """
         log_file = self.log_file
 
@@ -416,11 +449,11 @@ class JobDescription():
 
         return join(ret)
 
-    def load(self, new_desc: Any):
-        """
-        Load job description.
+    def load(self, new_desc: Any) -> None:
+        """Load job description.
 
-        :param new_desc: job description (Any).
+        Args:
+            new_desc: job description.
         """
         if isinstance(new_desc, str):
             new_desc = json.loads(new_desc)
@@ -457,13 +490,15 @@ class JobDescription():
 
         self.__holder = new_desc
 
-    def to_json(self, decompose: bool = False, **kwargs: dict) -> str:
-        """
-        Convert description to JSON.
+    def to_json(self, decompose: bool = False, **kwargs: Any) -> str:
+        """Convert description to JSON.
 
-        :param decompose: flag stating if the description should be decomposed (bool)
-        :param kwargs: additional arguments for json.dumps (dict)
-        :return: JSON representation of the description (str).
+        Args:
+            decompose: flag stating if the description should be decomposed.
+            **kwargs: additional arguments for json.dumps.
+
+        Returns:
+            str: JSON representation of the description.
         """
         if decompose:
             prep = {}
@@ -489,12 +524,16 @@ class JobDescription():
         return json.dumps(prep, **kwargs)
 
     def get_description_parameter(self, key: str) -> str:
-        """
-        Get description parameter.
+        """Get description parameter.
 
-        :param key: parameter name (str)
-        :return: parameter value (str)
-        :raises: AttributeError if parameter not found.
+        Args:
+            key: parameter name.
+
+        Returns:
+            str: parameter value.
+
+        Raises:
+            AttributeError: if parameter not found.
         """
         if self.__holder is not None:
             if key in self.__holder:
@@ -524,13 +563,17 @@ class JobDescription():
         raise AttributeError("Description parameter not found")
 
     def set_description_parameter(self, key: str, value: Any) -> bool:
-        """
-        Set description parameter.
+        """Set description parameter.
 
-        :param key: parameter name (str)
-        :param value: parameter value (Any)
-        :return: True if parameter was set, False otherwise (bool)
-        :raises: AttributeError if parameter is read-only.
+        Args:
+            key: parameter name.
+            value: parameter value.
+
+        Returns:
+            bool: True if parameter was set, False otherwise.
+
+        Raises:
+            AttributeError: if parameter is read-only.
         """
         if self.__holder is not None:
             if key in self.__holder:
@@ -568,10 +611,10 @@ class JobDescription():
         return False
 
     def get_traceback(self) -> str:
-        """
-        Get traceback.
+        """Get traceback.
 
-        :return: traceback (str).
+        Returns:
+            str: traceback.
         """
         tb = list(reversed(traceback.extract_stack()))
 
@@ -586,11 +629,13 @@ class JobDescription():
         return 'Traceback: (latest call first)' + tb_str + f'Thread: {thread.name}({thread.ident})'
 
     def __getattr__(self, key: str) -> str:
-        """
-        Return attribute value.
+        """Return attribute value.
 
-        :param key: attribute name (str)
-        :return: attribute value (str).
+        Args:
+            key: attribute name.
+
+        Returns:
+            str: attribute value.
         """
         try:
             return object.__getattribute__(self, key)
@@ -598,12 +643,14 @@ class JobDescription():
             return self.get_description_parameter(key)
 
     def __setattr__(self, key: str, value: Any) -> Any:
-        """
-        Set attribute value.
+        """Set attribute value.
 
-        :param key: attribute name (str)
-        :param value: attribute value (Any).
-        :return: attribute value (Any).
+        Args:
+            key: attribute name.
+            value: attribute value.
+
+        Returns:
+            Any: attribute value.
         """
         try:
             object.__getattribute__(self, key)

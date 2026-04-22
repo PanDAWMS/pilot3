@@ -22,42 +22,47 @@
 
 """Hooks for Harvester EventService."""
 
-from pilot.eventservice.eshook import ESHook
+from pilot.eventservice.esprocess.eshook import ESHook
 
 
 class HarvesterESHook(ESHook):
     """Harvester EventService hook."""
 
     def get_payload(self) -> dict:
-        """
-        Get payload to execute.
+        """Get payload to execute.
 
-        Should return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename>} (dict).
-        :raises Exception: if anything goes wrong.
+        Should return: {'payload': <cmd string>, 'output_file': <filename>, 'error_file': <filename>}.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
-        """
-        Get event ranges.
+        """Get event ranges.
 
-        Should return: dictionary of event ranges (dict).
+        Should return: dictionary of event ranges.
 
-        :param num_ranges: Number of event ranges to download, default is 1 (int)
-        :raises Exception: if anything goes wrong.
+        Args:
+            num_ranges: Number of event ranges to download, default is 1.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 
-    def handle_out_message(self, message: dict):
-        """
-        Handle ES output or error messages.
+    def handle_out_message(self, message: dict) -> None:
+        """Handle ES output or error messages.
 
-        Example
+        Example:
             For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
             For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
 
-        :param message: dictionary of parsed message (dict).
-        :raises Exception: if anything goes wrong.
+        Args:
+            message: dictionary of parsed message.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")

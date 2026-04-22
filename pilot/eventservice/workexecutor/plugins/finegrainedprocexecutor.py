@@ -18,7 +18,9 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2023-24
-# - Paul Nilsson, paul.nilsson@cern.ch, 2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024-26
+
+from __future__ import annotations
 
 import json
 import logging
@@ -39,11 +41,11 @@ FineGrainedProc Executor with one process to manage EventService
 
 
 class FineGrainedProcExecutor(BaseExecutor):
-    def __init__(self, **kwargs: dict):
-        """
-        Init function for FineGrainedProcExecutor.
+    def __init__(self, **kwargs: Any) -> None:
+        """Init function for FineGrainedProcExecutor.
 
-        :param kwargs: keyword arguments (dict).
+        Args:
+            **kwargs: keyword arguments.
         """
         super().__init__(**kwargs)
         self.name = "FineGrainedProcExecutor"
@@ -56,38 +58,38 @@ class FineGrainedProcExecutor(BaseExecutor):
         self.exit_code = None
 
     def is_payload_started(self) -> bool:
-        """
-        Check if payload is started.
+        """Check if payload is started.
 
-        :return: True if payload is started, False otherwise.
+        Returns:
+            bool: True if payload is started, False otherwise.
         """
         return self.proc.is_payload_started() if self.proc else False
 
-    def get_pid(self) -> int or None:
-        """
-        Return the process ID.
+    def get_pid(self) -> int | None:
+        """Return the process ID.
 
-        :return: process ID (int or None).
+        Returns:
+            int | None: process ID.
         """
         return self.proc.pid if self.proc else None
 
-    def get_exit_code(self) -> int or None:
-        """
-        Get exit code of the process.
+    def get_exit_code(self) -> int | None:
+        """Get exit code of the process.
 
-        :return: exit code of the process (int or None).
+        Returns:
+            int | None: exit code of the process.
         """
         return self.exit_code
 
-    def update_finished_event_ranges(self, out_messages: list, output_file: str, fsize: int, checksum: str, storage_id: Any):
-        """
-        Update finished event ranges
+    def update_finished_event_ranges(self, out_messages: list, output_file: str, fsize: int, checksum: str, storage_id: Any) -> None:
+        """Update finished event ranges.
 
-        :param out_messages: messages from AthenaMP (list)
-        :param output_file: output file name (str)
-        :param fsize: file size (int)
-        :param checksum: checksum (adler32) of the file (str)
-        :param storage_id: the id of the storage (Any).
+        Args:
+            out_messages: messages from AthenaMP.
+            output_file: output file name.
+            fsize: file size.
+            checksum: checksum (adler32) of the file.
+            storage_id: the id of the storage.
         """
         if len(out_messages) == 0:
             return
@@ -109,11 +111,11 @@ class FineGrainedProcExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += len(event_ranges)
 
-    def update_failed_event_ranges(self, out_messages: list):
-        """
-        Update failed event ranges.
+    def update_failed_event_ranges(self, out_messages: list) -> None:
+        """Update failed event ranges.
 
-        :param out_messages: messages from AthenaMP (list).
+        Args:
+            out_messages: messages from AthenaMP.
         """
         if len(out_messages) == 0:
             return
@@ -126,11 +128,11 @@ class FineGrainedProcExecutor(BaseExecutor):
             event_range_message = {'version': 0, 'eventRanges': json.dumps(event_ranges)}
             self.update_events(event_range_message)
 
-    def update_terminated_event_ranges(self, out_messages: list):
-        """
-        Update terminated event ranges
+    def update_terminated_event_ranges(self, out_messages: list) -> None:
+        """Update terminated event ranges.
 
-        :param out_messages: messages from AthenaMP (list).
+        Args:
+            out_messages: messages from AthenaMP.
         """
         if len(out_messages) == 0:
             return
@@ -158,28 +160,28 @@ class FineGrainedProcExecutor(BaseExecutor):
         job = self.get_job()
         job.nevents += finished_events
 
-    def handle_out_message(self, message: dict):
-        """
-        Handle ES output or error messages hook function for tests.
+    def handle_out_message(self, message: dict) -> None:
+        """Handle ES output or error messages hook function for tests.
 
-        Example of message:
+        Example:
                 For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
                                                            'wall': <wall>, 'message': <full message>}.
                 For 'failed' event ranges, it's {'id': <id>, 'status': 'failed', 'message': <full message>}.
 
-        :param message: a dict of parsed message (dict).
+        Args:
+            message: a dict of parsed message.
         """
         logger.info(f"handling out message: {message}")
         self.__all_out_messages.append(message)
         self.__queued_out_messages.append(message)
 
-    def stageout_es(self, force: bool = False):
-        """
-        Stage out event service outputs.
+    def stageout_es(self, force: bool = False) -> None:
+        """Stage out event service outputs.
 
         When pilot fails to stage out a file, the file will be added back to the queue for staging out next period.
 
-        :param force: force to stage out (bool).
+        Args:
+            force: force to stage out.
         """
         job = self.get_job()
         if self.__queued_out_messages:
@@ -193,7 +195,7 @@ class FineGrainedProcExecutor(BaseExecutor):
                     self.__last_stageout_time = time.time()
                     self.update_terminated_event_ranges(out_messages)
 
-    def clean(self):
+    def clean(self) -> None:
         """Clean temp produced files."""
         for msg in self.__all_out_messages:
             if msg['status'] in {'failed', 'fatal'}:
@@ -231,10 +233,8 @@ class FineGrainedProcExecutor(BaseExecutor):
             proc = ESProcessFineGrainedProc(payload)
             return proc
 
-    def run(self):
-        """
-        Initialize and run ESProcess.
-        """
+    def run(self) -> None:
+        """Initialize and run ESProcess."""
 
         try:
             logger.info(f"starting ES FineGrainedProcExecutor with thread identifier: {self.ident}")

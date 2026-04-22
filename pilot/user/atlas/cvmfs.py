@@ -36,28 +36,28 @@ cvmfs_mount_points = [
 
 
 def get_cvmfs_base_path() -> str:
-    """
-    Return the base path for CVMFS.
+    """Return the base path for CVMFS.
 
-    :return: base path for CVMFS (str).
+    Returns:
+        str: base path for CVMFS.
     """
     return get_file_system_root_path()
 
 
 def get_last_update_file() -> str:
-    """
-    Return the last update file.
+    """Return the last update file.
 
-    :return: last update file (str).
+    Returns:
+        str: last update file.
     """
     return f'{get_cvmfs_base_path()}/sft.cern.ch/lcg/lastUpdate'
 
 
 def get_cvmfs_diagnostics_commands() -> list:
-    """
-    Return a list of commands to be used for CVMFS diagnostics.
+    """Return a list of commands to be used for CVMFS diagnostics.
 
-    :return: list of commands (list).
+    Returns:
+        list: list of commands.
     """
     return [
         'cvmfs_config stat atlas.cern.ch',

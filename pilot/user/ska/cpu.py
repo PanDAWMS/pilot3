@@ -22,6 +22,7 @@
 """ CPU related functionality."""
 
 import logging
+from typing import Any, Optional
 
 from pilot.info import JobData
 from pilot.util.container import execute
@@ -30,11 +31,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_core_count(job: JobData) -> int:
-    """
-    Return the core count.
+    """Return the core count.
 
-    :param job: job object (JobData)
-    :return: core count (int).
+    Args:
+        job: Job object.
+
+    Returns:
+        int: Core count.
     """
     if not job:  # to bypass pylint complaint
         pass
@@ -42,13 +45,15 @@ def get_core_count(job: JobData) -> int:
     return 0
 
 
-def add_core_count(corecount: int, core_counts: list = None):
-    """
-    Add a core count measurement to the list of core counts.
+def add_core_count(corecount: int, core_counts: Optional[list] = None) -> list:
+    """Add a core count measurement to the list of core counts.
 
-    :param corecount: current actual core count (int)
-    :param core_counts: list of core counts (list)
-    :return: updated list of core counts (list).
+    Args:
+        corecount: Current actual core count.
+        core_counts: List of core counts.
+
+    Returns:
+        list: Updated list of core counts.
     """
     if core_counts is None:
         core_counts = []
@@ -57,11 +62,11 @@ def add_core_count(corecount: int, core_counts: list = None):
     return core_counts
 
 
-def set_core_counts(**kwargs: dict):
-    """
-    Set the number of used cores.
+def set_core_counts(**kwargs: Any) -> None:
+    """Set the number of used cores.
 
-    :param kwargs: kwargs (dict).
+    Args:
+        **kwargs: Keyword arguments including 'job'.
     """
     job = kwargs.get('job', None)
     if job and job.pgrp:

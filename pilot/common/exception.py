@@ -434,16 +434,16 @@ class ExcThread(threading.Thread):
     def __init__(
         self, bucket: Any, target: Callable, kwargs: dict[str, Any], name: str
     ):
-        """
-        Set data members.
+        """Set data members.
 
         Init function with a bucket that can be used to communicate exceptions to the caller.
         The bucket is a Queue.queue() or queue.Queue() object that can hold an exception thrown by a thread.
 
-        :param bucket: queue based bucket (Any)
-        :param target: target function to execute (Callable)
-        :param kwargs: target function options (dict)
-        :param name: name (str).
+        Args:
+            bucket: Queue-based bucket used to communicate exceptions to the caller.
+            target: Target function to execute.
+            kwargs: Target function options.
+            name: Thread name.
         """
         threading.Thread.__init__(self, target=target, kwargs=kwargs, name=name)
         self.name = name
@@ -504,9 +504,9 @@ class ExcThread(threading.Thread):
         return self._kwargs
 
     def get_bucket(self):
-        """
-        Return the bucket object that holds any information about thrown exceptions.
+        """Return the bucket object that holds any information about thrown exceptions.
 
-        :return: bucket (Queue object)
+        Returns:
+            Any: Bucket (Queue object) holding exception information.
         """
         return self.bucket

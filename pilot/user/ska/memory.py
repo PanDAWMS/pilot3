@@ -23,21 +23,23 @@
 
 
 def allow_memory_usage_verifications() -> bool:
-    """
-    Return True if memory usage verifications should be performed.
+    """Return True if memory usage verifications should be performed.
 
-    :return: False for generic jobs (bool).
+    Returns:
+        bool: False for generic jobs.
     """
     return False
 
 
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
-    """
-    Perform memory usage verification.
+    """Perform memory usage verification.
 
-    :param job: job object (object)
-    :param resource_type: resource type (str)
-    :return: exit code (int), diagnostics (str).
+    Args:
+        job: Job object.
+        resource_type: Resource type string.
+
+    Returns:
+        tuple[int, str]: Exit code, diagnostics.
     """
     if job or resource_type:  # to bypass pylint score 0
         pass

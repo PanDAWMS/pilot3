@@ -17,41 +17,46 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Functions related to proxy handling for SKA user."""
 
 # from pilot.util.container import execute
+from __future__ import annotations
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_proxy(limit: int = None, x509: str = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> (int, str):
-    """
-    Check for a valid voms/grid proxy longer than N hours.
+def verify_proxy(limit: int | None = None, x509: str | None = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:
+    """Check for a valid voms/grid proxy longer than N hours.
 
     Use `limit` to set required time limit.
 
-    :param limit: time limit in hours (int)
-    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (str)
-    :param proxy_id: proxy id (str)
-    :param test: free Boolean test parameter (bool)
-    :param pilotstartup: free Boolean pilotstartup parameter (bool)
-    :return: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string) (int, str).
+    Args:
+        limit: Time limit in hours.
+        x509: Points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment.
+        proxy_id: Proxy id.
+        test: Free Boolean test parameter.
+        pilotstartup: Free Boolean pilotstartup parameter.
+
+    Returns:
+        tuple[int, str]: Exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
     """
-    if limit or x509 or proxy_id or test:  # to bypass pylint score 0
+    if limit or x509 or proxy_id or test or pilotstartup:  # to bypass pylint score 0
         pass
 
     return 0, ""
 
 
 def get_voms_role(role: str = 'production') -> str:
-    """
-    Return the proper voms role.
+    """Return the proper voms role.
 
-    :param role: proxy role, 'production' or 'user' (str)
-    :return: voms role (str).
+    Args:
+        role: Proxy role, 'production' or 'user'.
+
+    Returns:
+        str: Voms role string.
     """
     if role:  # to bypass pylint score 0
         pass
@@ -59,15 +64,17 @@ def get_voms_role(role: str = 'production') -> str:
     return ''
 
 
-def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', workdir: str = '') -> (int, str, str):
-    """
-    Download a payload proxy from the server and verify it.
+def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', workdir: str = '') -> tuple[int, str, str]:
+    """Download a payload proxy from the server and verify it.
 
-    :param x509: X509_USER_PROXY (str)
-    :param voms_role: role, e.g. 'atlas' (str)
-    :param proxy_type: proxy type ('payload' for user payload proxy, blank for prod/user proxy) (str)
-    :param workdir: payload work directory (str)
-    :return: exit code (int), diagnostics (str), updated X509_USER_PROXY (str).
+    Args:
+        x509: X509_USER_PROXY path.
+        voms_role: Role, e.g. 'atlas'.
+        proxy_type: Proxy type ('payload' for user payload proxy, blank for prod/user proxy).
+        workdir: Payload work directory.
+
+    Returns:
+        tuple[int, str, str]: Exit code, diagnostics, updated X509_USER_PROXY.
     """
     if voms_role or proxy_type or workdir:  # to bypass pylint score 0
         pass
@@ -79,10 +86,12 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
 
 
 def getproxy_dictionary(voms_role: str) -> dict:
-    """
-    Prepare the dictionary for the getProxy call.
+    """Prepare the dictionary for the getProxy call.
 
-    :param voms_role: VOMS role (str)
-    :return: getProxy dictionary (dict).
+    Args:
+        voms_role: VOMS role string.
+
+    Returns:
+        dict: getProxy dictionary.
     """
     return {'role': voms_role}

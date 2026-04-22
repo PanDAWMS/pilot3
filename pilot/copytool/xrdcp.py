@@ -27,6 +27,7 @@ import logging
 import os
 import re
 from time import time
+from typing import Optional
 
 from pilot.util.container import execute
 from pilot.common.exception import PilotException, ErrorCodes
@@ -47,8 +48,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -64,8 +68,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -79,9 +86,12 @@ def _resolve_checksum_option(setup: str, **kwargs: dict) -> str:
     """
     Resolve which checksum option to use.
 
-    :param setup: setup (str)
-    :param kwargs: kwargs dictionary (dict)
-    :return: option (str).
+    Args:
+        setup: setup string.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Checksum option string.
     """
     cmd = f"{copy_command} -h"
     if setup:
@@ -112,19 +122,24 @@ def _resolve_checksum_option(setup: str, **kwargs: dict) -> str:
 
 #@timeout(seconds=10800)
 def _stagefile(coption: str, source: str, destination: str, filesize: int, is_stagein: bool, setup: str = None,
-               **kwargs: dict) -> (int, str, str):
+               **kwargs: dict) -> tuple[Optional[int], Optional[str], Optional[str]]:
     """
     Stage the given file (stagein or stageout).
 
-    :param coption: checksum option (str)
-    :param source: file source path (str)
-    :param destination: file destination path (str)
-    :param filesize: file size (int)
-    :param is_stagein: True for stage-in, False for stage-out (bool)
-    :param setup: setup (str)
-    :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: destination file details - file size (int) checksum (str), checksum_type (str).
+    Args:
+        coption: checksum option.
+        source: file source path.
+        destination: file destination path.
+        filesize: file size.
+        is_stagein: True for stage-in, False for stage-out.
+        setup: setup string.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Tuple of (filesize, checksum, checksum_type), or (None, None, None) if coption is empty or on error.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     if filesize:  # to get rid of pylint warning - could be useful
         pass
@@ -169,10 +184,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using xrdcp command.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated list of files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     #allow_direct_access = kwargs.get('allow_direct_access') or False
     setup = kwargs.pop('copytools', {}).get('xrdcp', {}).get('setup')
@@ -234,10 +254,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using xrdcp command.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raise: PilotException in case of controlled error
-    :return: updated list of files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     setup = kwargs.pop('copytools', {}).get('xrdcp', {}).get('setup')
     coption = _resolve_checksum_option(setup, **kwargs)
@@ -275,11 +300,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def get_file_info_from_output(output: str) -> (int, str, str):
+def get_file_info_from_output(output: str) -> tuple[Optional[int], Optional[str], Optional[str]]:
     """
     Extract file size, checksum value from the xrdcp --chksum command output.
 
-    :return: file size (int), checksum (str), checksum_type (str).
+    Args:
+        output: combined stdout and stderr output from xrdcp command.
+
+    Returns:
+        Tuple of (filesize, checksum, checksum_type), or (None, None, None) on failure.
     """
     if not output:
         return None, None, None

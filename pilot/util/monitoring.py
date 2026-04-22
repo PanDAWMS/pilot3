@@ -17,13 +17,14 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """ This module contains implementations of job monitoring tasks. """
 
 import logging
 import os
 import subprocess
+import threading
 import time
 import traceback
 from glob import glob
@@ -330,11 +331,20 @@ def get_score(pid: int) -> str:
 
 
 def get_exception_error_code(diagnostics: str) -> int:
-    """
-    Identify a suitable error code to a given exception.
+    """Map an exception diagnostics string to a suitable pilot error code.
 
-    :param diagnostics: exception diagnostics (str)
-    :return: exit_code (int).
+    The ``getpwuid`` / ``uid not found`` case arises on worker nodes where the
+    pilot's UID has no ``/etc/passwd`` entry (e.g. Kubernetes pods or HPC nodes
+    with numeric UIDs). It is mapped to ``RESOURCEUNAVAILABLE`` rather than the
+    generic ``GENERALCPUCALCPROBLEM`` because it is a transient site
+    configuration condition — not a pilot bug — and ``RESOURCEUNAVAILABLE`` is
+    a recoverable error code, allowing PanDA to retry the job.
+
+    Args:
+        diagnostics: Exception message string returned by the failing function.
+
+    Returns:
+        Pilot error code corresponding to the exception.
     """
     logger.warning(traceback.format_exc())
     if "Resource temporarily unavailable" in diagnostics:
@@ -343,6 +353,8 @@ def get_exception_error_code(diagnostics: str) -> int:
         exit_code = errors.STATFILEPROBLEM
     elif "No such process" in diagnostics:
         exit_code = errors.NOSUCHPROCESS
+    elif "getpwuid" in diagnostics or "uid not found" in diagnostics:
+        exit_code = errors.RESOURCEUNAVAILABLE
     else:
         exit_code = errors.GENERALCPUCALCPROBLEM
 
@@ -875,6 +887,33 @@ def check_local_space(initial: bool = True) -> tuple[int, str]:
     return ec, diagnostics
 
 
+def _get_disk_usage_with_timeout(path: str, timeout: int = 120) -> int:
+    """Run get_disk_usage in a thread and return the result within timeout seconds.
+
+    If the filesystem walk does not complete in time (e.g. due to a stalled NFS
+    mount), the thread is abandoned and -1 is returned so the caller can skip the
+    size check rather than hanging the monitor loop indefinitely.
+
+    Args:
+        path: Directory path to measure.
+        timeout: Maximum seconds to wait for the result (default 120 s).
+
+    Returns:
+        Disk usage in bytes, or -1 if the operation timed out.
+    """
+    result = [-1]
+
+    def _worker():
+        result[0] = get_disk_usage(path)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        logger.warning(f'get_disk_usage({path!r}) timed out after {timeout} s — skipping workdir size check')
+    return result[0]
+
+
 def check_work_dir(job: JobData) -> tuple[int, str]:
     """
     Check the size of the work directory.
@@ -892,7 +931,10 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
         maxwdirsize = get_max_allowed_work_dir_size(job.resourcetype, job.corecount, job.infosys.queuedata.corecount, job.infosys.queuedata.pilot_maxwdir_grace)
 
         if os.path.exists(job.workdir):
-            workdirsize = get_disk_usage(job.workdir)
+            workdirsize = _get_disk_usage_with_timeout(job.workdir)
+            if workdirsize < 0:
+                # timed out — skip the size check this cycle
+                return exit_code, diagnostics
 
             # is user dir within allowed size limit?
             if workdirsize > maxwdirsize:
@@ -915,7 +957,9 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
                     remove_files(lfns, workdir=job.workdir)
 
                     # remeasure the size of the workdir at this point since the value is stored below
-                    workdirsize = get_disk_usage(job.workdir)
+                    _remeasured = _get_disk_usage_with_timeout(job.workdir)
+                    if _remeasured >= 0:
+                        workdirsize = _remeasured
             else:
                 logger.info(f'size of work directory {job.workdir}: {workdirsize} B (within {maxwdirsize} B limit)')
 

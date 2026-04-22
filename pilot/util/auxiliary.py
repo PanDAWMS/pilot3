@@ -40,6 +40,7 @@ from pilot.util.constants import (
     FAILURE,
     SERVER_UPDATE_FINAL,
     SERVER_UPDATE_NOT_DONE,
+    SERVER_UPDATE_RUNNING,
     SERVER_UPDATE_TROUBLE,
     get_pilot_version,
 )
@@ -76,16 +77,15 @@ def pilot_version_banner() -> None:
 
 
 def get_pilot_id(version_tag: str) -> str:
-    """
-    Return a unique pilot id.
+    """Return a unique pilot id.
 
     Used by CondorHT ClassAd.
 
     Args:
-        version_tag: pilot version tag (string).
+        version_tag: pilot version tag.
 
     Returns:
-        pilot id (string).
+        Unique pilot id string.
     """
     unique_id = os.environ.get("GTAG", "unknown")
     pilotversion = os.environ.get('PILOT_VERSION')
@@ -93,13 +93,13 @@ def get_pilot_id(version_tag: str) -> str:
 
 
 def is_virtual_machine() -> bool:
-    """
-    Determine if we are running in a virtual machine.
+    """Determine if we are running in a virtual machine.
 
-    If we are running inside a VM, then linux will put 'hypervisor' in cpuinfo. This function looks for the presence
-    of that.
+    If we are running inside a VM, then linux will put 'hypervisor' in cpuinfo.
+    This function looks for the presence of that.
 
-    :return: True is virtual machine, False otherwise (bool).
+    Returns:
+        True if running in a virtual machine, False otherwise.
     """
     status = False
 
@@ -120,11 +120,12 @@ def display_architecture_info() -> None:
     dump("/etc/os-release")
 
 
-def get_batchsystem_jobid() -> (str, int):
-    """
-    Identify and return the batch system job id (will be reported to the server).
+def get_batchsystem_jobid() -> tuple[Optional[str], str]:
+    """Identify and return the batch system job id (will be reported to the server).
 
-    :return: batch system name (string), batch system job id (int)
+    Returns:
+        A tuple of (batch_system_name, batch_system_job_id). The name is None
+        if no known batch system is detected.
     """
     # BQS (e.g. LYON)
     batchsystem_dict = {'QSUB_REQNAME': 'BQS',
@@ -152,19 +153,19 @@ def get_batchsystem_jobid() -> (str, int):
 
 
 def get_job_scheduler_id() -> str:
-    """
-    Get the job scheduler id from the environment variable PANDA_JSID.
+    """Get the job scheduler id from the environment variable PANDA_JSID.
 
-    :return: job scheduler id (str)
+    Returns:
+        Job scheduler id, or 'unknown' if the environment variable is not set.
     """
     return os.environ.get("PANDA_JSID", "unknown")
 
 
 def whoami() -> str:
-    """
-    Return the name of the pilot user.
+    """Return the name of the pilot user.
 
-    :return: whoami output (string).
+    Returns:
+        Output of the whoami command.
     """
     _, who_am_i, _ = execute('whoami', mute=True)
 
@@ -172,10 +173,11 @@ def whoami() -> str:
 
 
 def get_error_code_translation_dictionary() -> dict:
-    """
-    Define the error code translation dictionary.
+    """Define the error code translation dictionary.
 
-    :return: populated error code translation dictionary.
+    Returns:
+        Populated error code translation dictionary mapping pilot error codes
+        to [shell_exit_code, meaning] pairs.
     """
     error_code_translation_dictionary = {
         -1: [64, "Site offline"],
@@ -215,11 +217,13 @@ def get_error_code_translation_dictionary() -> dict:
 
 
 def convert_signal_to_exit_code(signal: str) -> int:
-    """
-    Convert a signal to an exit code.
+    """Convert a signal name to an exit code.
 
-    :param signal: signal (string).
-    :return: exit code (int).
+    Args:
+        signal: Signal name (e.g. 'SIGTERM').
+
+    Returns:
+        Corresponding pilot error code.
     """
     if signal == "SIGINT":
         exitcode = errors.SIGINT
@@ -242,22 +246,22 @@ def convert_signal_to_exit_code(signal: str) -> int:
 
 
 def shell_exit_code(exit_code: int) -> int:
-    """
-    Translate the pilot exit code to a proper exit code for the shell (wrapper).
+    """Translate the pilot exit code to a proper exit code for the shell (wrapper).
 
-    Any error code that is to be converted by this function, should be added to the traces object like:
-      traces.pilot['error_code'] = errors.<ERRORCODE>
+    Any error code that is to be converted by this function should be added to the
+    traces object like: ``traces.pilot['error_code'] = errors.<ERRORCODE>``.
     The traces object will be checked by the pilot module.
 
-    :param exit_code: pilot error code (int)
-    :return: standard shell exit code (int).
+    Restricts user (pilot) exit codes to the range 64–113, as suggested by
+    http://tldp.org/LDP/abs/html/exitcodes.html. Uses exit code 137 for kill
+    signal error codes.
+
+    Args:
+        exit_code: Pilot error code.
+
+    Returns:
+        Standard shell exit code.
     """
-    # Error code translation dictionary
-    # FORMAT: { pilot_error_code : [ shell_error_code, meaning ], .. }
-
-    # Restricting user (pilot) exit codes to the range 64 - 113, as suggested by http://tldp.org/LDP/abs/html/exitcodes.html
-    # Using exit code 137 for kill signal error codes (this actually means a hard kill signal 9, (128+9), 128+2 would mean CTRL+C)
-
     error_code_translation_dictionary = get_error_code_translation_dictionary()
 
     ret = FAILURE
@@ -271,13 +275,15 @@ def shell_exit_code(exit_code: int) -> int:
 
 
 def convert_to_pilot_error_code(exit_code: int) -> int:
-    """
-    Revert a batch system exit code back to a pilot error code.
+    """Revert a batch system exit code back to a pilot error code.
 
-    Note: the function is used by Harvester.
+    Note: this function is used by Harvester.
 
-    :param exit_code: batch system exit code (int)
-    :return: pilot error code (int).
+    Args:
+        exit_code: Batch system exit code.
+
+    Returns:
+        Corresponding pilot error code.
     """
     error_code_translation_dictionary = get_error_code_translation_dictionary()
 
@@ -293,13 +299,16 @@ def convert_to_pilot_error_code(exit_code: int) -> int:
 
 
 def get_size(obj_0: Any) -> int:
-    """
-    Recursively iterate to sum size of object and members.
+    """Recursively iterate to sum size of object and members.
 
-    Note: for size measurement to work, the object must have set the data members in the __init__().
+    Note: for size measurement to work, the object must have set the data
+    members in the ``__init__()``.
 
-    :param obj_0: object to be measured.
-    :return: size in Bytes (int).
+    Args:
+        obj_0: Object to be measured.
+
+    Returns:
+        Size of the object in bytes.
     """
     _seen_ids = set()
 
@@ -337,28 +346,32 @@ def get_size(obj_0: Any) -> int:
 
 
 def get_pilot_state(job: Any = None) -> str:
-    """
-    Return the current pilot (job) state.
+    """Return the current pilot (job) state.
 
-    If the job object does not exist, the environmental variable PILOT_JOB_STATE will be queried instead.
+    If the job object does not exist, the environmental variable
+    PILOT_JOB_STATE will be queried instead.
 
-    :param job: job object (Any)
-    :return: pilot (job) state (str).
+    Args:
+        job: Optional job object.
+
+    Returns:
+        Current pilot (job) state string.
     """
     return job.state if job else os.environ.get('PILOT_JOB_STATE', 'unknown')
 
 
 def set_pilot_state(job: Any = None, state: str = '') -> None:
-    """
-    Set the internal pilot state.
+    """Set the internal pilot state.
 
-    Note: this function should update the global/singleton object but currently uses an environmental variable
-    (PILOT_JOB_STATE).
-    The function does not update job.state if it is already set to finished or failed.
-    The environmental variable PILOT_JOB_STATE will always be set, in case the job object does not exist.
+    Note: this function should update the global/singleton object but currently
+    uses an environmental variable (PILOT_JOB_STATE). The function does not
+    update ``job.state`` if it is already set to finished or failed. The
+    environmental variable PILOT_JOB_STATE will always be set, in case the job
+    object does not exist.
 
-    :param job: optional job object.
-    :param state: internal pilot state (string).
+    Args:
+        job: Optional job object.
+        state: Internal pilot state to set.
     """
     os.environ['PILOT_JOB_STATE'] = state
 
@@ -368,14 +381,14 @@ def set_pilot_state(job: Any = None, state: str = '') -> None:
 
 
 def check_for_final_server_update(update_server: bool) -> None:
-    """
-    Check for the final server update.
+    """Check for the final server update.
 
-    Do not set graceful stop if pilot has not finished sending the final job update.
-    This function sleeps for a maximum of 20*30 s until SERVER_UPDATE env variable has been set
-    to SERVER_UPDATE_FINAL.
+    Do not set graceful stop if pilot has not finished sending the final job
+    update. This function sleeps for a maximum of 20*30 s until the
+    SERVER_UPDATE env variable has been set to SERVER_UPDATE_FINAL.
 
-    :param update_server: args.update_server (bool).
+    Args:
+        update_server: Whether the pilot should update the server (args.update_server).
     """
     max_i = 20
     counter = 0
@@ -385,6 +398,15 @@ def check_for_final_server_update(update_server: bool) -> None:
     logger.info(f'current server update state: {server_update}')
     logger.info(f'update_server={update_server}')
     if server_update == SERVER_UPDATE_NOT_DONE:
+        return
+
+    # if the server update is still in the RUNNING state (i.e. the job is still executing normally
+    # and has not yet entered its terminal update path), do not block here. This situation arises
+    # in the MAXTIME path where the monitor thread calls this function before the job thread has
+    # had a chance to drive the job to a terminal state and issue the final server update.
+    # Blocking in this case wastes up to 20*30 s unnecessarily.
+    if server_update == SERVER_UPDATE_RUNNING:
+        logger.info('server update is still in RUNNING state - not blocking for final update')
         return
 
     while counter < max_i and update_server:
@@ -398,10 +420,12 @@ def check_for_final_server_update(update_server: bool) -> None:
 
 
 def get_resource_name() -> str:
-    """
-    Return the name of the resource (only set for HPC resources; e.g. Cori, otherwise return 'grid').
+    """Return the name of the resource.
 
-    :return: resource_name (str).
+    Only set for HPC resources (e.g. Cori); returns 'grid' otherwise.
+
+    Returns:
+        Resource name string.
     """
     resource_name = os.environ.get('PILOT_RESOURCE_NAME', '').lower()
     if not resource_name:
@@ -409,13 +433,16 @@ def get_resource_name() -> str:
     return resource_name
 
 
-def get_object_size(obj: Any, seen: Any = None) -> int:
-    """
-    Recursively find the size of any objects.
+def get_object_size(obj: Any, seen: Optional[set] = None) -> int:
+    """Recursively find the size of any object.
 
-    :param obj: object (Any)
-    :param seen: logical seen variable (Any)
-    :return: object size (int).
+    Args:
+        obj: Object to measure.
+        seen: Set of already-visited object ids used to handle self-referential
+            objects. Pass ``None`` (the default) to start a fresh traversal.
+
+    Returns:
+        Total size of the object in bytes.
     """
     size = sys.getsizeof(obj)
     if seen is None:
@@ -445,26 +472,35 @@ def show_memory_usage() -> None:
     logger.debug(f'current pilot memory usage:\n\n{_stdout}\n\nusage: {_value} kB\n')
 
 
-def get_memory_usage(pid: int) -> (int, str, str):
-    """
-    Return the memory usage string (ps auxf <pid>) for the given process.
+def get_memory_usage(pid: int) -> tuple[int, str, str]:
+    """Return the memory usage string for the given process.
 
-    :param pid: process id (int).
-    :return: ps exit code (int), stderr (strint), stdout (string).
+    Executes ``ps aux -q <pid>`` to obtain usage information.
+
+    Args:
+        pid: Process id.
+
+    Returns:
+        A tuple of (exit_code, stdout, stderr) from the ps command.
     """
     return execute(f'ps aux -q {pid}', timeout=60)
 
 
 def extract_memory_usage_value(output: str) -> str:
-    """
-    Extract the memory usage value from the ps output (in kB).
+    """Extract the memory usage value from the ps output (in kB).
 
-    # USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-    # usatlas1 13917  1.5  0.0 1324968 152832 ?      Sl   09:33   2:55 /bin/python2 ..
-    # -> 152832 (kB)
+    Example ps output::
 
-    :param output: ps output (str)
-    :return: memory value in kB (str).
+        USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+        usatlas1 13917  1.5  0.0 1324968 152832 ?      Sl   09:33   2:55 /bin/python2 ..
+
+    The RSS column (index 5) contains the value in kB, e.g. 152832.
+
+    Args:
+        output: Raw ps command output.
+
+    Returns:
+        Memory value in kB as a string, or '(unknown)' if parsing fails.
     """
     memory_usage = "(unknown)"
     for row in output.split('\n'):
@@ -479,13 +515,15 @@ def extract_memory_usage_value(output: str) -> str:
 
 
 def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str:
-    """
-    Cut the given string if longer than 2 * cutat value.
+    """Cut the given string if longer than 2 * cutat characters.
 
-    :param txt: text to be cut at position cutat (str)
-    :param cutat: max length of uncut text (int)
-    :param separator: separator text (str)
-    :return: cut text (str).
+    Args:
+        txt: Text to be cut.
+        cutat: Maximum length of each retained head/tail segment.
+        separator: Text inserted between the head and tail segments.
+
+    Returns:
+        Possibly truncated text with separator inserted in the middle.
     """
     if len(txt) > 2 * cutat:
         txt = txt[:cutat] + separator + txt[-cutat:]
@@ -494,14 +532,19 @@ def cut_output(txt: str, cutat: int = 1024, separator: str = '\n[...]\n') -> str
 
 
 def has_instruction_sets(instruction_sets: list) -> str:
-    """
-    Determine whether a given CPU instruction set is available.
+    """Determine whether a given list of CPU instruction sets is available.
 
-    The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
-    Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
+    Uses grep to search in /proc/cpuinfo (both upper and lower case).
 
-    :param instruction_sets: instruction set (e.g. AVX2) (list)
-    :return: string of pipe-separated instruction sets (str).
+    Example::
+
+        has_instruction_sets(['AVX', 'AVX2', 'SSE4_2', 'XXX']) -> "AVX|AVX2|SSE4_2"
+
+    Args:
+        instruction_sets: List of instruction set names to check (e.g. ['AVX2']).
+
+    Returns:
+        Pipe-separated string of detected instruction sets.
     """
     ret = ""
 
@@ -517,14 +560,19 @@ def has_instruction_sets(instruction_sets: list) -> str:
 
 
 def has_instruction_sets_old(instruction_sets: list) -> str:
-    """
-    Determine whether a given list of CPU instruction sets is available.
+    """Determine whether a given list of CPU instruction sets is available (legacy implementation).
 
-    The function will use grep to search in /proc/cpuinfo (both in upper and lower case).
-    Example: instruction_sets = ['AVX', 'AVX2', 'SSE4_2', 'XXX'] -> "AVX|AVX2|SSE4_2"
+    Uses grep to search in /proc/cpuinfo (both upper and lower case).
 
-    :param instruction_sets: instruction set (e.g. AVX2) (list)
-    :return: string of pipe-separated instruction sets (str).
+    Example::
+
+        has_instruction_sets_old(['AVX', 'AVX2', 'SSE4_2', 'XXX']) -> "AVX|AVX2|SSE4_2"
+
+    Args:
+        instruction_sets: List of instruction set names to check (e.g. ['AVX2']).
+
+    Returns:
+        Pipe-separated string of detected instruction sets.
     """
     ret = ""
     pattern = ""
@@ -543,12 +591,15 @@ def has_instruction_sets_old(instruction_sets: list) -> str:
 
 
 def locate_core_file(cmd: str = '', pid: int = 0) -> str:
-    """
-    Locate the core file produced by gdb.
+    """Locate the core file produced by gdb.
 
-    :param cmd: optional command containing pid corresponding to core file (str)
-    :param pid: optional pid to use with core file (core.pid) (int)
-    :return: path to core file (str).
+    Args:
+        cmd: Optional command string containing the pid corresponding to the
+            core file.
+        pid: Optional pid to use with core file (core.<pid>).
+
+    Returns:
+        Path to the core file, or None if it could not be located.
     """
     path = None
     if not pid and cmd:
@@ -568,16 +619,20 @@ def locate_core_file(cmd: str = '', pid: int = 0) -> str:
 
 
 def get_pid_from_command(cmd: str, pattern: str = r'gdb --pid (\d+)') -> int:
-    r"""
-    Identify an explicit process id in the given command.
+    r"""Identify an explicit process id in the given command.
 
-    Example:
-        cmd = 'gdb --pid 19114 -ex \'generate-core-file\''
-        -> pid = 19114
+    Example::
 
-    :param cmd: command containing a pid (str)
-    :param pattern: regex pattern (raw str)
-    :return: pid (int).
+        cmd = "gdb --pid 19114 -ex 'generate-core-file'"
+        get_pid_from_command(cmd)  # -> 19114
+
+    Args:
+        cmd: Command string containing a pid.
+        pattern: Regex pattern used to extract the pid. Must contain a capture
+            group for the numeric pid.
+
+    Returns:
+        Extracted pid as an integer, or None if no match was found.
     """
     pid = None
     match = re.search(pattern, cmd)
@@ -593,10 +648,11 @@ def get_pid_from_command(cmd: str, pattern: str = r'gdb --pid (\d+)') -> int:
 
 
 def list_hardware() -> str:
-    """
-    Execute lshw to list local hardware.
+    """Execute lshw to list local hardware.
 
-    :return: lshw output (str).
+    Returns:
+        Output of ``lshw -numeric -C display``, or an empty string if the
+        command is not available.
     """
     _, stdout, stderr = execute('lshw -numeric -C display', mute=True)
     if 'command not found' in stdout or 'command not found' in stderr:
@@ -604,16 +660,17 @@ def list_hardware() -> str:
     return stdout
 
 
-def get_display_info() -> (str, str):
-    """
-    Extract the product and vendor from the lshw command.
+def get_display_info() -> tuple[str, str]:
+    """Extract the product and vendor from the lshw command output.
 
-    E.g.
+    Example lshw output::
+
            product: GD 5446 [1013:B8]
            vendor: Cirrus Logic [1013]
-    -> GD 5446, Cirrus Logic
 
-    :return: product (str), vendor (str).
+    Returns:
+        A tuple of (product, vendor) strings. Both are empty strings if lshw
+        is unavailable or produces no relevant output.
     """
     vendor = ''
     product = ''
@@ -636,12 +693,14 @@ def get_display_info() -> (str, str):
 
 
 def get_key_value(catchall: str, key: str = 'SOMEKEY') -> str:
-    """
-    Return the value corresponding to key in catchall.
+    """Return the value corresponding to key in a catchall string.
 
-    :param catchall: catchall free string (str)
-    :param key: key name (str)
-    :return: value (str).
+    Args:
+        catchall: Free-form string containing zero or more ``key=value`` pairs.
+        key: Key name to look up.
+
+    Returns:
+        Value associated with the key, or None if the key is not present.
     """
     # ignore any non-key-value pairs that might be present in the catchall string
     _dic = dict(_str.split('=', 1) for _str in catchall.split() if '=' in _str)
@@ -650,22 +709,26 @@ def get_key_value(catchall: str, key: str = 'SOMEKEY') -> str:
 
 
 def is_string(obj: Any) -> bool:
-    """
-    Determine if the passed object is a string or not.
+    """Determine if the passed object is a string.
 
-    :param obj: object (Any)
-    :return: True if obj is a string, False otherwise (bool).
+    Args:
+        obj: Object to test.
+
+    Returns:
+        True if obj is a string, False otherwise.
     """
     return isinstance(obj, str)
 
 
 def find_pattern_in_list(input_list: list, pattern: str) -> str:
-    """
-    Search for the given pattern in the input list.
+    """Search for the given pattern in the input list.
 
-    :param input_list: list of strings (list)
-    :param pattern: regular expression pattern (raw str)
-    :return: found string (str or None).
+    Args:
+        input_list: List of strings to search.
+        pattern: Regular expression pattern to match against each line.
+
+    Returns:
+        First matched substring, or None if no match was found.
     """
     found = None
     for line in input_list:
@@ -678,13 +741,18 @@ def find_pattern_in_list(input_list: list, pattern: str) -> str:
 
 
 def sort_words(input_str: str) -> str:
-    """
-    Sort the words in the given string.
+    """Sort the words in the given string.
 
-    E.g. input_str = 'bbb fff aaa' -> output_str = 'aaa bbb fff'
+    Example::
 
-    :param input_str: input string (str)
-    :return: sorted output string (str).
+        sort_words('bbb fff aaa')  # -> 'aaa bbb fff'
+
+    Args:
+        input_str: Input string whose whitespace-separated words will be sorted.
+
+    Returns:
+        String with words sorted alphabetically. Returns the original string
+        unchanged if sorting fails.
     """
     output_str = input_str
     try:
@@ -698,14 +766,16 @@ def sort_words(input_str: str) -> str:
 
 
 def grep_str(patterns: list, stdout: str) -> list:
-    """
-    Search for the patterns in the given stdout.
+    """Search for the patterns in the given stdout string.
 
-    For expected large stdout, better to use FileHandling::grep()
+    For expected large stdout, prefer ``FileHandling.grep()`` instead.
 
-    :param patterns: list of regexp patterns (list)
-    :param stdout: some text (str)
-    :return: list of matched lines in stdout (list).
+    Args:
+        patterns: List of regexp pattern strings.
+        stdout: Text to search.
+
+    Returns:
+        List of lines from stdout that match any of the given patterns.
     """
     matched_lines = []
     _pats = []
@@ -726,24 +796,36 @@ class TimeoutException(Exception):
     """Timeout exception."""
 
     def __init__(self, message: str, timeout: int = None, *args: Any):
-        """Initialize variables."""
+        """Initialize the TimeoutException.
+
+        Args:
+            message: Human-readable description of the timeout.
+            timeout: Timeout duration in seconds.
+            *args: Additional positional arguments forwarded to Exception.
+        """
         self.timeout = timeout
         self.message = message
         self._error_code = 1334
         super(TimeoutException, self).__init__(*args)
 
     def __str__(self):
-        """Set and return the error string for string representation of the class instance."""
+        """Return a string representation of this exception."""
         tmp = f' : {repr(self.args)}' if self.args else ''
         return f"{self.__class__.__name__}: {self.message}, timeout={self.timeout} seconds{tmp}"
 
 
 def correct_none_types(data_dict: dict) -> dict:
-    """
-    Correct None types in the given dictionary.
+    """Correct None types in the given dictionary.
 
-    :param data_dict: dictionary with None strings (dict)
-    :return: dictionary with corrected None types (dict).
+    Replaces string values ``'None'`` and ``'null'`` with the Python ``None``
+    singleton.
+
+    Args:
+        data_dict: Dictionary potentially containing ``'None'`` or ``'null'``
+            string values.
+
+    Returns:
+        The same dictionary with corrected None types.
     """
     for key, value in data_dict.items():
         if value == 'None' or value == 'null':
@@ -751,12 +833,14 @@ def correct_none_types(data_dict: dict) -> dict:
     return data_dict
 
 
-def is_command_available(command: str):
-    """
-    Check if the given command is available on the system.
+def is_command_available(command: str) -> bool:
+    """Check if the given command is available on the system.
 
-    :param command: command to check (str)
-    :return: True if command is available, False otherwise (bool)
+    Args:
+        command: Command string to check (may include arguments).
+
+    Returns:
+        True if the command executable is accessible and executable, False otherwise.
     """
     args = shlex.split(command)
 
@@ -764,10 +848,10 @@ def is_command_available(command: str):
 
 
 def is_kubernetes_resource() -> bool:
-    """
-    Determine if the pilot is running on a Kubernetes resource.
+    """Determine if the pilot is running on a Kubernetes resource.
 
-    :return: True if running on Kubernetes, False otherwise (bool)
+    Returns:
+        True if running on Kubernetes, False otherwise.
     """
     if os.environ.get('K8S_JOB_ID'):
         return True
@@ -776,31 +860,37 @@ def is_kubernetes_resource() -> bool:
 
 
 def uuidgen_t() -> str:
-    """
-    Generate a UUID string in the same format as "uuidgen -t".
+    """Generate a UUID string in the same format as ``uuidgen -t``.
 
-    :return: A UUID in the format "00000000-0000-0000-0000-000000000000" (str).
+    Returns:
+        UUID string in the format ``'00000000-0000-0000-0000-000000000000'``.
     """
     return str(uuid4())
 
 
-def list_items(items: list):
-    """
-    List the items in the given list as a numbered list.
+def list_items(items: list) -> None:
+    """List the items in the given list as a numbered log entry.
 
-    :param items: list of items (list)
+    Args:
+        items: List of items to log.
     """
     for i, item in enumerate(items):
         logger.info(f'{i + 1}: {item}')
 
 
 def mask_sensitive_response(res: Dict[str, Any], key: str = "pilotSecrets", mask: str = "********") -> Tuple[Dict[str, Any], Optional[Any]]:
-    """
-    Return a masked copy of `res` for logging and the extracted sensitive value (if any).
+    """Return a masked copy of ``res`` for logging and the extracted sensitive value.
 
-    - Does not mutate the original `res`.
-    - Looks first in `res.get('data')`, then at top-level `res`.
-    - Returns (masked_copy, extracted_value_or_None).
+    Does not mutate the original ``res``. Looks first in ``res.get('data')``,
+    then at the top-level ``res``.
+
+    Args:
+        res: Response dictionary that may contain sensitive data.
+        key: Dictionary key whose value should be masked.
+        mask: Replacement string used to obscure the sensitive value.
+
+    Returns:
+        A tuple of (masked_copy, extracted_value_or_None).
     """
     if not isinstance(res, dict):
         return res, None

@@ -41,11 +41,11 @@ class CommunicationResponse:
 
     exception = None
 
-    def __init__(self, attrs: dict = None):
-        """
-        Initialize variables.
+    def __init__(self, attrs: dict = None) -> None:
+        """Initialize variables.
 
-        :param attrs: attributes dictionary (dict).
+        Args:
+            attrs: attributes dictionary.
         """
         if not attrs:
             attrs = {}
@@ -61,10 +61,10 @@ class CommunicationResponse:
             setattr(self, key, value)
 
     def __str__(self) -> str:
-        """
-        Return string representation.
+        """Return string representation.
 
-        :return: string representation (str).
+        Returns:
+            str: string representation.
         """
         json_str = {}
         for key, value in list(self.__dict__.items()):
@@ -93,11 +93,11 @@ class CommunicationRequest():
         RequestEvents = 'request_events'
         UpdateEvents = 'update_events'
 
-    def __init__(self, attrs: dict = None):
-        """
-        Initialize variables.
+    def __init__(self, attrs: dict = None) -> None:
+        """Initialize variables.
 
-        :param attrs: attributes dictionary (dict).
+        Args:
+            attrs: attributes dictionary.
         """
         if not attrs:
             attrs = {}
@@ -122,11 +122,11 @@ class CommunicationRequest():
 
         self.abort = False
 
-    def __str__(self):
-        """
-        Return string representation.
+    def __str__(self) -> str:
+        """Return string representation.
 
-        :return: string representation (str).
+        Returns:
+            str: string representation.
         """
         json_str = {}
         for key, value in list(self.__dict__.items()):
@@ -145,12 +145,12 @@ class CommunicationRequest():
 class CommunicationManager(threading.Thread, PluginFactory):
     """Communication manager class."""
 
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize variables.
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize variables.
 
-        :param args: args object (Any)
-        :param kwargs: kwargs dictionary (dict).
+        Args:
+            args: args object.
+            kwargs: kwargs dictionary.
         """
         super().__init__()
         PluginFactory.__init__(self, *args, **kwargs)
@@ -177,28 +177,35 @@ class CommunicationManager(threading.Thread, PluginFactory):
         self.args = args
         self.kwargs = kwargs
 
-    def stop(self):
+    def stop(self) -> None:
         """Set stop signal (main run process will clean queued requests to release waiting clients and then quit)."""
         if not self.is_stop():
             logger.info("stopping Communication Manager.")
             self.stop_event.set()
 
     def is_stop(self) -> bool:
-        """
-        Check whether the stop signal is set.
+        """Check whether the stop signal is set.
 
-        :returns: True if the stop signal is set, otherwise False (bool)
+        Returns:
+            bool: True if the stop signal is set, otherwise False.
         """
         return self.stop_event.is_set()
 
     def get_jobs(self, njobs: int = 1, post_hook: Any = None, args: Any = None) -> Any:
-        """
-        Get jobs.
+        """Get jobs.
 
         Function can be called by client to send a get_job request and get a response with jobs.
 
-        :raises: Exception caught when getting jobs from server
-        :return: jobs (from server) (Any).
+        Args:
+            njobs: number of jobs to request.
+            post_hook: post hook function.
+            args: additional arguments.
+
+        Returns:
+            Any: jobs from server, or None if stopping or post_hook is set.
+
+        Raises:
+            Exception: caught when getting jobs from server.
         """
         if self.is_stop():
             return None
@@ -232,15 +239,19 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return req.response.content
 
     def update_jobs(self, jobs: Any, post_hook: Any = None) -> Any:
-        """
-        Update jobs.
+        """Update jobs.
 
         Function can be called by client to update jobs' status to server.
 
-        :param jobs: jobs to be updated (Any)
-        :param post_hook: post hook function (Any)
-        :raises: Exception caught when updating jobs
-        :return: status of updating jobs (Any).
+        Args:
+            jobs: jobs to be updated.
+            post_hook: post hook function.
+
+        Returns:
+            Any: status of updating jobs, or None if stopping or post_hook is set.
+
+        Raises:
+            Exception: caught when updating jobs.
         """
         if self.is_stop():
             return None
@@ -265,16 +276,20 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return req.response.content
 
     def get_event_ranges(self, num_event_ranges: int = 1, post_hook: Any = None, job: Any = None) -> Any:
-        """
-        Get event ranges.
+        """Get event ranges.
 
         Function can be called by client to send a get_event_ranges request and get a response with event ranges.
 
-        :param num_event_ranges: number of event ranges to get (int)
-        :param post_hook: post hook function (Any)
-        :param job: job info (Any)
-        :raise: Exception caught when getting event ranges
-        :return: event ranges (from server) (Any).
+        Args:
+            num_event_ranges: number of event ranges to get.
+            post_hook: post hook function.
+            job: job info.
+
+        Returns:
+            Any: event ranges from server, or None if stopping or post_hook is set.
+
+        Raises:
+            Exception: caught when getting event ranges.
         """
         if self.is_stop():
             return None
@@ -313,15 +328,19 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return req.response.content
 
     def update_events(self, update_events: Any, post_hook: Any = None) -> Any:
-        """
-        Update events.
+        """Update events.
 
         Function can be called by client to send a update_events request.
 
-        :param update_events: update events (Any)
-        :param post_hook: post hook function (Any)
-        :return: status of updating event ranges (Any)
-        :raises: Exception caught when updating event ranges.
+        Args:
+            update_events: update events.
+            post_hook: post hook function.
+
+        Returns:
+            Any: status of updating event ranges, or None if stopping or post_hook is set.
+
+        Raises:
+            Exception: caught when updating event ranges.
         """
         if self.is_stop():
             return None
@@ -345,10 +364,10 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return req.response.content
 
     def get_plugin_confs(self) -> dict:
-        """
-        Get different plug-in for different communicator.
+        """Get different plug-in for different communicator.
 
-        :returns: dict with {'class': <plugin_class>} and other items (dict).
+        Returns:
+            dict: dict with {'class': <plugin_class>} and other items.
         """
         plugin = os.environ.get('COMMUNICATOR_PLUGIN', None)
         if not plugin:
@@ -367,15 +386,17 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return plugin_confs
 
     def can_process_request(self, processor: dict, process_type: str) -> bool:
-        """
-        Check whether it is ready to process request in a type.
+        """Check whether it is ready to process request in a type.
 
         For request such as HarvesterShareFileCommunicator, it should check whether there are processing requests to
         avoid overwriting files.
 
-        :param processor: processor dictionary (dict)
-        :param process_type: process type (str)
-        :return: True or False (bool).
+        Args:
+            processor: processor dictionary.
+            process_type: process type.
+
+        Returns:
+            bool: True if ready to process, otherwise False.
         """
         if self.queues[process_type].empty():
             return False
@@ -390,10 +411,10 @@ class CommunicationManager(threading.Thread, PluginFactory):
         return False
 
     def get_processor(self) -> dict:
-        """
-        Get processor dictionary.
+        """Get processor dictionary.
 
-        :return: processor dictionary (dict).
+        Returns:
+            dict: processor dictionary.
         """
         confs = self.get_plugin_confs()
         logger.info(f"communication plugin confs: {confs}")
@@ -425,7 +446,7 @@ class CommunicationManager(threading.Thread, PluginFactory):
                                           'process_req_post_hook': True}
                 }
 
-    def run(self):
+    def run(self) -> None:
         """Handle communication requests."""
         processor = self.get_processor()
 

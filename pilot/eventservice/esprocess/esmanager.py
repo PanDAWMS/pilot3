@@ -34,12 +34,14 @@ logger = logging.getLogger(__name__)
 class ESManager:
     """Event Service manager class."""
 
-    def __init__(self, hook: Any):
-        """
-        Set up ES hooks.
+    def __init__(self, hook: Any) -> None:
+        """Set up ES hooks.
 
-        :param hook: an instance of ESHook (Any)
-        :raises Exception: if hook is not an instance of ESHook.
+        Args:
+            hook: an instance of ESHook.
+
+        Raises:
+            TypeError: if hook is not an instance of ESHook.
         """
         logger.info('initializing hooks')
         if not isinstance(hook, ESHook):

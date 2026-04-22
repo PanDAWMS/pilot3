@@ -36,15 +36,17 @@ logger = logging.getLogger(__name__)
 class MessageThread(threading.Thread):
     """A thread to receive messages from payload and put recevied messages to the out queues."""
 
-    def __init__(self, message_queue: Any, socket_name: str = None, context: str = 'local', **kwds: dict):
-        """
-        Initialize yampl server socket.
+    def __init__(self, message_queue: Any, socket_name: str = None, context: str = 'local', **kwds: Any):
+        """Initialize yampl server socket.
 
-        :param message_queue: a queue to transfer messages between current instance and ESProcess (Any)
-        :param socket_name: name of the socket between current process and payload (str)
-        :param context: name of the context between current process and payload, default is 'local' (str)
-        :param **kwds: other parameters (dict)
-        :raises MessageFailure: when failed to set up message socket.
+        Args:
+            message_queue: a queue to transfer messages between current instance and ESProcess.
+            socket_name: name of the socket between current process and payload.
+            context: name of the context between current process and payload, default is 'local'.
+            **kwds: other parameters.
+
+        Raises:
+            MessageFailure: when failed to set up message socket.
         """
         threading.Thread.__init__(self, **kwds)
         self.name = "MessageThread"
@@ -68,19 +70,21 @@ class MessageThread(threading.Thread):
         logger.info(f'finished setting up yampl server socket (socket_name: {self._socket_name}, context:{context}).')
 
     def get_yampl_socket_name(self) -> str:
-        """
-        Get yampl socket name.
+        """Get yampl socket name.
 
-        :return: yampl socket name (str).
+        Returns:
+            str: yampl socket name.
         """
         return self._socket_name
 
-    def send(self, message: str):
-        """
-        Send messages to payload through yampl server socket.
+    def send(self, message: str) -> None:
+        """Send messages to payload through yampl server socket.
 
-        :param message: message (str).
-        :raises MessageFailure: when failed to send a message to the payload.
+        Args:
+            message: message to send.
+
+        Raises:
+            MessageFailure: when failed to send a message to the payload.
         """
         logger.debug(f'will send message to yampl: {message}')
         try:
@@ -96,10 +100,10 @@ class MessageThread(threading.Thread):
         self.__stop.set()
 
     def is_stopped(self) -> bool:
-        """
-        Get status whether stop event is set.
+        """Get status whether stop event is set.
 
-        :return: True if stop event is set, otherwise False (bool).
+        Returns:
+            bool: True if stop event is set, otherwise False.
         """
         return self.__stop.is_set()
 

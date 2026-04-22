@@ -33,6 +33,8 @@ The main reasons for such incapsulation are to
 :date: February 2018
 """
 
+from __future__ import annotations
+
 import ast
 import logging
 import os
@@ -209,12 +211,12 @@ class JobData(BaseData):
                     'use_vp', 'looping_check']
              }
 
-    def __init__(self, data: dict, use_kmap: bool = True):
-        """
-        Initialize JobData object.
+    def __init__(self, data: dict, use_kmap: bool = True) -> None:
+        """Initialize JobData object.
 
-        :param data: input dictionary of data settings (dict)
-        :param use_kmap: use kmap for data conversion (bool).
+        Args:
+            data: input dictionary of data settings.
+            use_kmap: use kmap for data conversion.
         """
         self.infosys = None  # reference to Job specific InfoService instance
         self._rawdata = data
@@ -224,11 +226,11 @@ class JobData(BaseData):
         # if self.is_hpo:
         #    self.is_eventservice = True
 
-    def init(self, infosys: Any):
-        """
-        Initialize JobData object with InfoService instance.
+    def init(self, infosys: Any) -> None:
+        """Initialize JobData object with InfoService instance.
 
-        :param infosys: infosys object (Any).
+        Args:
+            infosys: infosys object.
         """
         self.infosys = infosys
         self.indata = self.prepare_infiles(self._rawdata)
@@ -259,11 +261,13 @@ class JobData(BaseData):
             #    self.imagename = os.path.join(image_base, self.imagename)
 
     def prepare_infiles(self, data: dict) -> list:
-        """
-        Construct FileSpec objects for input files from raw dict `data`.
+        """Construct FileSpec objects for input files from raw dict `data`.
 
-        :param data: input dictionary of data settings (dict)
-        :return: list of validated `FileSpec` objects.
+        Args:
+            data: input dictionary of data settings.
+
+        Returns:
+            list: list of validated `FileSpec` objects.
         """
         # direct access handling
         self.set_accessmode()
@@ -287,9 +291,16 @@ class JobData(BaseData):
                 idat[attrname] = ksources[item][ind] if len(ksources[item]) > ind else None
             accessmode = 'copy'  ## default settings
 
-            # for prod jobs: use remoteio if transferType=direct and prodDBlockToken!=local
+            # for prod jobs: use remoteio if transfertype implies direct I/O and prodDBlockToken!=local
             # for analy jobs: use remoteio if prodDBlockToken!=local
-            if (self.is_analysis() or self.transfertype == 'direct') and idat.get('storage_token') != 'local':  ## Job settings
+            # transfertypes that imply direct I/O: 'direct', 'root', 'davs' (and comma-separated
+            # combinations thereof).  'file' means Rucio copy via POSIX link, not remote I/O.
+            _ttype = (self.transfertype or '').lower()
+            _directio_types = frozenset({'direct', 'root', 'davs'})
+            _is_directio_ttype = bool(_ttype) and all(
+                t.strip() in _directio_types for t in _ttype.split(',') if t.strip()
+            )
+            if (self.is_analysis() or _is_directio_ttype) and idat.get('storage_token') != 'local':  ## Job settings
                 accessmode = 'direct'
             if self.accessmode:  ## Job input options (job params) overwrite any other settings
                 accessmode = self.accessmode
@@ -323,7 +334,7 @@ class JobData(BaseData):
             ret.append(finfo)
         return ret
 
-    def set_accessmode(self):
+    def set_accessmode(self) -> None:
         """Set the accessmode field using jobparams."""
         self.accessmode = None
         if '--accessmode=direct' in self.jobparams:
@@ -332,11 +343,11 @@ class JobData(BaseData):
             self.accessmode = 'copy'
 
     @staticmethod
-    def show_access_settings(access_keys: list):
-        """
-        Show access settings for the case job.infosys.queuedata is not initialized.
+    def show_access_settings(access_keys: list) -> None:
+        """Show access settings for the case job.infosys.queuedata is not initialized.
 
-        :param access_keys: list of access keys (list).
+        Args:
+            access_keys: list of access keys.
         """
         dat = dict([item, getattr(FileSpec, item, None)] for item in access_keys)
         msg = ', '.join([f"{item}={value}" for item, value in sorted(dat.items())])
@@ -344,10 +355,10 @@ class JobData(BaseData):
 
     @staticmethod
     def get_kmap() -> dict:
-        """
-        Return the kmap dictionary for server data to pilot conversions.
+        """Return the kmap dictionary for server data to pilot conversions.
 
-        :return: kmap (dict).
+        Returns:
+            dict: kmap.
         """
         kmap = {
             # 'internal_name': 'ext_key_structure'
@@ -363,15 +374,17 @@ class JobData(BaseData):
         return kmap
 
     def prepare_outfiles(self, data: dict) -> tuple:
-        """
-        Construct validated FileSpec objects for output and log files from raw dict `data`.
+        """Construct validated FileSpec objects for output and log files from raw dict `data`.
 
         Note: final preparation for output files can only be done after the payload has finished in case the payload
         has produced a job report with e.g. output file guids. For ATLAS, this is verified in
         pilot/user/atlas/diagnose/process_job_report().
 
-        :param data: input dictionary of data settings (dict)
-        :return: (list of `FileSpec` for output, list of `FileSpec` for log) (tuple).
+        Args:
+            data: input dictionary of data settings.
+
+        Returns:
+            tuple: (list of `FileSpec` for output, list of `FileSpec` for log).
         """
         # form raw list data from input comma-separated values for further validataion by FileSpec
         kmap = {
@@ -413,16 +426,18 @@ class JobData(BaseData):
         return self._get_all_output(ksources, kmap, log_lfn, data)
 
     def _get_all_output(self, ksources: dict, kmap: dict, log_lfn: str, data: dict) -> tuple:
-        """
-        Create lists of FileSpecs for output + log files.
+        """Create lists of FileSpecs for output + log files.
 
         Helper function for prepare_output().
 
-        :param ksources: dictionary of sources (dict)
-        :param kmap: dictionary of mappings (dict)
-        :param log_lfn: log file name (str)
-        :param data: input dictionary of data settings (dict)
-        :return: ret_output (list of FileSpec), ret_log (list of FileSpec).
+        Args:
+            ksources: dictionary of sources.
+            kmap: dictionary of mappings.
+            log_lfn: log file name.
+            data: input dictionary of data settings.
+
+        Returns:
+            tuple: ret_output (list of FileSpec), ret_log (list of FileSpec).
         """
         ret_output, ret_log = [], []
 
@@ -449,15 +464,17 @@ class JobData(BaseData):
 
         return ret_output, ret_log
 
-    def __getitem__(self, key: str):
-        """
-        Return the value of the given key.
+    def __getitem__(self, key: str) -> Any:
+        """Return the value of the given key.
 
         Temporary Integration function to keep dict-based access for old logic in compatible way
-        TO BE REMOVED ONCE all fields will be moved to Job object attributes
+        TO BE REMOVED ONCE all fields will be moved to Job object attributes.
 
-        :param key: key (str)
-        :return: value (Any).
+        Args:
+            key: key.
+
+        Returns:
+            Any: value.
         """
         if key == 'infosys':
             return self.infosys
@@ -467,49 +484,53 @@ class JobData(BaseData):
 
         return self._rawdata[key]
 
-    def __setitem__(self, key, val):
-        """
-        Set the value of the given key.
+    def __setitem__(self, key: str, val: Any) -> None:
+        """Set the value of the given key.
 
         Temporary Integration function to keep dict-based access for old logic in compatible way
         TO BE REMOVED ONCE all fields will be moved to Job object attributes.
 
-        :param key: key (str)
-        :param val: value (Any).
+        Args:
+            key: key.
+            val: value.
         """
         self._rawdata[key] = val
 
     def __contains__(self, key: str) -> bool:
-        """
-        Check if the key is in the raw data.
+        """Check if the key is in the raw data.
 
         Temporary Integration function to keep dict-based access for old logic in compatible way
-        TO BE REMOVED ONCE all fields will be moved to Job object attributes
+        TO BE REMOVED ONCE all fields will be moved to Job object attributes.
 
-        :param key: key (str)
-        :return: boolean.
+        Args:
+            key: key.
+
+        Returns:
+            bool: True if key is in raw data.
         """
         return key in self._rawdata
 
-    def get(self, key: str, defval: Any = None):
-        """
-        Return the value of the given key.
+    def get(self, key: str, defval: Any = None) -> Any:
+        """Return the value of the given key.
 
         Temporary Integration function to keep dict-based access for old logic in compatible way
-        TO BE REMOVED ONCE all fields will be moved to Job object attributes
+        TO BE REMOVED ONCE all fields will be moved to Job object attributes.
 
-        :param key: key (str)
-        :param defval: default value (Any
-        :return: value (Any).
+        Args:
+            key: key.
+            defval: default value.
+
+        Returns:
+            Any: value.
         """
         return self._rawdata.get(key, defval)
 
-    def load(self, data: dict, use_kmap: bool = True):
-        """
-        Construct and initialize data from ext source.
+    def load(self, data: dict, use_kmap: bool = True) -> None:
+        """Construct and initialize data from ext source.
 
-        :param data: input dictionary of job data settings (dict)
-        :param use_kmap: use kmap for data conversion (bool).
+        Args:
+            data: input dictionary of job data settings.
+            use_kmap: use kmap for data conversion.
         """
         ## the translation map of the container attributes from external data to internal schema
         ## 'internal_name':('ext_name1', 'extname2_if_any')
@@ -560,52 +581,66 @@ class JobData(BaseData):
         self._load_data(data, kmap)
 
     def is_analysis(self) -> bool:  ## if it's experiment specific logic then it could be isolated into extended JobDataATLAS class
-        """
-        Determine whether the job is an analysis user job or not.
+        """Determine whether the job is an analysis user job or not.
 
-        :return: True in case of user analysis job (bool).
+        Returns:
+            bool: True in case of user analysis job.
         """
         return self.transformation.startswith('https://') or self.transformation.startswith('http://')
 
     def is_build_job(self) -> bool:
-        """
-        Check if the job is a build job.
+        """Check if the job is a build job.
 
         (i.e. check if the job has an output file that is a lib file).
 
-        :return: boolean.
+        Returns:
+            bool: True if job has a lib output file.
         """
         return any('.lib.' in fspec.lfn and '.log.' not in fspec.lfn for fspec in self.outdata)
 
     def is_local(self) -> bool:
-        """
-        Check if the input files should be accessed locally.
+        """Check if the input files should be accessed locally.
 
-        Confusing function, since it does not consider real status of applied transfer, TOBE DEPRECATED, use `has_remoteio()` instead
+        Confusing function, since it does not consider real status of applied transfer, TOBE DEPRECATED, use `has_remoteio()` instead.
 
         Note: all input files will have storage_token set to local in that case.
 
-        :return: boolean.
+        Returns:
+            bool: True if input files should be accessed locally.
         """
         return any(fspec.storage_token == 'local' and '.lib.' not in fspec.lfn for fspec in self.indata)
 
     def has_remoteio(self) -> bool:
-        """
-        Check status of input file transfers and determine if direct access mode will be used or not.
+        """Check status of input file transfers and determine if direct access mode will be used or not.
 
-        :return: True if at least one file should use direct access mode (bool).
+        Returns:
+            bool: True if at least one file should use direct access mode.
         """
         return any(fspec.status == 'remote_io' for fspec in self.indata)
 
-    def allow_altstageout(self):
-        """
-        Resolve if alternative stageout is allowed for given job taking into account `queuedata` settings as well.
-        `queuedata` specific settings overwrites job preferences for altstageout.
+    def allow_altstageout(self) -> bool:
+        """Resolve if alternative stageout is allowed for this job.
 
-        :return: boolean.
-        """
+        Priority order (highest first):
 
-        # consider first the queue specific settings (if any)
+        1. **Job-level explicit off** (``altStageOut=off`` sent by the PanDA
+           server): always disables alt stage-out regardless of queue settings.
+           This is used e.g. for pre-merged jobs where alt stage-out would
+           break the merge step.
+        2. **Queue-level setting** (``allow_altstageout`` in queuedata): can
+           force on or off for all jobs at that queue.
+        3. **Job-level default**: the parsed ``altStageOut`` value, or
+           ``False`` if not set.
+
+        Returns:
+            bool: True if alternative stage-out is allowed.
+        """
+        # job-level explicit disable always wins (PanDA server sent altStageOut=off)
+        if self.altstageout is False:
+            logger.info('alt stage-out explicitly disabled by PanDA server (altStageOut=off)')
+            return False
+
+        # queue-level setting (may force on or off for all jobs at this queue)
         if self.infosys and self.infosys.queuedata:
             qval = self.infosys.queuedata.altstageout
             if qval is not None:
@@ -613,13 +648,10 @@ class JobData(BaseData):
         else:
             logger.info('job.infosys.queuedata is not initialized: PandaQueue specific settings for altstageout will not be considered')
 
-        # apply additional job specific checks here if need
-
         return bool(self.altstageout)
 
-    def clean(self):
-        """
-        Validate and finally clean up required data values (object properties) if needed.
+    def clean(self) -> None:
+        """Validate and finally clean up required data values (object properties) if needed.
 
         Not used.
         """
@@ -633,12 +665,14 @@ class JobData(BaseData):
     ##    return value
 
     def clean__corecount(self, raw: Any, value: int) -> Any:
-        """
-        Verify and validate value for the corecount key (set to 1 if not set).
+        """Verify and validate value for the corecount key (set to 1 if not set).
 
-        :param raw: (unused) (Any)
-        :param value: core count (int)
-        :return: updated core count (int).
+        Args:
+            raw: (unused).
+            value: core count.
+
+        Returns:
+            Any: updated core count.
         """
         # note: experiment specific
 
@@ -653,14 +687,16 @@ class JobData(BaseData):
         return value if value else 1
 
     def clean__platform(self, raw: Any, value: str) -> str:
-        """
-        Verify and validate value for the platform key.
+        """Verify and validate value for the platform key.
 
         Set the alrbuserplatform value if encoded in platform/cmtconfig string.
 
-        :param raw: (unused) (Any)
-        :param value: platform (str)
-        :return: updated platform (str).
+        Args:
+            raw: (unused).
+            value: platform.
+
+        Returns:
+            str: updated platform.
         """
         v = value if value.lower() not in ['null', 'none'] else ''
         # handle encoded alrbuserplatform in cmtconfig/platform string
@@ -671,12 +707,14 @@ class JobData(BaseData):
         return v
 
     def clean__altstageout(self, raw: Any, value: str) -> Any:
-        """
-        Verify and validate value for the altstageout key.
+        """Verify and validate value for the altstageout key.
 
-        :param raw: raw value (Any)
-        :param value: parsed value (str)
-        :return: cleaned value (bool or None).
+        Args:
+            raw: raw value.
+            value: parsed value.
+
+        Returns:
+            Any: cleaned value (bool or None).
         """
         if value == 'on':
             return True
@@ -684,16 +722,18 @@ class JobData(BaseData):
             return False
 
     def clean__jobparams(self, raw: Any, value: str) -> str:
-        """
-        Verify and validate value for the jobparams key.
+        """Verify and validate value for the jobparams key.
 
         Extract value from jobparams not related to job options.
         The function will in particular extract and remove --overwriteQueueData, ZIP_MAP and --containerimage.
         It will remove the old Pilot 1 option --overwriteQueuedata which should be replaced with --overwriteQueueData.
 
-        :param raw: (unused) (Any)
-        :param value: job parameters (str)
-        :return: updated job parameters (str).
+        Args:
+            raw: (unused).
+            value: job parameters.
+
+        Returns:
+            str: updated job parameters.
         """
         #   value += ' --athenaopts "HITtoRDO:--nprocs=$ATHENA_CORE_NUMBER" someblah'
         logger.info(f'cleaning jobparams: {value}')
@@ -744,11 +784,13 @@ class JobData(BaseData):
         return ret
 
     def extract_container_image(self, jobparams: str) -> tuple:
-        """
-        Extract the container image from the job parameters if present, and remove it.
+        """Extract the container image from the job parameters if present, and remove it.
 
-        :param jobparams: job parameters (str)
-        :return: string with updated job parameters, string with extracted image name (tuple).
+        Args:
+            jobparams: job parameters.
+
+        Returns:
+            tuple: string with updated job parameters, string with extracted image name.
         """
         imagename = ""
 
@@ -780,13 +822,15 @@ class JobData(BaseData):
 
     @classmethod
     def parse_args(cls, data: str, options: dict, remove: bool = False) -> tuple:
-        """
-        Extract option/values from string containing command line options (arguments).
+        """Extract option/values from string containing command line options (arguments).
 
-        :param data: input command line arguments (str)
-        :param options: dict of option names to be considered: (name, type), type is a cast function to be applied with result value (dict)
-        :param remove: boolean, if True then exclude specified options from returned raw string of command line arguments (bool)
-        :return: Dict of extracted options, raw string of final command line options (tuple).
+        Args:
+            data: input command line arguments.
+            options: dict of option names to be considered: (name, type), type is a cast function to be applied with result value.
+            remove: if True then exclude specified options from returned raw string of command line arguments.
+
+        Returns:
+            tuple: dict of extracted options, raw string of final command line options.
         """
         logger.debug(f'extract options={list(options.keys())} from data={data}')
 
@@ -817,11 +861,13 @@ class JobData(BaseData):
 
     @staticmethod
     def get_opts_pargs(data: str) -> tuple[dict, list]:
-        """
-        Get the opts and pargs variables.
+        """Get the opts and pargs variables.
 
-        :param data: input command line arguments (str)
-        :return: opts dict, pargs list (tuple).
+        Args:
+            data: input command line arguments.
+
+        Returns:
+            tuple[dict, list]: opts dict, pargs list.
         """
         try:
             args = shlex.split(data)
@@ -849,13 +895,15 @@ class JobData(BaseData):
         return opts, pargs
 
     @staticmethod
-    def get_ret(options: dict, opts: dict):
-        """
-        Get the ret variable from the options.
+    def get_ret(options: dict, opts: dict) -> dict:
+        """Get the ret variable from the options.
 
-        :param options: dict of option names to be considered: (name, type) (dict)
-        :param opts: dict of extracted options (dict)
-        :return: ret (dict).
+        Args:
+            options: dict of option names to be considered: (name, type).
+            opts: dict of extracted options.
+
+        Returns:
+            dict: ret.
         """
         ret = {}
         for opt, fcast in list(options.items()):
@@ -869,13 +917,13 @@ class JobData(BaseData):
 
         return ret
 
-    def add_workdir_size(self, workdir_size: int):
-        """
-        Add a measured workdir size to the workdirsizes field.
+    def add_workdir_size(self, workdir_size: int) -> None:
+        """Add a measured workdir size to the workdirsizes field.
 
         The function will deduce any input and output file sizes from the workdir size.
 
-        :param workdir_size: workdir size (int).
+        Args:
+            workdir_size: workdir size.
         """
         if not isinstance(workdir_size, int):
             try:
@@ -910,10 +958,10 @@ class JobData(BaseData):
         self.workdirsizes.append(workdir_size)
 
     def get_max_workdir_size(self) -> int:
-        """
-        Return the maximum disk space used by the payload.
+        """Return the maximum disk space used by the payload.
 
-        :return: workdir size (int).
+        Returns:
+            int: workdir size.
         """
         maxdirsize = 0
         if self.workdirsizes:
@@ -925,10 +973,10 @@ class JobData(BaseData):
         return maxdirsize
 
     def get_lfns_and_guids(self) -> tuple[list, list]:
-        """
-        Return ordered lists with the input file LFNs and GUIDs.
+        """Return ordered lists with the input file LFNs and GUIDs.
 
-        :return: list of input files, list of corresponding GUIDs (tuple).
+        Returns:
+            tuple[list, list]: list of input files, list of corresponding GUIDs.
         """
         lfns = []
         guids = []
@@ -940,14 +988,16 @@ class JobData(BaseData):
         return lfns, guids
 
     def get_status(self, key: str) -> str:
-        """
+        """Return the value for the given key (e.g. LOG_TRANSFER) from the status dictionary.
 
-        Return the value for the given key (e.g. LOG_TRANSFER) from the status dictionary.
         LOG_TRANSFER_NOT_DONE is returned if job object is not defined for key='LOG_TRANSFER'.
         If no key is found, None will be returned.
 
-        :param key: key name (str)
-        :return: corresponding key value in job.status dictionary (str).
+        Args:
+            key: key name.
+
+        Returns:
+            str: corresponding key value in job.status dictionary.
         """
         log_transfer = self.status.get(key, None)
 
@@ -957,14 +1007,16 @@ class JobData(BaseData):
 
         return log_transfer
 
-    def get_job_option_for_input_name(self, input_name: str) -> str or None:
-        """
-        Get the job option for the given input name.
+    def get_job_option_for_input_name(self, input_name: str) -> str | None:
+        """Get the job option for the given input name.
 
         Expecting something like --inputHitsFile=@input_name in jobparams.
 
-        :param input_name: input name (str)
-        :return: job_option such as --inputHitsFile (str).
+        Args:
+            input_name: input name.
+
+        Returns:
+            str | None: job_option such as --inputHitsFile.
         """
         job_options = self.jobparams.split(' ')
         input_name_option = f'=@{input_name}'
@@ -974,9 +1026,8 @@ class JobData(BaseData):
 
         return None
 
-    def process_writetofile(self):
-        """
-        Process the writetofile field.
+    def process_writetofile(self) -> None:
+        """Process the writetofile field.
 
         Expecting writetofile from the job definition.
         The format is 'inputFor_file1:lfn1,lfn2^inputFor_file2:lfn3,lfn4'
@@ -1015,13 +1066,13 @@ class JobData(BaseData):
                 self.jobparams = self.jobparams.replace('--autoConfiguration=everything', '')
                 logger.info(f"jobparams after processing writeToFile: {self.jobparams}")
 
-    def add_size(self, size: int):
-        """
-        Add a size measurement to the sizes field at the current time stamp.
+    def add_size(self, size: int) -> None:
+        """Add a size measurement to the sizes field at the current time stamp.
 
         A size measurement is in Bytes.
 
-        :param size: size of object in Bytes (int).
+        Args:
+            size: size of object in Bytes.
         """
         # is t0 set? if not, set it
         if not self.t0:
@@ -1034,10 +1085,10 @@ class JobData(BaseData):
         self.sizes[time_stamp] = size
 
     def get_size(self) -> int:
-        """
-        Determine the size (B) of the job object.
+        """Determine the size (B) of the job object.
 
-        :return: size (int).
+        Returns:
+            int: size.
         """
         # protect against the case where the object changes size during calculation (rare)
         try:
@@ -1087,14 +1138,14 @@ class JobData(BaseData):
 #                        self.zombies.remove(zombie)
 #                self.collect_zombies(depth=depth)  # recursion
 
-    def collect_zombies(self, depth: int = None):
-        """
-        Collect zombie child processes.
+    def collect_zombies(self, depth: int = None) -> None:
+        """Collect zombie child processes.
 
         Depth is the max number of loops, plus 1, to avoid infinite looping even if some child processes get really
         wedged; depth=None means it will keep going until all child zombies have been collected.
 
-        :param depth: max depth (int).
+        Args:
+            depth: max depth.
         """
         sleep(1)
 
@@ -1124,19 +1175,19 @@ class JobData(BaseData):
                 break
 
     def only_copy_to_scratch(self) -> bool:  ## TO BE DEPRECATED, use `has_remoteio()` instead of
-        """
-        Determine if the payload only has copy-to-scratch input.
+        """Determine if the payload only has copy-to-scratch input.
 
         In this case, there should be no --usePFCTurl or --directIn in the job parameters.
 
-        :return: True if only copy-to-scratch. False if at least one file should use direct access mode (bool)
+        Returns:
+            bool: True if only copy-to-scratch. False if at least one file should use direct access mode.
         """
         return not any(fspec.status == 'remote_io' for fspec in self.indata)
         # for fspec in self.indata:
         #     if fspec.status == 'remote_io':
         #         return False
 
-    def reset_errors(self):  # temporary fix, make sure all queues are empty before starting new job
+    def reset_errors(self) -> None:  # temporary fix, make sure all queues are empty before starting new job
         """Reset error codes and messages."""
         self.piloterrorcode = 0
         self.piloterrorcodes = []
@@ -1151,6 +1202,6 @@ class JobData(BaseData):
         self.cpufrequencies = []
         self.subprocesses = []
 
-    def to_json(self):
+    def to_json(self) -> str:
         """Convert class to dictionary."""
         return dumps(self, default=lambda par: par.__dict__)

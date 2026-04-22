@@ -27,22 +27,25 @@ class ESHook:
     """Event Service Hook class."""
 
     def get_payload(self) -> dict:
-        """
-        Get payload to execute.
+        """Get payload to execute.
 
-        Should return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>} (dict).
-        :raises Exception: if anything goes wrong.
+        Should return: {'payload': <cmd string>, 'output_file': <filenamet>, 'error_file': <filename>}.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 
     def get_event_ranges(self, num_ranges: int = 1) -> dict:
-        """
-        Get event ranges.
+        """Get event ranges.
 
-        Should returns: dictionary of event ranges (dict).
+        Should return: dictionary of event ranges.
 
-        :param num_ranges: Number of event ranges to download, default is 1 (int)
-        :raises Exception: if anything goes wrong.
+        Args:
+            num_ranges: Number of event ranges to download, default is 1.
+
+        Raises:
+            NotImplementedError: if anything goes wrong.
         """
         raise NotImplementedError("Not Implemented")
 
@@ -50,12 +53,19 @@ class ESHook:
         """
         Handle ES output or error message.
 
-        Example
-            For 'finished' event ranges, it's {'id': <id>, 'status': 'finished', 'output': <output>, 'cpu': <cpu>,
-                                                   'wall': <wall>, 'message': <full message>}.
-            For 'failed' event ranges, it's {'id': <id>, 'status': 'finished', 'message': <full message>}.
+        Example:
+            For 'finished' event ranges::
 
-        :param message: dictionary of a parsed message (dict).
-        :raises Exception: if anything goes wrong.
+                {'id': <id>, 'status': 'finished', 'output': <o>, 'cpu': <cpu>, 'wall': <wall>, 'message': <full message>}
+
+            For 'failed' event ranges::
+
+                {'id': <id>, 'status': 'finished', 'message': <full message>}
+
+        Args:
+            message: dictionary of a parsed message.
+
+        Raises:
+            NotImplementedError: always, as this is an abstract method.
         """
         raise NotImplementedError("Not Implemented")

@@ -63,10 +63,10 @@ TRANSFER_ERROR = 15
 
 
 def get_args() -> argparse.Namespace:
-    """
-    Return the args from the arg parser.
+    """Return the args from the arg parser.
 
-    :return: args (argparse.Namespace).
+    Returns:
+        argparse.Namespace: Parsed argument namespace.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -175,12 +175,16 @@ def get_args() -> argparse.Namespace:
 
 # pylint: disable=useless-param-doc
 def str2bool(_str: str) -> bool:
-    """
-    Convert string to bool.
+    """Convert string to bool.
 
-    :param _str: string to be converted (str)
-    :return: boolean (bool)
-    :raise: argparse.ArgumentTypeError.
+    Args:
+        _str: String to be converted.
+
+    Returns:
+        bool: Boolean value.
+
+    Raises:
+        argparse.ArgumentTypeError: If the string does not represent a boolean value.
     """
     if isinstance(_str, bool):
         return _str
@@ -194,11 +198,11 @@ def str2bool(_str: str) -> bool:
 
 # logger is set in the main function
 # pylint: disable=used-before-assignment
-def message(msg: str):
-    """
-    Print message to stdout or to log.
+def message(msg: str) -> None:
+    """Print message to stdout or to log.
 
-    :param msg: message (str).
+    Args:
+        msg: Message to print.
     """
     if not logger:
         print(msg)
@@ -207,15 +211,17 @@ def message(msg: str):
 
 
 def get_file_lists(_lfns: str, _scopes: str, _ddmendpoints: str, _datasets: str, _guids: str) -> tuple:
-    """
-    Return the file lists.
+    """Return the file lists.
 
-    :param _lfns: comma separated list of lfns (str)
-    :param _scopes: comma separated list of scopes (str)
-    :param _ddmendpoints: comma separated list of ddmendpoints (str)
-    :param _datasets: comma separated list of datasets (str)
-    :param _guids: comma separated list of guids (str)
-    :return: tuple of lists (lfns, scopes, ddmendpoints, datasets, guids).
+    Args:
+        _lfns: Comma separated list of lfns.
+        _scopes: Comma separated list of scopes.
+        _ddmendpoints: Comma separated list of ddmendpoints.
+        _datasets: Comma separated list of datasets.
+        _guids: Comma separated list of guids.
+
+    Returns:
+        tuple: Tuple of lists (lfns, scopes, ddmendpoints, datasets, guids).
     """
     return _lfns.split(','), _scopes.split(','), _ddmendpoints.split(','), _datasets.split(','), _guids.split(',')
 
@@ -228,14 +234,14 @@ class Job:
     taskid = ""
     jobdefinitionid = 0
 
-    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0):
-        """
-        Initialize the Job object.
+    def __init__(self, produserid: str = "", jobid: int = 0, taskid: str = "", jobdefinitionid: int = 0) -> None:
+        """Initialize the Job object.
 
-        :param produserid: produserid (str)
-        :param jobid: jobid (int)
-        :param taskid: taskid (str)
-        :param jobdefinitionid: jobdefinitionid (int)
+        Args:
+            produserid: Producer user ID.
+            jobid: Job ID.
+            taskid: Task ID.
+            jobdefinitionid: Job definition ID.
         """
         self.produserid = produserid.replace('%20', ' ')
         self.jobid = jobid
@@ -245,32 +251,36 @@ class Job:
 
 def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, value3: str, value4: str, value5: str,
                       value6: str) -> dict:
-    """
-    Add key: [value1, value2, value3, value4, value5, value6] to dictionary.
+    """Add key: [value1, value2, value3, value4, value5, value6] to dictionary.
 
     In practice; lfn: [status, status_code, surl, turl, checksum, fsize].
 
-    :param dictionary: dictionary to be updated (dict)
-    :param key: lfn key to be added (str)
-    :param value1: status to be added to list belonging to key (str)
-    :param value2: status_code to be added to list belonging to key (str)
-    :param value3: surl to be added to list belonging to key (str)
-    :param value4: turl to be added to list belonging to key (str)
-    :param value5: checksum to be added to list belonging to key (str)
-    :param value6: fsize to be added to list belonging to key (str)
-    :return: updated dictionary (dict).
+    Args:
+        dictionary: Dictionary to be updated.
+        key: LFN key to be added.
+        value1: Status to be added to list belonging to key.
+        value2: Status code to be added to list belonging to key.
+        value3: SURL to be added to list belonging to key.
+        value4: TURL to be added to list belonging to key.
+        value5: Checksum to be added to list belonging to key.
+        value6: File size to be added to list belonging to key.
+
+    Returns:
+        dict: Updated dictionary.
     """
     dictionary[key] = [value1, value2, value3, value4, value5, value6]
 
     return dictionary
 
 
-def extract_error_info(_err: str) -> tuple:
-    """
-    Extract error code and error message from the given error string.
+def extract_error_info(_err: str) -> tuple[int, str]:
+    """Extract error code and error message from the given error string.
 
-    :param _err: error string (str)
-    :return: tuple of error code and error message (int, str).
+    Args:
+        _err: Error string.
+
+    Returns:
+        tuple[int, str]: Error code and error message.
     """
     error_code = 0
     error_message = ""

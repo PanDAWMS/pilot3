@@ -54,13 +54,13 @@ class BaseData:
 
     _keys = {}
 
-    def _load_data(self, data: dict, kmap: dict = None, validators: dict = None):
-        """
-        Construct and initialize data from ext source.
+    def _load_data(self, data: dict, kmap: dict = None, validators: dict = None) -> None:
+        """Construct and initialize data from ext source.
 
-        :param data: input dictionary of raw data settings (dict)
-        :param kmap: the translation map of data attributes from external format to internal schema (dict)
-        :param validators: map of validation handlers to be applied (dict).
+        Args:
+            data: input dictionary of raw data settings.
+            kmap: the translation map of data attributes from external format to internal schema.
+            validators: map of validation handlers to be applied.
         """
         if kmap is None:
             kmap = {}
@@ -115,8 +115,7 @@ class BaseData:
         self.clean()
 
     def clean(self) -> None:
-        """
-        Validate and finally clean up required data values (required object properties if needed.
+        """Validate and finally clean up required data values (required object properties if needed.
 
         Executed once all fields have already passed field-specific validation checks.
         Could be customized by child object.
@@ -124,14 +123,16 @@ class BaseData:
         return
 
     def clean_numeric(self, raw: Any, ktype: Any, kname: Any = None, defval: int = 0) -> Any:
-        """
-        Clean and convert input value to requested numeric type.
+        """Clean and convert input value to requested numeric type.
 
-        :param raw: raw input data (Any)
-        :param ktype: variable type to which result should be cast (Any)
-        :param kname: name of the variable (Any)
-        :param defval: default value to be used in case of cast error (int).
-        :return: cleaned value (Any).
+        Args:
+            raw: raw input data.
+            ktype: variable type to which result should be cast.
+            kname: name of the variable.
+            defval: default value to be used in case of cast error.
+
+        Returns:
+            Any: cleaned value.
         """
         if isinstance(raw, ktype):
             return raw
@@ -149,14 +150,16 @@ class BaseData:
             return defval
 
     def clean_string(self, raw: Any, ktype: Any, kname: Any = None, defval: str = "") -> Any:
-        """
-        Clean and convert input value to requested string type.
+        """Clean and convert input value to requested string type.
 
-        :param raw: raw input data (Any)
-        :param ktype: variable type to which result should be cast (Any)
-        :param kname: name of the variable (Any)
-        :param defval: default value to be used in case of cast error (str).
-        :return: cleaned value (Any).
+        Args:
+            raw: raw input data.
+            ktype: variable type to which result should be cast.
+            kname: name of the variable.
+            defval: default value to be used in case of cast error.
+
+        Returns:
+            Any: cleaned value.
         """
         if isinstance(raw, ktype):
             return raw
@@ -173,14 +176,16 @@ class BaseData:
             return defval
 
     def clean_boolean(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
-        """
-        Clean and convert input value to requested boolean type.
+        """Clean and convert input value to requested boolean type.
 
-        :param raw: raw input data (Any)
-        :param ktype: variable type to which result should be cast (Any)
-        :param kname: name of the variable (Any)
-        :param defval: default value to be used in case of cast error (Any)
-        :return: cleaned value (Any).
+        Args:
+            raw: raw input data.
+            ktype: variable type to which result should be cast.
+            kname: name of the variable.
+            defval: default value to be used in case of cast error.
+
+        Returns:
+            Any: cleaned value.
         """
         if isinstance(raw, ktype):
             return raw
@@ -198,14 +203,16 @@ class BaseData:
         return val.lower() in {'1', 'true', 'yes'}
 
     def clean_dictdata(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
-        """
-        Clean and convert input value to requested dict type.
+        """Clean and convert input value to requested dict type.
 
-        :param raw: raw input data (Any)
-        :param ktype: variable type to which result should be cast (Any)
-        :param kname: name of the variable (Any)
-        :param defval: default value to be used in case of cast error (Any)
-        :return: cleaned value (Any).
+        Args:
+            raw: raw input data.
+            ktype: variable type to which result should be cast.
+            kname: name of the variable.
+            defval: default value to be used in case of cast error.
+
+        Returns:
+            Any: cleaned value.
         """
         if isinstance(raw, str):
             raw = ast.literal_eval(raw)
@@ -222,14 +229,16 @@ class BaseData:
             return defval
 
     def clean_listdata(self, raw: Any, ktype: Any, kname: Any = None, defval: Any = None) -> Any:
-        """
-        Clean and convert input value to requested list type.
+        """Clean and convert input value to requested list type.
 
-        :param raw: raw input data (Any)
-        :param ktype: variable type to which result should be cast (Any)
-        :param kname: name of the variable (Any)
-        :param defval: default value to be used in case of cast error (Any)
-        :return: cleaned value (Any).
+        Args:
+            raw: raw input data.
+            ktype: variable type to which result should be cast.
+            kname: name of the variable.
+            defval: default value to be used in case of cast error.
+
+        Returns:
+            Any: cleaned value.
         """
         if isinstance(raw, ktype):
             return raw
@@ -253,10 +262,10 @@ class BaseData:
     #    return value
 
     def __repr__(self) -> str:
-        """
-        Represent data as string.
+        """Represent data as string.
 
-        :return: representation (str).
+        Returns:
+            str: representation.
         """
         ret = []
         attrs = [key for key in dir(self) if not callable(getattr(self, key)) and not key.startswith('_')]

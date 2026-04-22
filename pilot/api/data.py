@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
 
@@ -117,6 +117,74 @@ from pilot.util.parameters import get_maximum_input_sizes
 from pilot.util.workernode import get_local_disk_space
 from pilot.util.auxiliary import TimeoutException
 from pilot.util.tracereport import TraceReport
+
+# Chunk size chosen to stay well within Rucio's documented limits.
+_RUCIO_LIST_REPLICAS_CHUNK_SIZE = 1000
+_RUCIO_MAX_ATTEMPTS = 3
+_RUCIO_BACKOFF_BASE_SECONDS = 2
+
+# Transfer types that imply direct I/O (remote_io) rather than copy-to-scratch.
+# 'file' is intentionally excluded — it means Rucio copy via POSIX link.
+_DIRECTIO_TRANSFER_TYPES = frozenset({'direct', 'root', 'davs'})
+
+
+def is_directio_transfertype(transfertype: str) -> bool:
+    """Return True if *transfertype* implies direct I/O (remote_io) access.
+
+    A single keyword (e.g. ``"direct"``, ``"root"``, ``"davs"``) or a
+    comma-separated list of those keywords (e.g. ``"davs,root"``) all return
+    ``True``.  An empty/``None`` value or any string containing ``"file"``
+    returns ``False``.
+
+    Args:
+        transfertype: Value of ``job.transfertype`` from the server.
+
+    Returns:
+        bool: ``True`` when all tokens are recognised direct-I/O types.
+    """
+    if not transfertype:
+        return False
+    tokens = [t.strip() for t in transfertype.lower().split(',') if t.strip()]
+    return bool(tokens) and all(t in _DIRECTIO_TRANSFER_TYPES for t in tokens)
+
+
+def get_directio_preferred_schemas(transfertype: str, default_schemas: list) -> list:
+    """Return an ordered schema list for direct I/O, honouring *transfertype*.
+
+    When *transfertype* is ``"direct"`` or empty the *default_schemas* list is
+    returned unchanged (preserving existing behaviour).  For any other
+    recognised keyword(s) the requested protocols are moved to the front of the
+    list and the remaining entries from *default_schemas* follow in their
+    original order.
+
+    Examples::
+
+        get_directio_preferred_schemas("davs",      ["root", "https"])
+        # -> ["davs", "root", "https"]
+
+        get_directio_preferred_schemas("davs,root", ["root", "https"])
+        # -> ["davs", "root", "https"]
+
+        get_directio_preferred_schemas("direct",    ["root", "https"])
+        # -> ["root", "https"]   (unchanged)
+
+    Args:
+        transfertype: Value of ``job.transfertype`` from the server.
+        default_schemas: The schema list that would be used without any
+            *transfertype* override (e.g. ``direct_localinput_allowed_schemas``).
+
+    Returns:
+        list: Re-ordered schema list with requested protocols first.
+    """
+    if not transfertype:
+        return default_schemas
+    tokens = [t.strip() for t in transfertype.lower().split(',') if t.strip() in _DIRECTIO_TRANSFER_TYPES]
+    # 'direct' is the legacy keyword meaning "use default order"
+    explicit = [t for t in tokens if t != 'direct']
+    if not explicit:
+        return default_schemas
+    remainder = [s for s in default_schemas if s not in explicit]
+    return explicit + remainder
 
 
 class StagingClient:
@@ -465,6 +533,60 @@ class StagingClient:
 
         return files
 
+    def _list_replicas_chunk(self, rucio_client, query: dict, chunk_idx: int,
+                             n_chunks: int, retriable_exceptions: tuple) -> list:
+        """
+        Call rucio.list_replicas() for a single chunk with retry logic.
+
+        Args:
+            rucio_client: Rucio Client instance.
+            query: Complete query dict including the 'dids' key for this chunk.
+            chunk_idx: 1-based index of this chunk (for log messages).
+            n_chunks: Total number of chunks (for log messages).
+            retriable_exceptions: Tuple of exception types that trigger a retry.
+
+        Raises:
+            PilotException: If all retry attempts are exhausted or an unexpected
+                exception is raised.
+
+        Returns:
+            list: Raw replica dicts for this chunk.
+        """
+        for attempt in range(1, _RUCIO_MAX_ATTEMPTS + 1):
+            try:
+                chunk_replicas = list(rucio_client.list_replicas(**query))
+                self.logger.debug(
+                    'chunk %d/%d: received %d replica(s) from Rucio',
+                    chunk_idx, n_chunks, len(chunk_replicas),
+                )
+                return chunk_replicas
+
+            except retriable_exceptions as exc:
+                self.logger.warning(
+                    'Chunk %d/%d, attempt %d/%d: transient error while listing replicas: %s',
+                    chunk_idx, n_chunks, attempt, _RUCIO_MAX_ATTEMPTS, exc,
+                )
+                if attempt < _RUCIO_MAX_ATTEMPTS:
+                    sleep_for = _RUCIO_BACKOFF_BASE_SECONDS ** (attempt - 1)
+                    self.logger.info('Retrying after %s seconds...', sleep_for)
+                    time.sleep(sleep_for)
+                else:
+                    raise PilotException(
+                        f'Failed to get replicas from Rucio after {_RUCIO_MAX_ATTEMPTS} attempts '
+                        f'(chunk {chunk_idx}/{n_chunks}): {exc}',
+                        code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                    ) from exc
+
+            except Exception as exc:
+                self.logger.exception(
+                    'Unexpected exception while listing replicas from Rucio (chunk %d/%d).',
+                    chunk_idx, n_chunks,
+                )
+                raise PilotException(
+                    f'Failed to get replicas from Rucio (chunk {chunk_idx}/{n_chunks}): {exc}',
+                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
+                ) from exc
+
     def list_replicas(self, xfiles: list, use_vp: bool) -> list:
         """Query Rucio for all available replicas of the given files.
 
@@ -472,6 +594,10 @@ class StagingClient:
         geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
         the schema is restricted to ``root://`` and availability checks are
         enforced.
+
+        Large file lists are automatically split into chunks of
+        _RUCIO_LIST_REPLICAS_CHUNK_SIZE to avoid Rucio server-side limits.
+        Results from all chunks are merged before returning.
 
         Args:
             xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
@@ -501,140 +627,56 @@ class StagingClient:
         except Exception:
             pass
 
-        # Always allow generic ConnectionError/Timeout if present
         try:
             retriable_exceptions.append(ConnectionError)
             retriable_exceptions.append(TimeoutError)
         except Exception:
             pass
 
-        # Convert to tuple for except clause
         retriable_exceptions = tuple(retriable_exceptions) if retriable_exceptions else (Exception,)
-
-        MAX_ATTEMPTS = 3
-        BACKOFF_BASE_SECONDS = 2
-
         rucio_client = Client()
 
         location, diagnostics = self.detect_client_location(use_vp=use_vp)
         if diagnostics:
             self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
 
-        query = {
+        base_query = {
             'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
+            'sort': 'geoip',
+            'client_location': location,
+            'signature_lifetime': 24 * 3600,
         }
-        query.update(sort='geoip', client_location=location)
-
         if use_vp:
-            query['schemes'] = ['root']
-            query['rse_expression'] = 'istape=False\\type=SPECIAL'
-            query['ignore_availability'] = False
+            base_query['schemes'] = ['root']
+            base_query['rse_expression'] = 'istape=False\\type=SPECIAL'
+            base_query['ignore_availability'] = False
 
-        query.update(signature_lifetime=24 * 3600)
+        # Split into chunks to avoid Rucio server-side limits with large input lists
+        chunks = [xfiles[i:i + _RUCIO_LIST_REPLICAS_CHUNK_SIZE]
+                  for i in range(0, len(xfiles), _RUCIO_LIST_REPLICAS_CHUNK_SIZE)]
+        n_chunks = len(chunks)
+        if n_chunks > 1:
+            self.logger.info(f'splitting {len(xfiles)} files into {n_chunks} '
+                             f'chunks of up to {_RUCIO_LIST_REPLICAS_CHUNK_SIZE} '
+                             f'for rucio.list_replicas()')
 
-        self.logger.info(f'calling rucio.list_replicas() with query={query}')
-
-        last_exc = None
-
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            try:
-                replicas_iter = rucio_client.list_replicas(**query)
-
-                replicas = []
-                for item in replicas_iter:
-                    replicas.append(item)
-
-                self.logger.debug(
-                    f"replicas received from Rucio (count={len(replicas)})."
+        all_replicas = []
+        for chunk_idx, chunk in enumerate(chunks, start=1):
+            query = dict(base_query)
+            query['dids'] = [{'scope': e.scope, 'name': e.lfn} for e in chunk]
+            if n_chunks > 1:
+                self.logger.info(
+                    'calling rucio.list_replicas() for chunk %d/%d (%d files)',
+                    chunk_idx, n_chunks, len(chunk),
                 )
-                return replicas
+            else:
+                self.logger.info('calling rucio.list_replicas() with query=%s', query)
+            all_replicas.extend(
+                self._list_replicas_chunk(rucio_client, query, chunk_idx, n_chunks, retriable_exceptions)
+            )
 
-            except retriable_exceptions as exc:
-                last_exc = exc
-                self.logger.warning(
-                    "Attempt %d/%d: transient error while listing replicas from Rucio: %s",
-                    attempt, MAX_ATTEMPTS, exc,
-                )
-
-                if attempt < MAX_ATTEMPTS:
-                    sleep_for = BACKOFF_BASE_SECONDS ** (attempt - 1)
-                    self.logger.info("Retrying after %s seconds...", sleep_for)
-                    time.sleep(sleep_for)
-                    continue
-
-                raise PilotException(
-                    f"Failed to get replicas from Rucio after {MAX_ATTEMPTS} attempts: {exc}",
-                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
-                ) from exc
-
-            except Exception as exc:
-                self.logger.exception(
-                    "Unexpected exception while listing replicas from Rucio."
-                )
-                raise PilotException(
-                    f"Failed to get replicas from Rucio: {exc}",
-                    code=ErrorCodes.RUCIOLISTREPLICASFAILED,
-                ) from exc
-
-        raise PilotException(
-            f"Failed to get replicas from Rucio: {last_exc}",
-            code=ErrorCodes.RUCIOLISTREPLICASFAILED,
-        ) from last_exc
-
-    def list_replicas_old(self, xfiles: list, use_vp: bool) -> list:
-        """Query Rucio for all available replicas of the given files.
-
-        Wraps ``rucio.client.Client.list_replicas()``.  The query requests
-        geo-IP sorted results and a 24-hour signature lifetime.  For VP jobs
-        the schema is restricted to ``root://`` and availability checks are
-        enforced.
-
-        Args:
-            xfiles: List of :class:`~pilot.info.filespec.FileSpec` objects to
-                look up.
-            use_vp: Set to ``True`` for VP jobs to apply VP-specific query
-                parameters.
-
-        Raises:
-            PilotException: If the Rucio call fails.
-
-        Returns:
-            list: Raw replica dicts as returned by the Rucio client.
-        """
-        # load replicas from Rucio
-        from rucio.client import Client
-        rucio_client = Client()
-        location, diagnostics = self.detect_client_location(use_vp=use_vp)
-        if diagnostics:
-            self.logger.warning(f'failed to get client location for rucio: {diagnostics}')
-            #raise PilotException(f"failed to get client location for rucio: {diagnostics}", code=ErrorCodes.RUCIOLOCATIONFAILED)
-
-        query = {
-            'schemes': ['srm', 'root', 'davs', 'gsiftp', 'https', 'storm', 'file'],
-            'dids': [{"scope": e.scope, "name": e.lfn} for e in xfiles],
-        }
-        query.update(sort='geoip', client_location=location)
-        # reset the schemas for VP jobs
-        if use_vp:
-            query['schemes'] = ['root']
-            query['rse_expression'] = 'istape=False\\type=SPECIAL'
-            query['ignore_availability'] = False
-
-        # add signature lifetime for signed URL storages
-        query.update(signature_lifetime=24 * 3600)  # note: default is otherwise 1h
-
-        self.logger.info(f'calling rucio.list_replicas() with query={query}')
-
-        try:
-            replicas = rucio_client.list_replicas(**query)
-        except Exception as exc:
-            raise PilotException(f"Failed to get replicas from Rucio: {exc}", code=ErrorCodes.RUCIOLISTREPLICASFAILED) from exc
-
-        replicas = list(replicas)
-        self.logger.debug(f"replicas received from Rucio: {replicas}")
-
-        return replicas
+        self.logger.debug('rucio.list_replicas() total replicas received: %d', len(all_replicas))
+        return all_replicas
 
     def add_replicas(self, fdat: Any, replica: Any) -> Any:
         """Populate ``fdat.replicas`` from a raw Rucio replica record.
@@ -1167,7 +1209,19 @@ class StageInClient(StagingClient):
 
         Checks ``queuedata.direct_access_lan`` and
         ``queuedata.direct_access_wan``.  Direct access is disabled for
-        production jobs unless ``job.transfertype == "direct"``.
+        production jobs unless ``job.transfertype`` implies remote I/O.
+
+        Transfer types that enable direct access for production jobs:
+
+        * ``"direct"`` — default remote I/O; uses the queue's default
+          protocol priority (``root`` first).
+        * ``"root"`` — remote I/O with ``root://`` preferred.
+        * ``"davs"`` — remote I/O with ``davs://`` preferred.
+        * Comma-separated combinations of the above (e.g. ``"davs,root"``) —
+          remote I/O tried in the listed protocol order.
+
+        ``"file"`` (Rucio copy via POSIX link) and ``None``/empty trigger
+        copy-to-scratch and do **not** enable direct access for production jobs.
 
         Args:
             job: Job object.  May be ``None`` when no job context is available.
@@ -1188,7 +1242,7 @@ class StageInClient(StagingClient):
         else:
             self.logger.info('infosys.queuedata is not initialized: direct access mode will be DISABLED by default')
 
-        if job and not job.is_analysis() and job.transfertype != 'direct':  # task forbids direct access
+        if job and not job.is_analysis() and not is_directio_transfertype(job.transfertype):
             allow_direct_access = False
             self.logger.info(f'switched off direct access mode for production job since transfertype={job.transfertype}')
 
@@ -1278,12 +1332,14 @@ class StageInClient(StagingClient):
                 # check local replicas first
                 if fspec.allow_lan:
                     if not replica:
-                        # prepare schemas which will be used to look up first the replicas allowed for direct access mode
-                        primary_schemas = (
-                            self.direct_localinput_allowed_schemas
-                            if fspec.direct_access_lan and fspec.is_directaccess(ensure_replica=False)
-                            else None
-                        )
+                        # Determine primary schemas for direct-access LAN, honouring transfertype
+                        # protocol preference (e.g. 'davs' moves davs:// to the front).
+                        if fspec.direct_access_lan and fspec.is_directaccess(ensure_replica=False):
+                            primary_schemas = get_directio_preferred_schemas(
+                                ttype, self.direct_localinput_allowed_schemas
+                            )
+                        else:
+                            primary_schemas = None
                         replica = resolve_replica(fspec, primary_schemas, allowed_schemas, domain='lan')
 
                     if not replica:
@@ -1299,12 +1355,14 @@ class StageInClient(StagingClient):
 
                 # check remote replicas
                 if not replica and fspec.allow_wan:
-                    # prepare schemas which will be used to look up first the replicas allowed for direct access mode
-                    primary_schemas = (
-                        self.direct_remoteinput_allowed_schemas
-                        if fspec.direct_access_wan and fspec.is_directaccess(ensure_replica=False)
-                        else None
-                    )
+                    # Determine primary schemas for direct-access WAN, honouring transfertype
+                    # protocol preference (e.g. 'davs' moves davs:// to the front).
+                    if fspec.direct_access_wan and fspec.is_directaccess(ensure_replica=False):
+                        primary_schemas = get_directio_preferred_schemas(
+                            ttype, self.direct_remoteinput_allowed_schemas
+                        )
+                    else:
+                        primary_schemas = None
 
                     xschemas = self.remoteinput_allowed_schemas
                     wan_allowed_schemas = [s for s in allowed_schemas if s in xschemas] if allowed_schemas else xschemas
@@ -1335,161 +1393,6 @@ class StageInClient(StagingClient):
                     "[stage-in] found replica to be used for lfn=%s: ddmendpoint=%s, pfn=%s",
                     fspec.lfn, fspec.ddmendpoint, fspec.turl
                 )
-
-        # prepare files (resolve protocol/transfer url)
-        if getattr(copytool, 'require_input_protocols', False) and files:
-            args = kwargs.get('args')
-            input_dir = kwargs.get('input_dir') if not args else args.input_dir
-            self.require_protocols(files, copytool, activity, local_dir=input_dir)
-
-        # mark direct access files with status=remote_io
-        self.set_status_for_direct_access(files, kwargs.get('workdir', ''))
-
-        # get remain files that need to be transferred by copytool
-        remain_files = [e for e in files if e.status not in ['direct', 'remote_io', 'transferred', 'no_transfer']]
-
-        if not remain_files:
-            return files
-
-        if not copytool.is_valid_for_copy_in(remain_files):
-            msg = f'input is not valid for transfers using copytool={copytool}'
-            self.logger.warning(msg)
-            self.logger.debug('input: %s', remain_files)
-            self.trace_report.update(clientState='NO_REPLICA', stateReason=msg)
-            self.trace_report.send()
-            raise PilotException('invalid input data for transfer operation')
-
-        if self.infosys:
-            if self.infosys.queuedata:
-                kwargs['copytools'] = self.infosys.queuedata.copytools
-            kwargs['ddmconf'] = self.infosys.resolve_storage_data()
-        kwargs['activity'] = activity
-
-        # verify file sizes and available space for stage-in
-        if getattr(copytool, 'check_availablespace', True):
-            if self.infosys.queuedata.maxinputsize != -1:
-                self.check_availablespace(remain_files)
-            else:
-                self.logger.info('skipping input file size check since maxinputsize=-1')
-
-        # add the trace report
-        kwargs['trace_report'] = self.trace_report
-        self.logger.info('ready to transfer (stage-in) files: %s', remain_files)
-
-        # is there an override in catchall to allow mv to final destination (relevant for mv copytool only)
-        kwargs['mvfinaldest'] = self.allow_mvfinaldest(kwargs.get('catchall', ''))
-
-        # use bulk downloads if necessary
-        # if kwargs['use_bulk_transfer']
-        # return copytool.copy_in_bulk(remain_files, **kwargs)
-        return copytool.copy_in(remain_files, **kwargs)
-
-    def transfer_files_old(self, copytool: Any, files: list, activity: list = None, **kwargs: Any) -> list:  # noqa: C901
-        """Stage in files using the given copytool module (deprecated predecessor).
-
-        Retained for reference only.  Use :meth:`transfer_files` instead.
-
-        Args:
-            copytool: Imported copytool module.
-            files: List of :class:`~pilot.info.filespec.FileSpec` objects to
-                stage in.
-            activity: Ordered list of activity names used to resolve allowed
-                schemas.
-            **kwargs: Extra keyword arguments forwarded to the copytool.
-
-        Raises:
-            ReplicasNotFound: If no suitable replica is found for a file.
-            PilotException: On validation failures or copytool errors.
-
-        Returns:
-            list: The updated ``files`` list.
-        """
-        if getattr(copytool, 'require_replicas', False) and files:
-            if files[0].replicas is None:  # look up replicas only once
-                files = self.resolve_replicas(files, use_vp=kwargs.get('use_vp', False))
-
-            allowed_schemas = getattr(copytool, 'allowed_schemas', None)
-
-            if self.infosys and self.infosys.queuedata:
-                copytool_name = copytool.__name__.rsplit('.', 1)[-1]
-                allowed_schemas = self.infosys.queuedata.resolve_allowed_schemas(activity, copytool_name) or allowed_schemas
-
-            # overwrite allowed_schemas for VP jobs
-            if kwargs.get('use_vp', False):
-                allowed_schemas = ['root']
-                self.logger.debug('overwrote allowed_schemas for VP job: %s', str(allowed_schemas))
-
-            for fspec in files:
-                resolve_replica = getattr(copytool, 'resolve_replica', None)
-                resolve_replica = self.resolve_replica if not callable(resolve_replica) else resolve_replica
-
-                replica = None
-
-                # for dev pilot purposes
-                # --- NEW: prefer schema based on job.transfertype for copy-to-scratch ---
-                job = kwargs.get('job')
-                ttype = (getattr(job, 'transfertype', '') or '').lower()
-
-                prefer = [ttype] if ttype in ('file', 'root', 'davs') else None
-
-                # don’t interfere with direct I/O behavior
-                doing_direct = fspec.is_directaccess(ensure_replica=False) and (fspec.direct_access_lan or fspec.direct_access_wan)
-
-                if prefer and not doing_direct:
-                    # try LAN first (if allowed)
-                    if fspec.allow_lan:
-                        replica = resolve_replica(fspec, prefer, allowed_schemas, domain='lan')
-                        self.logger.info(f'lan replica resolved with preferred schema={prefer}: {replica}')
-
-                    # then WAN (respecting existing WAN schema restriction logic)
-                    if not replica and fspec.allow_wan:
-                        xschemas = self.remoteinput_allowed_schemas
-                        wan_allowed = [s for s in allowed_schemas if s in xschemas] if allowed_schemas else xschemas
-                        replica = resolve_replica(fspec, prefer, wan_allowed, domain='wan')
-                        self.logger.info(f'wan replica resolved with preferred schema={prefer}: {replica}')
-                # --- end NEW block ---
-
-                # process direct access logic
-                # [Consider: move to upper level, should not be dependent on copytool (anisyonk)]
-                # check local replicas first
-                # if fspec.allow_lan:
-                if not replica and fspec.allow_lan:
-                    # prepare schemas which will be used to look up first the replicas allowed for direct access mode
-                    primary_schemas = (self.direct_localinput_allowed_schemas if fspec.direct_access_lan and
-                                       fspec.is_directaccess(ensure_replica=False) else None)
-                    replica = resolve_replica(fspec, primary_schemas, allowed_schemas, domain='lan')
-                else:
-                    self.logger.info("[stage-in] LAN access is DISABLED for lfn=%s (fspec.allow_lan=%s)", fspec.lfn, fspec.allow_lan)
-
-                if not replica and fspec.allow_lan:
-                    self.logger.info("[stage-in] No LAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
-                                     fspec.lfn, primary_schemas, allowed_schemas)
-
-                # check remote replicas
-                if not replica and fspec.allow_wan:
-                    # prepare schemas which will be used to look up first the replicas allowed for direct access mode
-                    primary_schemas = (self.direct_remoteinput_allowed_schemas if fspec.direct_access_wan and
-                                       fspec.is_directaccess(ensure_replica=False) else None)
-                    xschemas = self.remoteinput_allowed_schemas
-                    allowed_schemas = [schema for schema in allowed_schemas if schema in xschemas] if allowed_schemas else xschemas
-                    replica = resolve_replica(fspec, primary_schemas, allowed_schemas, domain='wan')
-
-                if not replica and fspec.allow_wan:
-                    self.logger.info("[stage-in] No WAN replica found for lfn=%s, primary_schemas=%s, allowed_schemas=%s",
-                                     fspec.lfn, primary_schemas, allowed_schemas)
-                if not replica:
-                    raise ReplicasNotFound(f'No replica found for lfn={fspec.lfn} (allow_lan={fspec.allow_lan}, allow_wan={fspec.allow_wan})')
-
-                if replica.get('pfn'):
-                    fspec.turl = replica['pfn']
-                if replica.get('surl'):
-                    fspec.surl = replica['surl']  # TO BE CLARIFIED if it's still used and need
-                if replica.get('ddmendpoint'):
-                    fspec.ddmendpoint = replica['ddmendpoint']
-                if replica.get('domain'):
-                    fspec.domain = replica['domain']
-
-                self.logger.info("[stage-in] found replica to be used for lfn=%s: ddmendpoint=%s, pfn=%s", fspec.lfn, fspec.ddmendpoint, fspec.turl)
 
         # prepare files (resolve protocol/transfer url)
         if getattr(copytool, 'require_input_protocols', False) and files:

@@ -39,7 +39,7 @@ on the configuration settings
 
 import logging
 import re
-from typing import Any
+from typing import Any, Optional, Union
 
 from .basedata import BaseData
 
@@ -112,19 +112,19 @@ class QueueData(BaseData):
              }
 
     def __init__(self, data: dict):
-        """
-        Initialize class instance.
+        """Initialize class instance.
 
-        :param data: input dictionary of queue data settings (dict).
+        Args:
+            data: input dictionary of queue data settings.
         """
         self.load(data)
         logger.debug(f'final parsed QueueData content:\n{self}')
 
-    def load(self, data: dict):
-        """
-        Construct and initialize data from ext source
+    def load(self, data: dict) -> None:
+        """Construct and initialize data from ext source.
 
-        :param data: input dictionary of queue data settings (dict).
+        Args:
+            data: input dictionary of queue data settings.
         """
         # the translation map of the queue data attributes from external data to internal schema
         # 'internal_name':('ext_name1', 'extname2_if_any')
@@ -144,13 +144,15 @@ class QueueData(BaseData):
 
         self._load_data(data, kmap)
 
-    def resolve_allowed_schemas(self, activity: str or list, copytool: str = None) -> list:
-        """
-        Resolve list of allowed schemas for given activity and requested copytool based on `acopytools_schemas` settings
+    def resolve_allowed_schemas(self, activity: Union[str, list], copytool: str = None) -> list:
+        """Resolve list of allowed schemas for given activity and requested copytool based on `acopytools_schemas` settings.
 
-        :param activity: str or ordered list of transfer activity names to resolve acopytools related data (str or list)
-        :param copytool: requested copytool name (str)
-        :return: list of protocol schemes (list).
+        Args:
+            activity: str or ordered list of transfer activity names to resolve acopytools related data.
+            copytool: requested copytool name.
+
+        Returns:
+            list: list of protocol schemes.
         """
         if not activity:
             activity = 'default'
@@ -177,17 +179,17 @@ class QueueData(BaseData):
 
         return adat.get(copytool) or []
 
-    def allow_altstageout(self):
-        """
-        Resolve if alternative stageout should be forced (True) or disabled (False); None value means no preferences defined.
-        :return: boolean or None
-        """
+    def allow_altstageout(self) -> Optional[bool]:
+        """Resolve if alternative stageout should be forced (True) or disabled (False); None value means no preferences defined.
 
+        Returns:
+            Optional[bool]: boolean or None.
+        """
         val = self.params.get('allow_altstageout', None)
         if val is not None:  # cast to bool
             return bool(val)
 
-    def set_pilot_walltime_grace(self):
+    def set_pilot_walltime_grace(self) -> None:
         """Set pilot walltime grace factor based on the queuedata settings."""
         try:
             _pilot_walltime_grace = float(self.params.get('pilot_walltime_grace', 0))
@@ -196,7 +198,7 @@ class QueueData(BaseData):
             logger.warning(f"failed to set pilot_walltime_grace: {e}")
             self.pilot_walltime_grace = 1.0
 
-    def set_pilot_rss_grace(self):
+    def set_pilot_rss_grace(self) -> None:
         """Set pilot rss grace factor based on the queuedata settings."""
         try:
             _pilot_rss_grace = float(self.params.get('pilot_rss_grace', 100))
@@ -205,7 +207,7 @@ class QueueData(BaseData):
             logger.warning(f"failed to set pilot_rss_grace: {e}")
             self.pilot_rss_grace = 2.0
 
-    def set_pilot_maxwdir_grace(self):
+    def set_pilot_maxwdir_grace(self) -> None:
         """Set pilot maxwdir grace factor based on the queuedata settings."""
         try:
             _pilot_maxwdir_grace = float(self.params.get('pilot_maxwdir_grace', 20))
@@ -214,7 +216,7 @@ class QueueData(BaseData):
             logger.warning(f"failed to set pilot_maxwdir_grace: {e}")
             self.pilot_maxwdir_grace = 1.0
 
-    def clean(self):
+    def clean(self) -> None:
         """Validate and finally clean up required data values (required object properties) if needed."""
         # validate es_stageout_gap value
         if not self.es_stageout_gap:
@@ -256,25 +258,29 @@ class QueueData(BaseData):
     ##    return value
 
     def clean__timefloor(self, raw: Any, value: int) -> int:
-        """
-        Verify and validate value for the timefloor key (convert to seconds).
+        """Verify and validate value for the timefloor key (convert to seconds).
 
-        :param raw: raw value passed from ext source as input - unused (Any)
-        :param value: preliminary cleaned and cast to proper type value (int)
-        :return: timefloor value in seconds (int).
+        Args:
+            raw: raw value passed from ext source as input - unused.
+            value: preliminary cleaned and cast to proper type value.
+
+        Returns:
+            int: timefloor value in seconds.
         """
         return value * 60
 
     def clean__container_type(self, raw: Any, value: str) -> dict:
-        """
-        Parse and prepare value for the container_type key.
+        """Parse and prepare value for the container_type key.
 
         Expected raw data in format 'container_name:user_name;'
         E.g. container_type = 'singularity:pilot;docker:wrapper', 'apptainer:pilot;docker:wrapper'
 
-        :param raw: raw value passed from ext source as input - unused (Any)
-        :param value: preliminary cleaned and cast to proper type value (str)
-        :return: dictionary of container names by user as a key (dict).
+        Args:
+            raw: raw value passed from ext source as input - unused.
+            value: preliminary cleaned and cast to proper type value.
+
+        Returns:
+            dict: dictionary of container names by user as a key.
         """
         ret = {}
         val = value or ''
@@ -287,21 +293,25 @@ class QueueData(BaseData):
         return ret
 
     def clean__container_options(self, raw: Any, value: str) -> str:
-        """
-        Verify and validate value for the container_options key (remove bad values)
+        """Verify and validate value for the container_options key (remove bad values).
 
-        :param raw: raw value passed from ext source as input - unused (Any)
-        :param value: preliminary cleaned and cast to proper type value (str)
-        :return: cleaned container_options value (str).
+        Args:
+            raw: raw value passed from ext source as input - unused.
+            value: preliminary cleaned and cast to proper type value.
+
+        Returns:
+            str: cleaned container_options value.
         """
         return value if value.lower() not in ['none'] else ''
 
     def clean__corecount(self, raw: Any, value: int) -> int:
-        """
-        Verify and validate value for the corecount key (set to 1 if not set)
+        """Verify and validate value for the corecount key (set to 1 if not set).
 
-        :param raw: raw value passed from ext source as input - unused (Any)
-        :param value: preliminary cleaned and cast to proper type value (int)
-        :return: corecount value (int).
+        Args:
+            raw: raw value passed from ext source as input - unused.
+            value: preliminary cleaned and cast to proper type value.
+
+        Returns:
+            int: corecount value.
         """
         return value if value else 1

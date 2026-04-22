@@ -25,6 +25,7 @@ import logging
 import os
 import time
 from re import search
+from typing import Optional
 
 # from pilot.info import infosys
 from pilot.common.exception import (
@@ -55,15 +56,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_network_monitor_setup(setup: str, job: JobData) -> str:
-    """
-    Return the proper setup for the network monitor.
+    """Return the proper setup for the network monitor.
 
     The network monitor is currently setup together with the payload and is start before it. The payload setup should
     therefore be provided. The network monitor setup is prepended to it.
 
-    :param setup: payload setup string (str)
-    :param job: job object (JobData)
-    :return: network monitor setup string (str).
+    Args:
+        setup: payload setup string.
+        job: job object.
+
+    Returns:
+        str: network monitor setup string.
     """
     if setup or job:  # to bypass pylint warning
         pass
@@ -72,11 +75,13 @@ def get_network_monitor_setup(setup: str, job: JobData) -> str:
 
 
 def get_memory_monitor_summary_filename(selector: bool = None) -> str:
-    """
-    Return the name for the memory monitor summary file.
+    """Return the name for the memory monitor summary file.
 
-    :param selector: special conditions flag (bool)
-    :return: file name (str).
+    Args:
+        selector: special conditions flag.
+
+    Returns:
+        str: file name.
     """
     name = "memory_monitor_summary.json"
 
@@ -87,11 +92,13 @@ def get_memory_monitor_summary_filename(selector: bool = None) -> str:
 
 
 def get_memory_monitor_output_filename(suffix: str = 'txt') -> str:
-    """
-    Return the filename of the memory monitor text output file.
+    """Return the filename of the memory monitor text output file.
 
-    :param suffix: file suffix (str)
-    :return: file name (str).
+    Args:
+        suffix: file suffix.
+
+    Returns:
+        str: file name.
     """
     return f"memory_monitor_output.{suffix}"
 
@@ -101,19 +108,21 @@ def get_memory_monitor_setup(pid: int,
                              workdir: str,
                              setup: str = "",
                              use_container: bool = True) -> tuple[str, int]:
-    """
-    Return the proper setup for the memory monitor.
+    """Return the proper setup for the memory monitor.
 
     If the payload release is provided, the memory monitor can be setup with the same release. Until early 2018, the
     memory monitor was still located in the release area. After many problems with the memory monitor, it was decided
     to use a fixed version for the setup. Currently, release 21.0.22 is used.
 
-    :param pid: job process id (int)
-    :param jobid: job id (int)
-    :param workdir: job work directory (str)
-    :param setup: optional setup in case asetup can not be used, which uses infosys (str)
-    :param use_container: optional boolean (bool)
-    :return: job work directory (str), pid for process inside container (int) (tuple).
+    Args:
+        pid: job process id.
+        jobid: job id.
+        workdir: job work directory.
+        setup: optional setup in case asetup can not be used, which uses infosys.
+        use_container: optional boolean.
+
+    Returns:
+        tuple[str, int]: job work directory, pid for process inside container.
     """
     # try to get the pid from a pid.txt file which might be created by a container_script
     pid = get_proper_pid(pid, jobid, use_container=use_container)
@@ -136,8 +145,7 @@ def get_memory_monitor_setup(pid: int,
 
 
 def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
-    """
-    Return a pid from the proper source to be used with the memory monitor.
+    """Return a pid from the proper source to be used with the memory monitor.
 
     The given pid comes from Popen(), but in the case containers are used, the pid should instead come from a ps aux
     lookup.
@@ -145,10 +153,13 @@ def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
     running inside a container), then this function will abort and return -1. The called should handle this and not
     launch the memory monitor as it is not needed any longer.
 
-    :param pid: process id (int)
-    :param jobid: job id (int)
-    :param use_container: optional boolean (bool)
-    :return: pid (int).
+    Args:
+        pid: process id.
+        jobid: job id.
+        use_container: optional boolean.
+
+    Returns:
+        int: pid.
     """
     if not use_container:
         return pid
@@ -189,14 +200,16 @@ def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
 
 
 def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
-    """
-    Return ps info for the given user.
+    """Return ps info for the given user.
 
     Note: this is a fallback solution in case the pid cannot be found in the psutils lookup.
 
-    :param whoami: username (str)
-    :param options: ps options (str)
-    :return: ps aux for given user (str).
+    Args:
+        whoami: username.
+        options: ps options.
+
+    Returns:
+        str: ps aux for given user.
     """
     if not whoami:
         whoami = os.getuid()
@@ -206,12 +219,14 @@ def get_ps_info(whoami: str = None, options: str = 'axfo pid,user,args') -> str:
     return stdout
 
 
-def get_pid_for_jobid(jobid: int) -> int or None:
-    """
-    Return the process id for the ps entry that contains the job id.
+def get_pid_for_jobid(jobid: int) -> Optional[int]:
+    """Return the process id for the ps entry that contains the job id.
 
-    :param jobid: PanDA job id (int).
-    :return: pid (int) or None if no such process (int or None).
+    Args:
+        jobid: PanDA job id.
+
+    Returns:
+        Optional[int]: pid, or None if no such process.
     """
     pid = find_process_by_jobid(jobid)
     if pid:
@@ -235,15 +250,18 @@ def get_pid_for_jobid(jobid: int) -> int or None:
     return pid
 
 
-def get_pid_for_trf(ps: str, transformation: str, outdata: list) -> int or None:
-    """
-    Return the process id for the given command and user.
+def get_pid_for_trf(ps: str, transformation: str, outdata: list) -> Optional[int]:
+    """Return the process id for the given command and user.
+
     Note: function returns 0 in case pid could not be found.
 
-    :param ps: ps command output (str)
-    :param transformation: transformation name, e.g. Sim_tf.py (str)
-    :param outdata: fspec objects (list)
-    :return: pid (int) or None if no such process (int or None).
+    Args:
+        ps: ps command output.
+        transformation: transformation name, e.g. Sim_tf.py.
+        outdata: fspec objects.
+
+    Returns:
+        Optional[int]: pid, or None if no such process.
     """
     pid = None
     candidates = []
@@ -279,14 +297,16 @@ def get_pid_for_trf(ps: str, transformation: str, outdata: list) -> int or None:
 
 
 def get_trf_command(command: str, transformation: str = "") -> str:
-    """
-    Return the last command in the full payload command string.
+    """Return the last command in the full payload command string.
 
     Note: this function returns the last command in job.command which is only set for containers.
 
-    :param command: full payload command (str)
-    :param transformation: optional name of transformation, e.g. Sim_tf.py (str)
-    :return: trf command (str).
+    Args:
+        command: full payload command.
+        transformation: optional name of transformation, e.g. Sim_tf.py.
+
+    Returns:
+        str: trf command.
     """
     payload_command = ""
 
@@ -305,17 +325,19 @@ def get_trf_command(command: str, transformation: str = "") -> str:
 
 
 def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> str:
-    """
-    Find the proper path to the utility info file.
+    """Find the proper path to the utility info file.
 
     Priority order:
        1. JSON summary file from workdir
        2. JSON summary file from pilot initdir
        3. Text output file from workdir (if allowtxtfile is True)
 
-    :param workdir: relevant work directory (str)
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
-    :return: path (str).
+    Args:
+        workdir: relevant work directory.
+        allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
+
+    Returns:
+        str: path.
     """
     pilot_initdir = os.environ.get('PILOT_HOME', '')
     path = os.path.join(workdir, get_memory_monitor_summary_filename())
@@ -337,15 +359,17 @@ def get_memory_monitor_info_path(workdir: str, allowtxtfile: bool = False) -> st
 
 
 def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str = "") -> dict:  # noqa: C901
-    """
-    Add the utility info to the node structure if available.
+    """Add the utility info to the node structure if available.
 
     Note: allowtxtfile is not used for ATLAS.
 
-    :param workdir: relevant work directory (str)
-    :param allowtxtfile: boolean attribute to allow for reading the raw memory monitor output (bool)
-    :param name: name of memory monitor (str)
-    :return: node structure (dict).
+    Args:
+        workdir: relevant work directory.
+        allowtxtfile: boolean attribute to allow for reading the raw memory monitor output.
+        name: name of memory monitor.
+
+    Returns:
+        dict: node structure.
     """
     if allowtxtfile:  # bypass pylint warning
         pass
@@ -451,15 +475,17 @@ def get_memory_monitor_info(workdir: str, allowtxtfile: bool = False, name: str 
 
 
 def get_max_memory_monitor_value(value: int, maxvalue: int, totalvalue: int) -> tuple[int, int, int]:
-    """
-    Return the max and total value (used by memory monitoring).
+    """Return the max and total value (used by memory monitoring).
 
     Return an error code, 1, in case of value error.
 
-    :param value: value to be tested (int)
-    :param maxvalue: current maximum value (int)
-    :param totalvalue: total value (int)
-    :return: exit code (int), maximum (int) and total value (int) (tuple).
+    Args:
+        value: value to be tested.
+        maxvalue: current maximum value.
+        totalvalue: total value.
+
+    Returns:
+        tuple[int, int, int]: exit code, maximum, and total value.
     """
     ec = 0
 
@@ -475,12 +501,14 @@ def get_max_memory_monitor_value(value: int, maxvalue: int, totalvalue: int) -> 
     return ec, maxvalue, totalvalue
 
 
-def convert_unicode_string(unicode_string: str) -> str or None:
-    """
-    Convert a unicode string into str.
+def convert_unicode_string(unicode_string: str) -> Optional[str]:
+    """Convert a unicode string into str.
 
-    :param unicode_string: unicode string (str)
-    :return: string (str or None).
+    Args:
+        unicode_string: unicode string.
+
+    Returns:
+        Optional[str]: string.
     """
     if unicode_string is not None:
         return str(unicode_string)
@@ -489,8 +517,7 @@ def convert_unicode_string(unicode_string: str) -> str or None:
 
 
 def get_average_summary_dictionary_prmon(path: str) -> dict:
-    """
-    Loop over the memory monitor output file and create the averaged summary dictionary.
+    """Loop over the memory monitor output file and create the averaged summary dictionary.
 
     prmon keys:
     'Time', 'nprocs', 'nthreads', 'pss', 'rchar', 'read_bytes', 'rss', 'rx_bytes',
@@ -501,8 +528,11 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     later in the function. This means that any change in the format such as new columns
     will be handled automatically.
 
-    :param path: path to memory monitor txt output file (str)
-    :return: summary dictionary (dict).
+    Args:
+        path: path to memory monitor txt output file.
+
+    Returns:
+        dict: summary dictionary.
     """
     summary_dictionary = {}
 
@@ -512,14 +542,14 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
         # Calculate averages and store all values
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
-        def filter_value(value: str or None) -> bool:
+        def filter_value(value: Optional[str]) -> bool:
             """ Inline function used to remove any string or None values from data. """
             if isinstance(value, str) or value is None:
                 return False
 
             return True
 
-        def get_last_value(value_list: list) -> int or None:
+        def get_last_value(value_list: list) -> Optional[int]:
             """ Inline function used to get the last value in a list. """
             value = None
             if value_list:
@@ -557,14 +587,16 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
     return summary_dictionary
 
 
-def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = None) -> dict or None:
-    """
-    Convert memory monitor text output to json, store it, and return a selection as a dictionary.
+def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = None) -> Optional[dict]:
+    """Convert memory monitor text output to json, store it, and return a selection as a dictionary.
 
-    :param path: path to memory monitor txt output file (str)
-    :param storejson: store dictionary on disk if True (bool)
-    :param jobid: job id (int)
-    :return: prmon metadata (dict).
+    Args:
+        path: path to memory monitor txt output file.
+        storejson: store dictionary on disk if True.
+        jobid: job id.
+
+    Returns:
+        Optional[dict]: prmon metadata.
     """
     # get the raw memory monitor output, convert to dictionary
     dictionary = convert_text_file_to_dictionary(path)
@@ -586,9 +618,8 @@ def get_metadata_dict_from_txt(path: str, storejson: bool = False, jobid: int = 
     return dictionary
 
 
-def convert_text_file_to_dictionary(path: str) -> dict or None:
-    """
-    Convert row-column text file to dictionary.
+def convert_text_file_to_dictionary(path: str) -> Optional[dict]:
+    """Convert row-column text file to dictionary.
 
     User first row identifiers as dictionary keys.
     Note: file must follow the convention:
@@ -596,8 +627,11 @@ def convert_text_file_to_dictionary(path: str) -> dict or None:
         value1  value2  ..
         ..      ..      ..
 
-    :param path: path to file (str)
-    :return: dictionary (dict).
+    Args:
+        path: path to file.
+
+    Returns:
+        Optional[dict]: dictionary.
     """
     summary_keys = []  # to keep track of content
     header_locked = False
@@ -631,11 +665,13 @@ def convert_text_file_to_dictionary(path: str) -> dict or None:
 
 
 def get_average_summary_dictionary(path: str) -> dict:
-    """
-    Loop over the memory monitor output file and create the averaged summary dictionary.
+    """Loop over the memory monitor output file and create the averaged summary dictionary.
 
-    :param path: path to memory monitor txt output file (str)
-    :return: summary dictionary (dict).
+    Args:
+        path: path to memory monitor txt output file.
+
+    Returns:
+        dict: summary dictionary.
     """
     maxvmem = -1
     maxrss = -1
@@ -719,8 +755,7 @@ def get_average_summary_dictionary(path: str) -> dict:
 
 
 def get_memory_values(workdir: str, name: str = "") -> dict:
-    """
-    Find the values in the memory monitor output file.
+    """Find the values in the memory monitor output file.
 
     In case the summary JSON file has not yet been produced, create a summary dictionary with the same format
     using the output text file (produced by the memory monitor and which is updated once per minute).
@@ -732,9 +767,12 @@ def get_memory_values(workdir: str, name: str = "") -> dict:
         "Avg":{"avgVMEM":19384236,"avgPSS":5023500,"avgRSS":6501489,"avgSwap":5964997},
         "Other":{"rchar":NN,"wchar":NN,"rbytes":NN,"wbytes":NN}}
 
-    :param workdir: relevant work directory (str)
-    :param name: name of memory monitor (str)
-    :return: memory values dictionary (dict).
+    Args:
+        workdir: relevant work directory.
+        name: name of memory monitor.
+
+    Returns:
+        dict: memory values dictionary.
     """
     summary_dictionary = {}
 
@@ -763,11 +801,11 @@ def get_memory_values(workdir: str, name: str = "") -> dict:
     return summary_dictionary
 
 
-def post_memory_monitor_action(job: JobData):
-    """
-    Perform post action items for memory monitor.
+def post_memory_monitor_action(job: JobData) -> None:
+    """Perform post action items for memory monitor.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     nap = 3
     path1 = os.path.join(job.workdir, get_memory_monitor_summary_filename())
@@ -789,7 +827,7 @@ def post_memory_monitor_action(job: JobData):
         logger.warning(f'failed to copy memory monitor output: {exc}')
 
 
-def precleanup():
+def precleanup() -> None:
     """Do a pre-cleanup at the beginning of the job to remove any pre-existing files from previous jobs in the main work dir."""
     logger.debug('performing pre-cleanup of potentially pre-existing files from earlier job in main work dir')
     path = os.path.join(os.environ.get('PILOT_HOME'), get_memory_monitor_summary_filename())
@@ -799,13 +837,13 @@ def precleanup():
 
 
 def get_cpu_arch() -> str:
-    """
-    Return the CPU architecture string.
+    """Return the CPU architecture string.
 
     The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
     For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
 
-    :return: CPU arch (str).
+    Returns:
+        str: CPU arch.
     """
     cpu_arch = ''
 

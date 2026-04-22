@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Common functions for ATLAS."""
@@ -34,7 +34,7 @@ from glob import glob
 from json import dumps
 from random import randint
 from signal import SIGTERM, SIGUSR1
-from typing import Any
+from typing import Any, Optional
 
 # from tarfile import ExFileObject
 
@@ -113,20 +113,24 @@ from .utilities import (
     get_metadata_dict_from_txt,
 )
 
+# Maximum number of TURLs to pass on the command line.  Above this the list is
+# written to a file and --turl-file is used instead, avoiding ARG_MAX failures.
+_TURL_CMDLINE_LIMIT = 500
+
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
 def sanity_check() -> int:
-    """
-    Perform an initial sanity check before doing anything else in a given workflow.
+    """Perform an initial sanity check before doing anything else in a given workflow.
 
     This function can be used to verify importing of modules that are otherwise used much later, but it is better to
     abort the pilot if a problem is discovered early.
 
     Note: currently this function does not do anything.
 
-    :return: exit code (0 if all is ok, otherwise non-zero exit code) (int).
+    Returns:
+        int: exit code (0 if all is ok, otherwise non-zero exit code).
     """
     #try:
     #    from rucio.client.downloadclient import DownloadClient
@@ -141,13 +145,15 @@ def sanity_check() -> int:
 
 
 def validate(job: JobData) -> bool:
-    """
-    Perform user specific payload/job validation.
+    """Perform user specific payload/job validation.
 
     This function will produce a local DBRelease file if necessary (old releases).
 
-    :param job: job object (JobData)
-    :return: True if validation is successful, False otherwise (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if validation is successful, False otherwise.
     """
     status = True
 
@@ -189,14 +195,18 @@ def validate(job: JobData) -> bool:
 
 
 def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, str, list, int]:  # noqa: C901
-    """
-    Verify that direct i/o files can be opened.
+    """Verify that direct i/o files can be opened.
 
-    :param indata: list of FileSpec (list)
-    :param workdir: working directory (str)
-    :param nthreads: number of concurrent file open threads (int)
-    :return: exit code (int), diagnostics (str), not opened files (list), lsetup time (int) (tuple).
-    :raises PilotException: in case of pilot error.
+    Args:
+        indata: list of FileSpec objects.
+        workdir: working directory.
+        nthreads: number of concurrent file open threads.
+
+    Returns:
+        tuple[int, str, list, int]: exit code, diagnostics, not opened files, lsetup time.
+
+    Raises:
+        PilotException: in case of pilot error.
     """
     exitcode = 0
     diagnostics = ""
@@ -329,11 +339,13 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
 
 
 def get_timeout_for_remoteio(indata: list) -> int:
-    """
-    Calculate a proper timeout to be used for remote i/o files.
+    """Calculate a proper timeout to be used for remote i/o files.
 
-    :param indata: list of FileSpec objects (list)
-    :return: timeout in seconds (int).
+    Args:
+        indata: list of FileSpec objects.
+
+    Returns:
+        int: timeout in seconds.
     """
     remote_io = [fspec.status == 'remote_io' for fspec in indata]
 
@@ -341,13 +353,15 @@ def get_timeout_for_remoteio(indata: list) -> int:
 
 
 def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, list]:
-    """
-    Verify that all files could be remotely opened.
+    """Verify that all files could be remotely opened.
 
     Note: currently ignoring if remote file dictionary doesn't exist.
 
-    :param workdir: work directory needed for opening remote file dictionary (str)
-    :return: exit code (int), diagnostics (str), not opened files (list) (tuple).
+    Args:
+        workdir: work directory needed for opening remote file dictionary.
+
+    Returns:
+        tuple[int, str, list]: exit code, diagnostics, not opened files.
     """
     exitcode = 0
     diagnostics = ""
@@ -385,17 +399,38 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
 
 def get_file_open_command(script_path: str, turls: str, nthreads: int,
                           stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr') -> str:
-    """
-    Return the command for opening remote files.
+    """Return the command for opening remote files.
 
-    :param script_path: path to script (str)
-    :param turls: comma-separated turls (str)
-    :param nthreads: number of concurrent file open threads (int)
-    :param stdout: stdout file name (str)
-    :param stderr: stderr file name (str)
-    :return: comma-separated list of turls (str).
+    When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
+    a plain-text file (one TURL per line) next to the script, and --turl-file is
+    passed instead of --turls, preventing 'Argument list too long' errors.
+
+    Args:
+        script_path: path to script.
+        turls: comma-separated turls.
+        nthreads: number of concurrent file open threads.
+        stdout: stdout file name.
+        stderr: stderr file name.
+
+    Returns:
+        str: command string.
     """
-    cmd = f"{script_path} --turls=\'{turls}\' -w {os.path.dirname(script_path)} -t {nthreads}"
+    turl_list = turls.split(',')
+
+    if len(turl_list) > _TURL_CMDLINE_LIMIT:
+        turl_file = os.path.join(os.path.dirname(script_path), 'turls.txt')
+        try:
+            write_file(turl_file, '\n'.join(turl_list))
+        except FileHandlingFailure as exc:
+            logger.warning(f'failed to write turl file {turl_file!r}: {exc} - falling back to --turls')
+            turls_arg = f"--turls='{turls}'"
+        else:
+            logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using --turl-file')
+            turls_arg = f"--turl-file='{turl_file}'"
+    else:
+        turls_arg = f"--turls='{turls}'"
+
+    cmd = f"{script_path} {turls_arg} -w {os.path.dirname(script_path)} -t {nthreads}"
     if stdout and stderr:
         cmd += f' 1>{stdout} 2>{stderr}'
 
@@ -403,11 +438,13 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
 
 
 def extract_turls(indata: list) -> str:
-    """
-    Extract TURLs from indata for direct i/o files.
+    """Extract TURLs from indata for direct i/o files.
 
-    :param indata: list of FileSpec (list)
-    :return: comma-separated list of turls (str).
+    Args:
+        indata: list of FileSpec objects.
+
+    Returns:
+        str: comma-separated list of turls.
     """
     # turls = ""
     # for filespc in indata:
@@ -420,16 +457,16 @@ def extract_turls(indata: list) -> str:
     )
 
 
-def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list):
-    """
-    Report traces for remote files.
+def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list) -> None:
+    """Report traces for remote files.
 
     The function reads back the base trace report (common part of all traces)
     and updates it per file before reporting it to the Rucio server.
 
-    :param path: path to base trace report (str)
-    :param job: job object (JobData)
-    :param not_opened_turls: list of turls that could not be opened (list)
+    Args:
+        path: path to base trace report.
+        job: job object.
+        not_opened_turls: list of turls that could not be opened.
     """
     try:
         base_trace_report = read_json(path)
@@ -467,12 +504,14 @@ def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list):
 
 
 def get_protocol(surl: str, event_type: str) -> str:
-    """
-    Extract the protocol from the surl for event type get_sm_a.
+    """Extract the protocol from the surl for event type get_sm_a.
 
-    :param surl: SURL (str)
-    :param event_type: event type (str)
-    :return: protocol (str).
+    Args:
+        surl: SURL.
+        event_type: event type.
+
+    Returns:
+        str: protocol.
     """
     protocol = ''
     if event_type != 'get_sm_a':
@@ -486,26 +525,32 @@ def get_protocol(surl: str, event_type: str) -> str:
 
 
 def get_nthreads(catchall: str) -> int:
-    """
-    Extract number of concurrent file open threads from catchall.
+    """Extract number of concurrent file open threads from catchall.
 
     Return nthreads=1 if nopenfiles=.. is not present in catchall.
 
-    :param catchall: queuedata catchall (str)
-    :return: number of threads (int).
+    Args:
+        catchall: queuedata catchall.
+
+    Returns:
+        int: number of threads.
     """
     _nthreads = get_key_value(catchall, key='nopenfiles')
     return _nthreads if _nthreads else 1
 
 
 def get_payload_command(job: JobData, args: object = None) -> str:
-    """
-    Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
+    """Return the full command for executing the payload, including the sourcing of all setup files and setting of environment variables.
 
-    :param job: job object (JobData)
-    :param args: pilot arguments (object)
-    :return: command (str)
-    :raises TrfDownloadFailure: in case of download failure.
+    Args:
+        job: job object.
+        args: pilot arguments.
+
+    Returns:
+        str: command.
+
+    Raises:
+        TrfDownloadFailure: in case of download failure.
     """
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
@@ -638,12 +683,14 @@ def get_payload_command(job: JobData, args: object = None) -> str:
 
 
 def prepend_env_vars(environ: str, cmd: str) -> str:
-    """
-    Prepend the payload command with environmental variables from PQ.environ if set.
+    """Prepend the payload command with environmental variables from PQ.environ if set.
 
-    :param environ: PQ.environ (str)
-    :param cmd: payload command (str)
-    :return: updated payload command (str).
+    Args:
+        environ: PQ.environ.
+        cmd: payload command.
+
+    Returns:
+        str: updated payload command.
     """
     exports = get_exports(environ)
     exports_to_add = ''.join(exports)
@@ -657,23 +704,27 @@ def prepend_env_vars(environ: str, cmd: str) -> str:
 
 
 def get_key_values(from_string: str) -> list:
-    """
-    Return a list of key value tuples from given string.
+    """Return a list of key value tuples from given string.
 
     Example: from_string = 'KEY1=VALUE1 KEY2=VALUE2' -> [('KEY1','VALUEE1'), ('KEY2', 'VALUE2')]
 
-    :param from_string: string containing key-value pairs (str)
-    :return: list of key-pair tuples (list).
+    Args:
+        from_string: string containing key-value pairs.
+
+    Returns:
+        list: list of key-pair tuples.
     """
     return re.findall(re.compile(r"\b(\w+)=(.*?)(?=\s\w+=\s*|$)"), from_string)
 
 
 def get_exports(from_string: str) -> list:
-    """
-    Return list of exports from given string.
+    """Return list of exports from given string.
 
-    :param from_string: string containing key-value pairs (str)
-    :return: list of export commands (list).
+    Args:
+        from_string: string containing key-value pairs.
+
+    Returns:
+        list: list of export commands.
     """
     exports = []
     key_values = get_key_values(from_string)
@@ -693,15 +744,17 @@ def get_exports(from_string: str) -> list:
 
 
 def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool, base_urls: list) -> str:
-    """
-    Return the payload command for a normal production/analysis job.
+    """Return the payload command for a normal production/analysis job.
 
-    :param cmd: any preliminary command setup (str)
-    :param job: job object (JobData)
-    :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
-    :param userjob: True for user analysis jobs, False otherwise (bool)
-    :param base_urls: list of base URLs for trf downloads (list)
-    :return: normal payload command (str).
+    Args:
+        cmd: any preliminary command setup.
+        job: job object.
+        preparesetup: True if the pilot should prepare the setup, False if already in the job parameters.
+        userjob: True for user analysis jobs, False otherwise.
+        base_urls: list of base URLs for trf downloads.
+
+    Returns:
+        str: normal payload command.
     """
     # set the INDS env variable
     # (used by runAthena but also for EventIndex production jobs)
@@ -745,15 +798,17 @@ def get_normal_payload_command(cmd: str, job: JobData, preparesetup: bool, userj
 
 
 def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, userjob: bool, base_urls: list) -> str:
-    """
-    Return the payload command for a generic job.
+    """Return the payload command for a generic job.
 
-    :param cmd: any preliminary command setup (str)
-    :param job: job object (JobData)
-    :param preparesetup: True if the pilot should prepare the setup, False if already in the job parameters (bool)
-    :param userjob: True for user analysis jobs, False otherwise (bool)
-    :param base_urls: list of base URLs for trf downloads (list)
-    :return: generic job command (str).
+    Args:
+        cmd: any preliminary command setup.
+        job: job object.
+        preparesetup: True if the pilot should prepare the setup, False if already in the job parameters.
+        userjob: True for user analysis jobs, False otherwise.
+        base_urls: list of base URLs for trf downloads.
+
+    Returns:
+        str: generic job command.
     """
     if userjob:
         # Try to download the trf
@@ -792,11 +847,13 @@ def get_generic_payload_command(cmd: str, job: JobData, preparesetup: bool, user
 
 
 def add_athena_proc_number(cmd: str) -> str:
-    """
-    Add the ATHENA_PROC_NUMBER and ATHENA_CORE_NUMBER to the payload command if necessary.
+    """Add the ATHENA_PROC_NUMBER and ATHENA_CORE_NUMBER to the payload command if necessary.
 
-    :param cmd: payload execution command (str)
-    :return: updated payload execution command (str).
+    Args:
+        cmd: payload execution command.
+
+    Returns:
+        str: updated payload execution command.
     """
     # get the values if they exist
     try:
@@ -838,12 +895,14 @@ def add_athena_proc_number(cmd: str) -> str:
     return cmd
 
 
-def verify_release_string(release: str or None) -> str:
-    """
-    Verify that the release (or homepackage) string is set.
+def verify_release_string(release: Optional[str]) -> str:
+    """Verify that the release (or homepackage) string is set.
 
-    :param release: release or homepackage string that might or might not be set (str or None)
-    :return: release (str).
+    Args:
+        release: release or homepackage string that might or might not be set.
+
+    Returns:
+        str: release string.
     """
     if release is None:
         release = ""
@@ -857,12 +916,14 @@ def verify_release_string(release: str or None) -> str:
 
 
 def add_makeflags(job_core_count: int, cmd: str) -> str:
-    """
-    Correct for multicore if necessary (especially important in case coreCount=1 to limit parallel make).
+    """Correct for multicore if necessary (especially important in case coreCount=1 to limit parallel make).
 
-    :param job_core_count: core count from the job definition (int)
-    :param cmd: payload execution command (str)
-    :return: updated payload execution command (str).
+    Args:
+        job_core_count: core count from the job definition.
+        cmd: payload execution command.
+
+    Returns:
+        str: updated payload execution command.
     """
     # ATHENA_PROC_NUMBER is set in Node.py using the schedconfig value
     try:
@@ -889,15 +950,17 @@ def add_makeflags(job_core_count: int, cmd: str) -> str:
 
 
 def get_analysis_run_command(job: JobData, trf_name: str) -> str:  # noqa: C901
-    """
-    Return the proper run command for the user job.
+    """Return the proper run command for the user job.
 
     Example output:
     export X509_USER_PROXY=<..>;./runAthena <job parameters> --usePFCTurl --directIn
 
-    :param job: job object (JobData)
-    :param trf_name: name of the transform that will run the job (str)
-    :return: command (str).
+    Args:
+        job: job object.
+        trf_name: name of the transform that will run the job.
+
+    Returns:
+        str: command.
     """
     cmd = ""
 
@@ -977,8 +1040,7 @@ def get_analysis_run_command(job: JobData, trf_name: str) -> str:  # noqa: C901
 
 
 def get_guids_from_jobparams(jobparams: str, infiles: list, infilesguids: list) -> list:
-    """
-    Extract the correct guid from the input file list.
+    """Extract the correct guid from the input file list.
 
     The guids list is used for direct reading.
     1. extract input file list for direct reading from job parameters
@@ -987,10 +1049,13 @@ def get_guids_from_jobparams(jobparams: str, infiles: list, infilesguids: list) 
     Since the job parameters string is entered by a human, the order of
     the input files might not be the same.
 
-    :param jobparams: job parameters (str)
-    :param infiles: input file list (list)
-    :param infilesguids: input file guids list (list)
-    :return: guids (list).
+    Args:
+        jobparams: job parameters.
+        infiles: input file list.
+        infilesguids: input file guids list.
+
+    Returns:
+        list: guids.
     """
     guidlist = []
     jobparams = jobparams.replace("'", "")
@@ -1033,11 +1098,11 @@ def get_guids_from_jobparams(jobparams: str, infiles: list, infilesguids: list) 
     return guidlist
 
 
-def test_job_data(job: JobData):
-    """
-    Test function to verify that the job object contains the expected data.
+def test_job_data(job: JobData) -> None:
+    """Test function to verify that the job object contains the expected data.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # in case the job was created with --outputs="regex|DST_.*\.root", we can now look for the corresponding
     # output files and add them to the output file list
@@ -1091,16 +1156,16 @@ def test_job_data(job: JobData):
         logger.debug('no regex found in outdata file list')
 
 
-def update_job_data(job: JobData):
-    """
-    Update the job object.
+def update_job_data(job: JobData) -> None:
+    """Update the job object.
 
     This function can be used to update/add data to the job object.
     E.g. user specific information can be extracted from other job object fields.
     In the case of ATLAS, information is extracted from the metadata field and
     added to other job object fields.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     ## comment from Alexey:
     ## it would be better to reallocate this logic (as well as parse
@@ -1156,14 +1221,14 @@ def update_job_data(job: JobData):
         validate_output_data(job)
 
 
-def validate_output_data(job: JobData):
-    """
-    Validate output data.
+def validate_output_data(job: JobData) -> None:
+    """Validate output data.
 
     Set any missing GUIDs and make sure the output file names follow the ATLAS naming convention - if not, set the
     error code.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     ## validate output data (to be moved into the JobData)
     ## warning: do no execute this code unless guid lookup in job report
@@ -1200,14 +1265,14 @@ def validate_output_data(job: JobData):
 
 
 def naming_convention_pattern() -> str:
-    """
-    Return a regular expression pattern in case the output file name should be verified.
+    """Return a regular expression pattern in case the output file name should be verified.
 
     Pattern as below in the return statement will match the following file names:
     re.findall(pattern, 'AOD.29466419._001462.pool.root.1')
     ['AOD.29466419._001462.pool.root.1']
 
-    :return: raw string (str).
+    Returns:
+        str: raw string pattern.
     """
     max_filename_size = 250
 
@@ -1215,12 +1280,14 @@ def naming_convention_pattern() -> str:
     return fr"^[A-Za-z0-9][A-Za-z0-9.\-_]{{1,{max_filename_size}}}$"
 
 
-def get_stageout_label(job: JobData):
-    """
-    Get a proper stage-out label.
+def get_stageout_label(job: JobData) -> str:
+    """Get a proper stage-out label.
 
-    :param job: job object (JobData)
-    :return: "all"/"log" depending on stage-out type (str).
+    Args:
+        job: job object.
+
+    Returns:
+        str: "all" or "log" depending on stage-out type.
     """
     stageout = "all"
 
@@ -1239,11 +1306,11 @@ def get_stageout_label(job: JobData):
     return stageout
 
 
-def update_output_for_hpo(job: JobData):
-    """
-    Update the output (outdata) for HPO jobs.
+def update_output_for_hpo(job: JobData) -> None:
+    """Update the output (outdata) for HPO jobs.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     try:
         new_outdata = discover_new_outdata(job)
@@ -1256,11 +1323,13 @@ def update_output_for_hpo(job: JobData):
 
 
 def discover_new_outdata(job: JobData) -> list:
-    """
-    Discover new outdata created by HPO job.
+    """Discover new outdata created by HPO job.
 
-    :param job: job object (JobData)
-    :return: new_outdata (list of FileSpec objects) (list).
+    Args:
+        job: job object.
+
+    Returns:
+        list: new_outdata (list of FileSpec objects).
     """
     new_outdata = []
 
@@ -1292,8 +1361,7 @@ def discover_new_outdata(job: JobData) -> list:
 
 
 def discover_new_output(name_pattern: str, workdir: str) -> dict:
-    """
-    Discover new output created by HPO job in the given work directory.
+    """Discover new output created by HPO job in the given work directory.
 
     name_pattern for known 'filename' is 'filename_N' (N = 0, 1, 2, ..).
     Example: name_pattern = 23578835.metrics.000001.tgz
@@ -1301,9 +1369,12 @@ def discover_new_output(name_pattern: str, workdir: str) -> dict:
 
     new_output = { lfn: {'path': path, 'size': size, 'checksum': checksum}, .. }
 
-    :param name_pattern: assumed name pattern for file to discover (str)
-    :param workdir: work directory (str)
-    :return: new_output (dict).
+    Args:
+        name_pattern: assumed name pattern for file to discover.
+        workdir: work directory.
+
+    Returns:
+        dict: new_output.
     """
     new_output = {}
     outputs = glob(f"{workdir}/{name_pattern}_*")
@@ -1326,16 +1397,16 @@ def discover_new_output(name_pattern: str, workdir: str) -> dict:
     return new_output
 
 
-def extract_output_file_guids(job: JobData):
-    """
-    Extract output file info from the job report and make sure all guids are assigned.
+def extract_output_file_guids(job: JobData) -> None:
+    """Extract output file info from the job report and make sure all guids are assigned.
 
     Use job report value if present, otherwise generate the guid.
     Note: guid generation is done later, not in this function since
     this function might not be called if metadata info is not found prior
     to the call.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # make sure there is a defined output file list in the job report -
     # unless it is allowed by task parameter allowNoOutput
@@ -1395,8 +1466,7 @@ def extract_output_file_guids(job: JobData):
 
 
 def verify_output_files(job: JobData) -> bool:
-    """
-    Verify that the output files from the job definition are listed in the job report.
+    """Verify that the output files from the job definition are listed in the job report.
 
     Also make sure that the number of processed events is greater than zero.
 
@@ -1407,8 +1477,11 @@ def verify_output_files(job: JobData) -> bool:
     there with zero events. Then if allownooutput is not set - fail the job.
     If it is set, then do not store the output, and finish ok.
 
-    :param job: job object (JobData)
-    :return: True if output files were validated correctly, False otherwise (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if output files were validated correctly, False otherwise.
     """
     failed = False
 
@@ -1464,15 +1537,17 @@ def verify_output_files(job: JobData) -> bool:
 
 
 def verify_extracted_output_files(output: list, lfns_jobdef: list, job: JobData) -> tuple[bool, int]:
-    """
-    Make sure all output files extracted from the job report are listed.
+    """Make sure all output files extracted from the job report are listed.
 
     Grab the number of events if possible.
 
-    :param output: list of FileSpecs (list)
-    :param lfns_jobdef: list of lfns strings from job definition (list)
-    :param job: job object (JobData)
-    :return: True if successful, False if failed (bool), number of events (int) (tuple).
+    Args:
+        output: list of FileSpecs.
+        lfns_jobdef: list of lfns strings from job definition.
+        job: job object.
+
+    Returns:
+        tuple[bool, int]: True if successful, False if failed; number of events.
     """
     failed = False
     nevents = 0
@@ -1540,12 +1615,12 @@ def verify_extracted_output_files(output: list, lfns_jobdef: list, job: JobData)
     return status, nevents
 
 
-def remove_from_stageout(lfn: str, job: JobData):
-    """
-    Remove the given lfn from the stage-out list.
+def remove_from_stageout(lfn: str, job: JobData) -> None:
+    """Remove the given lfn from the stage-out list.
 
-    :param lfn: local file name (str)
-    :param job: job object (JobData).
+    Args:
+        lfn: local file name.
+        job: job object.
     """
     outdata = []
     for fspec in job.outdata:
@@ -1556,11 +1631,11 @@ def remove_from_stageout(lfn: str, job: JobData):
     job.outdata = outdata
 
 
-def remove_no_output_files(job: JobData):
-    """
-    Remove files from output file list if they are listed in allowNoOutput and do not exist.
+def remove_no_output_files(job: JobData) -> None:
+    """Remove files from output file list if they are listed in allowNoOutput and do not exist.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # first identify the files to keep
     _outfiles = []
@@ -1592,11 +1667,13 @@ def remove_no_output_files(job: JobData):
 
 
 def get_outfiles_records(subfiles: list) -> dict:
-    """
-    Extract file info from job report JSON subfiles entry.
+    """Extract file info from job report JSON subfiles entry.
 
-    :param subfiles: list of subfiles (list)
-    :return: file info dictionary with format { 'guid': .., 'size': .., 'nentries': .. (optional)} (dict).
+    Args:
+        subfiles: list of subfiles.
+
+    Returns:
+        dict: file info dictionary with format { 'guid': .., 'size': .., 'nentries': .. (optional)}.
     """
     res = {}
     for subfile in subfiles:
@@ -1617,15 +1694,15 @@ def get_outfiles_records(subfiles: list) -> dict:
 class DictQuery(dict):
     """Helper class for parsing the job report."""
 
-    def get(self, path: str, dst_dict: dict, dst_key: str):
-        """
-        Get value from dictionary.
+    def get(self, path: str, dst_dict: dict, dst_key: str) -> None:
+        """Get value from dictionary.
 
         Updates dst_dict[dst_key] with the value from the dictionary.
 
-        :param path: path to the value (str)
-        :param dst_dict: destination dictionary (dict)
-        :param dst_key: destination key (str)
+        Args:
+            path: path to the value.
+            dst_dict: destination dictionary.
+            dst_key: destination key.
         """
         keys = path.split("/")
         if len(keys) == 0:
@@ -1643,11 +1720,13 @@ class DictQuery(dict):
 
 
 def parse_jobreport_data(job_report: dict) -> dict:  # noqa: C901
-    """
-    Parse a job report and extract relevant fields.
+    """Parse a job report and extract relevant fields.
 
-    :param job_report: job report dictionary (dict)
-    :return: work_attributes (dict).
+    Args:
+        job_report: job report dictionary.
+
+    Returns:
+        dict: work_attributes.
     """
     work_attributes = {}
     if job_report is None or not any(job_report):
@@ -1711,11 +1790,13 @@ def parse_jobreport_data(job_report: dict) -> dict:  # noqa: C901
 
 
 def get_executor_dictionary(jobreport_dictionary: dict) -> dict:
-    """
-    Extract the 'executor' dictionary from with a job report.
+    """Extract the 'executor' dictionary from within a job report.
 
-    :param jobreport_dictionary: job report dictionary (dict)
-    :return: executor_dictionary (dict).
+    Args:
+        jobreport_dictionary: job report dictionary.
+
+    Returns:
+        dict: executor_dictionary.
     """
     executor_dictionary = {}
     if jobreport_dictionary != {}:
@@ -1732,14 +1813,16 @@ def get_executor_dictionary(jobreport_dictionary: dict) -> dict:
     return executor_dictionary
 
 
-def get_resimevents(jobreport_dictionary: dict) -> int or None:
-    """
-    Extract and add up the resimevents from the job report.
+def get_resimevents(jobreport_dictionary: dict) -> Optional[int]:
+    """Extract and add up the resimevents from the job report.
 
     This information is reported with the jobMetrics.
 
-    :param jobreport_dictionary: job report dictionary (dict)
-    :return: resimevents (int or None).
+    Args:
+        jobreport_dictionary: job report dictionary.
+
+    Returns:
+        Optional[int]: resimevents, or None if not found.
     """
     resimevents = None
 
@@ -1758,16 +1841,18 @@ def get_resimevents(jobreport_dictionary: dict) -> int or None:
 
 
 def get_db_info(jobreport_dictionary: dict) -> tuple[int, int]:
-    """
-    Extract and add up the DB info from the job report.
+    """Extract and add up the DB info from the job report.
 
     This information is reported with the jobMetrics.
     Note: this function adds up the different dbData and dbTime's in
     the different executor steps. In modern job reports this might have
     been done already by the transform and stored in dbDataTotal and dbTimeTotal.
 
-    :param jobreport_dictionary: job report dictionary (dict)
-    :return: db_time (int), db_data (int) (tuple).
+    Args:
+        jobreport_dictionary: job report dictionary.
+
+    Returns:
+        tuple[int, int]: db_time, db_data.
     """
     db_time = 0
     db_data = 0
@@ -1793,15 +1878,17 @@ def get_db_info(jobreport_dictionary: dict) -> tuple[int, int]:
     return db_time, db_data
 
 
-def get_db_info_str(db_time: int, db_data: int) -> (str, str):
-    """
-    Convert db_time, db_data to strings.
+def get_db_info_str(db_time: int, db_data: int) -> tuple[str, str]:
+    """Convert db_time, db_data to strings.
 
     E.g. dbData="105077960", dbTime="251.42".
 
-    :param db_time: time in seconds (int)
-    :param db_data: long integer (int)
-    :return: db_time_s (str), db_data_s (str).
+    Args:
+        db_time: time in seconds.
+        db_data: long integer.
+
+    Returns:
+        tuple[str, str]: db_time_s, db_data_s.
     """
     zero = 0
 
@@ -1817,15 +1904,18 @@ def get_db_info_str(db_time: int, db_data: int) -> (str, str):
 
 
 def get_cpu_times(jobreport_dictionary: dict) -> tuple[str, int, float]:
-    """
-    Extract and add up the total CPU times from the job report.
+    """Extract and add up the total CPU times from the job report.
 
     E.g. ('s', 5790L, 1.0).
 
     Note: this function is used with Event Service jobs
 
-    :param jobreport_dictionary: job report dictionary (dict)
-    :return: cpu_conversion_unit (str), total_cpu_time (int), conversion_factor (output consistent with set_time_consumed()) (float) (tuple).
+    Args:
+        jobreport_dictionary: job report dictionary.
+
+    Returns:
+        tuple[str, int, float]: cpu_conversion_unit, total_cpu_time, conversion_factor
+            (output consistent with set_time_consumed()).
     """
     total_cpu_time = 0
 
@@ -1846,24 +1936,26 @@ def get_cpu_times(jobreport_dictionary: dict) -> tuple[str, int, float]:
 
 
 def get_exit_info(jobreport_dictionary: dict) -> tuple[int, str]:
-    """
-    Return the exit code (exitCode) and exit message (exitMsg).
+    """Return the exit code (exitCode) and exit message (exitMsg).
 
     E.g. (0, 'OK').
 
-    :param jobreport_dictionary:
-    :return: exit_code (int), exit_message (str) (tuple).
+    Args:
+        jobreport_dictionary: job report dictionary.
+
+    Returns:
+        tuple[int, str]: exit_code, exit_message.
     """
     return jobreport_dictionary.get('exitCode'), jobreport_dictionary.get('exitMsg')
 
 
-def cleanup_looping_payload(workdir: str):
-    """
-    Run a special cleanup for looping payloads.
+def cleanup_looping_payload(workdir: str) -> None:
+    """Run a special cleanup for looping payloads.
 
     Remove any root and tmp files.
 
-    :param workdir: working directory (str).
+    Args:
+        workdir: working directory.
     """
     for (root, _, files) in os.walk(workdir):
         for filename in files:
@@ -1873,15 +1965,15 @@ def cleanup_looping_payload(workdir: str):
                 remove(path)
 
 
-def cleanup_payload(workdir: str, outputfiles: list = None, removecores: bool = True):
-    """
-    Clean up payload (specifically AthenaMP) sub-directories prior to log file creation.
+def cleanup_payload(workdir: str, outputfiles: list = None, removecores: bool = True) -> None:
+    """Clean up payload (specifically AthenaMP) sub-directories prior to log file creation.
 
     Also remove core dumps.
 
-    :param workdir: working directory (str)
-    :param outputfiles: list of output files (list)
-    :param removecores: remove core files if True (bool).
+    Args:
+        workdir: working directory.
+        outputfiles: list of output files.
+        removecores: remove core files if True.
     """
     if outputfiles is None:
         outputfiles = []
@@ -1907,10 +1999,10 @@ def cleanup_payload(workdir: str, outputfiles: list = None, removecores: bool = 
 
 
 def get_redundant_path() -> str:
-    """
-    Return the path to the file containing the redundant files and directories to be removed prior to log file creation.
+    """Return the path to the file containing the redundant files and directories to be removed prior to log file creation.
 
-    :return: file path (str).
+    Returns:
+        str: file path.
     """
     filename = config.Pilot.redundant
 
@@ -1922,14 +2014,14 @@ def get_redundant_path() -> str:
 
 
 def get_redundants() -> list:
-    """
-    Get list of redundant files and directories (to be removed).
+    """Get list of redundant files and directories (to be removed).
 
     The function will return the content of an external file. It that
     can't be read, then a list defined in this function will be returned instead.
     Any updates to the external file must be propagated to this function.
 
-    :return: files and directories (list).
+    Returns:
+        list: files and directories.
     """
     # try to read the list from the external file
     filename = get_redundant_path()
@@ -2005,16 +2097,16 @@ def get_redundants() -> list:
                 "panda_secrets.json",
                 "singularity",
                 "apptainer",
-                "/cores",
-                "/panda_pilot*",
-                "/work",
+                "work",
+                "PILOTVERSION",
                 "README*",
                 "CLAUDE.md",
                 "MANIFEST*",
                 "*.part*",
+                "__pycache__*",
+                "x509*",
                 "docs",
-                "/venv",
-                "/pilot3",
+                "venv",
                 "usr",
                 "%1",
                 "open_remote_file_cmd.sh"]
@@ -2022,13 +2114,13 @@ def get_redundants() -> list:
     return dir_list
 
 
-def remove_archives(workdir: str):
-    """
-    Explicitly remove any soft linked archives (.a files) since they will be dereferenced by the tar command.
+def remove_archives(workdir: str) -> None:
+    """Explicitly remove any soft linked archives (.a files) since they will be dereferenced by the tar command.
 
     (--dereference option).
 
-    :param workdir: working directory (str).
+    Args:
+        workdir: working directory.
     """
     matches = []
     for root, _, filenames in os.walk(workdir):
@@ -2042,11 +2134,11 @@ def remove_archives(workdir: str):
         remove(match)
 
 
-def cleanup_broken_links(workdir: str):
-    """
-    Run a second pass to clean up any broken links prior to log file creation.
+def cleanup_broken_links(workdir: str) -> None:
+    """Run a second pass to clean up any broken links prior to log file creation.
 
-    :param workdir: working directory (str).
+    Args:
+        workdir: working directory.
     """
     broken = []
     for root, _, files in os.walk(workdir):
@@ -2066,23 +2158,23 @@ def cleanup_broken_links(workdir: str):
         remove(brok)
 
 
-def list_work_dir(workdir: str):
-    """
-    Execute ls -lF for the given directory and dump to log.
+def list_work_dir(workdir: str) -> None:
+    """Execute ls -lF for the given directory and dump to log.
 
-    :param workdir: directory name (str).
+    Args:
+        workdir: directory name.
     """
     cmd = f'ls -lF {workdir}'
     _, stdout, stderr = execute(cmd)
     logger.debug(f'{stdout}:\n' + stderr)
 
 
-def remove_special_files(workdir: str, dir_list: list):
-    """
-    Remove list of special files from the workdir.
+def remove_special_files(workdir: str, dir_list: list) -> None:
+    """Remove list of special files from the workdir.
 
-    :param workdir: work directory (str)
-    :param dir_list: list of special files (list)
+    Args:
+        workdir: work directory.
+        dir_list: list of special files.
     """
     # note: these should be partial file/dir names, not containing any wildcards
     exceptions_list = ["runargs", "runwrapper", "jobReport", "log.", "xrdlog"]
@@ -2109,16 +2201,16 @@ def remove_special_files(workdir: str, dir_list: list):
             remove_dir_tree(item)
 
 
-def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False):
-    """
-    Remove redundant files and directories prior to creating the log file.
+def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False) -> None:
+    """Remove redundant files and directories prior to creating the log file.
 
     Note: in debug mode, any core files should not be removed before creating the log.
 
-    :param workdir: working directory (str)
-    :param outputfiles: list of protected output files (list)
-    :param piloterrors: list of Pilot assigned error codes (list)
-    :param debugmode: True if debug mode has been switched on (bool).
+    Args:
+        workdir: working directory.
+        outputfiles: list of protected output files.
+        piloterrors: list of Pilot assigned error codes.
+        debugmode: True if debug mode has been switched on.
     """
     if outputfiles is None:
         outputfiles = []
@@ -2171,15 +2263,17 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
 
 
 def download_command(process: dict, workdir: str, base_urls: list) -> dict:
-    """
-    Download the pre/postprocess commands if necessary.
+    """Download the pre/postprocess commands if necessary.
 
     Process FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
 
-    :param process: pre/postprocess dictionary (dict)
-    :param workdir: job workdir (str)
-    :param base_urls: list of base URLs (list)
-    :return: updated pre/postprocess dictionary (dict).
+    Args:
+        process: pre/postprocess dictionary.
+        workdir: job workdir.
+        base_urls: list of base URLs.
+
+    Returns:
+        dict: updated pre/postprocess dictionary.
     """
     cmd = process.get('command', '')
 
@@ -2197,9 +2291,8 @@ def download_command(process: dict, workdir: str, base_urls: list) -> dict:
     return process
 
 
-def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict or None:
-    """
-    Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
+def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> Optional[dict]:
+    """Return a dictionary of utility commands and arguments to be executed in parallel with the payload.
 
     This could e.g. be memory and network monitor commands. A separate function can be used to determine the
     corresponding command setups using the utility command name. If the optional order parameter is set, the
@@ -2221,10 +2314,13 @@ def get_utility_commands(order: int = None, job: JobData = None, base_urls: list
 
     FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>, 'ignore_failure': <Boolean>}
 
-    :param order: optional sorting order (see pilot.util.constants) (int)
-    :param job: optional job object (JobData)
-    :param base_urls: list of base URLs (list)
-    :return: dictionary of utilities to be executed in parallel with the payload (dict or None).
+    Args:
+        order: optional sorting order (see pilot.util.constants).
+        job: optional job object.
+        base_urls: list of base URLs.
+
+    Returns:
+        Optional[dict]: dictionary of utilities to be executed in parallel with the payload, or None.
     """
     if order == UTILITY_BEFORE_PAYLOAD and job.preprocess:
         return get_precopostprocess_command(job.preprocess, job.workdir, 'preprocess', base_urls)
@@ -2263,18 +2359,20 @@ def get_utility_commands(order: int = None, job: JobData = None, base_urls: list
 
 
 def get_precopostprocess_command(process: dict, workdir: str, label: str, base_urls: list) -> dict:
-    """
-    Return the pre/co/post-process command dictionary.
+    """Return the pre/co/post-process command dictionary.
 
     Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
 
     The returned command has the structure: { 'command': <string>, }
 
-    :param process: pre/co/post-process (dict)
-    :param workdir: working directory (str)
-    :param label: label (str)
-    :param base_urls: base URLs for trf download (list)
-    :return: command (dict).
+    Args:
+        process: pre/co/post-process dictionary.
+        workdir: working directory.
+        label: label.
+        base_urls: base URLs for trf download.
+
+    Returns:
+        dict: command dictionary.
     """
     com = {}
     if process.get('command', ''):
@@ -2286,12 +2384,12 @@ def get_precopostprocess_command(process: dict, workdir: str, label: str, base_u
 
 
 def get_utility_after_payload_started() -> dict:
-    """
-    Return the command dictionary for the utility after the payload has started.
+    """Return the command dictionary for the utility after the payload has started.
 
     Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
 
-    :return: command (dict).
+    Returns:
+        dict: command dictionary.
     """
     com = {}
     try:
@@ -2306,17 +2404,19 @@ def get_utility_after_payload_started() -> dict:
 
 
 def get_xcache_command(catchall: str, workdir: str, jobid: int, label: str, xcache_function: Any) -> dict:
-    """
-    Return the proper xcache command for either activation or deactivation.
+    """Return the proper xcache command for either activation or deactivation.
 
     Command FORMAT: {'command': <command>, 'args': <args>, 'label': <some name>}
 
-    :param catchall: queuedata catchall field (str)
-    :param workdir: job working directory (str)
-    :param jobid: PanDA job id (int)
-    :param label: label (str)
-    :param xcache_function: activation/deactivation function name (Any)
-    :return: command (dict).
+    Args:
+        catchall: queuedata catchall field.
+        workdir: job working directory.
+        jobid: PanDA job id.
+        label: label.
+        xcache_function: activation/deactivation function name.
+
+    Returns:
+        dict: command dictionary.
     """
     com = {}
     if 'pilotXcache' in catchall:
@@ -2327,11 +2427,11 @@ def get_xcache_command(catchall: str, workdir: str, jobid: int, label: str, xcac
     return com
 
 
-def post_prestagein_utility_command(**kwargs: dict):
-    """
-    Execute any post pre-stage-in utility commands.
+def post_prestagein_utility_command(**kwargs: Any) -> None:
+    """Execute any post pre-stage-in utility commands.
 
-    :param kwargs: kwargs (dict).
+    Args:
+        **kwargs: keyword arguments including 'label' and 'output'.
     """
     label = kwargs.get('label', 'unknown_label')
     stdout = kwargs.get('output', None)
@@ -2349,11 +2449,11 @@ def post_prestagein_utility_command(**kwargs: dict):
         logger.debug(f'cmd={cmd}:\n\n{_stdout}\n\n')
 
 
-def xcache_proxy(output: str):
-    """
-    Extract env vars from xcache stdout and set them.
+def xcache_proxy(output: str) -> None:
+    """Extract env vars from xcache stdout and set them.
 
-    :param output: command output (str).
+    Args:
+        output: command output.
     """
     # loop over each line in the xcache stdout and identify the needed environmental variables
     for line in output.split('\n'):
@@ -2385,13 +2485,13 @@ def xcache_proxy(output: str):
             )
 
 
-def set_xcache_var(line: str, name: str = '', pattern: str = ''):
-    """
-    Extract the value of a given environmental variable from a given stdout line.
+def set_xcache_var(line: str, name: str = '', pattern: str = '') -> None:
+    """Extract the value of a given environmental variable from a given stdout line.
 
-    :param line: line from stdout to be investigated (str)
-    :param name: name of env var (str)
-    :param pattern: regular expression pattern (str).
+    Args:
+        line: line from stdout to be investigated.
+        name: name of env var.
+        pattern: regular expression pattern.
     """
     pattern = re.compile(pattern)
     result = re.findall(pattern, line)
@@ -2400,15 +2500,17 @@ def set_xcache_var(line: str, name: str = '', pattern: str = ''):
 
 
 def xcache_activation_command(workdir: str = '', jobid: int = 0) -> dict:
-    """
-    Return the xcache service activation command.
+    """Return the xcache service activation command.
 
     Note: the workdir is not used here, but the function prototype
     needs it in the called (xcache_activation_command needs it).
 
-    :param workdir: unused work directory - do not remove (str)
-    :param jobid: PanDA job id to guarantee that xcache process is unique (int)
-    :return: xcache command (str).
+    Args:
+        workdir: unused work directory - do not remove.
+        jobid: PanDA job id to guarantee that xcache process is unique.
+
+    Returns:
+        dict: xcache command dictionary.
     """
     if workdir:  # to bypass pylint warning
         pass
@@ -2429,8 +2531,7 @@ def xcache_activation_command(workdir: str = '', jobid: int = 0) -> dict:
 
 
 def xcache_deactivation_command(workdir: str = '', jobid: int = 0) -> dict:
-    """
-    Return the xcache service deactivation command.
+    """Return the xcache service deactivation command.
 
     This service should be stopped after the payload has finished.
     Copy the messages log before shutting down.
@@ -2438,9 +2539,12 @@ def xcache_deactivation_command(workdir: str = '', jobid: int = 0) -> dict:
     Note: the job id is not used here, but the function prototype
     needs it in the called (xcache_activation_command needs it).
 
-    :param workdir: payload work directory (str)
-    :param jobid: unused job id - do not remove (int)
-    :return: xcache command (dict).
+    Args:
+        workdir: payload work directory.
+        jobid: unused job id - do not remove.
+
+    Returns:
+        dict: xcache command dictionary.
     """
     if jobid:  # to bypass pylint warning
         pass
@@ -2464,15 +2568,17 @@ def xcache_deactivation_command(workdir: str = '', jobid: int = 0) -> dict:
 
 
 def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str:
-    """
-    Return the proper setup for the given utility command.
+    """Return the proper setup for the given utility command.
 
     If a payload setup is specified, then the utility command string should be prepended to it.
 
-    :param name: name of utility (str)
-    :param job: job object (JobData)
-    :param setup: optional payload setup string (str)
-    :return: utility command setup (str).
+    Args:
+        name: name of utility.
+        job: job object.
+        setup: optional payload setup string.
+
+    Returns:
+        str: utility command setup.
     """
     if name == 'MemoryMonitor':
         # must know if payload is running in a container or not
@@ -2510,11 +2616,13 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
 
 
 def get_utility_command_execution_order(name: str) -> int:
-    """
-    Determine if the given utility command should be executed before or after the payload.
+    """Determine if the given utility command should be executed before or after the payload.
 
-    :param name: utility name (str)
-    :return: execution order constant (int).
+    Args:
+        name: utility name.
+
+    Returns:
+        int: execution order constant.
     """
     # example implementation
     if name == 'NetworkMonitor':
@@ -2528,12 +2636,12 @@ def get_utility_command_execution_order(name: str) -> int:
     return UTILITY_AFTER_PAYLOAD_STARTED
 
 
-def post_utility_command_action(name: str, job: JobData):
-    """
-    Perform post action for given utility command.
+def post_utility_command_action(name: str, job: JobData) -> None:
+    """Perform post action for given utility command.
 
-    :param name: name of utility command (str)
-    :param job: job object (JobData).
+    Args:
+        name: name of utility command.
+        job: job object.
     """
     if name == 'NetworkMonitor':
         pass
@@ -2542,33 +2650,39 @@ def post_utility_command_action(name: str, job: JobData):
 
 
 def get_utility_command_kill_signal(name: str) -> int:
-    """
-    Return the proper kill signal used to stop the utility command.
+    """Return the proper kill signal used to stop the utility command.
 
-    :param name: name of utility command (str)
-    :return: kill signal (int).
+    Args:
+        name: name of utility command.
+
+    Returns:
+        int: kill signal.
     """
     # note that the NetworkMonitor does not require killing (to be confirmed)
     return SIGUSR1 if name == 'MemoryMonitor' else SIGTERM
 
 
 def get_utility_command_output_filename(name: str, selector: bool = None) -> str:
-    """
-    Return the filename to the output of the utility command.
+    """Return the filename to the output of the utility command.
 
-    :param name: utility name (str)
-    :param selector: optional special conditions flag (bool)
-    :return: filename (str).
+    Args:
+        name: utility name.
+        selector: optional special conditions flag.
+
+    Returns:
+        str: filename.
     """
     return get_memory_monitor_summary_filename(selector=selector) if name == 'MemoryMonitor' else ""
 
 
 def verify_lfn_length(outdata: list) -> tuple[int, str]:
-    """
-    Make sure that the LFNs are all within the allowed length.
+    """Make sure that the LFNs are all within the allowed length.
 
-    :param outdata: list of FileSpec objects (list)
-    :return: error code (int), diagnostics (str) (tuple).
+    Args:
+        outdata: list of FileSpec objects.
+
+    Returns:
+        tuple[int, str]: error code, diagnostics.
     """
     exitcode = 0
     diagnostics = ""
@@ -2585,11 +2699,11 @@ def verify_lfn_length(outdata: list) -> tuple[int, str]:
     return exitcode, diagnostics
 
 
-def verify_ncores(corecount: int):
-    """
-    Verify that nCores settings are correct.
+def verify_ncores(corecount: int) -> None:
+    """Verify that nCores settings are correct.
 
-    :param corecount: number of cores (int).
+    Args:
+        corecount: number of cores.
     """
     try:
         del os.environ['ATHENA_PROC_NUMBER_JOB']
@@ -2619,15 +2733,17 @@ def verify_ncores(corecount: int):
 
 
 def verify_job(job: JobData) -> bool:
-    """
-    Verify job parameters for specific errors.
+    """Verify job parameters for specific errors.
 
     Note:
       in case of problem, the function should set the corresponding pilot error code using:
       job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(error.get_error_code())
 
-    :param job: job object (JobData)
-    :return: True if verified, False otherwise (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if verified, False otherwise.
     """
     status = False
 
@@ -2653,11 +2769,11 @@ def verify_job(job: JobData) -> bool:
     return status
 
 
-def update_stagein(job: JobData):
-    """
-    Skip DBRelease files during stage-in.
+def update_stagein(job: JobData) -> None:
+    """Skip DBRelease files during stage-in.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     for fspec in job.indata:
         if 'DBRelease' in fspec.lfn:
@@ -2665,11 +2781,13 @@ def update_stagein(job: JobData):
 
 
 def get_metadata(workdir: str) -> str:
-    """
-    Return the metadata from file.
+    """Return the metadata from file.
 
-    :param workdir: work directory (str)
-    :return: metadata (str).
+    Args:
+        workdir: work directory.
+
+    Returns:
+        str: metadata.
     """
     path = os.path.join(workdir, config.Payload.jobreport)
     logger.info(f"reading metadata from: {path}")
@@ -2686,22 +2804,24 @@ def get_metadata(workdir: str) -> str:
 
 
 def should_update_logstash(frequency: int = 10) -> bool:
-    """
-    Determine if logstash should be updated with prmon dictionary.
+    """Determine if logstash should be updated with prmon dictionary.
 
-    :param frequency: update frequency (int)
-    :return: return True once per 'frequency' times (bool).
+    Args:
+        frequency: update frequency.
+
+    Returns:
+        bool: True once per 'frequency' times.
     """
     return randint(0, frequency - 1) == 0
 
 
 def update_server(job: JobData) -> None:
-    """
-    Perform any user specific server actions.
+    """Perform any user specific server actions.
 
     E.g. this can be used to send special information to a logstash.
 
-    :param job: job object (JobData).
+    Args:
+        job: job object.
     """
     # attempt to read memory_monitor_output.txt and convert it to json
     if not should_update_logstash():
@@ -2749,11 +2869,11 @@ def update_server(job: JobData) -> None:
     return
 
 
-def preprocess_debug_command(job: JobData):
-    """
-    Pre-process the debug command in debug mode.
+def preprocess_debug_command(job: JobData) -> None:
+    """Pre-process the debug command in debug mode.
 
-    :param job: Job object (JobData).
+    Args:
+        job: job object.
     """
     # Should the pilot do the setup or does jobPars already contain the information?
     preparesetup = should_pilot_prepare_setup(job.noexecstrcnv, job.jobparams)
@@ -2770,8 +2890,7 @@ def preprocess_debug_command(job: JobData):
 
 
 def process_debug_command(debug_command: str, pandaid: int) -> str:
-    """
-    Process the debug command in debug mode.
+    """Process the debug command in debug mode.
 
     In debug mode, the server can send a special debug command to the piloti
     via the updateJob backchannel. This function can be used to process that
@@ -2783,9 +2902,12 @@ def process_debug_command(debug_command: str, pandaid: int) -> str:
     (hardcoded) process will be that of athena.py. The pilot will find the
     corresponding pid.
 
-    :param debug_command: debug command (str)
-    :param pandaid: PanDA id (int)
-    :return: updated debug command (str).
+    Args:
+        debug_command: debug command.
+        pandaid: PanDA id.
+
+    Returns:
+        str: updated debug command.
     """
     if '--pid %' not in debug_command:
         return debug_command
@@ -2836,11 +2958,13 @@ def process_debug_command(debug_command: str, pandaid: int) -> str:
 
 
 def allow_timefloor(submitmode: str) -> bool:
-    """
-    Decide if the timefloor mechanism (for multi-jobs) should be allowed for the given submit mode.
+    """Decide if the timefloor mechanism (for multi-jobs) should be allowed for the given submit mode.
 
-    :param submitmode: submit mode (str)
-    :return: always True for ATLAS (bool).
+    Args:
+        submitmode: submit mode.
+
+    Returns:
+        bool: always True for ATLAS.
     """
     if submitmode:  # to bypass pylint score 0
         pass
@@ -2848,25 +2972,40 @@ def allow_timefloor(submitmode: str) -> bool:
     return True
 
 
-def get_pilot_id(jobid: int) -> str:
-    """
-    Get the pilot id from the environment variable GTAG.
+def get_pilot_id(data: dict) -> str:
+    """Get the pilot id from the environment variable GTAG.
 
     Update if necessary (not for ATLAS since we want the same pilot id for all multi-jobs).
 
-    :param jobid: PanDA job id - UNUSED (int)
-    :return: pilot id (str).
+    Args:
+        data: data dictionary.
+    Returns:
+        str: pilot id.
     """
-    if jobid:  # to bypass pylint score 0
-        pass
+    base_url = os.environ.get("GTAG", "unknown")
+    jobid = data.get("job_id")
+    site_name = data.get("site_name", "unknown")
 
-    return os.environ.get("GTAG", "unknown")
+    # If GTAG is not set or not a URL, return as-is
+    if base_url == "unknown" or not base_url.startswith("http"):
+        return base_url
+
+    # Append PandaID to construct job-specific log directory URL
+    try:
+        # This points to the directory containing all logs for this specific job
+        if "perlmutter" in site_name.lower():
+            return f"{base_url}/{jobid}"
+        else:
+            return base_url
+    except Exception:
+        # Fall back to base URL if URL construction fails
+        return base_url
 
 
 def allow_send_workernode_map() -> bool:
-    """
-    Return True if the workernode map should be sent to the server.
+    """Return True if the workernode map should be sent to the server.
 
-    :return: always True for ATLAS (bool).
+    Returns:
+        bool: always True for ATLAS.
     """
     return True

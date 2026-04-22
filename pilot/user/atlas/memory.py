@@ -22,6 +22,7 @@
 import ast
 import logging
 import math
+from typing import Optional
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
@@ -39,20 +40,22 @@ pilot_cache = get_pilot_cache()
 
 
 def allow_memory_usage_verifications() -> bool:
-    """
-    Return True if memory usage verifications should be performed.
+    """Return True if memory usage verifications should be performed.
 
-    :return: True for ATLAS jobs (bool).
+    Returns:
+        bool: True for ATLAS jobs.
     """
     return True
 
 
 def get_ucore_scale_factor(job: JobData) -> int:
-    """
-    Get the correction/scale factor for SCORE/4CORE/nCORE jobs on UCORE queues.
+    """Get the correction/scale factor for SCORE/4CORE/nCORE jobs on UCORE queues.
 
-    :param job: job object (JobData)
-    :return: scale factor (int).
+    Args:
+        job: job object.
+
+    Returns:
+        int: scale factor.
     """
     try:
         job_corecount = float(job.corecount)
@@ -81,23 +84,27 @@ def get_ucore_scale_factor(job: JobData) -> int:
 
 
 def get_memkillgrace(memkillgrace: int) -> float:
-    """
-    Return a proper memkillgrace value.
+    """Return a proper memkillgrace value.
 
     Convert from percentage to integer if necessary.
 
-    :param memkillgrace: memkillgrace value (int)
-    :return: memkillgrace value (float).
+    Args:
+        memkillgrace: memkillgrace value.
+
+    Returns:
+        float: memkillgrace value.
     """
     return memkillgrace / 100 if memkillgrace > 1 else 1.0
 
 
 def get_memory_limit_old(resource_type: str) -> int:
-    """
-    Get the memory limit for the relevant resource type.
+    """Get the memory limit for the relevant resource type.
 
-    :param resource_type: resource type (str)
-    :return: memory limit in MB (int).
+    Args:
+        resource_type: resource type.
+
+    Returns:
+        int: memory limit in MB.
     """
     try:
         memory_limits = ast.literal_eval(config.Payload.memory_limits)
@@ -122,11 +129,13 @@ def get_memory_limit_old(resource_type: str) -> int:
 
 
 def get_memory_limit(resource_type: str) -> int:
-    """
-    Get the memory limit for the relevant resource type.
+    """Get the memory limit for the relevant resource type.
 
-    :param resource_type: resource type (str)
-    :return: memory limit in MB (int), 0 if not set.
+    Args:
+        resource_type: resource type.
+
+    Returns:
+        int: memory limit in MB, 0 if not set.
     """
     try:
         memory_limits = pilot_cache.resource_types
@@ -156,17 +165,16 @@ def get_memory_limit(resource_type: str) -> int:
     return limit
 
 
-def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_panda: int) -> int or None:
-    """
-    Calculate the memory kill threshold in kB based on resource type.
+def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_panda: int) -> Optional[int]:
+    """Calculate the memory kill threshold in kB based on resource type.
 
     Args:
-        job (JobData): job object containing job information.
-        resource_type (str): subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM).
-        memory_limit_panda (int): memory limit from PanDA in MB.
+        job: job object containing job information.
+        resource_type: subresource type string (e.g. SCORE_HIMEM, MCORE_LOMEM).
+        memory_limit_panda: memory limit from PanDA in MB.
 
     Returns:
-        int or None: memory limit in kB, or None if it cannot be determined.
+        Optional[int]: memory limit in kB, or None if it cannot be determined.
     """
     pilot_rss_grace = float(job.infosys.queuedata.pilot_rss_grace or 2.0)
     score_resource_types = {"SCORE", "SCORE_LOMEM", "SCORE_HIMEM", "SCORE_VHIMEM"}
@@ -216,12 +224,11 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
     return None
 
 
-def set_cgroups_limit(memory_limit_kb: int):
-    """
-    Set the cgroups memory limit for a given process ID.
+def set_cgroups_limit(memory_limit_kb: int) -> None:
+    """Set the cgroups memory limit for a given process ID.
 
     Args:
-        memory_limit_kb (int): Memory limit in kB.
+        memory_limit_kb: Memory limit in kB.
     """
     # cgroup_path = pilot_cache.get_cgroup("payload")
     cgroup_path = pilot_cache.get_cgroup("subprocesses")  # use subprocesses cgroup which should include the payload
@@ -243,8 +250,7 @@ def set_cgroups_limit(memory_limit_kb: int):
 
 
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
-    """
-    Verify payload memory usage and enforce configured limits.
+    """Verify payload memory usage and enforce configured limits.
 
     This function performs the following steps:
     - Reads the memory monitor summary produced in `job.workdir` (file name `job.memorymonitor`)
@@ -264,11 +270,11 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
       the condition and returns `(0, "")` (unless the monitor file could not be read, see above).
 
     Args:
-        job (JobData): job object containing job information.
-        resource_type (str): subresource type string (e.g. SCORE_HIMEM)
+        job: job object containing job information.
+        resource_type: subresource type string (e.g. SCORE_HIMEM).
 
     Returns:
-        tuple: exit code (int), diagnostics (str).
+        tuple[int, str]: exit code, diagnostics.
     """
     exit_code = 0
     diagnostics = ""
@@ -319,12 +325,14 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
 
 
 def memory_usage_old(job: object, resource_type: str) -> tuple[int, str]:
-    """
-    Perform memory usage verification.
+    """Perform memory usage verification.
 
-    :param job: job object (JobData)
-    :param resource_type: resource type (str)
-    :return: exit code (int), diagnostics (str) (tuple).
+    Args:
+        job: job object.
+        resource_type: resource type.
+
+    Returns:
+        tuple[int, str]: exit code, diagnostics.
     """
     exit_code = 0
     diagnostics = ""

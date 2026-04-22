@@ -55,8 +55,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        always True (for now).
     """
     #for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -70,8 +73,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -83,10 +89,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using gfal-copy command.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        updated files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     #allow_direct_access = kwargs.get('allow_direct_access') or False
     trace_report = kwargs.get('trace_report')
@@ -155,10 +166,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using gfal command.
 
-    :param files: Files to upload (files)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raises: PilotException in case of errors.
+    Args:
+        files: list of FileSpec objects to upload.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        updated files.
+
+    Raises:
+        PilotException: in case of errors.
     """
     if not check_for_gfal():
         raise StageOutFailure("No GFAL2 tools found")
@@ -208,13 +224,16 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):   ### NOT USED -- TO BE DEPRECATED
+def move_all_files_in(files: list, nretries: int = 1) -> tuple[int, str, str]:   ### NOT USED -- TO BE DEPRECATED
     """
     Move all input files.
 
-    :param files: list of FileSpec objects (list)
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
-    :return: exit_code (int), stdout (str), stderr (str).
+    Args:
+        files: list of FileSpec objects.
+        nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed.
+
+    Returns:
+        Tuple of (exit_code, stdout, stderr).
     """
     exit_code = 0
     stdout = ""
@@ -240,13 +259,16 @@ def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):   ### 
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### NOT USED -- TO BE DEPRECATED
+def move_all_files_out(files: list, nretries: int = 1) -> tuple[int, str, str]:  ### NOT USED -- TO BE DEPRECATED
     """
     Move all output files.
 
-    :param files: list of FileSpec objects (list)
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
-    :return: exit_code (int), stdout (str), stderr (str).
+    Args:
+        files: list of FileSpec objects.
+        nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed.
+
+    Returns:
+        Tuple of (exit_code, stdout, stderr).
     """
     exit_code = 0
     stdout = ""
@@ -273,14 +295,17 @@ def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):  ### 
 
 
 #@timeout(seconds=10800)
-def move(source: str, destination: str, recursive: bool = False) -> (int, str, str):
+def move(source: str, destination: str, recursive: bool = False) -> tuple[int, str, str]:
     """
     Perform gfal-copy from the given source location to the given destination.
 
-    :param source: file source path (str)
-    :param destination: destination path (str)
-    :param recursive: True if -r option is desired, False otherwise (bool)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        source: file source path.
+        destination: destination path.
+        recursive: True if -r option is desired, False otherwise.
+
+    Returns:
+        Tuple of (exit_code, stdout, stderr).
     """
     if recursive:
         cmd = f"gfal-copy -r {source} {destination}"
@@ -292,11 +317,12 @@ def move(source: str, destination: str, recursive: bool = False) -> (int, str, s
     return exit_code, stdout, stderr
 
 
-def check_for_gfal():
+def check_for_gfal() -> bool:
     """
     Check if gfal-copy is locally available.
 
-    :return: True if gfal-copy is available, False otherwise (bool).
+    Returns:
+        True if gfal-copy is available, False otherwise.
     """
     exit_code, _, _ = execute('which gfal-copy')
     return exit_code == 0
