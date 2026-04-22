@@ -17,17 +17,18 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
+from __future__ import annotations
+
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: object, extra: Optional[dict] = None) -> str:
+def get_job_metrics(job: object, extra: dict | None = None) -> str:
     """Return a properly formatted job metrics string.
 
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.

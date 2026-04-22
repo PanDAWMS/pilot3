@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Functions related to job metrics for sPHENIX."""
 
@@ -43,9 +43,6 @@ def get_job_metrics(job: JobData, extra: dict = None) -> str:
     Args:
         job: job object containing job information.
         extra: any extra information to be added to the job metrics.
-
-    Returns:
-        str: job metrics string.
 
     Raises:
         NotImplementedError: always, as this function is not yet implemented.

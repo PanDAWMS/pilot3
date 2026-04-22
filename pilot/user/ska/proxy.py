@@ -17,18 +17,18 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Functions related to proxy handling for SKA user."""
 
 # from pilot.util.container import execute
-from typing import Optional
+from __future__ import annotations
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def verify_proxy(limit: Optional[int] = None, x509: Optional[str] = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:
+def verify_proxy(limit: int | None = None, x509: str | None = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:
     """Check for a valid voms/grid proxy longer than N hours.
 
     Use `limit` to set required time limit.
@@ -43,7 +43,7 @@ def verify_proxy(limit: Optional[int] = None, x509: Optional[str] = None, proxy_
     Returns:
         tuple[int, str]: Exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
     """
-    if limit or x509 or proxy_id or test:  # to bypass pylint score 0
+    if limit or x509 or proxy_id or test or pilotstartup:  # to bypass pylint score 0
         pass
 
     return 0, ""

@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
@@ -41,9 +41,6 @@ def get_job_metrics(job: JobData, extra: dict = None) -> str:
     Args:
         job: job object containing job information.
         extra: any extra information to be added to the job metrics.
-
-    Returns:
-        str: formatted job metrics string.
 
     Raises:
         NotImplementedError: always raised as the function is not yet implemented.
