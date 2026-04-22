@@ -27,7 +27,10 @@ import os
 import re
 
 from time import time
-from typing import Any
+from typing import (
+    Any,
+    Optional,
+)
 
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.common.errorcodes import ErrorCodes
@@ -44,24 +47,28 @@ pilot_cache = get_pilot_cache()
 
 
 def get_voms_role(role: str = 'production') -> str:
-    """
-    Return the proper voms role.
+    """Return the proper voms role.
 
-    :param role: proxy role, 'production' or 'user' (str)
-    :return: voms role (str).
+    Args:
+        role: proxy role, 'production' or 'user'.
+
+    Returns:
+        str: voms role.
     """
     return 'atlas:/atlas/Role=production' if role == 'production' else 'atlas'
 
 
 def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', workdir: str = '') -> tuple[int, str, str]:
-    """
-    Download a payload proxy from the server and verify it.
+    """Download a payload proxy from the server and verify it.
 
-    :param x509: X509_USER_PROXY (str)
-    :param voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs (str)
-    :param proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank) (str)
-    :param workdir: payload work directory (str)
-    :return:  exit code (int), diagnostics (str), updated x509 (str) (tuple).
+    Args:
+        x509: X509_USER_PROXY.
+        voms_role: role, e.g. 'atlas' for user jobs in unified dispatch, 'atlas:/atlas/Role=production' for production jobs.
+        proxy_type: proxy type ('unified' on unified dispatch queues, otherwise blank).
+        workdir: payload work directory.
+
+    Returns:
+        tuple[int, str, str]: exit code, diagnostics, updated x509.
     """
     exit_code = 0
     diagnostics = ""
@@ -97,17 +104,19 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
 
 
 def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:
-    """
-    Check for a valid voms/grid proxy longer than N hours.
+    """Check for a valid voms/grid proxy longer than N hours.
 
     Use `limit` to set required time limit.
 
-    :param limit: time limit in hours (int)
-    :param x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment (bool)
-    :param proxy_id: proxy id (str)
-    :param test: free Boolean test parameter (bool)
-    :param pilotstartup: free Boolean pilotstartup parameter (bool)
-    :return: exit code (NOPROXY or NOVOMSPROXY) (int), diagnostics (error diagnostics string) (str) (tuple).
+    Args:
+        limit: time limit in hours.
+        x509: points to the proxy file. If not set (=None) - get proxy file from X509_USER_PROXY environment.
+        proxy_id: proxy id.
+        test: free Boolean test parameter.
+        pilotstartup: free Boolean pilotstartup parameter.
+
+    Returns:
+        tuple[int, str]: exit code (NOPROXY or NOVOMSPROXY), diagnostics (error diagnostics string).
     """
     if pilotstartup:
         limit = 72  # 3 days
@@ -126,14 +135,16 @@ def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", 
 
 
 def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bool = False) -> tuple[int, str]:  # noqa: C901
-    """
-    Verify the proxy using arcproxy.
+    """Verify the proxy using arcproxy.
 
-    :param envsetup: general setup string for proxy commands (str)
-    :param limit: time limit in hours (int)
-    :param proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached (str or None)
-    :param test: free Boolean test parameter (bool)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        envsetup: general setup string for proxy commands.
+        limit: time limit in hours.
+        proxy_id: proxy unique id name. The verification result will be cached for this id. If None the result will not be cached.
+        test: free Boolean test parameter.
+
+    Returns:
+        tuple[int, str]: exit code, error diagnostics.
     """
     exit_code = 0
     diagnostics = ""
@@ -213,13 +224,15 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
 
 
 def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str]:
-    """
-    Check the time left for the proxy.
+    """Check the time left for the proxy.
 
-    :param proxyname: cert or proxy (str)
-    :param validity: validity time (int)
-    :param limit: time limit in hours (int)
-    return exit code (int), diagnostics (str) (tuple).
+    Args:
+        proxyname: cert or proxy.
+        validity: validity time.
+        limit: time limit in hours.
+
+    Returns:
+        tuple[int, str]: exit code, diagnostics.
     """
     exit_code = 0
     diagnostics = ''
@@ -248,12 +261,14 @@ def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str
 
 
 def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:
-    """
-    Verify proxy using voms-proxy-info command.
+    """Verify proxy using voms-proxy-info command.
 
-    :param envsetup: general setup string for proxy commands (str)
-    :param limit: time limit in hours (int)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        envsetup: general setup string for proxy commands.
+        limit: time limit in hours.
+
+    Returns:
+        tuple[int, str]: exit code, error diagnostics.
     """
     exit_code = 0
     diagnostics = ""
@@ -279,12 +294,14 @@ def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:
 
 
 def verify_gridproxy(envsetup: str, limit: int) -> tuple[int, str]:
-    """
-    Verify proxy using grid-proxy-info command.
+    """Verify proxy using grid-proxy-info command.
 
-    :param envsetup: general setup string for proxy commands (str)
-    :param limit: time limit in hours (int)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        envsetup: general setup string for proxy commands.
+        limit: time limit in hours.
+
+    Returns:
+        tuple[int, str]: exit code, error diagnostics.
     """
     ec = 0
     diagnostics = ""
@@ -317,15 +334,17 @@ def verify_gridproxy(envsetup: str, limit: int) -> tuple[int, str]:
     return ec, diagnostics
 
 
-def interpret_proxy_info(proxy_ec: int or Any, stdout: str, stderr: str, limit: int) -> tuple[int, str, int or None, int or None]:
-    """
-    Interpret the output from arcproxy.
+def interpret_proxy_info(proxy_ec: Any, stdout: str, stderr: str, limit: int) -> tuple[int, str, Optional[int], Optional[int]]:
+    """Interpret the output from arcproxy.
 
-    :param proxy_ec: exit code from proxy command (int)
-    :param stdout: stdout from proxy command (str)
-    :param stderr: stderr from proxy command (str)
-    :param limit: time limit in hours (int)
-    :return: exit code (int or Any), diagnostics (str). validity end cert (int), validity end in seconds if detected, None if not detected (int) (tuple).
+    Args:
+        proxy_ec: exit code from proxy command.
+        stdout: stdout from proxy command.
+        stderr: stderr from proxy command.
+        limit: time limit in hours.
+
+    Returns:
+        tuple[int, str, Optional[int], Optional[int]]: exit code, diagnostics, validity end cert, validity end in seconds if detected or None if not detected.
     """
     exitcode = 0
     diagnostics = ""
@@ -391,14 +410,16 @@ def interpret_proxy_info(proxy_ec: int or Any, stdout: str, stderr: str, limit: 
     return exitcode, diagnostics, validity_end_cert, validity_end
 
 
-def extract_time_left(stdout: str) -> tuple[int or None, int or None, str]:
-    """
-    Extract the time left for the cert and proxy from the proxy command.
+def extract_time_left(stdout: str) -> tuple[Optional[int], Optional[int], str]:
+    """Extract the time left for the cert and proxy from the proxy command.
 
     Some processing on the stdout is done.
 
-    :param stdout: stdout (str)
-    :return: validity_end_cert, validity_end, stdout (tuple[int or None, int or None, str]).
+    Args:
+        stdout: stdout.
+
+    Returns:
+        tuple[Optional[int], Optional[int], str]: validity_end_cert, validity_end, stdout.
     """
     validity_end_cert = None
     validity_end = None
@@ -435,14 +456,16 @@ def extract_time_left(stdout: str) -> tuple[int or None, int or None, str]:
     return validity_end_cert, validity_end, stdout
 
 
-def extract_time_left_old(stdout: str) -> tuple[int, str]:
-    """
-    Extract the time left from the proxy command.
+def extract_time_left_old(stdout: str) -> tuple[Optional[int], str]:
+    """Extract the time left from the proxy command.
 
     Some processing on the stdout is done.
 
-    :param stdout: stdout (str)
-    :return: validity_end, stdout (tuple[int, str]).
+    Args:
+        stdout: stdout.
+
+    Returns:
+        tuple[Optional[int], str]: validity_end, stdout.
     """
     validity_end = None
 
@@ -469,10 +492,12 @@ def extract_time_left_old(stdout: str) -> tuple[int, str]:
 
 
 def getproxy_dictionary(voms_role: str) -> dict:
-    """
-    Prepare the dictionary with the VOMS role and DN for the getProxy call.
+    """Prepare the dictionary with the VOMS role and DN for the getProxy call.
 
-    :param voms_role: VOMS role (str)
-    :return: getProxy dictionary (dict).
+    Args:
+        voms_role: VOMS role.
+
+    Returns:
+        dict: getProxy dictionary.
     """
     return {'role': voms_role, 'dn': 'atlpilo2'} if voms_role == 'atlas' else {'role': voms_role}

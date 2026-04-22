@@ -23,11 +23,13 @@ from pilot.info.jobdata import JobData
 
 
 def fast_monitor_tasks(job: JobData) -> int:
-    """
-    Perform fast monitoring tasks.
+    """Perform fast monitoring tasks.
 
-    :param job: job object (JobData)
-    :return: exit code (int).
+    Args:
+        job: job object.
+
+    Returns:
+        int: exit code.
     """
     if not job:  # to bypass pylint warning
         pass

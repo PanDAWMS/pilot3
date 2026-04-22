@@ -17,11 +17,13 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Functions for constructing job metrics strings."""
 
 # from pilot.util.jobmetrics import get_job_metrics_entry
+
+from __future__ import annotations
 
 import logging
 
@@ -30,9 +32,8 @@ from pilot.info.jobdata import JobData
 logger = logging.getLogger(__name__)
 
 
-def get_job_metrics(job: JobData, extra: dict = None):
-    """
-    Return a properly formatted job metrics string.
+def get_job_metrics(job: JobData, extra: dict | None = None) -> str:
+    """Return a properly formatted job metrics string.
 
     The format of the job metrics string is defined by the server. It will be reported to the server during updateJob.
 
@@ -42,8 +43,11 @@ def get_job_metrics(job: JobData, extra: dict = None):
             cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
 
     Args:
-        job (JobData): job object containing job information.
-        extra (dict, optional): any extra information to be added to the job metrics. Defaults to None.
+        job: Job object containing job information.
+        extra: Any extra information to be added to the job metrics.
+
+    Raises:
+        NotImplementedError: always, as this function is not yet implemented.
     """
     if job or extra:  # to bypass pylint score 0
         pass

@@ -47,24 +47,24 @@ class XMLDictionary:
 
     _dictionary = None
 
-    def __init__(self, rootname: str = "outfiles"):
-        """
-        Initialize the dictionary with the root key.
+    def __init__(self, rootname: str = "outfiles") -> None:
+        """Initialize the dictionary with the root key.
 
-        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles') (str).
+        Args:
+            rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles').
         """
         self._dictionary = {}
         self._dictionary[rootname] = []
 
-    def add_to_list(self, dictionary: dict, rootname: str = "outfiles", itemname: str = "file"):
-        """
-        Add dictionary to itemname key.
+    def add_to_list(self, dictionary: dict, rootname: str = "outfiles", itemname: str = "file") -> None:
+        """Add dictionary to itemname key.
 
         See example in class header.
 
-        :param dictionary: dictionary to add to itemname key (dict)
-        :param rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles') (str)
-        :param itemname: name of the item key. In the Nordugrid XML it should be called 'file' (str).
+        Args:
+            dictionary: dictionary to add to itemname key.
+            rootname: name of the root key. There is only one root key in the Nordugrid XML file ('outfiles').
+            itemname: name of the item key. In the Nordugrid XML it should be called 'file'.
         """
         if isinstance(self._dictionary, dict):
             if isinstance(self._dictionary[rootname], list):
@@ -76,19 +76,19 @@ class XMLDictionary:
             logger.info(f"not a dictionary: {self._dictionary}")
 
     def get_dictionary(self) -> dict:
-        """
-        Return the dictionary to be converted to XML.
+        """Return the dictionary to be converted to XML.
 
         It should be populated with the dictionary added to it in add_to_list().
 
-        :return: dictionary (dict).
+        Returns:
+            dict: dictionary.
         """
         return self._dictionary
 
 
 def convert_to_xml(dictionary: dict) -> str:
-    """
-    Convert a dictionary to XML.
+    """Convert a dictionary to XML.
+
     The dictionary is expected to follow the Nordugrid format. See the XMLDictionary helper class.
 
     Example of XML (OutputFiles.xml):
@@ -106,8 +106,11 @@ def convert_to_xml(dictionary: dict) -> str:
     </file>
     </outfiles>
 
-    :param dictionary: dictionary created with XMLDictionary.
-    :return: pretty printed xml (str).
+    Args:
+        dictionary: dictionary created with XMLDictionary.
+
+    Returns:
+        str: pretty printed xml.
     """
     failed = False
 

@@ -42,9 +42,12 @@ def get_timeout(filesize: int, add: int = 0) -> int:
     """
     Get a proper time-out limit based on the file size.
 
-    :param filesize: file size (int)
-    :param add: optional additional time to be added [s] (int)
-    :return: time-out in seconds (int).
+    Args:
+        filesize: file size.
+        add: optional additional time to be added [s].
+
+    Returns:
+        time-out in seconds.
     """
     timeout_max = 3 * 3600  # 3 hours
     timeout_min = 400  # self.timeout
@@ -54,15 +57,18 @@ def get_timeout(filesize: int, add: int = 0) -> int:
     return min(timeout, timeout_max)
 
 
-def verify_catalog_checksum(fspec: Any, path: str) -> (str, str):
+def verify_catalog_checksum(fspec: Any, path: str) -> tuple[str, str]:
     """
     Verify that the local and remote (fspec) checksum values are the same.
 
     The function will update the fspec object.
 
-    :param fspec: FileSpec object for a given file (Any)
-    :param path: path to local file (str)
-    :return: state (str), diagnostics (str).
+    Args:
+        fspec: FileSpec object for a given file.
+        path: path to local file.
+
+    Returns:
+        Tuple of (state, diagnostics).
     """
     diagnostics = ""
     state = ""
@@ -107,8 +113,11 @@ def merge_destinations(files: list) -> dict:
     """
     Convert the file-with-destination dict to a destination-with-files dictionary.
 
-    :param files: files to merge (list)
-    :return: destination-with-files dictionary (dict).
+    Args:
+        files: files to merge.
+
+    Returns:
+        destination-with-files dictionary.
     """
     destinations = {}
     # ensure type(files) == list
@@ -133,9 +142,12 @@ def get_copysetup(copytools: list, copytool_name: str) -> str:
     """
     Return the copysetup for the given copytool.
 
-    :param copytools: copytools list from infosys (list)
-    :param copytool_name: name of copytool (str)
-    :return: copysetup (str).
+    Args:
+        copytools: copytools list from infosys.
+        copytool_name: name of copytool.
+
+    Returns:
+        copysetup string.
     """
     copysetup = ""
 
@@ -156,10 +168,13 @@ def get_error_info(rcode: int, state: str, error_msg: str) -> dict:
 
     Helper function to resolve_common_transfer_errors().
 
-    :param rcode: return code (int)
-    :param state: state string used in Rucio traces (str)
-    :param error_msg: transfer command stdout (str)
-    :return: dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
+    Args:
+        rcode: return code.
+        state: state string used in Rucio traces.
+        error_msg: transfer command stdout.
+
+    Returns:
+        dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg}.
     """
     return {'rcode': rcode, 'state': state, 'error': error_msg}
 
@@ -170,9 +185,12 @@ def output_line_scan(ret: dict, output: str) -> dict:
 
     Helper function to resolve_common_transfer_errors().
 
-    :param ret: pre-filled error info dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg} (dict)
-    :param output: transfer command stdout (str)
-    :return: updated error info dictionary (dict).
+    Args:
+        ret: pre-filled error info dictionary with format {'rcode': rcode, 'state': state, 'error': error_msg}.
+        output: transfer command stdout.
+
+    Returns:
+        updated error info dictionary.
     """
     for line in output.split('\n'):
         match = re.search(r"[Dd]etails\s*:\s*(?P<error>.*)", line)  # Python 3 (added r)
@@ -189,9 +207,12 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
     """
     Resolve any common transfer related errors.
 
-    :param output: stdout from transfer command (str)
-    :param is_stagein: optional (bool)
-    :return: dict {'rcode': rcode, 'state': state, 'error': error_msg} (dict).
+    Args:
+        output: stdout from transfer command.
+        is_stagein: True if this is a stage-in operation, False for stage-out.
+
+    Returns:
+        dict with format {'rcode': rcode, 'state': state, 'error': error_msg}.
     """
     # default to make sure dictionary exists and all fields are populated (some of which might be overwritten below)
     ret = get_error_info(ErrorCodes.STAGEINFAILED if is_stagein else ErrorCodes.STAGEOUTFAILED, 'COPY_ERROR', output)

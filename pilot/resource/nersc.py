@@ -28,11 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_setup(job: Any = None) -> list:
-    """
-    Return the resource specific setup.
+    """Return the resource specific setup.
 
-    :param job: optional job object (Any)
-    :return: setup commands (list).
+    Args:
+        job: optional job object.
+
+    Returns:
+        list: setup commands.
     """
     if not job:
         logger.warning('job object not sent to get_setup')

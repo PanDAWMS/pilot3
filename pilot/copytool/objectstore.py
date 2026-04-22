@@ -54,8 +54,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -71,8 +74,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     if files:  # to get rid of pylint warning
         pass
@@ -88,11 +94,14 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
 
     Can be customized at the level of specific copytool.
 
-    :param fspec: file spec data (Any)
-    :param protocol: suggested protocol (dict)
-    :param ddmconf: full ddm storage data (dict)
-    :param kwargs: kwargs dictionary (dict)
-    :return: SURL dictionary {'surl': surl} (dict).
+    Args:
+        fspec: file spec data.
+        protocol: suggested protocol.
+        ddmconf: full ddm storage data.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        SURL dictionary {'surl': surl}.
     """
     if kwargs:  # to get rid of pylint warning
         pass
@@ -115,10 +124,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using rucio copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated list of files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: In case of controlled error.
     """
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'
@@ -171,7 +185,8 @@ def is_new_rucio_version() -> bool:
     """
     Check if --rses RSES option is supported in Rucio.
 
-    :return: True if new rucio version (bool).
+    Returns:
+        True if new rucio version.
     """
     _, stdout, _ = execute('rucio download -h')
     return '--rses RSES' in stdout
@@ -181,10 +196,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload the given files using rucio copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :raises: PilotException in case of controlled error
-    :return: updated list of files (list).
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated list of files.
+
+    Raises:
+        PilotException: In case of controlled error.
     """
     # don't spoil the output, we depend on stderr parsing
     os.environ['RUCIO_LOGGING_FORMAT'] = '%(asctime)s %(levelname)s [%(message)s]'

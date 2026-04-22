@@ -43,25 +43,27 @@ errors = ErrorCodes()
 
 
 def get_file_system_root_path() -> str:
-    """
-    Return the root path of the local file system.
+    """Return the root path of the local file system.
 
     The function returns "/cvmfs" or "/(some path)/cvmfs" in case the expected file system root path is not
     where it usually is (e.g. on an HPC). A site can set the base path by exporting ATLAS_SW_BASE.
 
-    :return: path (str).
+    Returns:
+        str: path.
     """
     return os.environ.get('ATLAS_SW_BASE', '/cvmfs')
 
 
 def get_alrb_export(add_if: bool = False) -> str:
-    """
-    Return the export command for the ALRB path if it exists.
+    """Return the export command for the ALRB path if it exists.
 
     If the path does not exist, return empty string.
 
-    :param add_if: True means that an if statement will be placed around the export (bool)
-    :return: export command (str).
+    Args:
+        add_if: True means that an if statement will be placed around the export.
+
+    Returns:
+        str: export command.
     """
     path = f"{get_file_system_root_path()}/atlas.cern.ch/repo"
     cmd = f"export ATLAS_LOCAL_ROOT_BASE={path}/ATLASLocalRootBase;" if os.path.exists(path) else ""
@@ -72,17 +74,21 @@ def get_alrb_export(add_if: bool = False) -> str:
 
 
 def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) -> str:
-    """
-    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
+    """Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
 
     Only include the actual asetup script if asetup=True. This is not needed if the jobPars contain the payload command
     but the pilot still needs to add the exports and the atlasLocalSetup.
 
-    :param asetup: True value means that the pilot should include the asetup command (bool)
-    :param alrb: True value means that the function should return special setup used with ALRB and containers (bool)
-    :param add_if: True means that an if statement will be placed around the export (bool)
-    :raises: NoSoftwareDir if appdir does not exist
-    :return: source <path>/asetup.sh (str).
+    Args:
+        asetup: True value means that the pilot should include the asetup command.
+        alrb: True value means that the function should return special setup used with ALRB and containers.
+        add_if: True means that an if statement will be placed around the export.
+
+    Returns:
+        str: source <path>/asetup.sh.
+
+    Raises:
+        NoSoftwareDir: if appdir does not exist.
     """
     cmd = ""
     alrb_cmd = get_alrb_export(add_if=add_if)
@@ -111,16 +117,18 @@ def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) ->
     return cmd
 
 
-def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> (int, str, str):
-    """
-    Prepare to download the user analysis transform with curl.
+def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int, str, str]:
+    """Prepare to download the user analysis transform with curl.
 
     The function will verify the download location from a known list of hosts.
 
-    :param transform: full trf path (url) (string).
-    :param workdir: work directory (string).
-    :param base_urls: list of base urls (list)
-    :return: exit code (int), diagnostics (string), transform_name (string)
+    Args:
+        transform: full trf path (url).
+        workdir: work directory.
+        base_urls: list of base urls.
+
+    Returns:
+        tuple[int, str, str]: exit code, diagnostics, transform_name.
     """
     ec = 0
     diagnostics = ""
@@ -186,16 +194,18 @@ def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> (int, str
 
 
 def get_valid_base_urls(base_urls: list, order: str = "") -> list:
-    """
-    Return a list of valid base URLs from where the user analysis transform may be downloaded from.
+    """Return a list of valid base URLs from where the user analysis transform may be downloaded from.
 
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param base_urls: list of base URLs (list)
-    :param order: order (str)
-    :return: valid base URLs (list).
+    Args:
+        base_urls: list of base URLs.
+        order: optional URL to place first in the returned list.
+
+    Returns:
+        list: valid base URLs.
     """
     valid_base_urls = []
     if not base_urls:
@@ -215,14 +225,16 @@ def get_valid_base_urls(base_urls: list, order: str = "") -> list:
     return valid_base_urls
 
 
-def download_transform(url: str, transform_name: str, workdir: str):
-    """
-    Download the transform from the given url.
+def download_transform(url: str, transform_name: str, workdir: str) -> tuple[bool, str]:
+    """Download the transform from the given url.
 
-    :param url: download URL with path to transform (str)
-    :param transform_name: trf name (str)
-    :param workdir: work directory (str)
-    :return: status (bool), diagnostics (str).
+    Args:
+        url: download URL with path to transform.
+        transform_name: trf name.
+        workdir: work directory.
+
+    Returns:
+        tuple[bool, str]: status, diagnostics.
     """
     status = False
     diagnostics = ""
@@ -273,15 +285,17 @@ def download_transform(url: str, transform_name: str, workdir: str):
 
 
 def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})') -> float:
-    """
-    Extract a more precise end of setup time from the payload stdout.
+    """Extract a more precise end of setup time from the payload stdout.
 
     File path should be verified already.
     The function will look for a date time in the beginning of the payload stdout with the given pattern.
 
-    :param path: path to payload stdout (str)
-    :param pattern: regular expression pattern (raw str)
-    :return: time in seconds since epoch (float).
+    Args:
+        path: path to payload stdout.
+        pattern: regular expression pattern.
+
+    Returns:
+        float: time in seconds since epoch.
     """
     end_time = None
     head_list = head(path, count=50)
@@ -294,49 +308,51 @@ def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/
 
 
 def get_schedconfig_priority() -> list:
-    """
-    Return the prioritized list for the schedconfig sources.
+    """Return the prioritized list for the schedconfig sources.
 
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list (list).
+    Returns:
+        list: prioritized DDM source list.
     """
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
 def get_queuedata_priority() -> list:
-    """
-    Return the prioritized list for the schedconfig sources.
+    """Return the prioritized list for the schedconfig sources.
 
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM source list (list).
+    Returns:
+        list: prioritized DDM source list.
     """
     return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
 def get_ddm_source_priority() -> list:
-    """
-    Return the prioritized list for the DDM sources.
+    """Return the prioritized list for the DDM sources.
 
     This list is used to determine which source to use for the DDM endpoints, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_storage_data().
 
-    :return: prioritized DDM source list (list).
+    Returns:
+        list: prioritized DDM source list.
     """
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
 def should_verify_setup(job: Any) -> bool:
-    """
-    Determine if the setup command should be verified.
+    """Determine if the setup command should be verified.
 
-    :param job: job object (Any)
-    :return: False (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: False.
     """
 
     return False

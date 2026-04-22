@@ -54,8 +54,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list)
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -69,8 +72,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list)
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        Always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -82,10 +88,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files using the lsm-get command.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated files.
+
+    Raises:
+        PilotException: In case of controlled error.
     """
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
@@ -156,10 +167,15 @@ def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files using lsm copytool.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raises: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        Updated files.
+
+    Raises:
+        PilotException: In case of controlled error.
     """
     copytools = kwargs.get('copytools') or []
     copysetup = get_copysetup(copytools, 'lsm')
@@ -230,13 +246,16 @@ def copy_out(files: list, **kwargs: dict) -> list:
     return files
 
 
-def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):
+def move_all_files_in(files: list, nretries: int = 1) -> tuple[int, str, str]:
     """
-    Move all inout files.
+    Move all input files.
 
-    :param files: list of FileSpec objects (list)
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        files: list of FileSpec objects.
+        nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     exit_code = 0
     stdout = ""
@@ -260,13 +279,16 @@ def move_all_files_in(files: list, nretries: int = 1) -> (int, str, str):
     return exit_code, stdout, stderr
 
 
-def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):
+def move_all_files_out(files: list, nretries: int = 1) -> tuple[int, str, str]:
     """
     Move all output files.
 
-    :param files: list of FileSPec objects (list)
-    :param nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed (int)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        files: list of FileSpec objects.
+        nretries: number of retries; sometimes there can be a timeout copying, but the next attempt may succeed.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     exit_code = 0
     stdout = ""
@@ -291,16 +313,19 @@ def move_all_files_out(files: list, nretries: int = 1) -> (int, str, str):
 
 
 #@timeout(seconds=10800)
-def move(source: str, destination: str, dst_in: bool = True, copysetup: str = "", options: str = "") -> (int, str, str):
+def move(source: str, destination: str, dst_in: bool = True, copysetup: str = "", options: str = "") -> tuple[int, str, str]:
     """
     Use lsm-get or lsm-put to transfer the file.
 
-    :param source: path to source (str)
-    :param destination: path to destination (str)
-    :param dst_in: True for stage-in, False for stage-out (bool)
-    :param copysetup: path to copysetup (str)
-    :param options: additional options (str)
-    :return: exit code (int), stdout (str), stderr (str).
+    Args:
+        source: path to source.
+        destination: path to destination.
+        dst_in: True for stage-in, False for stage-out.
+        copysetup: path to copysetup.
+        options: additional options.
+
+    Returns:
+        Tuple of exit code, stdout, and stderr.
     """
     # copysetup = '/osg/mwt2/app/atlas_app/atlaswn/setup.sh'
     if copysetup != "":
@@ -336,8 +361,11 @@ def check_for_lsm(dst_in: bool = True) -> bool:
     """
     Check if lsm-get / lsm-put are locally available.
 
-    :param dst_in: True for stage-in, False for stage-out (bool)
-    :return: True if command is available (bool).
+    Args:
+        dst_in: True for stage-in, False for stage-out.
+
+    Returns:
+        True if command is available.
     """
     if dst_in:
         cmd = 'which lsm-get'

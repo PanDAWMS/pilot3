@@ -23,11 +23,13 @@
 
 
 def fast_monitor_tasks(job: object) -> int:
-    """
-    Perform fast monitoring tasks.
+    """Perform fast monitoring tasks.
 
-    :param job: job object (object)
-    :return: exit code (int).
+    Args:
+        job: Job object.
+
+    Returns:
+        int: Exit code.
     """
     if job:  # to bypass pylint score 0
         pass

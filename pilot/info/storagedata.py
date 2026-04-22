@@ -19,17 +19,16 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
-"""
-The implementation of data structure to host storage data description.
+"""The implementation of data structure to host storage data description.
 
 The main reasons for such incapsulation are to
  - apply in one place all data validation actions (for attributes and values)
  - introduce internal information schema (names of attribues) to remove direct dependency
  with data structrure, formats, names from external sources (e.g. AGIS/CRIC)
 
-:author: Alexey Anisenkov
-:contact: anisyonk@cern.ch
-:date: January 2018
+Author: Alexey Anisenkov
+Contact: anisyonk@cern.ch
+Date: January 2018
 """
 import logging
 import traceback
@@ -75,11 +74,11 @@ class StorageData(BaseData):
              bool: ['is_deterministic']
              }
 
-    def __init__(self, data: dict):
-        """
-        Initialize StorageData object with input data.
+    def __init__(self, data: dict) -> None:
+        """Initialize StorageData object with input data.
 
-        :param data: input dictionary of storage description by DDMEndpoint name as key (dict).
+        Args:
+            data: Input dictionary of storage description by DDMEndpoint name as key.
         """
         self.load(data)
 
@@ -88,11 +87,11 @@ class StorageData(BaseData):
         # logger.debug(f'initialize StorageData from raw:\n{pprint.pformat(data)}')
         # logger.debug(f'final parsed StorageData content:\n{self}')
 
-    def load(self, data: dict):
-        """
-        Construct and initialize data from ext source.
+    def load(self, data: dict) -> None:
+        """Construct and initialize data from ext source.
 
-        :param data: input dictionary of storage description by DDMEndpoint name as key (dict).
+        Args:
+            data: Input dictionary of storage description by DDMEndpoint name as key.
         """
         # the translation map of the queue data attributes from external data to internal schema
         # first defined ext field name will be used
@@ -116,12 +115,14 @@ class StorageData(BaseData):
 
     # to be improved: move it to some data loader
     def get_security_key(self, secret_key: str, access_key: str) -> dict:
-        """
-        Get security key pair from panda.
+        """Get security key pair from panda.
 
-        :param secret_key: secret key name (str)
-        :param access_key: access key name (str)
-        :return: dictionary with public and private keys (dict).
+        Args:
+            secret_key: Secret key name.
+            access_key: Access key name.
+
+        Returns:
+            dict: Dictionary with public and private keys.
         """
         try:
             data = {'privateKeyName': secret_key, 'publicKeyName': access_key}
@@ -135,12 +136,14 @@ class StorageData(BaseData):
             logger.error(f"failed to get key pair ({access_key},{secret_key}): {exc}, {traceback.format_exc()}")
         return {}
 
-    def get_special_setup(self, protocol_id: Any = None):
-        """
-        Construct special setup for ddms such as objectstores.
+    def get_special_setup(self, protocol_id: Any = None) -> Any:
+        """Construct special setup for ddms such as objectstores.
 
-        :param protocol_id: protocol id (Any)
-        :return: special setup string (str).
+        Args:
+            protocol_id: Protocol id.
+
+        Returns:
+            str or None: Special setup string, or None if not applicable.
         """
         logger.debug(f"get special setup for protocol id ({protocol_id})")
         if protocol_id in self.special_setup and self.special_setup[protocol_id]:

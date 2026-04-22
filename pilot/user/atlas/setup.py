@@ -52,29 +52,31 @@ errors = ErrorCodes()
 
 
 def get_file_system_root_path() -> str:
-    """
-    Return the root path of the local file system.
+    """Return the root path of the local file system.
 
     The function returns "/cvmfs" or "/(some path)/cvmfs" in case the expected file system root path is not
     where it usually is (e.g. on an HPC). A site can set the base path by exporting ATLAS_SW_BASE.
 
-    :return: path (str).
+    Returns:
+        str: path.
     """
     return os.environ.get('ATLAS_SW_BASE', '/cvmfs')
 
 
 def should_pilot_prepare_setup(noexecstrcnv: bool, jobpars: str, imagename: str = None) -> bool:
-    """
-    Determine whether the pilot should add the setup to the payload command or not.
+    """Determine whether the pilot should add the setup to the payload command or not.
 
     The pilot will not add asetup if jobPars already contain the information (i.e. it was set by the payload creator).
     If noExecStrCnv is set, then jobPars is expected to contain asetup.sh + options
     If a stand-alone container / user defined container is used, pilot should not prepare asetup.
 
-    :param noexecstrcnv: noExecStrCnv value (bool)
-    :param jobpars: job parameters (str)
-    :param imagename: container image (str)
-    :return: True if the pilot should prepare the setup (bool).
+    Args:
+        noexecstrcnv: noExecStrCnv value.
+        jobpars: job parameters.
+        imagename: container image.
+
+    Returns:
+        bool: True if the pilot should prepare the setup.
     """
     if imagename:
         return False
@@ -94,13 +96,15 @@ def should_pilot_prepare_setup(noexecstrcnv: bool, jobpars: str, imagename: str 
 
 
 def get_alrb_export(add_if: bool = False) -> str:
-    """
-    Return the export command for the ALRB path if it exists.
+    """Return the export command for the ALRB path if it exists.
 
     If the path does not exist, return empty string.
 
-    :param add_if: True means that an if statement will be placed around the export (bool)
-    :return: export command (str).
+    Args:
+        add_if: True means that an if statement will be placed around the export.
+
+    Returns:
+        str: export command.
     """
     path = f"{get_file_system_root_path()}/atlas.cern.ch/repo"
     cmd = f"export ATLAS_LOCAL_ROOT_BASE={path}/ATLASLocalRootBase;" if os.path.exists(path) else ""
@@ -113,17 +117,21 @@ def get_alrb_export(add_if: bool = False) -> str:
 
 
 def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) -> str:
-    """
-    Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
+    """Define the setup for asetup, i.e. including full path to asetup and setting of ATLAS_LOCAL_ROOT_BASE.
 
     Only include the actual asetup script if asetup=True. This is not needed if the jobPars contain the payload command
     but the pilot still needs to add the exports and the atlasLocalSetup.
 
-    :param asetup: True value means that the pilot should include the asetup command (bool)
-    :param alrb: True value means that the function should return special setup used with ALRB and containers (bool)
-    :param add_if: True means that an if statement will be placed around the export (bool)
-    :return: source <path>/asetup.sh (str).
-    :raises: NoSoftwareDir if appdir does not exist.
+    Args:
+        asetup: True value means that the pilot should include the asetup command.
+        alrb: True value means that the function should return special setup used with ALRB and containers.
+        add_if: True means that an if statement will be placed around the export.
+
+    Returns:
+        str: source <path>/asetup.sh.
+
+    Raises:
+        NoSoftwareDir: if appdir does not exist.
     """
     cmd = ""
 
@@ -154,12 +162,14 @@ def get_asetup(asetup: bool = True, alrb: bool = False, add_if: bool = False) ->
 
 
 def get_asetup_options(release: str, homepackage: str) -> str:
-    """
-    Determine the proper asetup options.
+    """Determine the proper asetup options.
 
-    :param release: ATLAS release (str)
-    :param homepackage: ATLAS homePackage (str)
-    :return: asetup options (str).
+    Args:
+        release: ATLAS release.
+        homepackage: ATLAS homePackage.
+
+    Returns:
+        str: asetup options.
     """
     asetupopt = []
     release = re.sub('^Atlas-', '', release)
@@ -190,22 +200,24 @@ def get_asetup_options(release: str, homepackage: str) -> str:
 
 
 def is_standard_atlas_job(release: str) -> bool:
-    """
-    Check if it is a standard ATLAS job.
+    """Check if it is a standard ATLAS job.
 
     A job is a standard ATLAS job if the release string begins with 'Atlas-'.
 
-    :param release: release value (str)
-    :return: returns True if standard ATLAS job (bool).
+    Args:
+        release: release value.
+
+    Returns:
+        bool: True if standard ATLAS job.
     """
     return release.startswith('Atlas-')
 
 
-def set_inds(dataset: str):
-    """
-    Set the INDS environmental variable used by runAthena.
+def set_inds(dataset: str) -> None:
+    """Set the INDS environmental variable used by runAthena.
 
-    :param dataset: dataset for input files (realDatasetsIn) (str).
+    Args:
+        dataset: dataset for input files (realDatasetsIn).
     """
     inds = ""
     _dataset = dataset.split(',')
@@ -222,15 +234,17 @@ def set_inds(dataset: str):
 
 
 def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int, str, str]:
-    """
-    Prepare to download the user analysis transform with curl.
+    """Prepare to download the user analysis transform with curl.
 
     The function will verify the download location from a known list of hosts.
 
-    :param transform: full trf path (url) (str)
-    :param workdir: work directory (str)
-    :param base_urls: base URLs for trf download (list)
-    :return: exit code (int), diagnostics (str), transform_name (str) (tuple).
+    Args:
+        transform: full trf path (url).
+        workdir: work directory.
+        base_urls: base URLs for trf download.
+
+    Returns:
+        tuple[int, str, str]: exit code, diagnostics, transform_name.
     """
     ec = 0
     diagnostics = ""
@@ -293,13 +307,15 @@ def get_analysis_trf(transform: str, workdir: str, base_urls: list) -> tuple[int
 
 
 def download_transform(url: str, transform_name: str, workdir: str) -> tuple[bool, str]:
-    """
-    Download the transform from the given url.
+    """Download the transform from the given url.
 
-    :param url: download URL with path to transform (str)
-    :param transform_name: trf name (str)
-    :param workdir: work directory (str)
-    :return: status (bool), diagnostics (str).
+    Args:
+        url: download URL with path to transform.
+        transform_name: trf name.
+        workdir: work directory.
+
+    Returns:
+        tuple[bool, str]: status, diagnostics.
     """
     status = False
     diagnostics = ""
@@ -352,16 +368,18 @@ def download_transform(url: str, transform_name: str, workdir: str) -> tuple[boo
 
 
 def get_valid_base_urls(base_urls: list, order: str = None) -> list:
-    """
-    Return a list of valid base URLs from where the user analysis transform may be downloaded from.
+    """Return a list of valid base URLs from where the user analysis transform may be downloaded from.
 
     If order is defined, return given item first.
     E.g. order=http://atlpan.web.cern.ch/atlpan -> ['http://atlpan.web.cern.ch/atlpan', ...]
     NOTE: the URL list may be out of date.
 
-    :param base_urls: list of base URLs (list)
-    :param order: order (str)
-    :return: valid base URLs (list).
+    Args:
+        base_urls: list of base URLs.
+        order: order.
+
+    Returns:
+        list: valid base URLs.
     """
     if not base_urls:
         base_urls = [
@@ -388,17 +406,19 @@ def get_valid_base_urls(base_urls: list, order: str = None) -> list:
 
 
 def get_payload_environment_variables(cmd: str, job_id: int, task_id: str, attempt_nr: int, processing_type: str, site_name: str, analysis_job: bool) -> list:
-    """
-    Return an array with enviroment variables needed by the payload.
+    """Return an array with enviroment variables needed by the payload.
 
-    :param cmd: payload execution command (str)
-    :param job_id: PanDA job id (int)
-    :param task_id: PanDA task id (str)
-    :param attempt_nr: PanDA job attempt number (int)
-    :param processing_type: processing type (str)
-    :param site_name: site name (str)
-    :param analysis_job: True for user analysis jobs, False otherwise (bool)
-    :return: environment variables needed by the payload (list).
+    Args:
+        cmd: payload execution command.
+        job_id: PanDA job id.
+        task_id: PanDA task id.
+        attempt_nr: PanDA job attempt number.
+        processing_type: processing type.
+        site_name: site name.
+        analysis_job: True for user analysis jobs, False otherwise.
+
+    Returns:
+        list: environment variables needed by the payload.
     """
     variables = []
     variables.append(f'export PANDA_RESOURCE=\'{site_name}\';')
@@ -435,14 +455,16 @@ def get_payload_environment_variables(cmd: str, job_id: int, task_id: str, attem
 
 
 def get_writetoinput_filenames(writetofile: str) -> list:
-    """
-    Extract the writeToFile file name(s).
+    """Extract the writeToFile file name(s).
 
     writeToFile='tmpin_mc16_13TeV.blah:AOD.15760866._000002.pool.root.1'
     -> return 'tmpin_mc16_13TeV.blah'
 
-    :param writetofile: string containing file name information (str)
-    :return: file names (list).
+    Args:
+        writetofile: string containing file name information.
+
+    Returns:
+        list: file names.
     """
     filenames = []
 
@@ -457,17 +479,19 @@ def get_writetoinput_filenames(writetofile: str) -> list:
 
 
 def replace_lfns_with_turls(cmd: str, workdir: str, filename: str, infiles: list, writetofile: str = "") -> str:
-    """
-    Replace all LFNs with full TURLs in the payload execution command.
+    """Replace all LFNs with full TURLs in the payload execution command.
 
     This function is used with direct access in production jobs. Athena requires a full TURL instead of LFN.
 
-    :param cmd: payload execution command (str)
-    :param workdir: location of metadata file (str)
-    :param filename: metadata file name (str)
-    :param infiles: input files (list)
-    :param writetofile: writeToFile file name (str)
-    :return: updated cmd (str).
+    Args:
+        cmd: payload execution command.
+        workdir: location of metadata file.
+        filename: metadata file name.
+        infiles: input files.
+        writetofile: writeToFile file name.
+
+    Returns:
+        str: updated cmd.
     """
     turl_dictionary = {}  # { LFN: TURL, ..}
 
@@ -511,15 +535,17 @@ def replace_lfns_with_turls(cmd: str, workdir: str, filename: str, infiles: list
 
 
 def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/\d{2}\/\d{2})') -> float:
-    """
-    Extract a more precise end of setup time from the payload stdout.
+    """Extract a more precise end of setup time from the payload stdout.
 
     File path should be verified already.
     The function will look for a date time in the beginning of the payload stdout with the given pattern.
 
-    :param path: path to payload stdout (str)
-    :param pattern: regular expression pattern (str)
-    :return: time in seconds since epoch (float).
+    Args:
+        path: path to payload stdout.
+        pattern: regular expression pattern.
+
+    Returns:
+        float: time in seconds since epoch.
     """
     end_time = None
 
@@ -533,48 +559,50 @@ def get_end_setup_time(path: str, pattern: str = r'(\d{2}\:\d{2}\:\d{2}\ \d{4}\/
 
 
 def get_schedconfig_priority() -> list:
-    """
-    Return the prioritized list for the schedconfig sources.
+    """Return the prioritized list for the schedconfig sources.
 
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM sources (list).
+    Returns:
+        list: prioritized DDM sources.
     """
     return ['LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
 def get_queuedata_priority() -> list:
-    """
-    Return the prioritized list for the schedconfig sources.
+    """Return the prioritized list for the schedconfig sources.
 
     This list is used to determine which source to use for the queuedatas, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_queuedata() (minimal set) and
     load_schedconfig_data() (full set).
 
-    :return: prioritized DDM sources (list).
+    Returns:
+        list: prioritized DDM sources.
     """
     return ['LOCAL', 'PANDA', 'CVMFS', 'CRIC']
 
 
 def get_ddm_source_priority() -> list:
-    """
-    Return the prioritized list for the DDM sources.
+    """Return the prioritized list for the DDM sources.
 
     This list is used to determine which source to use for the DDM endpoints, which can be different for
     different users. The sources themselves are defined in info/extinfo/load_storage_data().
 
-    :return: prioritized DDM sources (list).
+    Returns:
+        list: prioritized DDM sources.
     """
     return ['USER', 'LOCAL', 'CVMFS', 'CRIC', 'PANDA']
 
 
 def should_verify_setup(job: JobData) -> bool:
-    """
-    Check if the setup command should be verified.
+    """Check if the setup command should be verified.
 
-    :param job: job object (JobData)
-    :return: True if the setup command should be verified, False otherwise (bool).
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if the setup command should be verified, False otherwise.
     """
     return job.swrelease and job.swrelease != 'NULL'

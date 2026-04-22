@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """Script for remote file open verification."""
 
@@ -33,7 +33,10 @@ import traceback
 from collections import namedtuple
 from typing import Any
 
-import ROOT
+try:
+    import ROOT  # optional runtime dependency; only available in ATLAS environments
+except ModuleNotFoundError:
+    ROOT = None  # type: ignore[assignment]
 
 from pilot.util.config import config
 from pilot.util.filehandling import write_json
@@ -46,11 +49,15 @@ from pilot.util.processes import kill_processes
 logger = logging.getLogger(__name__)
 
 
-def get_args() -> argparse.Namespace:
-    """
-    Return the args from the arg parser.
+def get_args(argv: list = None) -> argparse.Namespace:
+    """Return the args from the arg parser.
 
-    :return: args (arg parser object).
+    Args:
+        argv: optional list of arguments to parse (defaults to sys.argv when None,
+              which is the normal runtime behaviour). Pass an explicit list in tests.
+
+    Returns:
+        argparse.Namespace: Parsed argument namespace.
     """
     arg_parser = argparse.ArgumentParser()
 
@@ -72,22 +79,63 @@ def get_args() -> argparse.Namespace:
                             help='Working directory')
     arg_parser.add_argument('--turls',
                             dest='turls',
-                            required=True,
-                            help='TURL list (e.g., filepath1,filepath2')
+                            required=False,          # no longer required; --turl-file is the alternative
+                            default=None,
+                            help='TURL list (e.g., filepath1,filepath2)')
+    arg_parser.add_argument('--turl-file',
+                            dest='turl_file',
+                            required=False,
+                            default=None,
+                            help='Path to a file containing one TURL per line (alternative to --turls)')
     arg_parser.add_argument('--no-pilot-log',
                             dest='nopilotlog',
                             action='store_true',
                             default=False,
                             help='Do not write the pilot log to file')
 
-    return arg_parser.parse_args()
+    args = arg_parser.parse_args(argv)
+    if not args.turls and not args.turl_file:
+        arg_parser.error('one of --turls or --turl-file is required')
+    return args
 
 
-def message(msg: str):
+def get_file_lists(turls_string: str, turl_file: str = None) -> dict:
+    """Return a dictionary with the turls.
+
+    Format: {'turls': <turl list>}
+
+    Turls can be supplied either as a comma-separated string (turls_string) or
+    as a path to a plain-text file containing one TURL per line (turl_file).
+    turl_file takes priority when both are provided.
+
+    Args:
+        turls_string: Comma-separated turls, or None.
+        turl_file: Path to file with one TURL per line, or None.
+
+    Returns:
+        dict: Turls dictionary.
     """
-    Print message to stdout or to log.
+    _turls = []
 
-    :param msg: message (str).
+    if turl_file:
+        try:
+            with open(turl_file, encoding='utf-8') as fh:
+                _turls = [line.strip() for line in fh if line.strip()]
+        except OSError as exc:
+            message(f"failed to read turl file {turl_file!r}: {exc}")
+    elif isinstance(turls_string, str):
+        _turls = turls_string.split(',')
+    else:
+        message(f"unexpected type for turls_string: {type(turls_string).__name__}")
+
+    return {'turls': _turls}
+
+
+def message(msg: str) -> None:
+    """Print message to stdout or to log.
+
+    Args:
+        msg: Message to print.
     """
     if logger:
         logger.info(msg)
@@ -101,36 +149,17 @@ def message(msg: str):
         _file.write(msg + '\n')
 
 
-def get_file_lists(turls_string: str) -> dict:
-    """
-    Return a dictionary with the turls.
-
-    Format: {'turls': <turl list>}
-
-    :param turls_string: comma separated turls (str)
-    :return: turls dictionary (dict).
-    """
-    _turls = []
-
-    if isinstance(turls_string, str):
-        _turls = turls_string.split(',')
-    else:
-        message(f"unexpected type for turls_string: {type(turls_string).__name__}")
-
-    return {'turls': _turls}
-
-
 # pylint: disable=useless-param-doc
-def try_open_file_old(turl_str: str, _queues: namedtuple):
-    """
-    Attempt to open a remote file.
+def try_open_file_old(turl_str: str, _queues: namedtuple) -> None:
+    """Attempt to open a remote file.
 
     Successfully opened turls will be put in the queues.opened queue. Unsuccessful turls will be placed in
     the queues.unopened queue.
 
-    :param turl_str: turl (str)
-    :param _queues: Namedtuple containing queues for opened and unopened turls.
-                    Should have 'opened' and 'unopened' attributes to store respective turls.
+    Args:
+        turl_str: TURL string.
+        _queues: Namedtuple containing queues for opened and unopened turls.
+                 Should have 'opened' and 'unopened' attributes to store respective turls.
     """
     turl_opened = False
     _timeout = 30 * 1000  # 30 s per file
@@ -154,15 +183,15 @@ def try_open_file_old(turl_str: str, _queues: namedtuple):
 
 
 # pylint: disable=useless-param-doc
-def try_open_file(turl_str: str, _queues: namedtuple):
-    """
-    Attempt to open a remote file.
+def try_open_file(turl_str: str, _queues: namedtuple) -> None:
+    """Attempt to open a remote file.
 
     Successfully opened turls will be put in the queues.opened queue.
     Unsuccessful turls will be placed in the queues.unopened queue.
 
-    :param turl_str: turl (str)
-    :param _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
+    Args:
+        turl_str: TURL string.
+        _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
     """
 
     def attempt_open(path: str) -> bool:
@@ -209,12 +238,14 @@ def try_open_file(turl_str: str, _queues: namedtuple):
 
 # pylint: disable=useless-param-doc
 def spawn_file_open_thread(_queues: Any, file_list: list) -> threading.Thread:
-    """
-    Spawn a thread for the try_open_file()..
+    """Spawn a thread for the try_open_file().
 
-    :param _queues: queue collection (Any)
-    :param file_list: files to open (list)
-    :return: thread (threading.Thread).
+    Args:
+        _queues: Queue collection.
+        file_list: Files to open.
+
+    Returns:
+        threading.Thread: The spawned thread.
     """
     _thread = None
     try:
@@ -230,28 +261,28 @@ def spawn_file_open_thread(_queues: Any, file_list: list) -> threading.Thread:
     return _thread
 
 
-def register_signals(signals: list, _args: Any):
-    """
-    Register kill signals for intercept function.
+def register_signals(signals: list, _args: Any) -> None:
+    """Register kill signals for intercept function.
 
-    :param signals: list of signals (list)
-    :param _args: pilot arguments object (Any).
+    Args:
+        signals: List of signals.
+        _args: Pilot arguments object.
     """
     for sig in signals:
         signal.signal(sig, functools.partial(interrupt, _args))
 
 
-def interrupt(_args: Any, signum: Any, frame: Any):
-    """
-    Receive and handle kill signals.
+def interrupt(_args: Any, signum: Any, frame: Any) -> None:
+    """Receive and handle kill signals.
 
     Interrupt function on the receiving end of kill signals.
     This function is forwarded any incoming signals (SIGINT, SIGTERM, etc) and will set abort_job which instructs
     the threads to abort the job.
 
-    :param _args: pilot arguments object (Any).
-    :param signum: signal.
-    :param frame: stack/execution frame pointing to the frame that was interrupted by the signal.
+    Args:
+        _args: Pilot arguments object.
+        signum: Signal number.
+        frame: Stack/execution frame pointing to the frame that was interrupted by the signal.
     """
     if _args.signal:
         logger.warning('process already being killed')
@@ -293,7 +324,7 @@ if __name__ == '__main__':  # noqa: C901
     register_signals([signal.SIGINT, signal.SIGTERM, signal.SIGQUIT, signal.SIGSEGV, signal.SIGXCPU, signal.SIGUSR1, signal.SIGBUS], args)
 
     # get the file info
-    file_list_dictionary = get_file_lists(args.turls)
+    file_list_dictionary = get_file_lists(args.turls, turl_file=args.turl_file)
     turls = file_list_dictionary.get('turls')
     processed_turls_dictionary = {}
 

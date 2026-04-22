@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-26
 
 """Functions related to heartbeat messages. It is especially needed for the pilot to know if it has been suspended."""
 
@@ -50,43 +50,60 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = F
     Dictionary = {last_pilot_heartbeat: <int>, last_server_update: <int>, ( last_looping_check: {job_id: <int>: <int>}, .. ) }
     (optionally add looping job info later).
 
+    The file write is executed in a background thread with a 30 s timeout.  If
+    the write does not complete in time (e.g. because PILOT_HOME is on a stalled
+    NFS mount), the function returns False without blocking the monitor thread.
+
     :param update_time: time of last update (float)
     :param detected_job_suspension: True if a job suspension was detected, False otherwise (bool)
     :param time_since_detection: time since the job suspension was detected, in seconds (int)
     :param name: name of the heartbeat to update, 'pilot' or 'server' (str)
     :return: True if successfully updated heartbeat file, False otherwise (bool).
     """
-    path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
-    dictionary = read_pilot_heartbeat(path)
-    if not dictionary:  # redundancy
-        dictionary = {}
+    _HEARTBEAT_WRITE_TIMEOUT = 30  # seconds; stalled NFS will block indefinitely without this
 
-    with lock:
-        # add the diff time (time between updates) to the dictionary if not present (ie the first time)
-        if not dictionary.get('max_diff_time', None):
-            # ie add the new field
-            dictionary['max_diff_time'] = 0
-        if not dictionary.get(f'last_{name}_update', None):
-            # ie add the new field
+    result = [False]
+
+    def _do_update():
+        path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
+        dictionary = read_pilot_heartbeat(path)
+        if not dictionary:  # redundancy
+            dictionary = {}
+
+        with lock:
+            # add the diff time (time between updates) to the dictionary if not present (ie the first time)
+            if not dictionary.get('max_diff_time', None):
+                # ie add the new field
+                dictionary['max_diff_time'] = 0
+            if not dictionary.get(f'last_{name}_update', None):
+                # ie add the new field
+                dictionary[f'last_{name}_update'] = int(update_time)
+            max_diff_time = int(update_time) - dictionary.get(f'last_{name}_update', 0)
+            if max_diff_time >= dictionary.get('max_diff_time', 0):
+                dictionary['max_diff_time'] = max_diff_time
             dictionary[f'last_{name}_update'] = int(update_time)
-        max_diff_time = int(update_time) - dictionary.get(f'last_{name}_update', 0)
-        if max_diff_time >= dictionary.get('max_diff_time', 0):
-            dictionary['max_diff_time'] = max_diff_time
-        dictionary[f'last_{name}_update'] = int(update_time)
-        dictionary['time_since_detection'] = time_since_detection if detected_job_suspension else 0
-        if detected_job_suspension:
-            logger.warning(f'job suspension detected: time since detection: {time_since_detection} seconds')
-        else:
-            logger.debug('no job suspension detected')
+            dictionary['time_since_detection'] = time_since_detection if detected_job_suspension else 0
+            if detected_job_suspension:
+                logger.warning(f'job suspension detected: time since detection: {time_since_detection} seconds')
+            else:
+                logger.debug('no job suspension detected')
 
-        status = write_json(path, dictionary)
-        if not status:
-            logger.warning(f'failed to update heartbeat file: {path}')
-            return False
-        else:
-            logger.debug(f'updated pilot heartbeat file: {path}')
+            status = write_json(path, dictionary)
+            if not status:
+                logger.warning(f'failed to update heartbeat file: {path}')
+            else:
+                logger.debug(f'updated pilot heartbeat file: {path}')
+                result[0] = True
 
-    return True
+    t = threading.Thread(target=_do_update, daemon=True)
+    t.start()
+    t.join(_HEARTBEAT_WRITE_TIMEOUT)
+    if t.is_alive():
+        logger.warning(f'update_pilot_heartbeat timed out after {_HEARTBEAT_WRITE_TIMEOUT} s '
+                       f'— heartbeat file write is stalled (possible NFS issue at PILOT_HOME={os.getenv("PILOT_HOME", os.getcwd())})')
+        return False
+
+    return result[0]
 
 
 def read_pilot_heartbeat(path: str) -> dict:

@@ -31,18 +31,20 @@ logger = logging.getLogger(__name__)
 class PluginFactory:
     """Plugin factory class."""
 
-    def __init__(self, **kwargs: dict):
+    def __init__(self, **kwargs: Any):
         """Set initial values."""
         if kwargs:  # to avoid pylint complaint
             pass
         self.classMap: dict[str, Any] = {}
 
     def get_plugin(self, confs: dict) -> dict:
-        """
-        Load plugin class.
+        """Load plugin class.
 
-        :param confs: a dict of configurations (dict)
-        :return: plugin class (dict).
+        Args:
+            confs: A dict of configurations.
+
+        Returns:
+            dict: Plugin class instance.
         """
         class_name = confs["class"]
         if class_name is None:

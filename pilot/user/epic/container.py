@@ -53,12 +53,14 @@ errors = ErrorCodes()
 logger = logging.getLogger(__name__)
 
 
-def do_use_container(**kwargs: dict) -> bool:
-    """
-    Decide whether to use a container or not.
+def do_use_container(**kwargs: Any) -> bool:
+    """Decide whether to use a container or not.
 
-    :param kwargs: dictionary of key-word arguments (dict)
-    :return: True is function has decided that a container should be used, False otherwise (bool).
+    Args:
+        **kwargs: dictionary of key-word arguments.
+
+    Returns:
+        bool: True if function has decided that a container should be used, False otherwise.
     """
     # to force no container use: return False
     use_container = False
@@ -83,15 +85,17 @@ def do_use_container(**kwargs: dict) -> bool:
     return use_container
 
 
-def wrapper(executable: str, **kwargs: dict) -> Callable[..., Any]:
-    """
-    Wrap given function for any container specific usage.
+def wrapper(executable: str, **kwargs: Any) -> Callable[..., Any]:
+    """Wrap given function for any container specific usage.
 
     This function will be called by pilot.util.container.execute() and prepends the executable with a container command.
 
-    :param executable: command to be executed (str)
-    :param kwargs: dictionary of key-word arguments (dict)
-    :return: executable wrapped with container command (Callable).
+    Args:
+        executable: command to be executed.
+        **kwargs: dictionary of key-word arguments.
+
+    Returns:
+        Callable: executable wrapped with container command.
     """
     workdir = kwargs.get('workdir', '.')
     pilot_home = os.environ.get('PILOT_HOME', '')
@@ -110,11 +114,13 @@ def wrapper(executable: str, **kwargs: dict) -> Callable[..., Any]:
 
 
 def fix_asetup(asetup: str) -> str:
-    """
-    Make sure that the command returned by get_asetup() contains a trailing ;-sign.
+    """Make sure that the command returned by get_asetup() contains a trailing ;-sign.
 
-    :param asetup: asetup (str)
-    :return: updated asetup (str).
+    Args:
+        asetup: asetup.
+
+    Returns:
+        str: updated asetup.
     """
     if asetup and not asetup.strip().endswith(';'):
         asetup += '; '
@@ -123,17 +129,19 @@ def fix_asetup(asetup: str) -> str:
 
 
 def extract_atlas_setup(asetup: str, swrelease: str) -> tuple[str, str]:
-    """
-    Extract the asetup command from the full setup command for jobs that have a defined release.
+    """Extract the asetup command from the full setup command for jobs that have a defined release.
 
     export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
       source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;source $AtlasSetup/scripts/asetup.sh
     -> $AtlasSetup/scripts/asetup.sh, export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; source
          ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh --quiet;
 
-    :param asetup: full asetup command (str).
-    :param swrelease: ATLAS release (str).
-    :return: extracted asetup command (str), cleaned up full asetup command without asetup.sh (str) (tuple).
+    Args:
+        asetup: full asetup command.
+        swrelease: ATLAS release.
+
+    Returns:
+        tuple[str, str]: extracted asetup command, cleaned up full asetup command without asetup.sh.
     """
     if not swrelease:
         return '', ''
@@ -153,17 +161,19 @@ def extract_atlas_setup(asetup: str, swrelease: str) -> tuple[str, str]:
 
 
 def get_full_asetup(cmd: str, atlas_setup: str) -> str:
-    """
-    Extract the full asetup command from the payload execution command.
+    """Extract the full asetup command from the payload execution command.
 
     (Easier that generating it again). We need to remove this command for stand-alone containers.
     Alternatively: do not include it in the first place (but this seems to trigger the need for further changes).
     atlas_setup is "source $AtlasSetup/scripts/asetup.sh", which is extracted in a previous step.
     The function typically returns: "source $AtlasSetup/scripts/asetup.sh 21.0,Athena,2020-05-19T2148,notest --makeflags='$MAKEFLAGS';".
 
-    :param cmd: payload execution command (str)
-    :param atlas_setup: extracted atlas setup (str)
-    :return: full atlas setup (str).
+    Args:
+        cmd: payload execution command.
+        atlas_setup: extracted atlas setup.
+
+    Returns:
+        str: full atlas setup.
     """
     pos = cmd.find(atlas_setup)
     cmd = cmd[pos:]  # remove everything before 'source $AtlasSetup/..'
@@ -174,17 +184,19 @@ def get_full_asetup(cmd: str, atlas_setup: str) -> str:
 
 
 def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, queue_type: str = '') -> tuple[int, str, str, str]:
-    """
-    Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
+    """Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
 
     Try to receive payload proxy and update X509_USER_PROXY in container setup command
     In case payload proxy from server is required, this function will also download and verify this proxy.
 
-    :param setup_cmd: container setup command (str)
-    :param cmd: command the container will execute (str)
-    :param is_analysis: True for user job (bool)
-    :param queue_type: queue type (e.g. 'unified') (str)
-    :return: exit_code (int), diagnostics (str), updated _cmd (str), updated cmd (str) (tuple).
+    Args:
+        setup_cmd: container setup command.
+        cmd: command the container will execute.
+        is_analysis: True for user job.
+        queue_type: queue type (e.g. 'unified').
+
+    Returns:
+        tuple[int, str, str, str]: exit_code, diagnostics, updated setup_cmd, updated cmd.
     """
     exit_code = 0
     diagnostics = ""
@@ -212,14 +224,16 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
 
 
 def extract_full_atlas_setup(cmd: str, atlas_setup: str) -> tuple[str, str]:
-    """
-    Extract the full asetup (including options) from the payload setup command.
+    """Extract the full asetup (including options) from the payload setup command.
 
     atlas_setup is typically '$AtlasSetup/scripts/asetup.sh'.
 
-    :param cmd: full payload setup command (str)
-    :param atlas_setup: asetup command (str)
-    :return: extracted full asetup command (str), updated full payload setup command without asetup part (str) (tuple).
+    Args:
+        cmd: full payload setup command.
+        atlas_setup: asetup command.
+
+    Returns:
+        tuple[str, str]: extracted full asetup command, updated full payload setup command without asetup part.
     """
     updated_cmds = []
     extracted_asetup = ""
@@ -243,18 +257,20 @@ def extract_full_atlas_setup(cmd: str, atlas_setup: str) -> tuple[str, str]:
 
 
 def create_release_setup(cmd: str, atlas_setup: str, full_atlas_setup: str, release: str, workdir: str, is_cvmfs: bool) -> tuple[str, str]:
-    """
-    Get the proper release setup script name, and create the script if necessary.
+    """Get the proper release setup script name, and create the script if necessary.
 
     This function also updates the cmd string (removes full asetup from payload command).
 
-    :param cmd: Payload execution command (str)
-    :param atlas_setup: asetup command (str)
-    :param full_atlas_setup: full asetup command (str)
-    :param release: software release, needed to determine Athena environment (str)
-    :param workdir: job workdir (str)
-    :param is_cvmfs: does the queue have cvmfs? (bool)
-    :return: proper release setup name (str), updated cmd (str).
+    Args:
+        cmd: payload execution command.
+        atlas_setup: asetup command.
+        full_atlas_setup: full asetup command.
+        release: software release, needed to determine Athena environment.
+        workdir: job workdir.
+        is_cvmfs: does the queue have cvmfs?
+
+    Returns:
+        tuple[str, str]: proper release setup name, updated cmd.
     """
     release_setup_name = '/srv/my_release_setup.sh'
 
@@ -286,12 +302,14 @@ def create_release_setup(cmd: str, atlas_setup: str, full_atlas_setup: str, rele
 
 
 def replace_last_command(cmd: str, replacement: str) -> str:
-    """
-    Replace the last command in cmd with given replacement.
+    """Replace the last command in cmd with given replacement.
 
-    :param cmd: command (str)
-    :param replacement: replacement (str)
-    :return: updated command (str).
+    Args:
+        cmd: command.
+        replacement: replacement.
+
+    Returns:
+        str: updated command.
     """
     cmd = cmd.strip('; ')
     last_bit = cmd.split(';')[-1]
@@ -302,11 +320,13 @@ def replace_last_command(cmd: str, replacement: str) -> str:
 
 ## DEPRECATED, remove after verification with user container job
 def remove_container_string(job_params: str) -> tuple[str, str]:
-    """
-    Retrieve the container string from the job parameters.
+    """Retrieve the container string from the job parameters.
 
-    :param job_params: job parameters (str)
-    :return: updated job parameters (str), extracted container path (str) (tuple).
+    Args:
+        job_params: job parameters.
+
+    Returns:
+        tuple[str, str]: updated job parameters, extracted container path.
     """
     pattern = r" \'?\-\-containerImage\=?\ ?([\S]+)\ ?\'?"
     compiled_pattern = re.compile(pattern)
@@ -325,13 +345,15 @@ def remove_container_string(job_params: str) -> tuple[str, str]:
 
 
 def get_container_options(container_options: str) -> str:
-    """
-    Get the container options from AGIS for the container execution command.
+    """Get the container options from AGIS for the container execution command.
 
     For Raythena ES jobs, replace the -C with "" (otherwise IPC does not work, needed by yampl).
 
-    :param container_options: container options from AGIS (str)
-    :return: updated container command (str).
+    Args:
+        container_options: container options from AGIS.
+
+    Returns:
+        str: updated container command.
     """
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
 
@@ -360,16 +382,18 @@ def get_container_options(container_options: str) -> str:
 
 
 def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str, container_script: str, container_options: str) -> str:
-    """
-    Add atlasLocalSetup and options to form the final payload command.
+    """Add atlasLocalSetup and options to form the final payload command.
 
-    :param job: job object (JobData)
-    :param alrb_setup: ALRB setup (str)
-    :param is_cvmfs: True for cvmfs sites (bool)
-    :param release_setup: release setup (str)
-    :param container_script: container script name (str)
-    :param container_options: container options (str)
-    :return: final payload command (str).
+    Args:
+        job: job object.
+        alrb_setup: ALRB setup.
+        is_cvmfs: True for cvmfs sites.
+        release_setup: release setup.
+        container_script: container script name.
+        container_options: container options.
+
+    Returns:
+        str: final payload command.
     """
     # this should not be necessary after the extract_container_image() in JobData update
     # containerImage should have been removed already
@@ -416,12 +440,14 @@ def add_asetup(job: JobData, alrb_setup: str, is_cvmfs: bool, release_setup: str
 
 
 def has_docker_pattern(line: str, pattern: str = None) -> bool:
-    """
-    Check if the given line contains a docker pattern.
+    """Check if the given line contains a docker pattern.
 
-    :param line: panda secret (str)
-    :param pattern: regular expression pattern (str)
-    :return: True or False (bool).
+    Args:
+        line: panda secret.
+        pattern: regular expression pattern.
+
+    Returns:
+        bool: True or False.
     """
     found = False
 
@@ -437,14 +463,14 @@ def has_docker_pattern(line: str, pattern: str = None) -> bool:
 
 
 def get_docker_pattern() -> str:
-    """
-    Return the docker login URL pattern for secret verification.
+    """Return the docker login URL pattern for secret verification.
 
     Examples:
      docker login <registry URL> -u <username> -p <token>
      apptainer remote login -u <username> -p <lxplus password> <registry URL>
 
-    :return: pattern (str).
+    Returns:
+        str: pattern.
     """
     return (
         # fr"docker\ login\ {get_url_pattern()}\ \-u\ \S+\ \-p\ \S+;"
@@ -453,10 +479,10 @@ def get_docker_pattern() -> str:
 
 
 def get_url_pattern() -> str:
-    """
-    Return the URL pattern for secret verification.
+    """Return the URL pattern for secret verification.
 
-    :return: pattern (str).
+    Returns:
+        str: pattern.
     """
     return (
         r"docker?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\."
@@ -465,15 +491,17 @@ def get_url_pattern() -> str:
 
 
 def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
-    """
-    Add docker login to user command.
+    """Add docker login to user command.
 
     The pandasecrets dictionary was found to contain login information (username + token). This function
     will add it to the payload command that will be run in the user container.
 
-    :param cmd: payload command (str)
-    :param pandasecrets: panda secrets (dict)
-    :return: updated payload command (str).
+    Args:
+        cmd: payload command.
+        pandasecrets: panda secrets.
+
+    Returns:
+        dict: updated payload command.
     """
     pattern = r'docker://[^/]+/'
     tmp = json.loads(pandasecrets)
@@ -517,18 +545,21 @@ def add_docker_login(cmd: str, pandasecrets: dict) -> dict:
 
 
 def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:  # noqa: C901
-    """
-    Wrap the given command with the special ALRB setup for containers
+    """Wrap the given command with the special ALRB setup for containers.
+
     E.g. cmd = /bin/bash hello_world.sh
     ->
     export thePlatform="x86_64-slc6-gcc48-opt"
     export ALRB_CONT_RUNPAYLOAD="cmd'
     setupATLAS -c $thePlatform
 
-    :param cmd: command to be executed in a container (str)
-    :param workdir: (not used) (str)
-    :param job: job object (JobData)
-    :return: prepended command with singularity/apptainer execution command (str).
+    Args:
+        cmd: command to be executed in a container.
+        workdir: (not used).
+        job: job object.
+
+    Returns:
+        str: prepended command with singularity/apptainer execution command.
     """
     if workdir:  # bypass pylint warning
         pass
@@ -647,17 +678,19 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:  # noqa: C
     return cmd
 
 
-def create_stagein_container_command(workdir: str, cmd: str):
-    """
-    Create the stage-in container command.
+def create_stagein_container_command(workdir: str, cmd: str) -> str:
+    """Create the stage-in container command.
 
     The function takes the isolated stage-in command, adds bits and pieces needed for the containerisation and stores
     it in a stagein.sh script file. It then generates the actual command that will execute the stage-in script in a
     container.
 
-    :param workdir: working directory where script will be stored (str)
-    :param cmd: isolated stage-in command (str)
-    :return: container command to be executed (str).
+    Args:
+        workdir: working directory where script will be stored.
+        cmd: isolated stage-in command.
+
+    Returns:
+        str: container command to be executed.
     """
     if workdir:  # to bypass pylint score 0
         pass
@@ -666,12 +699,12 @@ def create_stagein_container_command(workdir: str, cmd: str):
 
 
 def get_platform() -> str:
-    """
-    Get the platform from the environment variable PLATFORM_ID.
+    """Get the platform from the environment variable PLATFORM_ID.
 
     E.g. ALRB_USER_PLATFORM="el9#x86_64" -> "el9".
 
-    :return: platform (str).
+    Returns:
+        str: platform.
     """
     result = ""
     platform = os.getenv('ALRB_USER_PLATFORM')
@@ -683,12 +716,14 @@ def get_platform() -> str:
 
 
 def set_platform(job: JobData, alrb_setup: str) -> str:
-    """
-    Set thePlatform variable and add it to the sub container command.
+    """Set thePlatform variable and add it to the sub container command.
 
-    :param job: job object (JobData)
-    :param alrb_setup: ALRB setup (str)
-    :return: updated ALRB setup (str).
+    Args:
+        job: job object.
+        alrb_setup: ALRB setup.
+
+    Returns:
+        str: updated ALRB setup.
     """
     if job.alrbuserplatform:
         alrb_setup += f'export thePlatform="{job.alrbuserplatform}";'

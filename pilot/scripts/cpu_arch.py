@@ -35,10 +35,10 @@ must_not_v2 = []
 
 
 def get_flags_cpuinfo() -> dict:
-    """
-    Get the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the /proc/cpuinfo.
+    """Get the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the /proc/cpuinfo.
 
-    :return: dictionary containing the CPU (model) name, number of cores of the corresponding CPU and the CPU flags (dict).
+    Returns:
+        dict: Dictionary containing the CPU (model) name, number of cores of the corresponding CPU and the CPU flags.
     """
     cpu, cpu_core, flags = None, None, None
     with open('/proc/cpuinfo', 'r', encoding='utf-8') as fiile:
@@ -56,11 +56,13 @@ def get_flags_cpuinfo() -> dict:
 
 
 def get_flags_pilotlog(pilotlogname: str) -> dict:
-    """
-    Get the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the downloaded pilotlog.
+    """Get the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags from the downloaded pilotlog.
 
-    :param pilotlogname: full path to the pilotlog (str)
-    :return: dictionary containing the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags (dict).
+    Args:
+        pilotlogname: Full path to the pilotlog.
+
+    Returns:
+        dict: Dictionary containing the site/queue name, the CPU (model) name, number of cores of the corresponding CPU and the CPU flags.
     """
     site, cpu, cpu_core, flags = None, None, None, None
     with open(pilotlogname, 'r', encoding='utf-8') as fiile:
@@ -79,11 +81,10 @@ def get_flags_pilotlog(pilotlogname: str) -> dict:
             return {}
 
 
-def set_naive():
-    """
-    Make a decision on the CPU architecture based on the simplified lists (must_'s) of flags.
+def set_naive() -> None:
+    """Make a decision on the CPU architecture based on the simplified lists (must\\_'s) of flags.
 
-    The must_not_'s have been left blank, these could be filled if need be
+    The must_not\\_'s have been left blank, these could be filled if need be.
     """
     global must_v4
     global must_not_v4
@@ -102,9 +103,8 @@ def set_naive():
     must_not_v2 = []
 
 
-def set_gcc():
-    """
-    Make a decision on the CPU architecture based on the modified lists (must_'s) of flags from gcc.
+def set_gcc() -> None:
+    """Make a decision on the CPU architecture based on the modified lists (must\\_'s) of flags from gcc.
 
     LAHF_SAHF --> LAHF_LM; LZCNT --> ABM; removal of SSE3.
 
@@ -113,7 +113,7 @@ def set_gcc():
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v3.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v2.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
 
-    The must_not_'s have been left blank, these could be filled if need be.
+    The must_not\\_'s have been left blank, these could be filled if need be.
     """
     global must_v4
     global must_not_v4
@@ -135,13 +135,15 @@ def set_gcc():
 
 
 def check_flags(must: list, must_not: list, flags: list) -> bool:
-    """
-    Match the actual CPU flags w.r.t. the lists of flags defined for deciding on architecture.
+    """Match the actual CPU flags w.r.t. the lists of flags defined for deciding on architecture.
 
-    :param must: list of flags that must be present (list)
-    :param must_not: list of flags that must not be present (list)
-    :param flags: list of actual flags (list)
-    :return: True if the actual flags match the must and must_not lists, False otherwise (bool).
+    Args:
+        must: List of flags that must be present.
+        must_not: List of flags that must not be present.
+        flags: List of actual flags.
+
+    Returns:
+        bool: True if the actual flags match the must and must_not lists, False otherwise.
     """
     failed = False
     for flag in must:
@@ -158,14 +160,16 @@ def check_flags(must: list, must_not: list, flags: list) -> bool:
 
 
 def all_version_checks(flag_string: str, name: str) -> str:
-    """
-    Check the CPU flags against the lists of flags for all versions of the CPU architecture.
+    """Check the CPU flags against the lists of flags for all versions of the CPU architecture.
 
     Architecture is assigned to the CPU based on the check_flags() function.
 
-    :param flag_string: string containing the CPU flags (str)
-    :param name: name of the CPU (str)
-    :return: architecture of the CPU (str).
+    Args:
+        flag_string: String containing the CPU flags.
+        name: Name of the CPU.
+
+    Returns:
+        str: Architecture of the CPU.
     """
     flag_list = flag_string.split()
     logging.debug(f"-------Checking V4 for {name}--------")

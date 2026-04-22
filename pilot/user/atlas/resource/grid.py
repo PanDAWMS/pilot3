@@ -36,12 +36,14 @@ logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
 
-def verify_setup_command(cmd: str) -> (int, str):
-    """
-    Verify the setup command (containerised).
+def verify_setup_command(cmd: str) -> tuple[int, str]:
+    """Verify the setup command (containerised).
 
-    :param cmd: command string to be verified (str)
-    :return: pilot error code (int), diagnostics (str).
+    Args:
+        cmd: command string to be verified.
+
+    Returns:
+        tuple[int, str]: pilot error code, diagnostics.
     """
     diagnostics = ""
 
@@ -64,15 +66,17 @@ def verify_setup_command(cmd: str) -> (int, str):
 
 
 def get_setup_command(job: Any, prepareasetup: bool = True) -> str:
-    """
-    Return the path to asetup command, the asetup command itself and add the options (if desired).
+    """Return the path to asetup command, the asetup command itself and add the options (if desired).
 
     If prepareasetup is False, the function will only return the path to the asetup script. It is then assumed
     to be part of the job parameters.
 
-    :param job: job object (Any)
-    :param prepareasetup: should the pilot prepare the asetup command itself? (bool)
-    :return: command string (str).
+    Args:
+        job: job object.
+        prepareasetup: should the pilot prepare the asetup command itself?
+
+    Returns:
+        str: command string.
     """
     # if cvmfs is not available, assume that asetup is not needed
     # note that there is an exception for sites (BOINC, some HPCs) that have cvmfs but still

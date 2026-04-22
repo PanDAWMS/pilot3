@@ -59,8 +59,11 @@ def is_valid_for_copy_in(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -74,8 +77,11 @@ def is_valid_for_copy_out(files: list) -> bool:
 
     Placeholder.
 
-    :param files: list of FileSpec objects (list).
-    :return: always True (for now) (bool).
+    Args:
+        files: list of FileSpec objects.
+
+    Returns:
+        always True (for now).
     """
     # for f in files:
     #    if not all(key in f for key in ('name', 'source', 'destination')):
@@ -89,11 +95,14 @@ def resolve_surl(fspec: Any, protocol: dict, ddmconf: dict, **kwargs: dict) -> d
 
     Can be customized at the level of specific copytool.
 
-    :param fspec: file spec data (Any)
-    :param protocol: suggested protocol (dict)
-    :param ddmconf: full ddm storage data (dict)
-    :param kwargs: kwargs dictionary (dict)
-    :return: SURL dictionary {'surl': surl} (dict).
+    Args:
+        fspec: file spec data.
+        protocol: suggested protocol.
+        ddmconf: full ddm storage data.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        SURL dictionary {'surl': surl}.
     """
     try:
         pandaqueue = infosys.pandaqueue
@@ -126,10 +135,15 @@ def copy_in(files: list, **kwargs: dict) -> list:
     """
     Download given files from a GCS bucket.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raise: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        updated files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     for fspec in files:
 
@@ -150,14 +164,17 @@ def copy_in(files: list, **kwargs: dict) -> list:
     return files
 
 
-def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
+def download_file(path: str, surl: str, object_name: str = None) -> tuple[bool, str]:
     """
     Download a file from a GS bucket.
 
-    :param path: Path to local file after download (str)
-    :param surl: remote path (str)
-    :param object_name: GCS object name. If not specified then file_name from path is used (str)
-    :return: True if file was uploaded - otherwise False (bool), diagnostics (str).
+    Args:
+        path: path to local file after download.
+        surl: remote path.
+        object_name: GCS object name. If not specified then file_name from path is used.
+
+    Returns:
+        Tuple of (True if file was downloaded successfully, diagnostics string).
     """
     # if object_name was not specified, use file name from path
     if object_name is None:
@@ -175,14 +192,19 @@ def download_file(path: str, surl: str, object_name: str = None) -> (bool, str):
     return True, ""
 
 
-def copy_out(files: list, **kwargs: dict):
+def copy_out(files: list, **kwargs: dict) -> list:
     """
     Upload given files to GS storage.
 
-    :param files: list of `FileSpec` objects (list)
-    :param kwargs: kwargs dictionary (dict)
-    :return: updated files (list)
-    :raise: PilotException in case of controlled error.
+    Args:
+        files: list of FileSpec objects.
+        kwargs: kwargs dictionary.
+
+    Returns:
+        updated files.
+
+    Raises:
+        PilotException: in case of controlled error.
     """
     workdir = kwargs.pop('workdir')
 
@@ -255,15 +277,18 @@ def copy_out(files: list, **kwargs: dict):
     return files
 
 
-def upload_file(file_name: str, bucket: str, object_name: str = None, content_type: str = None) -> (bool, str):
+def upload_file(file_name: str, bucket: str, object_name: str = None, content_type: str = None) -> tuple[bool, str]:
     """
     Upload a file to a GCS bucket.
 
-    :param file_name: file to upload (str)
-    :param bucket: bucket to upload to (str)
-    :param object_name: GCS object name. If not specified then file_name is used (str)
-    :param content_type: content type (str)
-    :return: True if file was uploaded (else False), diagnostics (string).
+    Args:
+        file_name: file to upload.
+        bucket: bucket to upload to.
+        object_name: GCS object name. If not specified then file_name is used.
+        content_type: content type.
+
+    Returns:
+        Tuple of (True if file was uploaded successfully, diagnostics string).
     """
     # if GCS object_name was not specified, use file_name
     if object_name is None:

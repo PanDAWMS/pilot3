@@ -31,11 +31,13 @@ logger = logging.getLogger(__name__)
 
 
 def interpret(job: JobData) -> int:
-    """
-    Interpret the payload, look for specific errors in the stdout.
+    """Interpret the payload, look for specific errors in the stdout.
 
-    :param job: job object (JobData)
-    :return: exit code (payload) (int).
+    Args:
+        job: job object.
+
+    Returns:
+        int: exit code (payload).
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     if os.path.exists(stdout):
@@ -56,14 +58,16 @@ def interpret(job: JobData) -> int:
 
 
 def get_log_extracts(job: JobData, state: str) -> str:
-    """
-    Extract special warnings and other info from special logs.
+    """Extract special warnings and other info from special logs.
 
     This function also discovers if the payload had any outbound connections.
 
-    :param job: job object (JobData)
-    :param state: job state (str)
-    :return: log extracts (str).
+    Args:
+        job: job object.
+        state: job state.
+
+    Returns:
+        str: log extracts.
     """
     logger.info("building log extracts (sent to the server as \'pilotLog\')")
 
@@ -79,11 +83,13 @@ def get_log_extracts(job: JobData, state: str) -> str:
 
 
 def get_pilot_log_extracts(job: JobData) -> str:
-    """
-    Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
+    """Get the extracts from the pilot log (warning/fatal messages, as well as tail of the log itself).
 
-    :param job: job object (JobData)
-    :return: tail of pilot log (str).
+    Args:
+        job: job object.
+
+    Returns:
+        str: tail of pilot log.
     """
     extracts = ""
 
