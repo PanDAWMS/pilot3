@@ -222,5 +222,4 @@ class FileSpec(BaseData):
 
     def require_transfer(self) -> bool:
         """Check if File needs to be transferred (in error state or never has been started)."""
-
         return self.status not in ['remote_io', 'transferred', 'no_transfer']

@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
+"""Copytool capability definitions for the sPHENIX experiment plugin."""
+
 from hashlib import md5
 
 

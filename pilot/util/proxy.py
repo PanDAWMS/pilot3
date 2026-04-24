@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
+"""Proxy certificate handling and verification utilities."""
+
 import logging
 import os
 import traceback

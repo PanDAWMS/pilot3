@@ -420,7 +420,6 @@ def get_proper_pilot_heartbeat() -> int:
     Returns:
         int: Pilot heartbeat time limit in seconds.
     """
-
     try:
         return int(config.Pilot.pilot_heartbeat)
     except Exception as exc:

@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
-""" This module contains implementations of job monitoring tasks. """
+"""This module contains implementations of job monitoring tasks."""
 
 import logging
 import os

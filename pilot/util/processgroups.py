@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
 
+"""Utilities for killing and inspecting process groups and defunct subprocesses."""
+
 import os
 import re
 import subprocess
@@ -46,7 +48,6 @@ def kill_process_group(pgrp: int, nap: int = 10) -> bool:
     Returns:
         True if SIGTERM followed by SIGKILL signalling was successful.
     """
-
     status = False
     _sleep = True
 
@@ -81,7 +82,6 @@ def kill_defunct_process(pid: int) -> None:
     Args:
         pid: Main process PID.
     """
-
     try:
         cmd = f"ps -p {pid} -o stat"
         logger.info(f'executing command with os.popen(): {cmd}')
@@ -159,7 +159,6 @@ def find_defunct_subprocesses(parent_pid: int) -> list:
     Returns:
         List of PIDs of all defunct child processes.
     """
-
     child_pids = get_all_child_pids(parent_pid)
     logger.info(f'child pids={child_pids}')
     defunct_subprocesses = []

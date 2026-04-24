@@ -1596,7 +1596,6 @@ class StageOutClient(StagingClient):
             list: The same ``files`` list with ``ddmendpoint`` and
                 ``ddmendpoint_alt`` populated.
         """
-
         alt_exclude = list(alt_exclude or [])
 
         if not self.infosys.queuedata:  # infosys is not initialized: not able to fix destination if need, nothing to do
@@ -1627,7 +1626,6 @@ class StageOutClient(StagingClient):
 
         def resolve_alt_destination(primary, exclude=None):
             """Return the next storage entry after ``primary`` that is not in ``exclude``."""
-
             cur = storages.index(primary) if primary in storages else 0
             exclude = set([primary] + list(exclude or []))
             alt = None

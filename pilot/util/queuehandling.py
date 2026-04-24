@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
+"""Queue handling utilities for pilot job and data queues."""
+
 import logging
 import os
 import signal
@@ -82,7 +84,6 @@ def scan_for_jobs(queues: namedtuple) -> list:
     Returns:
         List of job objects found, or None if none were found in time.
     """
-
     _t0 = time.time()
     found_job = False
     jobs = None

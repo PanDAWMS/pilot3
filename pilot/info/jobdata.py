@@ -61,9 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 class JobData(BaseData):
-    """
-    High-level object to host Job definition/settings
-    """
+    """High-level object to host job definition and settings."""
 
     # ## put explicit list of all the attributes with comments for better inline-documentation by Sphinx
     # ## FIX ME LATER: use proper doc format

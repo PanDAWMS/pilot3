@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 class PilotLokiLoggerFormatter:
+    """Formatter that converts a log record into a dict for Loki ingestion."""
+
     def format(self, record: logging.LogRecord) -> dict:
         """Convert the logging record to a dict format.
 
@@ -51,7 +53,6 @@ class PilotLokiLoggerFormatter:
         Returns:
             Dictionary representation of the logging record.
         """
-
         formatted = {
             "timestamp": record.created,
             "process": record.process,
@@ -94,6 +95,7 @@ class PilotLokiLoggerFormatter:
 
 
 class PilotLokiLoggerHandler(logging.Handler):
+    """Logging handler that ships records to a Loki push API endpoint."""
 
     def __init__(
         self,
@@ -159,9 +161,7 @@ class PilotLokiLoggerHandler(logging.Handler):
             time.sleep(1)
 
     def stop(self):
-        """
-        Stop the logging handler thread and send the queued messages.
-        """
+        """Stop the logging handler thread and flush any queued messages."""
         self._graceful_stop.set()
         self._flush()
 
@@ -255,9 +255,7 @@ class PilotLokiLoggerHandler(logging.Handler):
         return json.dumps(data)
 
     def _flush(self):
-        """
-        Flush queued messages.
-        """
+        """Flush all queued messages to the Loki endpoint."""
         msgs = []
         while not self.queue.empty():
             msg = self.queue.get()
@@ -274,9 +272,7 @@ class PilotLokiLoggerHandler(logging.Handler):
                 self.queue.put(msg)
 
     def _runner(self):
-        """
-        The function for the runner thread which flushes messages in period.
-        """
+        """Periodically flush queued messages until the stop event is set."""
         atexit.register(self._flush)
 
         while not self._graceful_stop.is_set():
@@ -296,7 +292,6 @@ def setup_loki_handler(name: str) -> logging.Handler:
     Returns:
         Configured PilotLokiLoggerHandler instance.
     """
-
     loki_labelkeys = None
     try:
         label_keys = os.environ.get('LOKI_LABELKEYS', None)

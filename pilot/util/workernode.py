@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
+"""Worker-node information collection utilities (memory, CPU, disk, architecture)."""
+
 import logging
 import os
 import re
@@ -156,7 +158,6 @@ def get_cpu_flags(_sorted: bool = True) -> str:
     Returns:
         Space-separated CPU flags string, or an empty string if unavailable.
     """
-
     flags = ''
     with open("/proc/cpuinfo", "r") as _fd:
         lines = _fd.readlines()
@@ -183,7 +184,6 @@ def get_cpu_arch_internal() -> str:
     Returns:
         CPU architecture string, or an empty string if the script fails.
     """
-
     cpu_arch = ''
 
     # copy pilot source into container directory, unless it is already there
@@ -214,7 +214,6 @@ def get_cpu_arch() -> str:
     Returns:
         CPU architecture string, or an empty string when not reported.
     """
-
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
     cpu_arch = user.get_cpu_arch()
@@ -236,7 +235,6 @@ def collect_workernode_info(path: Optional[str] = None) -> tuple:
         Tuple of ``(memory_mb, cpu_freq_mhz, disk_mb)`` where *disk_mb* may
         be ``None`` if the disk-space query raises a ``PilotException``.
     """
-
     mem = get_total_memory()
     cpu = get_cpu_frequency()
     try:
@@ -264,7 +262,6 @@ def get_disk_space(queuedata: Any) -> int:
         Available disk space in MB (the lesser of local availability and the
         site maximum).
     """
-
     # --- non Job related queue data
     # jobinfo provider is required to consider overwriteAGIS data coming from Job
     _maxinputsize = queuedata.maxwdir
@@ -315,7 +312,6 @@ def get_cpu_model() -> str:
         CPU model string combining model name and cache size, or ``'UNKNOWN'``
         if neither source provides the information.
     """
-
     cpumodel = ""
     cpucache = ""
     modelstring = ""
@@ -371,7 +367,6 @@ def lscpu() -> tuple:
         Tuple of ``(exit_code, stdout)`` where *exit_code* is non-zero on
         failure. Returns ``(1, "")`` when ``lscpu`` is not on ``PATH``.
     """
-
     cmd = 'lscpu'
     if not which(cmd):
         logger.warning(f'command={cmd} does not exist - cannot check number of available cores')
@@ -536,7 +531,6 @@ def check_hz() -> None:
     A missing ``SC_CLK_TCK`` sysconf value prevents CPU consumption
     calculations. Any exception is caught and logged at fatal/warning level.
     """
-
     try:
         _ = os.sysconf(os.sysconf_names['SC_CLK_TCK'])
     except Exception:

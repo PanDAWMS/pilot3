@@ -228,7 +228,6 @@ def get_condor_node_name(nodename: str) -> str:
         Slot-qualified hostname when ``_CONDOR_SLOT`` is set, otherwise the
         original *nodename* unchanged.
     """
-
     if "_CONDOR_SLOT" in os.environ:
         nodename = "%s@%s" % (os.environ.get("_CONDOR_SLOT"), nodename)
 

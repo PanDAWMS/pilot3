@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Looping-job detection settings for the ATLAS experiment plugin."""
+
 from os.path import join
 
 

@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-""" CPU related functionality."""
+"""CPU related functionality."""
 
 import logging
 from typing import Any, Optional

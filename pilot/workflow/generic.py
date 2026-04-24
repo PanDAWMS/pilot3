@@ -22,6 +22,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 # - Shuwei Ye, yesw@bnl.gov, 2021
 
+"""Generic workflow for PanDA Pilot."""
+
 import functools
 import logging
 import signal

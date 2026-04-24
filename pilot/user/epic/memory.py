@@ -20,6 +20,9 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
 
+"""Memory monitoring stubs for the ePIC experiment plugin."""
+
+
 def allow_memory_usage_verifications() -> bool:
     """Return True if memory usage verifications should be performed.
 

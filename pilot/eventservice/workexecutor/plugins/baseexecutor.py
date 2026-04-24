@@ -20,6 +20,8 @@
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-26
 
+"""Base executor with one process to manage EventService."""
+
 from __future__ import annotations
 
 import logging
@@ -33,12 +35,9 @@ from pilot.eventservice.communicationmanager.communicationmanager import Communi
 
 logger = logging.getLogger(__name__)
 
-"""
-Base Executor with one process to manage EventService
-"""
-
 
 class BaseExecutor(threading.Thread, PluginFactory):
+    """Base class for event service executors running as a thread."""
 
     def __init__(self, **kwargs: Any) -> None:
         """Init function for BaseExecutor.

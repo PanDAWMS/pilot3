@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""NorduGrid XML helper classes and pilot-output utilities for the ATLAS experiment plugin."""
+
 import logging
 from xml.dom import minidom
 from xml.etree import ElementTree
@@ -27,9 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class XMLDictionary:
-    """
-    This is a helper class that is used to create the dictionary which is converted to the special XML files for
-    Nordugrid pilots.
+    """Helper class that builds the dictionary converted to special XML files for Nordugrid pilots.
+
     Example dictionary:
       dictionary = { "outfiles": [ { "file": { "surl": "some_surl", "size": "123", "ad32": "aaaaaaa",
                                                "guid": "ababa22", "lfn": "some_lfn", "dataset": "some_dataset",

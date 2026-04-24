@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Memory related functionality"""
+"""Memory related functionality."""
 
 
 def allow_memory_usage_verifications() -> bool:

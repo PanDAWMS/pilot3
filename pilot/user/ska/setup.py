@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
+"""Job setup and environment preparation for the SKA experiment plugin."""
+
 import glob
 import logging
 import os

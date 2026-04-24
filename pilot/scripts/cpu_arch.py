@@ -82,9 +82,9 @@ def get_flags_pilotlog(pilotlogname: str) -> dict:
 
 
 def set_naive() -> None:
-    """Make a decision on the CPU architecture based on the simplified lists (must\\_'s) of flags.
+    r"""Make a decision on the CPU architecture based on the simplified lists (must\_'s) of flags.
 
-    The must_not\\_'s have been left blank, these could be filled if need be.
+    The must_not\_'s have been left blank, these could be filled if need be.
     """
     global must_v4
     global must_not_v4
@@ -104,7 +104,7 @@ def set_naive() -> None:
 
 
 def set_gcc() -> None:
-    """Make a decision on the CPU architecture based on the modified lists (must\\_'s) of flags from gcc.
+    r"""Make a decision on the CPU architecture based on the modified lists (must\_'s) of flags from gcc.
 
     LAHF_SAHF --> LAHF_LM; LZCNT --> ABM; removal of SSE3.
 
@@ -113,7 +113,7 @@ def set_gcc() -> None:
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v3.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
         https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=gcc/testsuite/gcc.target/i386/x86-64-v2.c;hb=324bec558e95584e8c1997575ae9d75978af59f1
 
-    The must_not\\_'s have been left blank, these could be filled if need be.
+    The must_not\_'s have been left blank, these could be filled if need be.
     """
     global must_v4
     global must_not_v4

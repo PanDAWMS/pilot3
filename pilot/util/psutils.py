@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
 
+"""psutil-based worker-node resource monitoring (CPU, memory, disk, processes)."""
+
 import logging
 import os
 import subprocess

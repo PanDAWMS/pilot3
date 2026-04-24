@@ -1418,7 +1418,6 @@ def get_directory_size(directory: str) -> Optional[float]:
     Returns:
         Directory size in MB, or None if measurement fails.
     """
-
     size_mb = None
     try:
         size_mb = get_disk_usage(directory) / 1024 / 1024

@@ -19,21 +19,21 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Monitoring timestamp container used to track when each monitoring task last ran."""
+
 import time
 
 
 class MonitoringTime:
-    """
-    A simple class to store the various monitoring task times.
-    Different monitoring tasks should be executed at different intervals. An object of this class is used to store
-    the time when a specific monitoring task was last executed. The actual time interval for a given monitoring tasks
-    is stored in the util/default.cfg file.
+    """Store timestamps for each type of monitoring task.
+
+    Different monitoring tasks run at different intervals. An object of this class records
+    when each task was last executed. The actual interval for a given task is configured
+    in util/default.cfg.
     """
 
     def __init__(self):
-        """
-        Set the initial MonitoringTime object with the current time as start values.
-        """
+        """Set all monitoring timestamps to the current time."""
         ct = int(time.time())
         self.ct_start = ct
         self.ct_proxy = ct

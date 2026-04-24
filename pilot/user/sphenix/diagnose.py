@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-23
 
+"""Payload stdout/stderr interpretation for the sPHENIX experiment plugin."""
+
 import os
 from typing import Any
 

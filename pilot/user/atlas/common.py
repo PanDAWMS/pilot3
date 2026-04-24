@@ -2979,6 +2979,7 @@ def get_pilot_id(data: dict) -> str:
 
     Args:
         data: data dictionary.
+
     Returns:
         str: pilot id.
     """

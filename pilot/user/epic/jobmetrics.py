@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
+"""Job metrics helpers for the ePIC experiment plugin."""
+
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
 

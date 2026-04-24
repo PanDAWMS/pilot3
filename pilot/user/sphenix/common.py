@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
+"""Common job-lifecycle functions for the sPHENIX experiment plugin."""
+
 import logging
 import os
 import re

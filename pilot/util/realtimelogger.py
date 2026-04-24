@@ -91,9 +91,7 @@ def cleanup():
 
 # RealTimeLogger is called if args.realtimelogger is on
 class RealTimeLogger(logging.Logger):
-    """
-    RealTimeLogger class definition.
-    """
+    """Real-time logger that ships log records to an external logging service."""
 
     glogger = None
     jobinfo = {}
@@ -394,7 +392,6 @@ class RealTimeLogger(logging.Logger):
         Returns:
             Tuple of ``(ssl_enable, ssl_verify)`` booleans.
         """
-
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
         try:
             user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)

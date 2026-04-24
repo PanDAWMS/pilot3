@@ -19,6 +19,8 @@
 # - Aleksandr Alekseev, aleksandr.alekseev@cern.ch, 2022
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
+"""Transport classes for sending log events to Logstash and Beats endpoints."""
+
 from abc import ABC, abstractmethod
 from typing import Iterator, Union
 import json
@@ -41,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class TimeoutNotSet:
-    pass
+    """Sentinel class used as the default value when no timeout has been specified."""
 
 
 class Transport(ABC):
@@ -66,6 +68,17 @@ class Transport(ABC):
             ssl_verify: Union[bool, str],
             use_logging: bool,
     ):
+        """Set up common transport parameters shared by all concrete subclasses.
+
+        Args:
+            host: Hostname of the remote endpoint.
+            port: TCP/UDP port number.
+            timeout: Connection timeout in seconds, or None for no timeout.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, enables TLS certificate verification. A string
+                may be passed as a path to a CA certificate file.
+            use_logging: If True, use logging for debugging output.
+        """
         self._host = host
         self._port = port
         self._timeout = None if timeout is TimeoutNotSet else timeout
@@ -76,20 +89,29 @@ class Transport(ABC):
 
     @abstractmethod
     def send(self, events: list, **kwargs):
-        pass
+        """Send a list of events to the remote endpoint."""
 
     @abstractmethod
     def close(self):
-        pass
+        """Close the transport connection and release any held resources."""
 
 
 class UdpTransport:
+    """UDP transport that sends log events as individual datagrams."""
 
     _keep_connection = False
 
     # ----------------------------------------------------------------------
     # pylint: disable=unused-argument
     def __init__(self, host, port, timeout=TimeoutNotSet, **kwargs):
+        """Initialize the UDP transport.
+
+        Args:
+            host: Hostname of the remote UDP endpoint.
+            port: UDP port number.
+            timeout: Socket timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional keyword arguments (ignored).
+        """
         self._host = host
         self._port = port
         self._timeout = timeout
@@ -97,6 +119,14 @@ class UdpTransport:
 
     # ----------------------------------------------------------------------
     def send(self, events, use_logging=False):  # pylint: disable=unused-argument
+        """Send events as UDP datagrams to the remote endpoint.
+
+        A new socket is created for each call and closed afterwards.
+
+        Args:
+            events: Iterable of event data to send.
+            use_logging: Unused; accepted for API compatibility.
+        """
         # Ideally we would keep the socket open but this is risky because we might not notice
         # a broken TCP connection and send events into the dark.
         # On UDP we push into the dark by design :)
@@ -142,10 +172,12 @@ class UdpTransport:
 
     # ----------------------------------------------------------------------
     def close(self):
+        """Close the UDP socket, releasing any held resources."""
         self._close(force=True)
 
 
 class TcpTransport(UdpTransport):
+    """TCP transport that sends log events over a persistent stream socket, with optional TLS."""
 
     # ----------------------------------------------------------------------
     def __init__(  # pylint: disable=too-many-arguments
@@ -159,6 +191,20 @@ class TcpTransport(UdpTransport):
             ca_certs,
             timeout=TimeoutNotSet,
             **kwargs):
+        """Initialize the TCP transport.
+
+        Args:
+            host: Hostname of the remote TCP endpoint.
+            port: TCP port number.
+            ssl_enable: If True, wraps the connection with TLS.
+            ssl_verify: If True, verifies the server certificate. A string
+                path to a CA certificate file is also accepted.
+            keyfile: Path to the client private key file for mutual TLS.
+            certfile: Path to the client certificate file for mutual TLS.
+            ca_certs: Path to the CA certificates file used for verification.
+            timeout: Socket timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional keyword arguments (ignored).
+        """
         super().__init__(host, port)
         self._ssl_enable = ssl_enable
         self._ssl_verify = ssl_verify
@@ -206,6 +252,7 @@ class TcpTransport(UdpTransport):
 
 
 class BeatsTransport:
+    """Beats transport that ships log events via the PyLogBeat client."""
 
     _batch_size = 10
 
@@ -221,6 +268,19 @@ class BeatsTransport:
             ca_certs,
             timeout=TimeoutNotSet,
             **kwargs):
+        """Initialize the Beats transport.
+
+        Args:
+            host: Hostname of the Beats/Logstash endpoint.
+            port: TCP port number.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, enables TLS certificate verification.
+            keyfile: Path to the client private key file.
+            certfile: Path to the client certificate file.
+            ca_certs: Path to the CA certificates file.
+            timeout: Connection timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional arguments forwarded to PyLogBeatClient.
+        """
         timeout_ = None if timeout is TimeoutNotSet else timeout
         self._client_arguments = dict(
             host=host,
@@ -235,10 +295,16 @@ class BeatsTransport:
 
     # ----------------------------------------------------------------------
     def close(self):
-        pass  # nothing to do
+        """Close the Beats transport (no-op; connections are per-send)."""
 
     # ----------------------------------------------------------------------
     def send(self, events, use_logging=False):
+        """Send events to the Beats/Logstash endpoint in batches.
+
+        Args:
+            events: Iterable of event data to send.
+            use_logging: If True, pass logging flag through to PyLogBeatClient.
+        """
         try:
             client = pylogbeat.PyLogBeatClient(use_logging=use_logging, **self._client_arguments)
         except Exception as exc:
@@ -281,6 +347,19 @@ class HttpTransport(Transport):
             #certfile: Union[bool, str] = True,
             **kwargs
     ):
+        """Initialize the HTTP transport.
+
+        Args:
+            host: Hostname of the logstash HTTP server.
+            port: TCP port of the logstash HTTP server.
+            timeout: Connection timeout in seconds. Defaults to no timeout.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, verifies the TLS certificate. A string path
+                to a CA certificate file is also accepted.
+            use_logging: If True, use logging for debugging output.
+            **kwargs: Optional keys: ``username``, ``password``,
+                ``max_content_length``, ``cert``.
+        """
         super().__init__(host, port, timeout, ssl_enable, ssl_verify, use_logging)
         self._username = kwargs.get('username', None)
         self._password = kwargs.get('password', None)
@@ -353,8 +432,7 @@ class HttpTransport(Transport):
             return None
 
     def close(self) -> None:
-        """Close the HTTP session.
-        """
+        """Close the HTTP session."""
         if self.__session is not None:
             self.__session.close()
 

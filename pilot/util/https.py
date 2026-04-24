@@ -1688,7 +1688,15 @@ class IPv4HTTPHandler(urllib.request.HTTPHandler):
     when the environment variable ``PILOT_IP_VERSION`` is ``'IPv4'``.
     """
 
-    def http_open(self, req):
+    def http_open(self, req: object) -> object:
+        """Open an HTTP connection, forcing IPv4 via ``_create_connection``.
+
+        Args:
+            req: urllib request object.
+
+        Returns:
+            HTTP response object.
+        """
         return self.do_open(self._create_connection, req)
 
     def _create_connection(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):

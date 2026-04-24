@@ -20,6 +20,9 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 
+"""Memory monitoring stubs for the sPHENIX experiment plugin."""
+
+
 def allow_memory_usage_verifications() -> bool:
     """Return True if memory usage verifications should be performed.
 

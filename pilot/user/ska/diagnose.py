@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-""" Functions for interpreting the payload stdout/err. """
+"""Functions for interpreting the payload stdout/err."""
 
 import logging
 import os

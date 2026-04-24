@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
+"""Middleware utilities for container and singularity command construction."""
+
 import logging
 
 from os import (

@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 
+"""Job monitoring tasks for the sPHENIX experiment plugin."""
+
 from pilot.info.jobdata import JobData
 
 

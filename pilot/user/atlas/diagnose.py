@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Payload stdout/stderr interpretation for the ATLAS experiment plugin."""
+
 import json
 import os
 import re

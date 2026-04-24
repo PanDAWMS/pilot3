@@ -2094,9 +2094,7 @@ def get_job_definition(queues: namedtuple, args: object) -> Optional[dict]:
 
 
 def get_load_factor() -> float:
-    """
-    Get the pilot load factor.
-    """
+    """Get the pilot load factor."""
     try:
         load_factor = os.environ.get('PILOT_LOAD_FACTOR', None)
         if load_factor:
@@ -2113,9 +2111,7 @@ def get_load_factor() -> float:
 
 
 def is_delay_to_get_job_enabled() -> bool:
-    """
-    To check if it's enabled to delay to get jobs based on load.
-    """
+    """Check if it's enabled to delay to get jobs based on load."""
     try:
         enabled = os.environ.get('PILOT_ENABLE_DELAY_TO_GET_JOB', 'false').lower() == 'true'
         if enabled:

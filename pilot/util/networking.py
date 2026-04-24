@@ -61,7 +61,6 @@ def extract_ipv6_addresses(ifconfig_output: str) -> list:
     Returns:
         A list of IPv6 addresses.
     """
-
     ipv6_addresses = []
     for line in ifconfig_output.splitlines():
         line = line.strip().replace("\t", " ").replace("\r", "").replace("\n", "")

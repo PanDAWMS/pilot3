@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
 
+"""Parameter resolution helpers used with the information module's get_parameters()."""
+
 # This module contains functions that are used with the get_parameters() function defined in the information module.
 
 # WARNING: IN GENERAL, NEEDS TO USE PLUG-IN MANAGER
@@ -42,7 +44,6 @@ def get_maximum_input_sizes() -> int:
     Returns:
         Maximum combined input file size in MB.
     """
-
     try:
         _maxinputsizes = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     except TypeError as exc:

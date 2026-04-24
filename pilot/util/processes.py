@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
+"""Process management utilities: monitoring, killing, and resource-usage tracking."""
+
 import logging
 import os
 import time
@@ -521,7 +523,6 @@ def get_max_memory_usage_from_cgroups() -> Optional[int]:
     Returns:
         Max memory in bytes, or None if not available.
     """
-
     max_memory = None
 
     # Get the CGroups max memory using the pilot pid
@@ -560,7 +561,6 @@ def get_cgroups_base_path() -> str:
     Returns:
         Base path for CGROUPS.
     """
-
     cmd = "grep \'^cgroup\' /proc/mounts|grep memory| awk \'{print $2}\'"
     _, base_path, _ = execute(cmd, mute=True)
 
