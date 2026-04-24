@@ -45,21 +45,16 @@ class TimeoutNotSet:
 
 
 class Transport(ABC):
-    """The :class:`Transport <Transport>` is the abstract base class of
-    all transport protocols.
+    """Abstract base class for all transport protocols.
 
-    :param host: The name of the host.
-    :type host: str
-    :param port: The TCP/UDP port.
-    :type port: int
-    :param timeout: The connection timeout.
-    :type timeout: None or float
-    :param ssl_enable: Activates TLS.
-    :type ssl_enable: bool
-    :param ssl_verify: Activates the TLS certificate verification.
-    :type ssl_verify: bool or str
-    :param use_logging: Use logging for debugging.
-    :type use_logging: bool
+    Args:
+        host: Hostname of the remote endpoint.
+        port: TCP/UDP port number.
+        timeout: Connection timeout, or None for no timeout.
+        ssl_enable: If True, activates TLS.
+        ssl_verify: If True, enables TLS certificate verification. A string
+            may be passed as a path to a CA certificate file.
+        use_logging: If True, use logging for debugging output.
     """
 
     def __init__(
@@ -258,34 +253,20 @@ class BeatsTransport:
 
 
 class HttpTransport(Transport):
-    """The :class:`HttpTransport <HttpTransport>` implements a client for the
-    logstash plugin `inputs_http`.
+    """HTTP transport client for the logstash ``inputs_http`` plugin.
 
-    For more details visit:
-    https://www.elastic.co/guide/en/logstash/current/plugins-inputs-http.html
-
-    :param host: The hostname of the logstash HTTP server.
-    :type host: str
-    :param port: The TCP port of the logstash HTTP server.
-    :type port: int
-    :param timeout: The connection timeout. (Default: None)
-    :type timeout: float
-    :param ssl_enable: Activates TLS. (Default: True)
-    :type ssl_enable: bool
-    :param ssl_verify: Activates the TLS certificate verification. If the flag
-    is True the class tries to verify the TLS certificate with certifi. If you
-    pass a string with a file location to CA certificate the class tries to
-    validate it against it. (Default: True)
-    :type ssl_verify: bool or str
-    :param use_logging: Use logging for debugging.
-    :type use_logging: bool
-    :param username: Username for basic authorization. (Default: "")
-    :type username: str
-    :param password: Password for basic authorization. (Default: "")
-    :type password: str
-    :param max_content_length: The max content of an HTTP request in bytes.
-    (Default: 100MB)
-    :type max_content_length: int
+    Args:
+        host: Hostname of the logstash HTTP server.
+        port: TCP port of the logstash HTTP server.
+        timeout: Connection timeout in seconds. Defaults to None (no timeout).
+        ssl_enable: If True, activates TLS.
+        ssl_verify: If True, verifies the TLS certificate with certifi. A
+            string path to a CA certificate file is also accepted.
+        use_logging: If True, use logging for debugging output.
+        username: Username for HTTP basic authorization.
+        password: Password for HTTP basic authorization.
+        max_content_length: Maximum HTTP request body size in bytes.
+            Defaults to 100 MB.
     """
 
     def __init__(
@@ -309,11 +290,10 @@ class HttpTransport(Transport):
 
     @property
     def url(self) -> str:
-        """The URL of the logstash pipeline based on the hostname, the port and
-        the TLS usage.
+        """The URL of the logstash HTTP pipeline.
 
-        :return: The URL of the logstash HTTP pipeline.
-        :rtype: str
+        Returns:
+            URL string built from hostname, port, and TLS setting.
         """
         protocol = 'http'
         if self._ssl_enable:
@@ -321,12 +301,14 @@ class HttpTransport(Transport):
         return f'{protocol}://{self._host}:{self._port}'
 
     def __batches(self, events: list) -> Iterator[list]:
-        """Generate dynamic sized batches based on the max content length.
+        """Generate dynamically-sized batches based on the max content length.
 
-        :param events: A list of events.
-        :type events: list
-        :return: A iterator which generates batches of events.
-        :rtype: Iterator[list]
+        Args:
+            events: List of JSON-encoded event strings.
+
+        Returns:
+            Iterator that yields lists of event objects fitting within
+            ``_max_content_length``.
         """
         current_batch = []
         event_iter = iter(events)
@@ -356,11 +338,11 @@ class HttpTransport(Transport):
                 current_batch += [obj]
 
     def __auth(self) -> HTTPBasicAuth:
-        """The authentication method for the logstash pipeline. If the username
-        or the password is not set correctly it will return None.
+        """Return an HTTP basic auth object for the logstash pipeline.
 
-        :return: A HTTP basic auth object or None.
-        :rtype: HTTPBasicAuth
+        Returns:
+            An ``HTTPBasicAuth`` instance, or None if the username or password
+            is not set.
         """
         if self._username is None or self._password is None:
             return None
@@ -376,19 +358,14 @@ class HttpTransport(Transport):
         if self.__session is not None:
             self.__session.close()
 
-    def send(self, events: list, **kwargs):
+    def send(self, events: list, **kwargs) -> None:
         """Send events to the logstash pipeline.
 
-        Max Events: `logstash_async.Constants.QUEUED_EVENTS_BATCH_SIZE`
-        Max Content Length: `HttpTransport._max_content_length`
+        Batches events so that each POST body does not exceed
+        ``_max_content_length``. Oversized individual events are skipped.
 
-        The method receives a list of events from the worker. It tries to send
-        as much of the events as possible in one request. If the total size of
-        the received events is greater than the maximal content length the
-        events will be divide into batches.
-
-        :param events: A list of events
-        :type events: list
+        Args:
+            events: List of JSON-encoded event strings to send.
         """
         try:
             self.__session = requests.Session()

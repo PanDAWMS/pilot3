@@ -45,11 +45,11 @@ def timeout_handler(signum: int, frame: types.FrameType) -> None:
 signal.signal(signal.SIGALRM, timeout_handler)
 
 
-def is_cvmfs_available() -> bool or None:
-    """
-    Check if CVMFS is available.
+def is_cvmfs_available() -> bool:
+    """Check if CVMFS is available.
 
-    :return: True if CVMFS is available, False if not available, None if user cvmfs module not implemented.
+    Returns:
+        True if CVMFS is available, False if not available, None if the user cvmfs module is not implemented.
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     try:
@@ -94,10 +94,10 @@ def is_cvmfs_available() -> bool or None:
 
 
 def get_last_update() -> int:
-    """
-    Check the last update time from the last update file.
+    """Return the last update time from the CVMFS last-update file.
 
-    :return: last update time (int).
+    Returns:
+        Last update timestamp as a Unix epoch integer, or None on failure.
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     user = __import__(f'pilot.user.{pilot_user}.cvmfs', globals(), locals(), [pilot_user], 0)
@@ -127,14 +127,16 @@ def get_last_update() -> int:
 
 
 def extract_timestamp(filename: str) -> int:
-    """
-    Extract the timestamp from the last update file.
+    """Extract the timestamp from the last update file.
 
-    The function will wait a maximum of 5 minutes for the file to be read. If the timeout is thrown, the function will
-    return -1.
+    Waits a maximum of 5 minutes for the file to be read. Returns -1 if the
+    timeout is exceeded.
 
-    :param filename: last update file name (str).
-    :return: timestamp (int).
+    Args:
+        filename: Path to the last update file.
+
+    Returns:
+        Timestamp as a Unix epoch integer, or -1 on timeout.
     """
     signal.alarm(300)  # Set the timeout to 5 minutes
     timestamp = 0

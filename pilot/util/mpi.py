@@ -33,11 +33,12 @@
 
 
 def get_ranks_info():
-    """
-    Return current MPI rank and number of ranks
-    None, None - if MPI environment is not available
+    """Return current MPI rank and number of ranks.
 
-    :return: rank, max_rank
+    Returns None, None if MPI environment is not available.
+
+    Returns:
+        Tuple of (rank, max_rank), or (None, None) if MPI is not available.
     """
 
     rank = None

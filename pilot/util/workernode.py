@@ -26,6 +26,7 @@ import socket
 import subprocess
 from shutil import which
 from typing import (
+    Any,
     Optional,
     Tuple
 )
@@ -128,10 +129,10 @@ def get_local_disk_space(path: Optional[str]) -> float:
 
 
 def get_total_memory() -> float:
-    """
-    Return the total memory (in MB) from /proc/meminfo.
+    """Return the total memory in MB read from /proc/meminfo.
 
-    :return: total memory in MB (float).
+    Returns:
+        Total memory in MB, or 0.0 if the file cannot be read or parsed.
     """
     try:
         with open('/proc/meminfo') as f:
@@ -146,11 +147,14 @@ def get_total_memory() -> float:
 
 
 def get_cpu_flags(_sorted: bool = True) -> str:
-    """
-    Return the CPU flags.
+    """Return the CPU flags string from /proc/cpuinfo.
 
-    :param _sorted: should the CPU flags be sorted? (Boolean)
-    :return: cpu flags (string).
+    Args:
+        _sorted: If True, flag tokens are sorted alphabetically before
+            being returned.
+
+    Returns:
+        Space-separated CPU flags string, or an empty string if unavailable.
     """
 
     flags = ''
@@ -170,14 +174,14 @@ def get_cpu_flags(_sorted: bool = True) -> str:
     return flags
 
 
-def get_cpu_arch_internal():
-    """
-    Return the CPU architecture string (using internal script).
+def get_cpu_arch_internal() -> str:
+    """Return the CPU architecture string using the internal cpu_arch.py script.
 
-    The CPU architecture string is determined by a script (pilot/scripts/cpu_arch.py), run by the pilot.
-    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+    The script lives at ``pilot/scripts/cpu_arch.py``. For background see
+    https://its.cern.ch/jira/browse/ATLINFR-4844.
 
-    :return: CPU arch (string).
+    Returns:
+        CPU architecture string, or an empty string if the script fails.
     """
 
     cpu_arch = ''
@@ -201,14 +205,14 @@ def get_cpu_arch_internal():
     return cpu_arch
 
 
-def get_cpu_arch():
-    """
-    Return the CPU architecture string.
+def get_cpu_arch() -> str:
+    """Return the CPU architecture string via the experiment-specific plugin.
 
-    The CPU architecture string is determined by a script (cpu_arch.py), run by the pilot but setup with lsetup.
-    For details about this script, see: https://its.cern.ch/jira/browse/ATLINFR-4844
+    Delegates to ``pilot.user.<PILOT_USER>.utilities.get_cpu_arch()``. For
+    background see https://its.cern.ch/jira/browse/ATLINFR-4844.
 
-    :return: CPU arch (string).
+    Returns:
+        CPU architecture string, or an empty string when not reported.
     """
 
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -221,13 +225,16 @@ def get_cpu_arch():
     return cpu_arch
 
 
-def collect_workernode_info(path=None):
-    """
-    Collect node information (cpu, memory and disk space).
-    The disk space (in MB) is return for the disk in the given path.
+def collect_workernode_info(path: Optional[str] = None) -> tuple:
+    """Collect worker-node information: memory, CPU frequency, and disk space.
 
-    :param path: path to disk (string).
-    :return: memory (float), cpu (float), disk space (float).
+    Args:
+        path: Path used to measure available disk space. Defaults to the
+            current working directory when ``None``.
+
+    Returns:
+        Tuple of ``(memory_mb, cpu_freq_mhz, disk_mb)`` where *disk_mb* may
+        be ``None`` if the disk-space query raises a ``PilotException``.
     """
 
     mem = get_total_memory()
@@ -242,14 +249,20 @@ def collect_workernode_info(path=None):
     return mem, cpu, disk
 
 
-def get_disk_space(queuedata):
-    """
-    Get the disk space from the queuedata that should be available for running the job;
-    either what is actually locally available or the allowed size determined by the site (value from queuedata). This
-    value is only to be used internally by the job dispatcher.
+def get_disk_space(queuedata: Any) -> int:
+    """Return the disk space in MB that should be available for running the job.
 
-    :param queuedata: infosys object.
-    :return: disk space that should be available for running the job (int).
+    Compares the locally available disk space with the site-configured maximum
+    (``queuedata.maxwdir``) and returns the smaller of the two. Used internally
+    by the job dispatcher.
+
+    Args:
+        queuedata: Queue data object with a ``maxwdir`` attribute giving the
+            site-configured disk limit in MB.
+
+    Returns:
+        Available disk space in MB (the lesser of local availability and the
+        site maximum).
     """
 
     # --- non Job related queue data
@@ -270,11 +283,15 @@ def get_disk_space(queuedata):
     return _diskspace
 
 
-def get_node_name():
-    """
-    Return the local node name.
+def get_node_name() -> str:
+    """Return the local worker-node hostname.
 
-    :return: node name (string)
+    Checks ``PANDA_HOSTNAME`` first, then ``os.uname()``, then
+    ``socket.gethostname()``. The result is further processed by
+    :func:`get_condor_node_name` to handle HTCondor slot names.
+
+    Returns:
+        Worker-node hostname string.
     """
     if 'PANDA_HOSTNAME' in os.environ:
         host = os.environ.get('PANDA_HOSTNAME')
@@ -287,18 +304,16 @@ def get_node_name():
 
 
 def get_cpu_model() -> str:
-    """
-    Get cpu model and cache size from /proc/cpuinfo.
+    """Return the CPU model name and cache size.
 
-    If the cpu model is not found, the function will attempt to use lscpu instead.
+    Reads ``/proc/cpuinfo`` for the ``model name`` and ``cache size`` fields.
+    Falls back to ``lscpu`` when those fields are not present.
 
-    Example.
-      model name      : Intel(R) Xeon(TM) CPU 2.40GHz
-      cache size      : 512 KB
+    Example return value: ``"Intel(R) Xeon(TM) CPU 2.40GHz 512 KB"``.
 
-    gives the return string "Intel(R) Xeon(TM) CPU 2.40GHz 512 KB".
-
-    :return: cpu model (str).
+    Returns:
+        CPU model string combining model name and cache size, or ``'UNKNOWN'``
+        if neither source provides the information.
     """
 
     cpumodel = ""
@@ -349,11 +364,12 @@ def get_cpu_model() -> str:
     return modelstring
 
 
-def lscpu():
-    """
-    Execute lscpu command.
+def lscpu() -> tuple:
+    """Execute the ``lscpu`` command and return its output.
 
-    :return: exit code (int), stdout (string).
+    Returns:
+        Tuple of ``(exit_code, stdout)`` where *exit_code* is non-zero on
+        failure. Returns ``(1, "")`` when ``lscpu`` is not on ``PATH``.
     """
 
     cmd = 'lscpu'
@@ -371,10 +387,14 @@ def lscpu():
 
 
 def get_partials_from_workernode_map() -> tuple[int, int, int, int, str, str]:
-    """
-    Get numbers from a cache (the worker node map json) if it exists, otherwise reset variables to 0.
+    """Read cached CPU metrics from the worker-node map JSON file.
 
-    :return: cores per socket (int), threads per core (int), clock_speed (int), sockets (int), architecture (str), architecture level (str).
+    Returns zeroed/empty values when the cache file does not exist or cannot
+    be read.
+
+    Returns:
+        Tuple of ``(cores_per_socket, threads_per_core, clock_speed, sockets,
+        architecture, architecture_level)``.
     """
     try:
         filename = os.path.join(os.getcwd(), config.Workernode.map)
@@ -394,11 +414,15 @@ def get_partials_from_workernode_map() -> tuple[int, int, int, int, str, str]:
 
 
 def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
-    """
-    Get CPU information.
+    """Return detailed CPU topology information.
 
-    :return: number of cores (int), ht (str), sockets (int), clock speed (float), threads per core (int),
-    cores per socket (int), archictecture (str), architecture level (str).
+    Uses the worker-node map cache when available, otherwise falls back to
+    ``lscpu`` output.
+
+    Returns:
+        Tuple of ``(number_of_cores, ht, sockets, clock_speed, threads_per_core,
+        cores_per_socket, architecture, architecture_level)`` where *ht* is
+        ``"HT"`` when hyperthreading is active, or an empty string otherwise.
     """
     # get numbers from a cache (the worker node map json) if it exists, otherwise reset variables to 0
     cores_per_socket, threads_per_core, clock_speed, sockets, architecture, architecture_level = get_partials_from_workernode_map()
@@ -465,17 +489,22 @@ def get_cpu_info() -> tuple[int, str, int, float, int, int, str, str]:
 
 
 def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets: int) -> str:
-    """
-    Update the model string with the number of cores, hyperthreading info and number of sockets.
+    """Append core count, hyperthreading, and socket info to the CPU model string.
 
-    E.g. modelstring = 'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
-         -> updated modelstring = 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB'
+    Example::
 
-    :param modelstring: CPU model info (str)
-    :param number_of_cores: number of cores (int)
-    :param ht: hyperthreading info (str)
-    :param sockets: number of sockets (int)
-    :return: updated CPU model info (str).
+        'Intel Xeon Processor (Skylake, IBRS) 16384 KB'
+        → 'Intel Xeon 10-Core Processor (Skylake, IBRS) 16384 KB HT 2-Sockets'
+
+    Args:
+        modelstring: Existing CPU model description string.
+        number_of_cores: Total number of physical CPU cores.
+        ht: Hyperthreading marker string (``"HT"`` or ``""``).
+        sockets: Number of CPU sockets.
+
+    Returns:
+        Updated CPU model string, or the original string unchanged when
+        *number_of_cores* is 0.
     """
     logger.debug(f'current model string: {modelstring}')
     if number_of_cores > 0:
@@ -501,11 +530,11 @@ def update_modelstring(modelstring: str, number_of_cores: int, ht: str, sockets:
     return modelstring
 
 
-def check_hz():
-    """
-    Try to read the SC_CLK_TCK and write it to the log.
+def check_hz() -> None:
+    """Attempt to read SC_CLK_TCK and log any failure.
 
-    :return:
+    A missing ``SC_CLK_TCK`` sysconf value prevents CPU consumption
+    calculations. Any exception is caught and logged at fatal/warning level.
     """
 
     try:
@@ -517,12 +546,14 @@ def check_hz():
 
 
 def get_hepspec_per_core() -> str:
-    """
-    Get the published hepspec value per core.
+    """Return the published HEPSPEC value per core from the HTCondor machine ad.
 
-    On HTCondor only.
+    Only applicable when running under HTCondor. Requires the
+    ``CONDOR_MACHINE_AD`` environment variable to be set.
 
-    :return: hepspec value (str).
+    Returns:
+        HEPSPEC per core as a string, or an empty string if the value cannot
+        be determined.
     """
     condor_machine_ad = os.environ.get('CONDOR_MACHINE_AD', '')
     if not condor_machine_ad:
@@ -587,12 +618,13 @@ def extract_site_and_schedd() -> Tuple[Optional[str], Optional[str]]:
 
 
 def get_total_local_disk_size() -> int:
-    """
-    Run the lsblk command and capture the output.
+    """Return the total size of all local (non-mounted) block devices in bytes.
 
-    The lsblk will only report local disks and not any mounted disks.
+    Uses ``lsblk -d`` to enumerate local disks. Parsing errors are silently
+    ignored and that disk is skipped.
 
-    :return: total disk size in bytes (int).
+    Returns:
+        Aggregate disk size in bytes, or 0 if ``lsblk`` output cannot be parsed.
     """
     result = subprocess.run(['lsblk', '-d', '-o', 'NAME,SIZE'], capture_output=True, text=True)
 
@@ -619,12 +651,12 @@ def get_total_local_disk_size() -> int:
 
 
 def get_cpu_frequency() -> float:
-    """
-    Get the CPU frequency (in MHz) from /proc/cpuinfo.
+    """Return the CPU frequency in MHz read from /proc/cpuinfo.
 
-    This function is only used if psutil cannot provice the clock speed.
+    Used as a fallback when psutil cannot provide the clock speed.
 
-    :return: CPU speed (float).
+    Returns:
+        CPU frequency in MHz, or 0.0 if the value cannot be read.
     """
     try:
         with open("/proc/cpuinfo") as f:
@@ -752,17 +784,20 @@ def has_gpu() -> bool:
 
 
 def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
-    """
-    Return a dictionary with the GPU map.
+    """Return a dictionary of local GPU specifications collected by the pilot.
 
-    The GPU map is a dictionary with the local GPU specs collected by the pilot.
-    It gets reported to the PanDA server with the getJob call.
+    Checks for GPU presence via ``lspci``, then queries ``nvidia-smi``. The
+    result is reported to the PanDA server with the ``getJob`` call and
+    optionally persisted to a local JSON file.
 
-    The dictionary is to be sent to {api_url_ssl}/pilot/update_gpu_map.
+    Args:
+        site: Site name from ``PQ.resource``, included in the returned dict.
+        cache: If True, the GPU map is written to the configured JSON file.
 
-    :param site: Site name from PQ.resource (str)
-    :param cache: should the gpu map be cached? (bool)
-    :return: gpu map (dict).
+    Returns:
+        Dictionary of GPU info (vendor, model, architecture, VRAM, CUDA
+        version, driver version, count), or an empty dict when no GPU is
+        detected or ``nvidia-smi`` is unavailable.
     """
     # first confirm that the workernode actually has a GPU (relies on lspci)
     has_any_gpu = has_gpu()
@@ -791,17 +826,21 @@ def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
 
 
 def get_workernode_map(site: str, queue: str, cache: bool = True) -> dict:
-    """
-    Return a dictionary with the worker node map.
+    """Return a dictionary of local worker-node hardware specifications.
 
-    The worker node map is a dictionary with the local hardware specs collected by the pilot.
+    Collects CPU topology, memory, disk, and architecture information. The
+    result is reported to the PanDA server and optionally written to a local
+    cache JSON file.
 
-    The dictionary is to be sent to {api_url_ssl}/pilot/update_worker_node.
+    Args:
+        site: Site name from ``PQ.resource``.
+        queue: PanDA queue name from ``PQ.name``.
+        cache: If True, the worker-node map is persisted to the configured
+            JSON file.
 
-    :param site: site name from PQ.resource (str)
-    :param queue: queue name from PQ.name (str)
-    :param cache: should the workernode map be cached? (bool)
-    :return: worker node map (dict).
+    Returns:
+        Dictionary with hardware keys such as ``cpu_model``, ``n_logical_cpus``,
+        ``total_memory``, ``total_local_disk``, and others.
     """
     number_of_cores, ht, sockets, clock_speed, threads_per_core, cores_per_socket, cpu_architecture, cpu_architecture_level = get_cpu_info()
     logical_cpus = number_of_cores * (2 if ht else 1)

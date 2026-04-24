@@ -31,6 +31,7 @@ else:
     _is_psutil_available = True
 import subprocess
 from pathlib import Path
+from typing import Union
 
 from pilot.common.pilotcache import get_pilot_cache
 
@@ -41,11 +42,10 @@ PROC_CGROUP_PATH = "/proc/self/cgroup"
 
 
 def get_cgroup_version() -> str:
-    """
-    Determine if the system is using cgroups version 1 or 2.
+    """Determine if the system is using cgroups version 1 or 2.
 
     Returns:
-        str: 'v1' if cgroups version 1, 'v2' if version 2, or None if unable to determine.
+        ``'v1'`` if cgroups version 1, ``'v2'`` if version 2, or None if unable to determine.
     """
     try:
         output = subprocess.check_output(
@@ -64,15 +64,14 @@ def get_cgroup_version() -> str:
 
 
 def add_process_to_cgroup(pid: int, group_name: str = 'panda_pilot') -> bool:
-    """
-    Create a cgroup with the given name (if it does not exist) and adds the specified process ID (PID) to it.
+    """Create a cgroup with the given name (if it does not exist) and add the specified PID to it.
 
     Args:
-        pid (int): The process ID to add to the cgroup.
-        group_name (str): Name of the cgroup to create and use.
+        pid: The process ID to add to the cgroup.
+        group_name: Name of the cgroup to create and use.
 
     Returns:
-        bool: True if successfully added, False otherwise.
+        True if successfully added, False otherwise.
     """
     paths = get_process_cgroups(str(pid))
     if not paths:
@@ -110,14 +109,13 @@ def add_process_to_cgroup(pid: int, group_name: str = 'panda_pilot') -> bool:
 
 
 def get_process_cgroups(pid: str = "self") -> list:
-    """
-    Gets the cgroup paths for a given process ID (default is 'self' for the current process).
+    """Return the cgroup paths for a given process ID.
 
     Args:
-        pid (str): Process ID as a string. Default is 'self'.
+        pid: Process ID as a string. Default is ``'self'`` for the current process.
 
     Returns:
-        list: cgroup paths.
+        List of cgroup path strings.
     """
     cgroups = []
     path = f"/proc/{pid}/cgroup"
@@ -138,19 +136,18 @@ def get_process_cgroups(pid: str = "self") -> list:
 
 
 def parse_cgroup_path(size: int) -> str:
-    """
-    Parses the cgroup path from /proc/self/cgroup.
+    """Parse the cgroup path from ``/proc/self/cgroup``.
 
-    Reads the contents of /proc/self/cgroup and extracts the path associated
-    with the cgroup v2 entry (entry with id 0 and empty controllers field).
-    If not found, returns None.
+    Reads ``/proc/self/cgroup`` and extracts the path associated with the
+    cgroup v2 entry (hierarchy id 0, empty controllers field). Returns None
+    if the entry is not found or parsing fails.
 
     Args:
-        size (int): The maximum allowed length of the returned path, simulating a buffer size.
+        size: Maximum allowed length of the returned path, simulating a buffer size.
 
     Returns:
-        str: The parsed cgroup path, truncated to (size - 1) characters if needed.
-             Returns None if parsing fails.
+        The parsed cgroup path, truncated to ``(size - 1)`` characters if needed,
+        or None if parsing fails.
     """
     try:
         with open(PROC_CGROUP_PATH, "r", encoding='utf-8') as f_cgroup:
@@ -171,23 +168,19 @@ def parse_cgroup_path(size: int) -> str:
 
 
 def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> bool:  # noqa: C901
-    """
-    Create a cgroup for the current process.
+    """Create a cgroup for the current process.
 
-    This function creates a cgroup for the current process and returns True on success.
-    It also creates a controller subgroup and moves the current process into that cgroup.
-    Additionally, it moves all processes in the parent cgroup to the control subgroup.
-    Finally, it enables memory and pid controllers in the parent cgroup.
-
-    It also creates a cgroup for the subprocess that will be created by the main process,
-    so that the subprocess can be monitored and controlled as well.
+    Creates a controller subgroup and moves the current process into it. Also
+    moves all processes in the parent cgroup to the control subgroup and enables
+    memory and pid controllers in the parent cgroup. Additionally creates a
+    subprocesses cgroup so that child processes can be monitored and controlled.
 
     Args:
-        pid (int): The process ID to create the cgroup for. Default is the current process ID.
-        controller (str, optional): The controller to create the cgroup for. Default is "controller".
+        pid: Process ID to create the cgroup for. Defaults to the current process ID.
+        controller: Name of the controller subgroup to create.
 
     Returns:
-        bool: True if the cgroup was successfully created, False otherwise.
+        True if the cgroup was successfully created, False otherwise.
     """
     # make sure that the cgroup was not already created for this pid
     if pilot_cache:
@@ -255,26 +248,24 @@ def create_cgroup(pid: int = os.getpid(), controller: str = "controller") -> boo
     return True
 
 
-def get_writable_cgroup_parent(raw_cgroup_path: str or Path) -> Path:
-    """
-    Given the cgroup path HTCondor puts the job in, return the cgroup
-    where a child cgroup may be created.
+def get_writable_cgroup_parent(raw_cgroup_path: Union[str, Path]) -> Path:
+    """Return the cgroup path where a child cgroup may be created.
 
-    This function normalizes the provided cgroup path so that if the process
-    is placed inside a `.scope` node (common in systemd/HTCondor layouts) it
-    returns the parent `.slice` directory which is writable for creating
-    child cgroups. If the supplied path is already writable (for example a
-    `.slice` or a legacy layout), it is returned unchanged.
+    Normalizes the provided path so that if the process is placed inside a
+    ``.scope`` node (common in systemd/HTCondor layouts) it returns the parent
+    ``.slice`` directory, which is writable for creating child cgroups. If the
+    supplied path is already writable (e.g. a ``.slice`` or a legacy layout),
+    it is returned unchanged.
 
     Args:
-        raw_cgroup_path (str or Path): Path to the job's cgroup. May be a
-            string or a `pathlib.Path`, and may refer to a `.scope`, `.slice`
-            or other layout.
+        raw_cgroup_path: Path to the job's cgroup. May be a string or a
+            ``pathlib.Path``, and may refer to a ``.scope``, ``.slice``, or
+            other layout.
 
     Returns:
-        Path: A `pathlib.Path` pointing to the writable parent cgroup where
-        child subgroups may be created (typically the `.slice` parent of a
-        `.scope`), or the original path if no normalization is required.
+        A ``pathlib.Path`` pointing to the writable parent cgroup where child
+        subgroups may be created, or the original path if no normalization is
+        required.
     """
     p = Path(raw_cgroup_path)
 
@@ -288,30 +279,27 @@ def get_writable_cgroup_parent(raw_cgroup_path: str or Path) -> Path:
     return p
 
 
-def create_subgroup(parent_path: str or Path, subgroup_name: str) -> str:
-    """
-    Create a cgroup v2 subgroup for the pilot / controller.
+def create_subgroup(parent_path: Union[str, Path], subgroup_name: str) -> str:
+    """Create a cgroup v2 subgroup for the pilot / controller.
 
-    This function normalizes the provided `parent_path` to a writable parent
-    (handles `.scope` -> `.slice`), creates the requested subgroup directory
-    under that writable parent, and returns the path to the created subgroup.
-    On failure it logs a warning and returns an empty string to match existing
-    caller expectations.
+    Normalizes the provided ``parent_path`` to a writable parent (handles
+    ``.scope`` → ``.slice``), creates the requested subgroup directory under
+    that writable parent, and returns the path to the created subgroup. On
+    failure logs a warning and returns an empty string.
 
     Args:
-        parent_path (str or Path): Path to the parent cgroup (may be a job
-            cgroup or a `.scope` node).
-        subgroup_name (str): Name of the subgroup to create.
+        parent_path: Path to the parent cgroup (may be a job cgroup or a
+            ``.scope`` node).
+        subgroup_name: Name of the subgroup to create.
 
     Returns:
-        str: Absolute path to the created subgroup on success, or an empty
-            string on failure.
+        Absolute path to the created subgroup on success, or an empty string
+        on failure.
 
-    Notes:
-        - Uses `get_writable_cgroup_parent` to determine where creation is
-          permitted (e.g. move from `.scope` to `.slice`).
-        - Failure cases (permission denied, OS errors) are handled by logging
-          and returning an empty string.
+    Note:
+        Uses :func:`get_writable_cgroup_parent` to determine where creation is
+        permitted. Failure cases (permission denied, OS errors) are handled by
+        logging and returning an empty string.
     """
     # Normalize to the writable parent (handles .scope → .slice)
     writable_parent = get_writable_cgroup_parent(parent_path)
@@ -342,16 +330,15 @@ def create_subgroup(parent_path: str or Path, subgroup_name: str) -> str:
 
 
 def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = "control") -> list:
-    """
-    Moves all PIDs from the parent cgroup's cgroup.procs file to a control subgroup.
+    """Move all PIDs from the parent cgroup's cgroup.procs file to a control subgroup.
 
     Args:
-        parent_cgroup_path (str): Path to the parent cgroup directory (e.g.,
-            /sys/fs/cgroup/system.slice/htcondor/condor_var_lib_condor_execute_slot1_23@...).
-        control_name (str): Name of the control subgroup to create and move PIDs into.
+        parent_cgroup_path: Path to the parent cgroup directory (e.g.,
+            ``/sys/fs/cgroup/system.slice/htcondor/condor_...``).
+        control_name: Name of the control subgroup to create and move PIDs into.
 
     Returns:
-        list: List of PIDs that were moved to the control subgroup.
+        List of PID strings that were moved to the control subgroup.
     """
     parent_path = Path(parent_cgroup_path)
     procs_file = parent_path / "cgroup.procs"
@@ -383,18 +370,18 @@ def move_procs_to_control_subgroup(parent_cgroup_path: str, control_name: str = 
 
 
 def move_procs_to_parent(path: str):
-    """
-    Moves all PIDs listed in the specified cgroup.procs file to its parent cgroup.
+    """Move all PIDs listed in the specified cgroup.procs file to its parent cgroup.
 
     Args:
-        path (str): Full path to the cgroup.procs file (e.g., os.path.join(parent_cgroup_path, "cgroup.procs")).
+        path: Full path to the ``cgroup.procs`` file
+            (e.g. ``os.path.join(parent_cgroup_path, "cgroup.procs")``).
 
     Returns:
-        list: List of PIDs that were moved.
+        List of PID strings that were moved.
 
     Raises:
         RuntimeError: If any PID fails to move.
-        FileNotFoundError: If the specified cgroup.procs file does not exist.
+        FileNotFoundError: If the specified ``cgroup.procs`` file does not exist.
     """
     procs_file = Path(path)
     cgroup_path = procs_file.parent
@@ -423,19 +410,14 @@ def move_procs_to_parent(path: str):
 
 
 def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
-    """
-    Moves the given process to the specified cgroup by writing its PID to cgroup.procs.
-
-    Constructs the path to the `cgroup.procs` file inside the given cgroup
-    directory and writes the process ID to it. This is how processes are
-    assigned to cgroups in cgroup v2.
+    """Move the given process to the specified cgroup by writing its PID to cgroup.procs.
 
     Args:
-        cgroup_path (str): The filesystem path to the cgroup directory.
-        pid (int): The PID of the process to move into the cgroup.
+        cgroup_path: Filesystem path to the cgroup directory.
+        pid: PID of the process to move into the cgroup.
 
     Returns:
-        bool: True if the process was successfully moved, False otherwise.
+        True if the process was successfully moved, False otherwise.
     """
     procs_path = os.path.join(cgroup_path, "cgroup.procs")
 
@@ -458,16 +440,14 @@ def move_process_to_cgroup(cgroup_path: str, pid: int) -> bool:
 
 
 def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> bool:
-    """
-    Moves the given PID and all of its descendants into the specified cgroup
-    by invoking 'echo <pid> > cgroup.procs' using a subprocess shell command.
+    """Move the given PID and all of its descendants into the specified cgroup.
 
     Args:
-        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
-        root_pid (int): The PID of the root process to move.
+        cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
+        root_pid: PID of the root process to move.
 
     Returns:
-        bool: True if all processes were successfully moved, False otherwise.
+        True if all processes were successfully moved, False otherwise.
     """
     if not _is_psutil_available:
         logger.warning("psutil module is not available, cannot move processes to cgroup.")
@@ -502,20 +482,15 @@ def move_process_and_descendants_to_cgroup(cgroup_path: str, root_pid: int) -> b
 
 
 def enable_controllers(cgroup_path: str, controllers: str) -> bool:
-    """
-    Enable specified controllers in the cgroup's subtree_control file.
-
-    Constructs the full path to the `cgroup.subtree_control` file and writes
-    the given controller names (e.g., "+cpu +memory") to it. This is necessary
-    to activate controllers in a cgroup v2 hierarchy.
+    """Enable specified controllers in the cgroup's subtree_control file.
 
     Args:
-        cgroup_path (str): The filesystem path to the cgroup directory.
-        controllers (str): A space-separated string of controllers to enable,
-            prefixed with "+" (e.g., "+cpu +memory").
+        cgroup_path: Filesystem path to the cgroup directory.
+        controllers: Space-separated controllers to enable, prefixed with ``+``
+            (e.g. ``"+cpu +memory"``).
 
     Returns:
-        bool: True if the controllers were successfully enabled, False otherwise.
+        True if the controllers were successfully enabled, False otherwise.
     """
     subtree_control_path = os.path.join(cgroup_path, "cgroup.subtree_control")
     try:
@@ -555,14 +530,13 @@ def enable_controllers(cgroup_path: str, controllers: str) -> bool:
 
 
 def get_pids_for_cgroup(cgroup_path: str) -> list:
-    """
-    Get the PIDs of all processes in the specified cgroup.
+    """Return the PIDs of all processes in the specified cgroup.
 
     Args:
-        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+        cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
 
     Returns:
-        list: List of PIDs in the cgroup.
+        List of integer PIDs in the cgroup.
     """
     procs_file = os.path.join(cgroup_path, "cgroup.procs")
     try:
@@ -575,11 +549,10 @@ def get_pids_for_cgroup(cgroup_path: str) -> list:
 
 
 def monitor_cgroup(cgroup_path: str) -> None:
-    """
-    Monitor the specified cgroup by printing its PIDs and memory usage.
+    """Monitor the specified cgroup by logging its PIDs and memory usage.
 
     Args:
-        cgroup_path (str): Path to the cgroup directory (e.g., /sys/fs/cgroup/mygroup).
+        cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
     """
     pids = get_pids_for_cgroup(cgroup_path)
     if not pids:
@@ -611,22 +584,20 @@ def monitor_cgroup(cgroup_path: str) -> None:
 
 
 def set_memory_limit(cgroup_path: str, memory_bytes: int):
-    """
-    Set the maximum memory usage limit for a given cgroup v2.
+    """Set the maximum memory usage limit for a given cgroup v2.
 
-    This function writes the specified memory limit (in bytes) to the cgroup's
-    `memory.max` file. If the limit is exceeded by processes in the cgroup,
-    the kernel will trigger an out-of-memory (OOM) kill.
+    Writes the specified limit to the cgroup's ``memory.max`` file. If the
+    limit is exceeded, the kernel will trigger an OOM kill.
 
     Args:
-        cgroup_path (str): Full path to the cgroup (e.g., /sys/fs/cgroup/mygroup).
-        memory_bytes (int): The maximum allowed memory usage in bytes. Use -1 or
-            a large value (e.g., 9223372036854771712) to disable the limit.
+        cgroup_path: Full path to the cgroup (e.g. ``/sys/fs/cgroup/mygroup``).
+        memory_bytes: Maximum allowed memory in bytes. Use ``-1`` to disable
+            the limit (writes ``"max"``).
 
     Raises:
-        FileNotFoundError: If the memory.max file is missing.
-        PermissionError: If the script lacks permission to write to the cgroup.
-        ValueError: If the memory_bytes is invalid or negative (other than -1).
+        FileNotFoundError: If the ``memory.max`` file is missing.
+        PermissionError: If the process lacks permission to write to the cgroup.
+        ValueError: If ``memory_bytes`` is invalid or less than -1.
         OSError: For other OS-level errors.
     """
     memory_max_path = os.path.join(cgroup_path, "memory.max")

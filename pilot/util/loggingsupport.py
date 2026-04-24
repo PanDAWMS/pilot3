@@ -31,24 +31,23 @@ from pilot.util.config import config
 logger = logging.getLogger(__name__)
 
 
-def establish_logging(debug: bool = True, nopilotlog: bool = False, filename: str = config.Pilot.pilotlog, loglevel: int = 0, redirectstdout: str = ""):
-    """
-    Set up and establish logging.
+def establish_logging(debug: bool = True, nopilotlog: bool = False, filename: str = config.Pilot.pilotlog, loglevel: int = 0, redirectstdout: str = "") -> None:
+    """Set up and establish logging.
 
-    Option loglevel can be used to decide which (predetermined) logging format to use.
-    Example:
-      loglevel=0: '%(asctime)s | %(levelname)-8s | %(name)-32s | %(funcName)-25s | %(message)s'
-      loglevel=1: 'ts=%(asctime)s level=%(levelname)-8s event=%(name)-32s.%(funcName)-25s msg="%(message)s"'
+    The loglevel parameter selects among predetermined logging formats::
 
-    All stdout can be redirected to /dev/null (or to a file). Basically required in prompt processing, or there
-    will be too much stdout. If to a file, it is recommended to then also set an appropriate max pilot lifetime
-    to prevent it from creating too much stdout.
+        loglevel=0: '%(asctime)s | %(levelname)-8s | %(name)-32s | %(funcName)-25s | %(message)s'
+        loglevel=1: 'ts=%(asctime)s level=%(levelname)-8s event=%(name)-32s.%(funcName)-25s msg="%(message)s"'
 
-    :param debug: debug mode (bool)
-    :param nopilotlog: True when pilot log is not known (bool)
-    :param filename: name of log file (str)
-    :param loglevel: selector for logging level (int)
-    :param redirectstdout: file name, or /dev/null (str).
+    All stdout can be redirected to ``/dev/null`` or to a file, which is
+    essentially required in prompt processing to avoid excessive output.
+
+    Args:
+        debug: Enable debug mode.
+        nopilotlog: True when pilot log file is not known.
+        filename: Name of the log file.
+        loglevel: Selector for logging format.
+        redirectstdout: File name to redirect stdout to (e.g. ``'/dev/null'``).
     """
     if redirectstdout:
         with open(redirectstdout, 'w', encoding="utf-8") as sys.stdout:
@@ -82,13 +81,13 @@ def establish_logging(debug: bool = True, nopilotlog: bool = False, filename: st
     _logger.addHandler(console)
 
 
-def flush_handler(name: str = ""):
-    """
-    Flush the stdout buffer for the given handler.
+def flush_handler(name: str = "") -> None:
+    """Flush the stdout buffer for the given handler.
 
     Useful e.g. in case of time-out exceptions.
 
-    :param name: name of handler (str).
+    Args:
+        name: Name of the handler to flush.
     """
     if not name:
         return

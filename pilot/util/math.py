@@ -37,11 +37,16 @@ SYMBOLS = {
 
 
 def mean(data: list) -> float:
-    """
-    Return the sample arithmetic mean of data.
+    """Return the sample arithmetic mean of *data*.
 
-    :param data: list of floats or ints (list)
-    :return: mean value (float).
+    Args:
+        data: Non-empty list of numeric values.
+
+    Returns:
+        Arithmetic mean of the list.
+
+    Raises:
+        ValueError: If *data* contains fewer than one element.
     """
     n = len(data)
     if n < 1:
@@ -51,13 +56,15 @@ def mean(data: list) -> float:
 
 
 def sum_square_dev(data: list) -> float:
-    """
-    Return sum of square deviations of sequence data.
+    """Return the sum of squared deviations from the mean.
 
-    Sum (x - x_mean)**2
+    Computes ``sum((x - mean(data))**2)`` for each element ``x`` in *data*.
 
-    :param data: list of floats or ints.
-    :return: sum of squares (float).
+    Args:
+        data: List of numeric values.
+
+    Returns:
+        Sum of squared deviations.
     """
     c = mean(data)
 
@@ -65,25 +72,32 @@ def sum_square_dev(data: list) -> float:
 
 
 def sum_dev(x: list, y: list) -> float:
-    """
-    Return sum of deviations of sequence data.
+    """Return the sum of cross-deviations for two sequences.
 
-    Sum (x - x_mean)**(y - y_mean)
+    Computes ``sum((xi - mean(x)) * (yi - mean(y)))`` for paired elements.
 
-    :param x: list of ints or floats (list)
-    :param y: list of ints or floats (list)
-    :return: sum of deviations (float).
+    Args:
+        x: First list of numeric values.
+        y: Second list of numeric values (must be the same length as *x*).
+
+    Returns:
+        Sum of cross-deviations.
     """
     return sum((_x - mean(x)) * (_y - mean(y)) for _x, _y in zip(x, y))
 
 
 def chi2(observed: list, expected: list) -> float:
-    """
-    Return the chi2 sum of the provided observed and expected values.
+    """Return the chi-squared sum for observed and expected value lists.
 
-    :param observed: list of floats (list)
-    :param expected: list of floats (list)
-    :return: chi2 (float).
+    Returns 0.0 immediately if any expected value is zero to avoid division
+    by zero.
+
+    Args:
+        observed: List of observed values.
+        expected: List of expected values (same length as *observed*).
+
+    Returns:
+        Chi-squared sum, or 0.0 if any expected value is zero.
     """
     if 0 in expected:
         return 0.0
@@ -92,19 +106,22 @@ def chi2(observed: list, expected: list) -> float:
 
 
 def float_to_rounded_string(num: float, precision: int = 3) -> str:
-    """
-    Convert float to a string with a desired number of digits (the precision).
+    """Convert a float to a string rounded to the given number of decimal places.
 
-    E.g. num=3.1415, precision=2 -> '3.14'.
+    Example::
 
-    round_to_n = lambda x, n: x if x == 0 else round(x, -int(math.floor(math.log10(abs(x)))) + (n - 1))
-      round_to_n(x=0.123,n=2)
-      0.12
+        float_to_rounded_string(3.1415, 2) == '3.14'
 
-    :param num: number to be converted (float)
-    :param precision: number of desired digits (int)
-    :raises NotDefined: for undefined precisions and float conversions to Decimal
-    :return: rounded string (str).
+    Args:
+        num: Number to convert.
+        precision: Number of decimal places to retain.
+
+    Returns:
+        String representation of *num* rounded to *precision* decimal places.
+
+    Raises:
+        NotDefined: If *precision* cannot be used to build a ``Decimal`` exponent,
+            or if *num* cannot be converted to ``Decimal``.
     """
     try:
         _precision = Decimal(10) ** -precision
@@ -120,13 +137,17 @@ def float_to_rounded_string(num: float, precision: int = 3) -> str:
 
 
 def tryint(x: Any) -> Any:
-    """
-    Try to convert given number to integer.
+    """Try to convert *x* to an integer, returning the original value on failure.
 
-    Used by numbered string comparison (to protect against unexpected letters in version number).
+    Used during version-string comparison to handle components that contain
+    letters (e.g. ``'Nightly'``).
 
-    :param x: possible int (Any)
-    :return: converted int or original value in case of ValueError (Any).
+    Args:
+        x: Value to convert.
+
+    Returns:
+        Integer conversion of *x*, or the original value if conversion raises
+        ``ValueError``.
     """
     try:
         return int(x)
@@ -135,66 +156,77 @@ def tryint(x: Any) -> Any:
 
 
 def split_version(version: str) -> tuple:
-    """
-    Split version string into parts and convert the parts into integers when possible.
+    """Split a version string into a tuple, converting numeric parts to integers.
 
-    Any encountered strings are left as they are.
-    The function is used with release strings.
-    split_version("1.2.3") = (1,2,3)
-    split_version("1.2.Nightly") = (1,2,"Nightly")
+    Non-numeric parts are left as strings. Useful for rank-based version
+    comparison::
 
-    The function can also be used for sorting:
-    > names = ['YT4.11', '4.3', 'YT4.2', '4.10', 'PT2.19', 'PT2.9']
-    > sorted(names, key=splittedname)
-    ['4.3', '4.10', 'PT2.9', 'PT2.19', 'YT4.2', 'YT4.11']
+        split_version("1.2.3")       == (1, 2, 3)
+        split_version("1.2.Nightly") == (1, 2, "Nightly")
 
-    :param version: release string (str)
-    :return: converted release tuple (tuple).
+    The result can also serve as a sort key::
+
+        sorted(['YT4.11', '4.3', 'YT4.2', '4.10'], key=split_version)
+
+    Args:
+        version: Dot-separated release string.
+
+    Returns:
+        Tuple of integer and/or string components.
     """
     return tuple(tryint(x) for x in split('([^.]+)', version))
 
 
 def is_greater_or_equal(num_a: str, num_b: str) -> bool:
-    """
-    Check if the numbered string num_a >= num_b.
+    """Check whether version string *num_a* is greater than or equal to *num_b*.
 
-    "1.2.3" > "1.2"  -- more digits
-    "1.2.3" > "1.2.2"  -- rank based comparison
-    "1.3.2" > "1.2.3"  -- rank based comparison
-    "1.2.N" > "1.2.2"  -- nightlies checker, always greater
+    Comparison rules::
 
-    :param num_a: numbered string (str)
-    :param num_b: numbered string (str)
-    :return: True if num_a >= num_b, False otherwise (bool).
+        "1.2.3" > "1.2"   — more digits implies greater
+        "1.2.3" > "1.2.2" — rank-based comparison
+        "1.3.2" > "1.2.3" — rank-based comparison
+        "1.2.N" > "1.2.2" — nightly builds are always considered greater
+
+    Args:
+        num_a: First version string.
+        num_b: Second version string.
+
+    Returns:
+        True if *num_a* >= *num_b*, False otherwise.
     """
     return split_version(num_a) >= split_version(num_b)
 
 
 def add_lists(list1: list, list2: list) -> list:
-    """
-    Add list1 and list2 and remove any duplicates.
+    """Merge two lists, preserving order and removing duplicates from the second.
 
-    Example:
-    list1=[1,2,3,4]
-    list2=[3,4,5,6]
-    add_lists(list1, list2) = [1, 2, 3, 4, 5, 6]
+    Example::
 
-    :param list1: input list 1 (list)
-    :param list2: input list 2 (list)
-    :return: added lists with removed duplicates (list).
+        add_lists([1, 2, 3, 4], [3, 4, 5, 6]) == [1, 2, 3, 4, 5, 6]
+
+    Args:
+        list1: First input list (order is preserved).
+        list2: Second input list (elements already in *list1* are dropped).
+
+    Returns:
+        Combined list with duplicates removed.
     """
     return list1 + list(set(list2) - set(list1))
 
 
 def convert_mb_to_b(size: Any) -> int:
-    """
-    Convert value from MB to B for the given size variable.
+    """Convert a size value from megabytes to bytes.
 
-    If the size is a float, the function will convert it to int.
+    Coerces *size* to ``int`` before conversion; floats are truncated.
 
-    :param size: size in MB (float or int) (Any)
-    :raises: ValueError for conversion error.
-    :return: size in B (int).
+    Args:
+        size: Size in MB. May be a float, int, or numeric string.
+
+    Returns:
+        Equivalent size in bytes.
+
+    Raises:
+        ValueError: If *size* cannot be converted to an integer.
     """
     try:
         size = int(size)
@@ -205,14 +237,18 @@ def convert_mb_to_b(size: Any) -> int:
 
 
 def convert_b_to_gb(size: Any) -> int:
-    """
-    Convert value from B to GB for the given size variable.
+    """Convert a size value from bytes to gigabytes, rounded to the nearest integer.
 
-    If the size is a float, the function will convert it to int.
+    Coerces *size* to ``int`` before conversion.
 
-    :param size: size in B (float or int) (Any)
-    :raises: ValueError for conversion error.
-    :return: size in GB (int).
+    Args:
+        size: Size in bytes. May be a float, int, or numeric string.
+
+    Returns:
+        Equivalent size in GB, rounded to the nearest integer.
+
+    Raises:
+        ValueError: If *size* cannot be converted to an integer.
     """
     try:
         size = int(size)
@@ -223,57 +259,39 @@ def convert_b_to_gb(size: Any) -> int:
 
 
 def diff_lists(list_a: list, list_b: list) -> list:
-    """
-    Return the difference between list_a and list_b.
+    """Return elements present in *list_a* but not in *list_b*.
 
-    :param list_a: input list a (list)
-    :param list_b: input list b (list)
-    :return: difference (list).
+    Args:
+        list_a: Minuend list.
+        list_b: Subtrahend list.
+
+    Returns:
+        List of elements in *list_a* that are not in *list_b*.
     """
     return list(set(list_a) - set(list_b))
 
 
 def bytes2human(num: Any, symbols: str = 'customary') -> str:
-    """
-    Convert `num` bytes into a human-readable string based on format.
+    """Convert *num* bytes to a human-readable string.
 
-    Symbols can be either "customary", "customary_ext", "iec" or "iec_ext",
-    see: http://goo.gl/kTQMs
+    *symbols* selects the unit set. Accepted values are ``'customary'``,
+    ``'customary_ext'``, ``'iec'``, and ``'iec_ext'``.
 
-      >>> bytes2human(0)
-      '0.0 B'
-      >>> bytes2human(0.9)
-      '0.0 B'
-      >>> bytes2human(1)
-      '1.0 B'
-      >>> bytes2human(1.9)
-      '1.0 B'
-      >>> bytes2human(1024)
-      '1.0 K'
-      >>> bytes2human(1048576)
-      '1.0 M'
-      >>> bytes2human(1099511627776127398123789121)
-      '909.5 Y'
+    Examples::
 
-      >>> bytes2human(9856, symbols="customary")
-      '9.6 K'
-      >>> bytes2human(9856, symbols="customary_ext")
-      '9.6 kilo'
-      >>> bytes2human(9856, symbols="iec")
-      '9.6 Ki'
-      >>> bytes2human(9856, symbols="iec_ext")
-      '9.6 kibi'
+        bytes2human(0)       == '0.0 B'
+        bytes2human(1024)    == '1.0 K'
+        bytes2human(1048576) == '1.0 M'
 
-      >>> bytes2human(10000, "%(value).1f %(symbol)s/sec")
-      '9.8 K/sec'
+    Args:
+        num: Number of bytes to convert.
+        symbols: Symbol set to use for unit labels.
 
-      >>> # precision can be adjusted by playing with %f operator
-      >>> bytes2human(10000, _format="%(value).5f %(symbol)s")
-      '9.76562 K'
+    Returns:
+        Human-readable size string with one decimal place.
 
-    :param num: input number (Any)
-    :param symbols: symbold string (str)
-    :return: human-readable string (str).
+    Raises:
+        ValueError: If *num* is negative or cannot be converted to an integer.
     """
     _format = '%(value).1f %(symbol)s'
 
@@ -296,54 +314,35 @@ def bytes2human(num: Any, symbols: str = 'customary') -> str:
 
 
 def human2bytes(snumber: str, divider: Any = None) -> int:
-    """
-    Guess the string format based on default symbols set and return the corresponding bytes as an integer.
+    """Convert a human-readable size string to bytes.
 
-    When unable to recognize the format, a ValueError is raised.
+    Infers the unit from the string. Raises ``ValueError`` when the format
+    cannot be recognised.
 
-    If no digit passed, only a letter, it is interpreted as a one of a kind. Eg "KB" = "1 KB".
-    If no letter passed, it is assumed to be in bytes. Eg "512" = "512 B"
+    Rules:
 
-    The second argument is used to convert to another magnitude (eg return not bytes but KB).
-    It can be interpreted as a cluster size. Eg "512 B", or "0.2 K".
+    - No digit prefix → treated as 1 of that unit (e.g. ``"KB"`` == ``"1 KB"``).
+    - No letter suffix → treated as bytes (e.g. ``"512"`` == ``"512 B"``).
+    - ``'k'`` is accepted as an alias for ``'K'``.
+    - *divider* converts the result to another magnitude (e.g. ``"M"`` returns MB).
 
-      >>> human2bytes('0 B')
-      0
-      >>> human2bytes('3')
-      3
-      >>> human2bytes('K')
-      1024
-      >>> human2bytes('1 K')
-      1024
-      >>> human2bytes('1 M')
-      1048576
-      >>> human2bytes('1 Gi')
-      1073741824
-      >>> human2bytes('1 tera')
-      1099511627776
+    Examples::
 
-      >>> human2bytes('0.5kilo')
-      512
-      >>> human2bytes('0.1  byte')
-      0
-      >>> human2bytes('1 k')  # k is an alias for K
-      1024
-      >>> human2bytes('12 foo')
-      Traceback (most recent call last):
-          ...
-      ValueError: can't interpret '12 foo'
+        human2bytes('0 B')    == 0
+        human2bytes('1 K')    == 1024
+        human2bytes('1 M')    == 1048576
+        human2bytes('1 Gi')   == 1073741824
+        human2bytes('1 M', 'K') == 1024
 
-      >>> human2bytes('1 M', 'K')
-      1024
-      >>> human2bytes('2 G', 'M')
-      2048
-      >>> human2bytes('G', '2M')
-      512
+    Args:
+        snumber: Human-readable size string, e.g. ``'1.5 GB'``.
+        divider: Optional divisor string to convert the result to another unit.
 
-    :param snumber: number string (str)
-    :param divider: divider (Any)
-    :return: converted integer (int)
-    :raises ValueError: for conversion error.
+    Returns:
+        Size in bytes (or in units of *divider* when provided).
+
+    Raises:
+        ValueError: If the unit suffix cannot be recognised.
     """
     init = snumber
     num = ""
@@ -389,11 +388,13 @@ def human2bytes(snumber: str, divider: Any = None) -> int:
 
 
 def convert_seconds_to_hours_minutes_seconds(seconds: int) -> tuple:
-    """
-    Convert seconds to hours, minutes, and remaining seconds.
+    """Convert a duration in seconds to hours, minutes, and remaining seconds.
 
-    :param seconds: seconds (int)
-    :return: hours, minutes, remaining seconds (tuple).
+    Args:
+        seconds: Total duration in seconds.
+
+    Returns:
+        Tuple of ``(hours, minutes, remaining_seconds)``.
     """
     hours = seconds // 3600
     remaining_seconds = seconds % 3600

@@ -37,12 +37,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_distinguished_name() -> str:
-    """
-    Get the user DN.
+    """Get the user DN.
 
-    Note: the DN is also sent by the server to the pilot in the job description (produserid).
+    The DN is also sent by the server to the pilot in the job description
+    (``produserid``).
 
-    :return: User DN (str).
+    Returns:
+        User DN string, or an empty string if it could not be retrieved.
     """
     dn = ""
     executable = 'arcproxy -i subject'
@@ -71,13 +72,15 @@ def get_distinguished_name() -> str:
 
 
 def vomsproxyinfo(options: str = '-all', mute: bool = False, path: str = '') -> tuple[int, str, str]:
-    """
-    Execute voms-proxy-info with the given options.
+    """Execute voms-proxy-info with the given options.
 
-    :param options: command options (str)
-    :param mute: should command output be printed (mute=False) or not (mute=True) (bool)
-    :param path: use given path if specified for proxy (str)
-    :return: exit code (int), stdout (string), stderr (str) (tuple).
+    Args:
+        options: Command options.
+        mute: If True, suppress printing of command output.
+        path: Path to the proxy file. If set, ``--file=<path>`` is appended.
+
+    Returns:
+        Tuple of (exit code, stdout, stderr).
     """
     executable = f'voms-proxy-info {options}'
     if path:
@@ -235,15 +238,19 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
 
 
 def get_proxy_old(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
-    """
-    Download and store a proxy.
+    """Download and store a proxy (legacy implementation).
 
-    E.g. on read-only file systems (K8), the default path is not available, in which case the new proxy
-    will be stored in the workdir (return the updated path).
+    On read-only file systems (e.g. K8s), the default path may not be
+    writable. In that case the new proxy will be stored in the workdir and
+    the updated path is returned.
 
-    :param proxy_outfile_name: specify the file to store proxy (str)
-    :param voms_role: what proxy (role) to request, e.g. 'atlas' (str)
-    :return: result (Boolean), updated proxy path (str) (tuple).
+    Args:
+        proxy_outfile_name: Path to the file where the proxy should be stored.
+        voms_role: VOMS role / VO name to request, e.g. ``'atlas'``.
+
+    Returns:
+        Tuple of (result, proxy_path): result is True on success, proxy_path
+        is the path to the written proxy file.
     """
     try:
         # it assumes that https_setup() was done already
@@ -309,14 +316,17 @@ def get_proxy_old(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
 
 
 def create_cert_files(from_proxy: str, workdir: str) -> tuple[str, str]:
-    """
-    Create cert/key pem files from given proxy and store in workdir.
+    """Create cert/key pem files from given proxy and store in workdir.
 
-    These files are needed for communicating with logstash server.
+    These files are needed for communicating with the logstash server.
 
-    :param from_proxy: path to proxy file (str)
-    :param workdir: work directory (str)
-    :return: path to crt.pem (string), path to key.pem (string) (tuple).
+    Args:
+        from_proxy: Path to proxy file.
+        workdir: Work directory where the pem files will be stored.
+
+    Returns:
+        Tuple of (path to crt.pem, path to key.pem). Both are empty strings
+        on failure.
     """
     _files = [os.path.join(workdir, 'crt.pem'), os.path.join(workdir, 'key.pem')]
     if os.path.exists(_files[0]) and os.path.exists(_files[1]):

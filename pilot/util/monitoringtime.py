@@ -46,29 +46,37 @@ class MonitoringTime:
         self.ct_kill = ct
         self.ct_lease = ct
 
-    def update(self, key: str, modtime: int = None):
-        """
-        Update a given key with the current time or given time.
+    def update(self, key: str, modtime: int = None) -> None:
+        """Update a given key with the current time or a provided time.
 
-        Usage: mt=MonitoringTime()
-               mt.update('ct_proxy')
+        Example::
 
-        :param key: name of key (str)
-        :param modtime: modification time (int).
+            mt = MonitoringTime()
+            mt.update('ct_proxy')
+
+        Args:
+            key: Name of the key to update.
+            modtime: Modification time to set. If None, the current time is used.
         """
         ct = int(time.time()) if not modtime else modtime
         if hasattr(self, key):
             setattr(self, key, ct)
 
     def get(self, key: str) -> int:
-        """
-        Return the value for the given key.
+        """Return the value for the given key.
 
-        Usage: mt=MonitoringTime()
-               mt.get('ct_proxy')
-        The method throws an AttributeError in case of no such key.
+        Example::
 
-        :param key: name of key (str)
-        :return: key value (int).
+            mt = MonitoringTime()
+            mt.get('ct_proxy')
+
+        Args:
+            key: Name of the key to retrieve.
+
+        Returns:
+            Key value.
+
+        Raises:
+            AttributeError: If the key does not exist.
         """
         return getattr(self, key)

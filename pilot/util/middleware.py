@@ -51,14 +51,18 @@ def containerise_general_command(
     job: JobData,
     label: str = "command",
     container_type: str = "container",
-):
-    """
-    Containerise a general command by execution in a script that can be run in a container.
+) -> None:
+    """Run a general command inside a container via the experiment plugin.
 
-    :param job: job object (object)
-    :param label: label (str)
-    :param container_type: optional 'container/bash'
-    :raises PilotException: for general failures.
+    Args:
+        job: Job object providing the debug command and working directory.
+        label: Human-readable label used in log messages.
+        container_type: Execution mode; only ``'container'`` is currently
+            supported (``'bash'`` raises ``PilotException``).
+
+    Raises:
+        PilotException: If the container command cannot be constructed or the
+            ``container_type`` is unsupported.
     """
     if container_type == "container":
         # add bits and pieces needed to run the cmd in a container
@@ -99,25 +103,30 @@ def containerise_middleware(
     remotesite: str,
     label: str = "stage-in",
     container_type: str = "container",
-):
-    """
-    Containerise the middleware by performing stage-in/out steps in a script that in turn can be run in a container.
+) -> None:
+    """Run stage-in or stage-out in an isolation script, optionally inside a container.
 
-    Note: a container will only be used for option container_type='container'. If this is 'bash', then stage-in/out
-    will still be done by a script, but not containerised.
+    When *container_type* is ``'container'``, the script is wrapped in a
+    container command via the experiment plugin. When it is ``'bash'``, the
+    script runs as a plain bash process (not containerised).
 
-    Note: this function is tailormade for stage-in/out.
+    Args:
+        job: Job object providing metadata, working directory, and queue info.
+        args: Parsed pilot arguments with ``input_dir``, ``output_dir``,
+            ``queue``, ``rucio_host``, and ``stageout_attempts`` attributes.
+        xdata: List of :class:`~pilot.info.filespec.FileSpec` objects to
+            stage in or out.
+        eventtype: Event type string passed to the isolation script.
+        localsite: Local site name passed to the isolation script.
+        remotesite: Remote site name passed to the isolation script.
+        label: Operation label; either ``'stage-in'`` or ``'stage-out'``.
+        container_type: Execution mode; ``'container'`` or ``'bash'``.
 
-    :param job: job object (JobData)
-    :param args: command line arguments (dict)
-    :param xdata: list of FileSpec objects (list)
-    :param eventtype: event type (str)
-    :param localsite: local site name (str)
-    :param remotesite: remote site name (str)
-    :param label: optional 'stage-in/out' (str)
-    :param container_type: optional 'container/bash' (str)
-    :raises StageInFailure: for stage-in failures
-    :raises StageOutFailure: for stage-out failures.
+    Raises:
+        StageInFailure: If an error occurs during stage-in log writing or file
+            status handling.
+        StageOutFailure: If an error occurs during stage-out log writing or
+            file status handling.
     """
     external_dir = args.input_dir if label == "stage-in" else args.output_dir
 
@@ -196,11 +205,16 @@ def containerise_middleware(
 
 
 def get_script_path(script: str) -> str:
-    """
-    Return the path for the script.
+    """Return the absolute path to a pilot script.
 
-    :param script: script name (str)
-    :return: path (str).
+    Searches under ``PILOT_SOURCE_DIR/pilot/scripts`` and falls back to
+    ``PILOT_SOURCE_DIR/pilot3/pilot/scripts``.
+
+    Args:
+        script: Script filename (e.g. ``'stagein.py'``).
+
+    Returns:
+        Absolute path to the script, or an empty string if not found.
     """
     srcdir = environ.get("PILOT_SOURCE_DIR", ".")
     _path = path.join(srcdir, "pilot/scripts")
@@ -227,26 +241,31 @@ def get_command(
     container_type: str = "container",
     rucio_host: str = "",
     stage_attempts: int = 1,
-):
-    """
-    Get the middleware container execution command.
+) -> str:
+    """Build the middleware container execution command for stage-in or stage-out.
 
-    Note: this function is tailormade for stage-in/out.
+    Args:
+        job: Job object providing metadata and working directory.
+        xdata: List of :class:`~pilot.info.filespec.FileSpec` objects to
+            stage in or out.
+        queue: PanDA queue name.
+        script: Filename of the stage-in/out isolation script.
+        eventtype: Event type string passed to the script.
+        localsite: Local site name passed to the script.
+        remotesite: Remote site name passed to the script.
+        external_dir: Directory for input (stage-in) or output (stage-out) files.
+        label: Operation label; either ``'stage-in'`` or ``'stage-out'``.
+        container_type: Execution mode; ``'container'`` or ``'bash'``.
+        rucio_host: Optional Rucio host override passed to the script.
+        stage_attempts: Number of allowed stage-out attempts.
 
-    :param job: job object (JobData)
-    :param xdata: list of FileSpec objects (list)
-    :param queue: queue name (str)
-    :param script: name of stage-in/out script (str)
-    :param eventtype: event type (str)
-    :param localsite: local site name (str)
-    :param remotesite: remote site name (str)
-    :param external_dir: input or output files directory (str)
-    :param label: optional 'stage-[in|out]' (str)
-    :param container_type: optional 'container/bash' (str)
-    :param rucio_host: optional rucio host (str)
-    :param stage_attempts: number of stage-in/out attempts (int)
-    :return: stage-in/out command (str)
-    :raises PilotException: for stage-in/out related failures.
+    Returns:
+        Full command string ready for execution.
+
+    Raises:
+        PilotException: If the replica dictionary cannot be written, the pilot
+            source cannot be copied, or the container command cannot be
+            constructed.
     """
     if label == "stage-out":
         filedata_dictionary = get_filedata_strings(xdata)
@@ -324,14 +343,21 @@ def get_command(
     return cmd
 
 
-def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in"):
-    """
-    Handle updated job object fields.
+def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in") -> None:
+    """Update job and file-spec state from the stage-in/out status JSON file.
 
-    :param job: job object (JobData)
-    :param xdata: list of FileSpec objects (list)
-    :param label: 'stage-in/out' (str)
-    :raises: StageInFailure, StageOutFailure.
+    Reads the status dictionary written by the isolation script and propagates
+    file status, URLs, checksums, and error codes back to *job* and *xdata*.
+
+    Args:
+        job: Job object whose error codes will be updated on failure.
+        xdata: List of :class:`~pilot.info.filespec.FileSpec` objects to
+            update with status, TURL, SURL, and checksum values.
+        label: Operation label; either ``'stage-in'`` or ``'stage-out'``.
+
+    Raises:
+        StageInFailure: If the status file cannot be parsed during stage-in.
+        StageOutFailure: If the status file cannot be parsed during stage-out.
     """
     dictionary_name = (
         config.Container.stagein_status_dictionary
@@ -384,11 +410,16 @@ def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in"
 
 
 def get_logfile_names(label: str) -> tuple[str, str]:
-    """
-    Get the proper names for the redirected stage-in/out logs.
+    """Return the stdout and stderr log file names for a stage-in or stage-out operation.
 
-    :param label: 'stage-[in|out]' (string)
-    :return: 'stage[in|out]_stdout' (string), 'stage[in|out]_stderr' (string) (tuple).
+    Names are read from the pilot config and fall back to hard-coded defaults
+    when the config values are empty.
+
+    Args:
+        label: Operation label; either ``'stage-in'`` or ``'stage-out'``.
+
+    Returns:
+        Tuple of ``(stdout_filename, stderr_filename)``.
     """
     if label == "stage-in":
         _stdout_name = config.Container.middleware_stagein_stdout
@@ -409,18 +440,25 @@ def get_logfile_names(label: str) -> tuple[str, str]:
 
 
 def get_filedata(data: list) -> dict:
-    """
-    Return a dictionary with LFNs, guids, scopes, datasets, ddmendpoints, etc.
+    """Return a per-LFN file metadata dictionary for the stage-in container script.
 
-    Note: this dictionary will be written to a file that will be read back by the stage-in script inside the container.
-    Dictionary format:
-        { lfn1: { 'guid': guid1, 'scope': scope1, 'dataset': dataset1, 'ddmendpoint': ddmendpoint1,
-                  'filesize': filesize1, 'checksum': checksum1, 'allowlan': allowlan1, 'allowwan': allowwan1,
-                  'directaccesslan': directaccesslan1, 'directaccesswan': directaccesswan1, 'istar': istar1,
-                  'accessmode': accessmode1, 'storagetoken': storagetoken1}, lfn2: .. }
+    The returned dictionary is written to a JSON file and read back by the
+    isolation script running inside the container. The format is::
 
-    :param data: job [in|out]data (list of FileSpec objects)
-    :return: file dictionary (dict).
+        {
+            lfn1: {'guid': .., 'scope': .., 'dataset': .., 'ddmendpoint': ..,
+                   'filesize': .., 'checksum': .., 'allowlan': .., 'allowwan': ..,
+                   'directaccesslan': .., 'directaccesswan': .., 'istar': ..,
+                   'accessmode': .., 'storagetoken': ..},
+            lfn2: ..
+        }
+
+    Args:
+        data: List of :class:`~pilot.info.filespec.FileSpec` objects (job input
+            or output data).
+
+    Returns:
+        Dictionary mapping LFN strings to their metadata dicts.
     """
     file_dictionary = {}
     for fspec in data:
@@ -452,11 +490,22 @@ def get_filedata(data: list) -> dict:
 
 
 def get_filedata_strings(data: list) -> dict:
-    """
-    Return a dictionary with comma-separated list of LFNs, guids, scopes, datasets, ddmendpoints, etc.
+    """Return a dictionary of comma-separated file attribute strings for the stage-out script.
 
-    :param data: job [in|out]data (list of FileSpec objects)
-    :return: {'lfns': lfns, ..} (dict).
+    Encodes per-file attributes (LFNs, GUIDs, scopes, datasets, DDM endpoints,
+    file sizes, checksums, access flags, and storage tokens) as flat
+    comma-joined strings ready to be passed as command-line arguments.
+
+    Args:
+        data: List of :class:`~pilot.info.filespec.FileSpec` objects (job
+            output data).
+
+    Returns:
+        Dictionary with keys ``'lfns'``, ``'guids'``, ``'scopes'``,
+        ``'datasets'``, ``'ddmendpoints'``, ``'filesizes'``, ``'checksums'``,
+        ``'allowlans'``, ``'allowwans'``, ``'directaccesslans'``,
+        ``'directaccesswans'``, ``'istars'``, ``'accessmodes'``,
+        ``'storagetokens'``, each containing a comma-separated string.
     """
     lfns = ""
     guids = ""
@@ -548,12 +597,14 @@ def get_filedata_strings(data: list) -> dict:
 
 
 def use_middleware_script(container_type: str) -> bool:
-    """
-    Decide if the pilot should use a script for the stage-in/out.
+    """Decide whether the pilot should use an isolation script for stage-in/out.
 
-    Check the container_type (from queuedata) if 'middleware' is set to 'container' or 'bash'.
+    Args:
+        container_type: The ``middleware`` value from queue data; typically
+            ``'container'``, ``'bash'``, or an empty string.
 
-    :param container_type: container type (str)
-    :return: Boolean (True if middleware should be containerised) (bool).
+    Returns:
+        True if *container_type* is ``'container'`` or ``'bash'``, False
+        otherwise.
     """
     return container_type in {"container", "bash"}

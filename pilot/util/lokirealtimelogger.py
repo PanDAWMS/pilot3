@@ -43,10 +43,13 @@ logger = logging.getLogger(__name__)
 
 class PilotLokiLoggerFormatter:
     def format(self, record: logging.LogRecord) -> dict:
-        """
-        Logging format function to convert the logging record to a dict format.
+        """Convert the logging record to a dict format.
 
-        :param record (LogRecord): Logging record
+        Args:
+            record: Logging record to format.
+
+        Returns:
+            Dictionary representation of the logging record.
         """
 
         formatted = {
@@ -102,17 +105,16 @@ class PilotLokiLoggerHandler(logging.Handler):
         formatter: Any = PilotLokiLoggerFormatter(),
         verbose: bool = False
     ):
-        """
-        Default Loki logging handler init function.
+        """Initialize the Loki logging handler.
 
-        :param url: The url of the Loki rest service.
-        :param label_keys: List of keys that are allowed as labels sent to the Loki service.
-                           If empty, all keys will be allowed.
-        :param timeout: The time period to sleep between callings to the Loki service.
-        :param name: The name during sending logs to the Loki service.
-        :param compressed: Whether to compress the message during sending messages to the Loki service.
-        :param formatter: The logging formatter.
-        :param verbose: Whether to print logs.
+        Args:
+            url: URL of the Loki REST service.
+            label_keys: List of keys allowed as labels sent to Loki. If empty, all keys are allowed.
+            timeout: Time period in seconds to sleep between calls to the Loki service.
+            compressed: Whether to compress messages before sending.
+            name: Name used when sending logs to the Loki service.
+            formatter: The logging formatter instance.
+            verbose: Whether to print verbose logs.
         """
         super().__init__()
 
@@ -135,20 +137,20 @@ class PilotLokiLoggerHandler(logging.Handler):
         self._thread = threading.Thread(target=self._runner, daemon=True)
         self._thread.start()
 
-    def emit(self, record: logging.LogRecord):
-        """
-        Override the logging.hander emit function to handle logging messages.
+    def emit(self, record: logging.LogRecord) -> None:
+        """Override the logging.Handler emit function to handle logging messages.
 
-        :param record (LogRecord): Logging record.
+        Args:
+            record: Logging record to emit.
         """
         msg = self.formatter.format(record)
         self.queue.put(msg)
 
-    def _sleep(self, timeout: int = 10):
-        """
-        A sleep function which can be interrupted.
+    def _sleep(self, timeout: int = 10) -> None:
+        """Sleep for the given number of seconds, interruptible via the stop event.
 
-        :param timeout (int): The number of seconds to sleep.
+        Args:
+            timeout: The number of seconds to sleep.
         """
         time_start = time.time()
         while not self._graceful_stop.is_set():
@@ -163,17 +165,17 @@ class PilotLokiLoggerHandler(logging.Handler):
         self._graceful_stop.set()
         self._flush()
 
-    def _send(self, data: str):
-        """
-        Send the data to the Loki service.
+    def _send(self, data: str) -> None:
+        """Send the data to the Loki service.
 
-        :param data (str): The stream data is string of a dictionary.
-                     The format is a dict {"streams": [{"stream": {"label1": "value1"},
-                                                        "values": [{"timestamp", "message"},
-                                                                   {"timestamp", "message"}
-                                                                  ]
-                                                       }]
-                                            }
+        The data is a JSON-encoded string with the following structure::
+
+            {"streams": [{"stream": {"label1": "value1"},
+                          "values": [["timestamp", "message"],
+                                     ["timestamp", "message"]]}]}
+
+        Args:
+            data: JSON string of stream data to send.
         """
         response = None
         try:
@@ -201,10 +203,13 @@ class PilotLokiLoggerHandler(logging.Handler):
                 response.close()
 
     def format_stream_messages(self, msgs: list) -> str:
-        """
-        Format stream messages.
+        """Format a list of messages into a Loki-compatible JSON stream string.
 
-        :param msgs (list): List of messages.
+        Args:
+            msgs: List of message dictionaries to format.
+
+        Returns:
+            JSON string suitable for sending to the Loki push API.
         """
         streams = {}
         for msg in msgs:
@@ -280,10 +285,16 @@ class PilotLokiLoggerHandler(logging.Handler):
 
 
 def setup_loki_handler(name: str) -> logging.Handler:
-    """
-    Setup the Loki logger handler.
+    """Set up the Loki logger handler.
 
-    :param name (str): The name of the loki logging handler.
+    Reads configuration from environment variables: ``LOKI_URL``, ``LOKI_LABELKEYS``,
+    ``LOKI_PERIOD``, and ``LOKI_VERBOSE``.
+
+    Args:
+        name: The name of the Loki logging handler (used as the ``app`` label).
+
+    Returns:
+        Configured PilotLokiLoggerHandler instance.
     """
 
     loki_labelkeys = None

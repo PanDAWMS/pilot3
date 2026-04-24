@@ -30,6 +30,7 @@ except ImportError:
 else:
     _is_psutil_available = True
 from re import findall
+from typing import Optional
 
 # from pilot.common.exception import MiddlewareImportFailure
 
@@ -135,7 +136,7 @@ def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
     return None
 
 
-def get_parent_pid(pid: int) -> int or None:
+def get_parent_pid(pid: int) -> Optional[int]:
     """Return the parent process ID for the given PID.
 
     Args:
@@ -275,7 +276,7 @@ def get_subprocesses(pid: int, debug: bool = False) -> list:
     #return [int(line) for line in out.splitlines()] if out else []
 
 
-def get_command_by_pid(pid: int) -> str or None:
+def get_command_by_pid(pid: int) -> Optional[str]:
     """Return the full command line for the given process ID.
 
     Args:
@@ -297,7 +298,7 @@ def get_command_by_pid(pid: int) -> str or None:
         return None
 
 
-def find_process_by_jobid(jobid: int) -> int or None:
+def find_process_by_jobid(jobid: int) -> Optional[int]:
     """Find the PID of a process whose command arguments contain the given job ID.
 
     Args:
@@ -323,7 +324,7 @@ def find_process_by_jobid(jobid: int) -> int or None:
     return None
 
 
-def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
+def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> Optional[int]:
     """Find the PID of the actual payload process launched under the given bash PID.
 
     Walks the subprocesses of ``bash_pid`` looking for one whose command line
@@ -498,7 +499,7 @@ def list_processes_and_threads() -> list:
     return lines
 
 
-def get_clock_speed() -> float or None:
+def get_clock_speed() -> Optional[float]:
     """Return the current CPU clock speed in MHz.
 
     Returns:

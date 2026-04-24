@@ -60,16 +60,20 @@ logger = logging.getLogger(__name__)
 
 
 def get_realtime_logger(args: Any = None, info_dic: dict = None, workdir: str = None, secrets: str = ""):
-    """
-    Helper function for real-time logger.
+    """Return the singleton RealTimeLogger instance, creating it if needed.
 
-    The info_dic dictionary has the format: {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+    *info_dic* must have the format::
 
-    :param args: pilot arguments object (Any)
-    :param info_dic: info dictionary (dict)
-    :param workdir: job working directory (str)
-    :param secrets: secrets (str)
-    :return: RealTimeLogger instance (self).
+        {'logging_type': .., 'protocol': .., 'url': .., 'port': .., 'logname': ..}
+
+    Args:
+        args: Pilot arguments object.
+        info_dic: Logging configuration dictionary.
+        workdir: Job working directory.
+        secrets: JSON-encoded credentials string for authenticated log transports.
+
+    Returns:
+        The global ``RealTimeLogger`` instance, or ``None`` if initialisation failed.
     """
     if RealTimeLogger.glogger is None:
         RealTimeLogger(args, info_dic, workdir, secrets)
@@ -100,20 +104,27 @@ class RealTimeLogger(logging.Logger):
     current_handler = None  # needed for removing logger object from outside function
 
     def __init__(self, args: Any, info_dic: dict, workdir: str, secrets: str, level: Any = logging.INFO):
-        """
-        Default init function.
+        """Initialize the RealTimeLogger and configure the appropriate log handler.
 
-        The info_dic has the format: {'logging_type': ..,
-                                      'protocol': ..,
-                                      'url': ..,
-                                      'port': ..,
-                                      'logname': ..,
-                                      'logfiles': [..]}
+        *info_dic* must have the format::
 
-        :param args: pilot arguments object (Any)
-        :param info_dic: info dictionary (dict)
-        :param workdir: job working directory (str)
-        :param level: logging level (Any).
+            {
+                'logging_type': ..,
+                'protocol': ..,
+                'url': ..,
+                'port': ..,
+                'logname': ..,
+                'logfiles': [..]
+            }
+
+        Args:
+            args: Pilot arguments object used for SSL certificate resolution.
+            info_dic: Logging configuration dictionary. If ``None`` or empty,
+                initialisation aborts and ``glogger`` is set to ``None``.
+            workdir: Job working directory (reserved for future use).
+            secrets: JSON-encoded credentials for authenticated transports
+                (e.g. Logstash login and password).
+            level: Python logging level for this logger.
         """
         super().__init__(name="realTimeLogger", level=level)
         RealTimeLogger.glogger = self
@@ -222,11 +233,15 @@ class RealTimeLogger(logging.Logger):
         RealTimeLogger.glogger = None
         del self
 
-    def set_jobinfo(self, job: Any):
-        """
-        Set job info.
+    def set_jobinfo(self, job: Any) -> None:
+        """Populate the job info dict from the given job object.
 
-        :param job: job object (Any).
+        Sets ``self.jobinfo`` with the task ID, PanDA job ID, and optional
+        Harvester worker ID, Harvester ID, and request ID read from environment
+        variables and *job* attributes.
+
+        Args:
+            job: Job object with ``taskid``, ``jobid``, and ``requestid`` attributes.
         """
         self.jobinfo = {"TaskID": job.taskid, "PandaJobID": job.jobid}
         if 'HARVESTER_WORKER_ID' in os.environ:
@@ -239,7 +254,16 @@ class RealTimeLogger(logging.Logger):
     # prepend some panda job info
     # check if the msg is a dict-based object via isinstance(msg,dict),
     # then decide how to insert the PandaJobInf
-    def send_with_jobinfo(self, msg):
+    def send_with_jobinfo(self, msg: Any) -> None:
+        """Send a log message prefixed with current job metadata and timestamp.
+
+        Merges ``self.jobinfo`` and the current pilot timestamp with *msg*.
+        If *msg* is valid JSON it is merged as a dict; otherwise it is stored
+        under the ``'message'`` key.
+
+        Args:
+            msg: Log message string or JSON-serialisable object.
+        """
         logobj = self.jobinfo.copy()
         logobj['PilotTimeStamp'] = time.time()
         try:
@@ -250,12 +274,19 @@ class RealTimeLogger(logging.Logger):
 
         self.info(logobj)
 
-    def add_logfiles(self, job_or_filenames: Any or list, reset: bool = True):
-        """
-        Add log files.
+    def add_logfiles(self, job_or_filenames: Any, reset: bool = True) -> None:
+        """Register log files to be streamed by the real-time logger.
 
-        :param job_or_filenames: job object or list of log file names (Any or list)
-        :param reset: reset the log files (bool).
+        Closes any currently open files before updating the list. When
+        *job_or_filenames* is a list those paths are added directly. When it is
+        a job object the paths are resolved from ``self.logfiles_default``
+        relative to the job's work directory, falling back to the payload stdout
+        file when no defaults are configured.
+
+        Args:
+            job_or_filenames: A list of log file paths, or a job object whose
+                ``workdir`` attribute is used to resolve relative paths.
+            reset: If True, the current log file list is cleared before adding.
         """
         self.close_files()
         if reset:
@@ -293,12 +324,19 @@ class RealTimeLogger(logging.Logger):
                 for line in lines:
                     self.send_with_jobinfo(line.strip())
 
-    def sending_logs(self, args: Any, job: Any):
-        """
-        Send logs.
+    def sending_logs(self, args: Any, job: Any) -> None:
+        """Stream log files to the real-time logging backend until the job finishes.
 
-        :param args: pilot arguments object (Any)
-        :param job: job object (Any).
+        Opens log files as they appear, reads new lines every 5 seconds, and
+        sends them via :meth:`send_with_jobinfo`. Exits when the job completes,
+        a final send is performed for pilot-log files, or ``args.graceful_stop``
+        is set.
+
+        Args:
+            args: Pilot arguments object. The loop exits when
+                ``args.graceful_stop`` is set.
+            job: Running job object providing ``state``, ``jobid``, ``workdir``,
+                and ``completed`` attributes.
         """
         logger.info('starting RealTimeLogger.sending_logs')
         self.set_jobinfo(job)
@@ -346,11 +384,15 @@ class RealTimeLogger(logging.Logger):
             self.close_files()
         logger.info('finished sending real-time logs')
 
-    def get_rtlogging_ssl(self):
-        """
-        Return the proper rtlogging value from the experiment specific plug-in or the config file.
+    def get_rtlogging_ssl(self) -> tuple:
+        """Return SSL configuration for real-time logging.
 
-        :return: ssl_enable (bool), ssl_verify (bool) (tuple).
+        Attempts to retrieve ``ssl_enable`` and ``ssl_verify`` from the
+        experiment-specific plugin. Falls back to ``config.Pilot.ssl_enable``
+        and ``config.Pilot.ssl_verify`` if the plugin raises an exception.
+
+        Returns:
+            Tuple of ``(ssl_enable, ssl_verify)`` booleans.
         """
 
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()

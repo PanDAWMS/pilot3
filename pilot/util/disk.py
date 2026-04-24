@@ -28,12 +28,14 @@ from collections import namedtuple
 ntuple_diskusage = namedtuple('usage', 'total used free')
 
 if hasattr(os, 'statvfs'):  # POSIX
-    def disk_usage(path: str):
-        """
-        Return named tuple with disk usage.
+    def disk_usage(path: str) -> ntuple_diskusage:
+        """Return disk usage statistics for the filesystem containing *path*.
 
-        :param path: path (str)
-        :return: total, used, free (tuple).
+        Args:
+            path: Path to a file or directory on the target filesystem.
+
+        Returns:
+            Named tuple ``usage(total, used, free)`` with values in bytes.
         """
         stat = os.statvfs(path)
         free = stat.f_bavail * stat.f_frsize

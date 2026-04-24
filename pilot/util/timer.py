@@ -50,8 +50,10 @@ class TimedThread:
     """
 
     def __init__(self, _timeout):
-        """
-            :param timeout: timeout value for operation in seconds.
+        """Initialize the timer.
+
+        Args:
+            _timeout: Timeout value for the operation in seconds.
         """
 
         self.timeout = _timeout
@@ -70,8 +72,11 @@ class TimedThread:
         return ret
 
     def run(self, func, args, kwargs, _timeout=None):
-        """
-            :raise: TimeoutException if timeout value is reached before function finished
+        """Run the given function in a daemon thread with a timeout.
+
+        Raises:
+            TimeoutException: If the timeout value is reached before the
+                function finishes.
         """
 
         thread = threading.Thread(target=self.execute, args=(func, args, kwargs))
@@ -114,8 +119,10 @@ class TimedProcess:
     """
 
     def __init__(self, _timeout):
-        """
-            :param _timeout: timeout value for operation in seconds.
+        """Initialize the timer.
+
+        Args:
+            _timeout: Timeout value for the operation in seconds.
         """
 
         self.timeout = _timeout
@@ -168,12 +175,14 @@ Timer = TimedProcess
 
 
 def timeout(seconds: int, timer: Timer = None):
-    """
-    Decorator for a function which causes it to timeout (stop execution) once passed given number of seconds.
+    """Decorator that causes a function to time out after a given number of seconds.
 
-    :param seconds: timeout value in seconds (int)
-    :param timer: timer class (None or Timer)
-    :raise: TimeoutException in case of timeout interrupt.
+    Args:
+        seconds: Timeout value in seconds.
+        timer: Timer class to use. Defaults to ``Timer`` (``TimedProcess``).
+
+    Raises:
+        TimeoutException: If the timeout is reached before the function finishes.
     """
     timer = timer or Timer
 

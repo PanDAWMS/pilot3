@@ -51,38 +51,40 @@ class Listener(connectionlistener):
     messages = []
 
     def __init__(self, broker: Any = None, queues: Any = None) -> None:
-        """
-        Initialize variables.
+        """Initialize variables.
 
-        :param broker: broker (Any)
-        :param queues: queues (Any).
+        Args:
+            broker: Message broker connection object.
+            queues: Queues object for storing incoming messages.
         """
         self.__broker = broker
         self.__queues = queues
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def set_broker(self, broker: Any) -> None:
-        """
-        Set the broker for internal use.
+        """Set the broker for internal use.
 
-        :param broker: broker.
+        Args:
+            broker: Message broker connection object.
         """
         self.__broker = broker
 
     def on_error(self, frame: Any) -> None:
-        """
-        Handle errors.
+        """Handle errors received from the message broker.
 
-        :param frame: frame (Any).
+        Args:
+            frame: STOMP frame object containing error details.
         """
         self.logger.warning(f'received an error "{frame}"')
         # store error in messages?
 
     def on_message(self, frame: Any) -> None:
-        """
-        Handle messages.
+        """Handle incoming messages from the message broker.
 
-        :param frame: frame (Any).
+        Deserializes the frame body from JSON and enqueues it if not already present.
+
+        Args:
+            frame: STOMP frame object with a ``body`` attribute containing JSON-encoded data.
         """
         self.logger.info(f'received a message "{frame.body}"')
         body = json.loads(frame.body)
@@ -92,10 +94,10 @@ class Listener(connectionlistener):
         #    self.messages.append(body)
 
     def get_messages(self) -> list:
-        """
-        Return stored messages to user.
+        """Return stored messages to the caller.
 
-        :return: messages (list).
+        Returns:
+            List of stored message objects.
         """
         return self.messages
 
@@ -122,13 +124,20 @@ class ActiveMQ:
     listener = None
     queues = None
 
-    def __init__(self, **kwargs: dict) -> None:
-        """
-        Initialize variables.
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize variables and set up all broker connections and the listener.
 
-        Note: the init function sets up all connections and starts the listener.
+        Args:
+            **kwargs: Keyword arguments for configuration. Supported keys:
 
-        :param kwargs: kwargs dictionary (dict).
+                - ``broker`` (str): Hostname of the ActiveMQ broker.
+                - ``receiver_port`` (int): Port used to receive messages.
+                - ``topic`` (str): Destination topic or queue for outgoing messages.
+                - ``receive_topics`` (list): List of topics to subscribe to.
+                - ``pandaurl`` (str): PanDA server URL for credential retrieval.
+                - ``pandaport`` (int): PanDA server port for credential retrieval.
+                - ``queues``: Queues object used by the listener to store messages.
+                - ``debug`` (bool): Enable debug logging if ``True``.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.broker = kwargs.get('broker', '')
@@ -197,19 +206,21 @@ class ActiveMQ:
                 self.logger.debug('subscribed')
 
     def get_messages(self) -> list:
-        """
-        Return messages to user.
+        """Return messages received by the listener.
 
-        :return: messages (list).
+        Returns:
+            List of received message objects, or an empty list if no listener is set.
         """
         self.logger.debug(f'getting messages from {self.listener}')
         return self.listener.get_messages() if self.listener else []
 
     def send_message(self, message: str) -> None:
-        """
-        Send a message to a topic or queue.
+        """Send a message to the configured topic or queue.
 
-        :param message: message (str).
+        Selects a random connection from the pool and publishes the message as JSON.
+
+        Args:
+            message: Message payload to send. Will be serialized to JSON.
         """
         conn = random.choice(self.connections)
         self.logger.debug(f'sending to {conn} topic/queue={self.topic}')
@@ -218,7 +229,7 @@ class ActiveMQ:
         self.logger.debug('sent message')
 
     def close_connections(self) -> None:
-        """Close all open connections."""
+        """Disconnect and close all open broker connections."""
         for conn in self.connections:
             try:
                 conn.disconnect()
@@ -228,10 +239,11 @@ class ActiveMQ:
                 self.logger.debug(f'closed connection to {conn}')
 
     def get_credentials(self) -> None:
-        """
-        Download username+password from the PanDA server for ActiveMQ authentication.
+        """Download ActiveMQ credentials from the PanDA server.
 
-        Note: this function does not return anything, only sets private username and password.
+        Fetches ``MB_USERNAME`` and ``MB_PASSWORD`` via the ``get_user_secrets`` server
+        command and stores them in ``self.username`` and ``self.password``. Does nothing
+        if ``pandaurl`` or ``pandaport`` are not configured.
         """
         res = {}
         if not self.pandaurl or self.pandaport == 0:
