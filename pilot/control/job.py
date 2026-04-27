@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -4089,9 +4089,18 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
         if not final_job:
             logger.warning('REACHED_MAXTIME seen by job monitor - but final job object not set, cannot report')
         else:
-            logger.warning('REACHED_MAXTIME seen by job monitor - will report final job')
+            logger.warning('REACHED_MAXTIME seen by job monitor - will send final update directly')
             try:
-                fail_monitored_job(final_job, errors.REACHEDMAXTIME, "Reached maxtime", queues, traces)
+                # Set the REACHEDMAXTIME error on the job and send the final update directly via
+                # update_server(). Routing through fail_monitored_job() -> failed_payloads ->
+                # failed_post -> queue_monitor is not safe here: graceful_stop is already set,
+                # so failed_post has exited and queue_monitor will not find a job in failed_jobs.
+                if not final_job.completed:
+                    set_pilot_state(job=final_job, state='failed')
+                    final_job.piloterrorcodes, final_job.piloterrordiags = errors.add_error_code(
+                        errors.REACHEDMAXTIME, msg='Reached maxtime'
+                    )
+                    update_server(final_job, args)
             except Exception as error:
                 logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
 

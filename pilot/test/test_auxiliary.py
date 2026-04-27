@@ -58,19 +58,78 @@ class TestCheckForFinalServerUpdate(unittest.TestCase):
         elapsed = time.monotonic() - t0
         self.assertLess(elapsed, 1.0, 'should return without sleeping when state is NOT_DONE')
 
-    def test_returns_immediately_when_running(self):
-        """Return immediately when SERVER_UPDATE is RUNNING.
+    def test_waits_when_running_and_update_server_true(self):
+        """Wait (bounded) when SERVER_UPDATE is RUNNING and update_server=True.
 
-        This is the MAXTIME regression case: the monitor thread calls
-        check_for_final_server_update while the job is still executing
-        (SERVER_UPDATE='RUNNING').  Before the fix this would block for
-        up to 20*30 s; after the fix it must return without delay.
+        This is the MAXTIME fix: instead of returning immediately (which caused
+        lost heartbeats), the function now waits up to
+        _MAX_RUNNING_WAIT_ITERATIONS * _RUNNING_WAIT_SLEEP s for the state to
+        advance.  We monkey-patch sleep so the test completes quickly.
+
+        After the bounded wait the function must fall through and return even
+        if the state is still RUNNING (no infinite block).
+        """
+        import pilot.util.auxiliary as aux_module
+
+        original_sleep = aux_module.sleep
+        aux_module.sleep = lambda _: time.sleep(0.01)  # replace any sleep with 10 ms
+
+        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_RUNNING
+        t0 = time.monotonic()
+        try:
+            check_for_final_server_update(update_server=True)
+        finally:
+            aux_module.sleep = original_sleep
+
+        elapsed = time.monotonic() - t0
+        # Must have entered the wait loop (slept at least once), but must also
+        # have returned (not blocked indefinitely).
+        self.assertLess(elapsed, 5.0, 'should return within a bounded time even if state stays RUNNING')
+
+    def test_running_unblocks_early_when_state_advances_to_final(self):
+        """Unblock early when SERVER_UPDATE advances from RUNNING to FINAL during the wait.
+
+        A background thread simulates the job thread completing its final server
+        update while check_for_final_server_update is in the RUNNING wait loop.
+        The function should break out of the inner loop and then exit the outer
+        polling loop on the first pass (state is already FINAL).
+        """
+        import pilot.util.auxiliary as aux_module
+
+        original_sleep = aux_module.sleep
+        aux_module.sleep = lambda _: time.sleep(0.05)  # 50 ms per sleep tick
+
+        os.environ['SERVER_UPDATE'] = SERVER_UPDATE_RUNNING
+
+        def _advance_to_final():
+            time.sleep(0.12)  # let the inner loop tick at least once first
+            os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
+
+        t = threading.Thread(target=_advance_to_final, daemon=True)
+        t.start()
+        t0 = time.monotonic()
+        try:
+            check_for_final_server_update(update_server=True)
+        finally:
+            aux_module.sleep = original_sleep
+            t.join(timeout=2)
+
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 2.0, 'should unblock early once SERVER_UPDATE advances to FINAL')
+        self.assertEqual(os.environ.get('SERVER_UPDATE'), SERVER_UPDATE_FINAL)
+
+    def test_skips_running_wait_when_update_server_false(self):
+        """Skip the RUNNING wait entirely when update_server=False.
+
+        When update_server is False the pilot writes to a heartbeat file
+        instead of contacting the server, so there is no SERVER_UPDATE
+        progression to wait for.  The function must return promptly.
         """
         os.environ['SERVER_UPDATE'] = SERVER_UPDATE_RUNNING
         t0 = time.monotonic()
-        check_for_final_server_update(update_server=True)
+        check_for_final_server_update(update_server=False)
         elapsed = time.monotonic() - t0
-        self.assertLess(elapsed, 1.0, 'should return without sleeping when state is RUNNING')
+        self.assertLess(elapsed, 1.0, 'should skip RUNNING wait when update_server is False')
 
     def test_returns_immediately_when_already_final(self):
         """Return on the first poll when SERVER_UPDATE is already DONE_FINAL."""
