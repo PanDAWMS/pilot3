@@ -21,6 +21,7 @@
 
 """Job setup and environment preparation for the Rubin experiment plugin."""
 
+from __future__ import annotations
 import glob
 import logging
 import os

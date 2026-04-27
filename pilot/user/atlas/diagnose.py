@@ -21,6 +21,7 @@
 
 """Payload stdout/stderr interpretation for the ATLAS experiment plugin."""
 
+from __future__ import annotations
 import json
 import os
 import re

@@ -21,6 +21,7 @@
 
 """CPU usage monitoring for the sPHENIX experiment plugin."""
 
+from __future__ import annotations
 import logging
 from typing import Any
 

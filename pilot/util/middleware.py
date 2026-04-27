@@ -21,6 +21,7 @@
 
 """Middleware utilities for container and singularity command construction."""
 
+from __future__ import annotations
 import logging
 
 from os import (

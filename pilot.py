@@ -23,9 +23,20 @@
 
 """This is the entry point for the PanDA Pilot, executed with 'python3 pilot.py <args>'."""
 
+import sys
+
+_REQUIRED = (3, 9)
+if sys.version_info < _REQUIRED:
+    sys.stderr.write(
+        f"pilot error: Python {_REQUIRED[0]}.{_REQUIRED[1]}+ is required, "
+        f"but this process is running {sys.version.split()[0]}.\n"
+        "The CVMFS python3 may have failed to load (check for missing shared "
+        "libraries such as libcrypt.so.2). Ensure the correct python3 is on PATH.\n"
+    )
+    sys.exit(1)
+
 import logging
 import os
-import sys
 import threading
 import time
 from os import getcwd, chdir, environ

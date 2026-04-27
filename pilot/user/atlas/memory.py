@@ -21,6 +21,7 @@
 
 """Memory monitoring and reporting for the ATLAS experiment plugin."""
 
+from __future__ import annotations
 import ast
 import logging
 import math

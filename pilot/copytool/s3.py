@@ -21,6 +21,7 @@
 
 """S3 copy tool."""
 
+from __future__ import annotations
 import logging
 import os
 from glob import glob

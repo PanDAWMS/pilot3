@@ -21,6 +21,7 @@
 
 """This module contains implementations of job monitoring tasks."""
 
+from __future__ import annotations
 import logging
 import os
 import subprocess

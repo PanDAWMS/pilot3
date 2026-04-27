@@ -23,6 +23,7 @@
 
 """Xrdcp copy tool."""
 
+from __future__ import annotations
 import logging
 import os
 import re

@@ -29,6 +29,7 @@
 # job_id = 0 means timing information from wrapper. Timing constants are defined in pilot.util.constants.
 # Time measurement are time.time() values. The float value will be converted to an int as a last step.
 
+from __future__ import annotations
 import logging
 import os
 import time

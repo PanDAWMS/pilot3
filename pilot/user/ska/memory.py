@@ -21,6 +21,8 @@
 
 """Memory related functionality."""
 
+from __future__ import annotations
+
 
 def allow_memory_usage_verifications() -> bool:
     """Return True if memory usage verifications should be performed.

@@ -21,6 +21,7 @@
 
 """Functions related to memory monitoring and other utilities."""
 
+from __future__ import annotations
 import logging
 import os
 import time

@@ -21,6 +21,7 @@
 
 """Worker-node information collection utilities (memory, CPU, disk, architecture)."""
 
+from __future__ import annotations
 import logging
 import os
 import re

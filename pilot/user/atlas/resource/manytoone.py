@@ -21,6 +21,7 @@
 
 """Resource related functions for many-to-one jobs."""
 
+from __future__ import annotations
 import logging
 import os
 from typing import Any

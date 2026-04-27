@@ -22,6 +22,7 @@
 
 """Error codes set by the pilot."""
 
+from __future__ import annotations
 import re
 from json import dump
 from typing import Any

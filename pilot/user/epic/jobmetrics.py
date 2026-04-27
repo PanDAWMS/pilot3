@@ -24,6 +24,7 @@
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
 
+from __future__ import annotations
 import logging
 import os
 import re

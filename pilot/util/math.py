@@ -21,6 +21,7 @@
 
 """Common math functions."""
 
+from __future__ import annotations
 from decimal import Decimal
 from re import split, sub
 from typing import Any

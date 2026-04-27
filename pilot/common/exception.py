@@ -22,6 +22,7 @@
 
 """Exceptions set by the pilot."""
 
+from __future__ import annotations
 import time
 import threading
 import traceback

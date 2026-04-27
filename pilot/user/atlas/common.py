@@ -22,6 +22,7 @@
 
 """Common functions for ATLAS."""
 
+from __future__ import annotations
 import fnmatch
 import logging
 import os

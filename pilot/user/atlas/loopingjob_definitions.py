@@ -21,6 +21,7 @@
 
 """Looping-job detection settings for the ATLAS experiment plugin."""
 
+from __future__ import annotations
 from os.path import join
 
 

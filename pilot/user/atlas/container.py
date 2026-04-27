@@ -22,6 +22,7 @@
 
 """Functions related to containerisation for ATLAS."""
 
+from __future__ import annotations
 import fcntl
 import json
 import logging
