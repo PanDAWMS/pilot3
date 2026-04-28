@@ -24,7 +24,9 @@
 from __future__ import annotations
 import logging
 import os
+import platform
 import re
+import sys
 
 from pilot.api import analytics
 from pilot.common.exception import FileHandlingFailure
@@ -51,6 +53,42 @@ from .common import (
 from .utilities import get_memory_monitor_output_filename
 
 logger = logging.getLogger(__name__)
+
+
+def get_os_and_python_versions() -> tuple[str, str, str]:
+    """Return the OS identifier, OS version, and Python version of the worker node.
+
+    The OS information is read from ``/etc/os-release`` (the canonical source on all
+    modern Linux distributions used on grid sites, including RHEL/Alma/CentOS/SL/Ubuntu).
+    If that file is absent or cannot be parsed, ``platform.system()`` and
+    ``platform.release()`` are used as a fallback.  The Python version is taken from
+    ``sys.version_info`` and formatted as ``major.minor.micro``.
+
+    Returns:
+        tuple: (os_id, os_version, python_version) where each element is a plain string
+        suitable for use as a job metrics value.  Any element that cannot be determined
+        is returned as an empty string.
+    """
+    os_id = ''
+    os_version = ''
+    try:
+        with open('/etc/os-release', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('ID='):
+                    os_id = line.split('=', 1)[1].strip('"\'')
+                elif line.startswith('VERSION_ID='):
+                    os_version = line.split('=', 1)[1].strip('"\'')
+                if os_id and os_version:
+                    break
+    except OSError as exc:
+        logger.debug(f'/etc/os-release could not be read: {exc} — falling back to platform module')
+        os_id = platform.system().lower()
+        os_version = platform.release()
+
+    python_version = '.'.join(str(v) for v in sys.version_info[:3])
+
+    return os_id.replace(' ', '_'), os_version.replace(' ', '_'), python_version.replace(' ', '_')
 
 
 def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C901
@@ -139,6 +177,15 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
     if extra:
         for entry in extra:
             job_metrics += get_job_metrics_entry(entry, extra.get(entry))
+
+    # report OS and Python versions for Grafana/Kibana monitoring
+    _os_id, _os_version, _python_version = get_os_and_python_versions()
+    if _os_id:
+        job_metrics += get_job_metrics_entry("osId", _os_id)
+    if _os_version:
+        job_metrics += get_job_metrics_entry("osVersion", _os_version)
+    if _python_version:
+        job_metrics += get_job_metrics_entry("pythonVersion", _python_version)
 
     return job_metrics
 
