@@ -458,6 +458,45 @@ def extract_turls(indata: list) -> str:
     )
 
 
+def update_turls_with_filetype_raw(job: JobData) -> None:
+    """Update fspec.turl for input files that required the ``?filetype=raw`` fallback during the remoteIO check.
+
+    ``open_remote_file.py`` retries a failed file open by appending ``?filetype=raw`` to the TURL.
+    When that retry succeeds the modified TURL is written to the remotefileverification dictionary
+    (value ``True``), while the original bare TURL is absent from it.  This function reads that
+    dictionary and, for every ``remote_io`` input file whose bare TURL is not present but whose
+    ``?filetype=raw`` variant is present and marked as opened, updates ``fspec.turl`` in place so
+    that the PFC (``PoolFileCatalog.xml``) handed to the payload contains the correct TURL.
+
+    Must be called after ``open_remote_files()`` has completed and the dictionary has been written,
+    and before ``get_input_file_dictionary()`` / ``create_input_file_metadata()`` builds the PFC.
+
+    Args:
+        job: Job object with workdir and indata populated.
+    """
+    dictionary_path = os.path.join(job.workdir, config.Pilot.remotefileverification_dictionary)
+    if not os.path.exists(dictionary_path):
+        logger.debug(f'remotefileverification dictionary not found at {dictionary_path} — skipping ?filetype=raw turl update')
+        return
+
+    try:
+        file_dictionary = read_json(dictionary_path)
+    except PilotException as exc:
+        logger.warning(f'failed to read remotefileverification dictionary: {exc} — skipping ?filetype=raw turl update')
+        return
+
+    if not file_dictionary:
+        return
+
+    for fspec in job.indata:
+        if fspec.status != 'remote_io':
+            continue
+        raw_turl = fspec.turl + '?filetype=raw'
+        if file_dictionary.get(raw_turl) is True and not file_dictionary.get(fspec.turl):
+            logger.info(f'updating turl for lfn={fspec.lfn}: appending ?filetype=raw (required by remoteIO file-open check)')
+            fspec.turl = raw_turl
+
+
 def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list) -> None:
     """Report traces for remote files.
 
@@ -594,6 +633,11 @@ def get_payload_command(job: JobData, args: object = None) -> str:
                                f'input file traces should already have been sent')
             else:
                 process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
+
+            # if the remoteIO file-open check fell back to ?filetype=raw for any input file,
+            # propagate that modified TURL to fspec so the PFC handed to the payload is correct.
+            # pending confirmation from Rod that ?filetype=raw should be passed to the application:
+            # update_turls_with_filetype_raw(job)
 
             t1 = int(time.time())
             add_to_pilot_timing(job.jobid, PILOT_POST_REMOTEIO, t1, args)
