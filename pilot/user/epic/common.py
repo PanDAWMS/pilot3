@@ -21,6 +21,7 @@
 
 """Generic user specific functionality."""
 
+import fnmatch
 import logging
 import os
 import re
@@ -406,6 +407,31 @@ def cleanup_broken_links(workdir: str) -> None:
         remove(brok)
 
 
+def remove_root_files(workdir: str, outputfiles: list = None) -> None:
+    """Recursively remove all .root files from the work directory prior to log file creation.
+
+    Files that are listed as protected output files are skipped.  The walk covers all
+    subdirectories so that deeply-nested simulation/reconstruction output (e.g.
+    ``./41/FULL/.../run001.edm4hep.root``) is caught regardless of depth.
+
+    Args:
+        workdir: work directory to search recursively.
+        outputfiles: list of protected output file basenames that must not be removed.
+    """
+    if outputfiles is None:
+        outputfiles = []
+    protected = {os.path.basename(f) for f in outputfiles}
+
+    for dirpath, _, filenames in os.walk(workdir):
+        for filename in fnmatch.filter(filenames, '*.root*'):
+            if filename in protected:
+                logger.debug(f'skipping protected output file: {filename}')
+                continue
+            path = os.path.abspath(os.path.join(dirpath, filename))
+            logger.debug(f'removing root file: {path}')
+            remove(path)
+
+
 def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False) -> None:
     """Remove redundant files and directories prior to creating the log file.
 
@@ -429,6 +455,10 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     dir_list = get_redundants()
 
     remove_special_files(workdir, dir_list)
+
+    # recursively remove any .root files left in subdirectories (e.g. simulation/reco output
+    # nested under run-number subdirs) that the flat glob in remove_special_files misses
+    remove_root_files(workdir, outputfiles)
 
     # verify_container_script(os.path.join(workdir, config.Container.container_script))
 
