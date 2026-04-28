@@ -289,16 +289,34 @@ class JobData(BaseData):
                 idat[attrname] = ksources[item][ind] if len(ksources[item]) > ind else None
             accessmode = 'copy'  ## default settings
 
-            # for prod jobs: use remoteio if transfertype implies direct I/O and prodDBlockToken!=local
-            # for analy jobs: use remoteio if prodDBlockToken!=local
-            # transfertypes that imply direct I/O: 'direct', 'root', 'davs' (and comma-separated
-            # combinations thereof).  'file' means Rucio copy via POSIX link, not remote I/O.
+            # Determine whether this file should use direct access (remote I/O) or copy-to-scratch.
+            #
+            # prodDBlockToken (mapped to storage_token) is the authoritative per-file signal:
+            #   - 'local'  -> PanDA/JEDI has explicitly requested copy-to-scratch (e.g. RAW files
+            #                 by default, or when the site does not support direct access).
+            #   - anything else -> direct access is permitted for this file.
+            #
+            # For analysis jobs and production jobs whose transfertype implies direct I/O
+            # ('direct', 'root', 'davs', ...) the existing logic already uses storage_token as the
+            # gate.  The extension here covers --forceDirectIO: when the user submits with
+            # --forceDirectIO, JEDI omits the 'local' token for files that would otherwise carry it
+            # (e.g. RAW).  For non-lib data files we therefore treat storage_token != 'local' as
+            # the explicit per-file signal to use direct access, removing the dependency on the
+            # hard-coded filename-pattern exclusion and delegating the copy/direct decision entirely
+            # to PanDA/JEDI via storage_token, consistent with how forceStaged is handled on the
+            # output side.
+            #
+            # Library tarballs (.lib.tgz, .tar.gz) are unconditionally excluded from direct access
+            # regardless of storage_token: the payload never reads them directly.  That guard is
+            # also enforced inside FileSpec.is_directaccess().
             _ttype = (self.transfertype or '').lower()
             _directio_types = frozenset({'direct', 'root', 'davs'})
             _is_directio_ttype = bool(_ttype) and all(
                 t.strip() in _directio_types for t in _ttype.split(',') if t.strip()
             )
-            if (self.is_analysis() or _is_directio_ttype) and idat.get('storage_token') != 'local':  ## Job settings
+            _storage_token = idat.get('storage_token') or ''
+            _is_lib_file = '.lib.tgz' in lfn or lfn.endswith('.tar.gz')
+            if (self.is_analysis() or _is_directio_ttype or not _is_lib_file) and _storage_token != 'local':
                 accessmode = 'direct'
             if self.accessmode:  ## Job input options (job params) overwrite any other settings
                 accessmode = self.accessmode
