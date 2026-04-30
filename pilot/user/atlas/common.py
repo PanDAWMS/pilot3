@@ -638,6 +638,7 @@ def get_payload_command(job: JobData, args: object = None) -> str:
             # propagate that modified TURL to fspec so the PFC handed to the payload is correct.
             # pending confirmation from Rod that ?filetype=raw should be passed to the application:
             # update_turls_with_filetype_raw(job)
+            # later it was requested not to append ?filetype=raw to the TURL in the PFC (https://its.cern.ch/jira/browse/ATLASPANDA-1096)
 
             t1 = int(time.time())
             add_to_pilot_timing(job.jobid, PILOT_POST_REMOTEIO, t1, args)
@@ -2154,7 +2155,8 @@ def get_redundants() -> list:
                 "venv",
                 "usr",
                 "%1",
-                "open_remote_file_cmd.sh"]
+                "open_remote_file_cmd.sh",
+                "*.md"]
 
     return dir_list
 
