@@ -269,7 +269,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
             return exitcode, diagnostics, not_opened, lsetup_time
 
         logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
-        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads)
+        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir)
         if not _cmd:
             diagnostics = (f'cannot perform file open test - failed to create file open command from path '
                            f'{final_paths["open_remote_file.py"]}')
@@ -399,27 +399,44 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
 
 
 def get_file_open_command(script_path: str, turls: str, nthreads: int,
-                          stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr') -> str:
+                          stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr',
+                          workdir: str = '') -> str:
     """Return the command for opening remote files.
 
     When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
-    a plain-text file (one TURL per line) next to the script, and --turl-file is
+    a plain-text file (one TURL per line) inside ``workdir``, and --turl-file is
     passed instead of --turls, preventing 'Argument list too long' errors.
 
+    ``script_path`` may be a container-relative path such as ``./open_remote_file.py``
+    whose ``dirname`` is ``'.'``.  The ``workdir`` parameter provides the real on-disk
+    destination so that ``turls.txt`` is written into the directory that is
+    bind-mounted as the working directory inside the container (typically ``/srv``).
+    When ``workdir`` is empty the directory part of ``script_path`` is used as a
+    fallback, which is correct when the path is absolute (e.g. in unit tests).
+
     Args:
-        script_path: path to script.
+        script_path: path to script (may be container-relative, e.g. ``./open_remote_file.py``).
         turls: comma-separated turls.
         nthreads: number of concurrent file open threads.
         stdout: stdout file name.
         stderr: stderr file name.
+        workdir: real on-disk working directory used as the write destination for
+            ``turls.txt``; falls back to ``os.path.dirname(script_path)`` when empty.
 
     Returns:
         str: command string.
     """
     turl_list = turls.split(',')
 
+    # Determine the directory that is reachable from the pilot process for writing
+    # turls.txt.  script_path may have been adjusted to a container-relative form
+    # (e.g. './open_remote_file.py') whose dirname resolves to '.' in the pilot's
+    # CWD, which differs from workdir.  Using workdir explicitly ensures the file
+    # lands in the bind-mounted directory that the container script can read.
+    write_dir = workdir if workdir else os.path.dirname(script_path)
+
     if len(turl_list) > _TURL_CMDLINE_LIMIT:
-        turl_file = os.path.join(os.path.dirname(script_path), 'turls.txt')
+        turl_file = os.path.join(write_dir, 'turls.txt')
         try:
             write_file(turl_file, '\n'.join(turl_list))
         except FileHandlingFailure as exc:
@@ -427,7 +444,9 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
             turls_arg = f"--turls='{turls}'"
         else:
             logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using --turl-file')
-            turls_arg = f"--turl-file='{turl_file}'"
+            # Use a relative path in the command so it resolves correctly inside
+            # the container regardless of how the bind-mount is labelled.
+            turls_arg = "--turl-file='./turls.txt'"
     else:
         turls_arg = f"--turls='{turls}'"
 
