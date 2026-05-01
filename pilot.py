@@ -117,6 +117,12 @@ def main() -> int:  # noqa: C901
     pilot_version_banner()
     dump_ipv6_info()
 
+    # propagate --prmon-cmd to the environment so the ATLAS plug-in can access it
+    # without requiring the args object to be threaded through every call chain.
+    # A value already present in the environment is superseded by the CLI option.
+    if args.prmon_cmd:
+        os.environ['PILOT_PRMON_CMD'] = args.prmon_cmd
+
     # define threading events
     args.graceful_stop = threading.Event()
     args.abort_job = threading.Event()

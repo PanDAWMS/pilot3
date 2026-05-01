@@ -2658,13 +2658,30 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
             use_container=use_container
         )
 
-        _pattern = r"([\S]+)\ ."
-        pattern = re.compile(_pattern)
-        _name = re.findall(pattern, setup.split(';')[-1])
-        if _name:
-            job.memorymonitor = _name[0]
+        # Allow the prmon invocation to be replaced entirely, e.g. on HPC sites
+        # using fapptainer where the pilot runs inside a container and cannot
+        # observe the payload process tree.  The override command receives the
+        # detected payload PID appended as '--pid <pid>' and is responsible for
+        # writing memory_monitor_output.txt and memory_monitor_summary.json to
+        # the job work directory.  The CLI option --prmon-cmd is published to
+        # this environment variable by pilot.py; a value set in the environment
+        # before pilot launch is superseded by the CLI option.
+        prmon_cmd_override = os.environ.get('PILOT_PRMON_CMD', '')
+        if prmon_cmd_override:
+            if pid and pid != -1:
+                setup = f'{prmon_cmd_override} --pid {pid}'
+            else:
+                setup = prmon_cmd_override
+            job.memorymonitor = 'prmon'
+            logger.info(f'prmon command overridden via PILOT_PRMON_CMD: {setup}')
         else:
-            logger.warning('trf name could not be identified in setup string')
+            _pattern = r"([\S]+)\ ."
+            pattern = re.compile(_pattern)
+            _name = re.findall(pattern, setup.split(';')[-1])
+            if _name:
+                job.memorymonitor = _name[0]
+            else:
+                logger.warning('trf name could not be identified in setup string')
 
         # update the pgrp if the pid changed
         if pid not in (job.pid, -1):
