@@ -1388,12 +1388,13 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f'exception caught in https.request2(): {exc}')
 
-    # test fallback to curl
-    #if "update_job" in update_function:
-    #    res = None
+    # A non-empty error string from request2() is a transport failure, not a
+    # successful response.  Treat it the same as None so the curl fallback fires.
+    if isinstance(res, str):
+        logger.warning(f'request2() returned error string (will try curl fallback): {res}')
+        res = None
+
     if not res:
-        #if "api/v" in update_function:
-        #    return None
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
             res = request(f'{pandaserver}/{update_function}', data=data, ipv=ipv)
