@@ -18,9 +18,9 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
-# - Tobias Wegner, tobias.wegner@cern.ch, 2017-18
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
+# - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
 
 """
 API for data transfers.
@@ -339,19 +339,39 @@ class StagingClient:
         return default_copytools
 
     @classmethod
-    def get_preferred_replica(cls, replicas: list, allowed_schemas: list) -> Optional[Any]:
-        """Return the first replica whose PFN matches one of the allowed schemas.
+    def get_preferred_replica(cls, replicas: list, allowed_schemas: list,
+                              schema_priority: bool = False) -> Optional[Any]:
+        """Return the best replica according to the allowed schemas list.
+
+        When ``schema_priority`` is ``False`` (the default, legacy behaviour)
+        the outer loop is over *replicas*, so the first replica that satisfies
+        any schema wins.  This preserves Rucio geoip ordering for the fallback
+        path.
+
+        When ``schema_priority`` is ``True`` the outer loop is over *schemas*,
+        so the first *schema* that has a matching replica wins.  This is
+        required for primary-schema selection (e.g. prefer ``davs://`` over
+        ``root://`` when ``transfertype=davs``) regardless of Rucio ordering.
 
         Args:
             replicas: Ordered list of replica info dicts, each containing at
                 least a ``"pfn"`` key.
             allowed_schemas: URL schemas to match against (e.g. ``["root",
                 "https"]``).  An empty schema string matches any PFN.
+            schema_priority: When ``True`` the schema list order takes
+                precedence over the replica list order.
 
         Returns:
-            Optional[Any]: The first matching replica dict, or ``None`` if no
+            Optional[Any]: The best matching replica dict, or ``None`` if no
                 replica matches any of the allowed schemas.
         """
+        if schema_priority:
+            for schema in allowed_schemas:
+                for replica in replicas:
+                    pfn = replica.get('pfn')
+                    if pfn and (not schema or pfn.startswith(f'{schema}://')):
+                        return replica
+            return None
         for replica in replicas:
             pfn = replica.get('pfn')
             for schema in allowed_schemas:
@@ -1154,6 +1174,7 @@ class StageInClient(StagingClient):
 
         # group by ddmendpoint to look up related surl/srm value
         replicas = {}
+        domain_replicas = []  # all replicas in the requested domain, in Rucio order
 
         for rinfo in fspec.replicas:
 
@@ -1161,13 +1182,18 @@ class StageInClient(StagingClient):
 
             if rinfo['domain'] != domain:
                 continue
-            if primary_schemas and not primary_replica:  # look up primary schemas if requested
-                primary_replica = self.get_preferred_replica([rinfo], primary_schemas)
+            domain_replicas.append(rinfo)
             if not replica:
                 replica = self.get_preferred_replica([rinfo], allowed_schemas)
 
-            if replica and primary_replica:
-                break
+        # For primary_schemas we pass the full domain replica list so that
+        # get_preferred_replica can walk schemas in priority order (e.g. prefer
+        # davs:// over root:// when transfertype=davs).  Calling it per-replica
+        # one at a time would match the first replica that satisfies *any* schema
+        # in the list, ignoring the intended priority ordering.
+        if primary_schemas and domain_replicas:
+            primary_replica = self.get_preferred_replica(domain_replicas, primary_schemas,
+                                                         schema_priority=True)
 
         replica = primary_replica or replica
 
