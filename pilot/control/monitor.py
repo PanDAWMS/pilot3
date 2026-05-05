@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 # NOTE: this module should deal with non-job related monitoring, such as thread monitoring. Job monitoring is
 #       a task for the job_monitor thread in the Job component.
@@ -40,6 +40,7 @@ from subprocess import (
 )
 from typing import Any, Optional
 
+from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import PilotException, ExceededMaxWaitTime
 from pilot.common.pilotcache import get_pilot_cache
 from pilot.util.auxiliary import (
@@ -65,25 +66,36 @@ from pilot.util.queuehandling import (
 )
 from pilot.util.timing import get_time_since_start
 
+errors = ErrorCodes()
 pilot_cache = get_pilot_cache()
 logger = logging.getLogger(__name__)
 
 
 def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
-    """
-    Control function for the cgroup monitor.
+    """Control function for the cgroup monitor.
 
-    This function is called from the main control thread to set up the cgroup monitor task.
+    Runs in its own thread.  Every 60 seconds it reads the controller and
+    subprocesses cgroup metrics.  If the kernel OOM-killed the subprocess
+    cgroup (``oom_kill`` or ``oom_group_kill`` > 0 in ``memory.events``)
+    and prmon has not already set a job error, this function sets error
+    code ``PAYLOADOOMKILL`` and marks the pilot state as ``"failed"`` so
+    the job is reported correctly to PanDA rather than appearing as a
+    generic failure.
 
     Args:
         queues: internal queues for job handling (namedtuple)
         traces: tuple containing internal pilot states (Any)
-        args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
+        args: Pilot arguments (e.g. containing queue name, queuedata
+            dictionary, etc) (object)
     """
-    if queues or traces:  # to bypass pylint warning
+    if queues or traces:  # suppress pylint unused-argument warning
         pass
 
-    # set up the periodic cgroup monitor task
+    # Cumulative OOM counts seen in the previous poll — we only act on a
+    # rising edge (i.e. the count increased since last check).
+    prev_oom_kill = 0
+    prev_oom_group_kill = 0
+
     while not args.graceful_stop.is_set():
         pilot_cgroup_path = pilot_cache.get_cgroup(str(os.getpid()))
         if pilot_cgroup_path:
@@ -93,11 +105,65 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
         if subprocesses_cgroup_path:
             logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
-            monitor_cgroup(subprocesses_cgroup_path)
+            oom_counts = monitor_cgroup(subprocesses_cgroup_path)
+
+            oom_kill = oom_counts.get('oom_kill', 0)
+            oom_group_kill = oom_counts.get('oom_group_kill', 0)
+
+            if oom_kill > prev_oom_kill or oom_group_kill > prev_oom_group_kill:
+                logger.warning(
+                    f"cgroup OOM kill detected for {subprocesses_cgroup_path} "
+                    f"(oom_kill={oom_kill}, oom_group_kill={oom_group_kill})"
+                )
+                # Retrieve the running job so we can annotate it.  The job
+                # object lives in the job queue; attempt a non-blocking read.
+                job = _get_current_job(queues)
+                if job:
+                    # Only set the OOM error if prmon has not already flagged
+                    # a PAYLOADEXCEEDMAXMEM — prmon gets priority (graceful path).
+                    if not job.piloterrorcodes or errors.PAYLOADEXCEEDMAXMEM not in job.piloterrorcodes:
+                        set_pilot_state(job=job, state="failed")
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOOMKILL)
+                        logger.warning(
+                            f"set error code PAYLOADOOMKILL ({errors.PAYLOADOOMKILL}) for job {job.jobid}"
+                        )
+                    else:
+                        logger.info(
+                            "prmon already set PAYLOADEXCEEDMAXMEM - not overwriting with PAYLOADOOMKILL"
+                        )
+                else:
+                    logger.warning("cgroup OOM kill detected but no running job found in queues")
+
+                prev_oom_kill = oom_kill
+                prev_oom_group_kill = oom_group_kill
 
         time.sleep(60)
 
     logger.info("[monitor] cgroup control has ended")
+
+
+def _get_current_job(queues: namedtuple) -> Any:
+    """Return the currently running job object from the job queues, or None.
+
+    Performs a non-blocking peek at the ``finished_jobs`` and
+    ``running_jobs`` queues to find the active job.  Does not consume the
+    queue entry.
+
+    Args:
+        queues: Internal pilot queues namedtuple.
+
+    Returns:
+        The current job object, or None if not found.
+    """
+    try:
+        # running_jobs is a list maintained by the job control thread
+        if hasattr(queues, 'running_jobs'):
+            running = list(queues.running_jobs.queue) if hasattr(queues.running_jobs, 'queue') else []
+            if running:
+                return running[0]
+    except Exception as exc:
+        logger.debug(f"could not retrieve current job from queues: {exc}")
+    return None
 
 
 def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C901

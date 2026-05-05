@@ -97,6 +97,7 @@ class ErrorCodes:
     EXECUTEDCLONEJOB = 1234
     PAYLOADEXCEEDMAXMEM = 1235
     FAILEDBYSERVER = 1236
+    PAYLOADOOMKILL = 1237  # payload killed by kernel cgroup OOM (hard limit backstop)
     ESNOEVENTS = 1238
     MESSAGEHANDLINGFAILURE = 1240
     CHKSUMNOTSUP = 1242
@@ -251,6 +252,7 @@ class ErrorCodes:
         EXECUTEDCLONEJOB: "Clone job is already executed",
         PAYLOADEXCEEDMAXMEM: "Payload exceeded maximum allowed memory",
         FAILEDBYSERVER: "Failed by server",
+        PAYLOADOOMKILL: "Payload killed by cgroup OOM (exceeded hard memory limit)",
         ESNOEVENTS: "Event service: no events",
         MESSAGEHANDLINGFAILURE: "Failed to handle message from payload",
         NOTIMPLEMENTED: "The class or function is not implemented",

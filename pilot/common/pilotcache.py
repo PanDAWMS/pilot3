@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Persistent memory cache for data structures used by the pilot."""
 
@@ -33,7 +33,8 @@ def get_pilot_cache():
             """Define standard initialization for the cache."""
             self.use_cgroups = None  # for process management
             self.cgroups = {}  # for process management
-            self.set_memory_limits = []
+            self.set_memory_limits = []  # cgroup paths for which a memory limit has been set
+            self.set_memory_limits_values = {}  # cgroup path -> limit in kB
             self.proxy_lifetime = 0
             self.stageout_attempts = None
             self.queuedata = None

@@ -16,7 +16,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Code for interacting with cgroups."""
 
@@ -548,16 +548,29 @@ def get_pids_for_cgroup(cgroup_path: str) -> list:
         return []
 
 
-def monitor_cgroup(cgroup_path: str) -> None:
+def monitor_cgroup(cgroup_path: str) -> dict:
     """Monitor the specified cgroup by logging its PIDs and memory usage.
+
+    Reads ``memory.current``, ``memory.events``, and ``pids.current`` from
+    the cgroup and logs a formatted summary. Parses ``memory.events`` to
+    extract OOM kill counters which are returned to the caller so that
+    upstream code can react to kernel-initiated kills.
 
     Args:
         cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
+
+    Returns:
+        dict with keys ``oom_kill`` (int) and ``oom_group_kill`` (int)
+        reflecting the current cumulative counts from ``memory.events``.
+        Returns ``{'oom_kill': 0, 'oom_group_kill': 0}`` if the cgroup has
+        no processes or the file cannot be read.
     """
+    oom_counts = {'oom_kill': 0, 'oom_group_kill': 0}
+
     pids = get_pids_for_cgroup(cgroup_path)
     if not pids:
         logger.info(f"[cgroup: {cgroup_path}]\n  No processes found.")
-        return
+        return oom_counts
 
     output_lines = [f"[cgroup: {cgroup_path}]", f"  PIDs: {', '.join([str(pid) for pid in pids])}"]
 
@@ -571,16 +584,25 @@ def monitor_cgroup(cgroup_path: str) -> None:
         try:
             result = subprocess.run(f"cat {filepath}", shell=True, check=True, capture_output=True, text=True)
             content = result.stdout.strip()
-            # Indent multi-line output for readability
             if '\n' in content:
                 indented = "\n    ".join(content.splitlines())
                 output_lines.append(f"  {label}:\n    {indented}")
             else:
                 output_lines.append(f"  {label}: {content}")
+            # Parse OOM counters from memory.events
+            if label == "Memory Events":
+                for line in content.splitlines():
+                    parts = line.split()
+                    if len(parts) == 2:
+                        if parts[0] == "oom_kill":
+                            oom_counts['oom_kill'] = int(parts[1])
+                        elif parts[0] == "oom_group_kill":
+                            oom_counts['oom_group_kill'] = int(parts[1])
         except subprocess.CalledProcessError as e:
             output_lines.append(f"  {label}: <error reading {filepath}> ({e})")
 
     logger.info("\n%s", "\n".join(output_lines))
+    return oom_counts
 
 
 def set_memory_limit(cgroup_path: str, memory_bytes: int):
@@ -619,3 +641,28 @@ def set_memory_limit(cgroup_path: str, memory_bytes: int):
         raise OSError(f"Error writing memory limit to {memory_max_path}: {e}") from e
 
     logger.info(f"[cgroup: {cgroup_path}]\n  Max memory usage: {value}")
+
+
+def set_oom_group(cgroup_path: str) -> bool:
+    """Enable atomic OOM-group killing for a cgroup v2.
+
+    Writes ``1`` to ``memory.oom.group`` so that when any process in the
+    cgroup exceeds the memory limit, the kernel sends SIGKILL to *all*
+    processes in the cgroup atomically, preventing half-killed payloads.
+
+    Args:
+        cgroup_path: Full path to the cgroup (e.g. ``/sys/fs/cgroup/mygroup``).
+
+    Returns:
+        True if the file was written successfully, False otherwise.
+    """
+    oom_group_path = os.path.join(cgroup_path, "memory.oom.group")
+    try:
+        with open(oom_group_path, "w", encoding='utf-8') as f:
+            f.write("1")
+    except OSError as e:
+        logger.warning(f"failed to set memory.oom.group for {cgroup_path}: {e}")
+        return False
+
+    logger.info(f"memory.oom.group enabled for cgroup: {cgroup_path}")
+    return True

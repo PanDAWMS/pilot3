@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Memory monitoring and reporting for the ATLAS experiment plugin."""
 
@@ -31,7 +31,10 @@ from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 from pilot.info.jobdata import JobData
 from pilot.util.auxiliary import set_pilot_state
-from pilot.util.cgroups import set_memory_limit
+from pilot.util.cgroups import (
+    set_memory_limit,
+    set_oom_group,
+)
 from pilot.util.config import config
 from pilot.util.processes import kill_processes
 
@@ -228,28 +231,58 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
 
 
 def set_cgroups_limit(memory_limit_kb: int) -> None:
-    """Set the cgroups memory limit for a given process ID.
+    """Set the cgroups memory limit for the subprocesses cgroup.
+
+    Applies a grace factor on top of the prmon soft-kill threshold so that
+    the kernel OOM kill acts as a backstop rather than racing prmon.  The
+    effective hard limit written to ``memory.max`` is::
+
+        cgroup_limit_bytes = memory_limit_kb * CGROUP_GRACE_FACTOR * 1024
+
+    where ``CGROUP_GRACE_FACTOR = 1.2`` (20 % above the prmon soft limit).
+    This gives prmon at least one 60-second poll interval to fire first and
+    produce a clean error report before the kernel terminates the payload.
+
+    ``memory.oom.group`` is also set to ``1`` so that if the kernel OOM kill
+    does fire, the entire subprocess cgroup is killed atomically rather than
+    just the most offending process.
+
+    The limit is written only once per pilot lifetime.  Subsequent calls log
+    the previously-set value at INFO level so it is always visible in the log.
 
     Args:
-        memory_limit_kb: Memory limit in kB.
+        memory_limit_kb: prmon soft-kill threshold in kB (from
+            :func:`calculate_memory_limit_kb`).
     """
-    # cgroup_path = pilot_cache.get_cgroup("payload")
-    cgroup_path = pilot_cache.get_cgroup("subprocesses")  # use subprocesses cgroup which should include the payload
+    # 20 % headroom above the prmon threshold so prmon gets first crack.
+    CGROUP_GRACE_FACTOR = 1.2
+
+    cgroup_path = pilot_cache.get_cgroup("subprocesses")
     if not cgroup_path:
         logger.warning("no cgroup found for subprocesses cgroup - cannot set memory limit")
         return
 
     if pilot_cache.set_memory_limits and cgroup_path in pilot_cache.set_memory_limits:
-        logger.debug(f"memory limit already set for cgroup {cgroup_path}")
+        stored_kb = pilot_cache.set_memory_limits_values.get(cgroup_path, "unknown")
+        logger.info(f"cgroup memory limit already set for {cgroup_path}: {stored_kb} kB "
+                    f"(prmon soft limit: {memory_limit_kb} kB)")
         return
 
+    cgroup_limit_kb = int(memory_limit_kb * CGROUP_GRACE_FACTOR)
     try:
-        set_memory_limit(cgroup_path, memory_limit_kb * 1024)  # convert to bytes
+        set_memory_limit(cgroup_path, cgroup_limit_kb * 1024)  # convert kB -> bytes
     except (ValueError, FileNotFoundError, PermissionError, OSError) as exc:
         logger.warning(f"could not set cgroup memory limit: {exc}")
-    else:
-        pilot_cache.set_memory_limits.append(cgroup_path)
-        logger.info(f"memory limit set for cgroup {cgroup_path}: {memory_limit_kb} kB")
+        return
+
+    pilot_cache.set_memory_limits.append(cgroup_path)
+    pilot_cache.set_memory_limits_values[cgroup_path] = cgroup_limit_kb
+    logger.info(f"cgroup memory limit set for {cgroup_path}: {cgroup_limit_kb} kB "
+                f"(prmon soft limit: {memory_limit_kb} kB, grace factor: {CGROUP_GRACE_FACTOR})")
+
+    # Kill the entire subprocess cgroup atomically if OOM fires, preventing
+    # half-killed payloads from lingering.
+    set_oom_group(cgroup_path)
 
 
 def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
