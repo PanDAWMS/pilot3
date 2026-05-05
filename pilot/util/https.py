@@ -368,8 +368,11 @@ def request(url: str,
         plain: If ``True``, return the raw string response (or JSON-dumped
             string for dict).
         secure: Kept for API compatibility; currently only logged.
-        ipv: Preferred IP family (``"IPv4"`` or ``"IPv6"``); currently only
-            logged.
+        ipv: Preferred IP family (``"IPv4"`` or ``"IPv6"``).  When
+            ``"IPv4"``, ``-4`` is passed to curl so that connections are
+            forced over IPv4.  Required on sites such as Karolina HPC where
+            only the IPv4 path is routed through the HTTP proxy and IPv6
+            connections are unreachable.
 
     Returns:
         Parsed dict on JSON success, raw string on parse failure, or failure
@@ -405,6 +408,7 @@ def request(url: str,
             connect_timeout=connect_timeout,
             total_timeout=total_timeout,
             verify=True,
+            force_ipv4=(ipv == "IPv4"),
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.exception("curl fallback raised unexpected exception: %s", exc)
@@ -1073,6 +1077,7 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
     total_timeout: int = 120,
     config_dir: str | None = None,
     verify: bool = True,
+    force_ipv4: bool = False,
 ) -> str | dict[str, Any]:
     """Send JSON via curl using a curl config file and return parsed JSON or raw stdout.
 
@@ -1102,6 +1107,8 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
         total_timeout: curl --max-time seconds.
         config_dir: Directory where temporary files should be created (defaults to PILOT_HOME or tmp dir).
         verify: Whether to verify server certificate. If False, pass --insecure to curl.
+        force_ipv4: If True, pass ``-4`` to curl to force IPv4. Required on sites (e.g. Karolina HPC)
+            where only IPv4 is routed through the HTTP proxy and IPv6 connections are unreachable.
 
     Returns:
         dict parsed from server JSON, raw stdout string on parse failure, or error string
@@ -1184,6 +1191,9 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
             "--max-time",
             str(total_timeout),
         ]
+
+        if force_ipv4:
+            curl_cmd.insert(1, "-4")
 
         if not verify:
             curl_cmd.append("--insecure")
