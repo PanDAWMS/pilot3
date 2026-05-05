@@ -18,9 +18,9 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
-# - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
+# - Tobias Wegner, tobias.wegner@cern.ch, 2017-18
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
 
 """
 API for data transfers.
@@ -221,9 +221,9 @@ class StagingClient:
                         }
 
     # list of allowed schemas to be used for direct acccess mode from REMOTE replicas
-    direct_remoteinput_allowed_schemas = ['root', 'https']
+    direct_remoteinput_allowed_schemas = ['root', 'davs', 'https']
     # list of schemas to be used for direct acccess mode from LOCAL replicas
-    direct_localinput_allowed_schemas = ['root', 'dcache', 'dcap', 'file', 'https']
+    direct_localinput_allowed_schemas = ['root', 'davs', 'dcache', 'dcap', 'file', 'https']
     # list of allowed schemas to be used for transfers from REMOTE sites
     remoteinput_allowed_schemas = ['root', 'gsiftp', 'dcap', 'srm', 'storm', 'https']
 
@@ -1300,12 +1300,17 @@ class StageInClient(StagingClient):
 
                 replica = None
 
-                # --- NEW: prefer schema based on job.transfertype for copy-to-scratch ---
+                # Prefer schema based on job.transfertype for copy-to-scratch files.
+                # For direct-I/O files (doing_direct=True) the protocol preference is
+                # handled below via get_directio_preferred_schemas(), so this block is
+                # skipped for them to avoid double-handling.  A davs:// turl selected
+                # by that path is accepted by is_directaccess() because 'davs' is now
+                # included in direct_localinput_allowed_schemas /
+                # direct_remoteinput_allowed_schemas.
                 job = kwargs.get('job')
                 ttype = (getattr(job, 'transfertype', '') or '').lower()
                 prefer = [ttype] if ttype in ('file', 'root', 'davs') else None
 
-                # don’t interfere with direct I/O behavior
                 doing_direct = fspec.is_directaccess(ensure_replica=False) and (fspec.direct_access_lan or fspec.direct_access_wan)
 
                 if prefer and not doing_direct:
@@ -1325,7 +1330,6 @@ class StageInClient(StagingClient):
                         if preferred_replica:
                             replica = preferred_replica
                             self.logger.info('wan replica resolved with preferred schema=%s: %s', prefer, replica)
-                # --- end NEW block ---
 
                 # process direct access logic  ## TODO move to upper level, should not be dependent on copytool (anisyonk)
 

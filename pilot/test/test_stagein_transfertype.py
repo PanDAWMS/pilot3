@@ -158,8 +158,8 @@ class TestGetDirectioPreferredSchemas(unittest.TestCase):
     """Tests for ``get_directio_preferred_schemas``."""
 
     # Default schema lists mirroring the class-level constants in data.py
-    _LOCAL_SCHEMAS = ['root', 'dcache', 'dcap', 'file', 'https']
-    _REMOTE_SCHEMAS = ['root', 'https']
+    _LOCAL_SCHEMAS = ['root', 'davs', 'dcache', 'dcap', 'file', 'https']
+    _REMOTE_SCHEMAS = ['root', 'davs', 'https']
 
     def test_empty_transfertype_returns_default(self):
         """Empty transfertype must leave the schema list unchanged."""
@@ -232,10 +232,18 @@ class TestGetDirectioPreferredSchemas(unittest.TestCase):
 
     def test_preferred_schema_not_in_default_list_is_prepended(self):
         """A valid directio keyword not already in the default list is prepended."""
+        # Use a minimal custom list that does not contain 'davs' to verify
+        # that the schema is still prepended when absent from the default.
         result = get_directio_preferred_schemas('davs', ['root', 'https'])
         self.assertEqual(result[0], 'davs')
         self.assertIn('root', result)
         self.assertIn('https', result)
+
+    def test_davs_already_in_local_schemas_no_duplicate(self):
+        """'davs' in default list must appear once and remain first after reorder."""
+        result = get_directio_preferred_schemas('davs', self._LOCAL_SCHEMAS)
+        self.assertEqual(result[0], 'davs')
+        self.assertEqual(result.count('davs'), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +347,78 @@ class TestGetDirectAccessVariables(unittest.TestCase):
         except Exception as exc:  # pylint: disable=broad-except
             self.fail(f'get_direct_access_variables(None) raised {exc!r}')
         self.assertTrue(allow)
+
+
+# ---------------------------------------------------------------------------
+# Tests for FileSpec.is_directaccess() with davs:// turl
+# ---------------------------------------------------------------------------
+
+class TestIsDirectaccessDavsTurl(unittest.TestCase):
+    """Tests that is_directaccess() accepts davs:// turls for direct I/O."""
+
+    def _make_fspec(self, turl: str, accessmode: str = 'direct') -> object:
+        """Return a minimal FileSpec-like object.
+
+        Args:
+            turl: The transport URL to assign to the file.
+            accessmode: The access mode ('direct' or 'copy').
+
+        Returns:
+            MagicMock: Configured mock FileSpec.
+        """
+        from pilot.info.filespec import FileSpec
+        fspec = FileSpec.__new__(FileSpec)
+        fspec.lfn = 'data18_13TeV.00359541.physics_Main.daq.RAW._lb0192._SFO-6._0004.data'
+        fspec.turl = turl
+        fspec.accessmode = accessmode
+        return fspec
+
+    def test_davs_turl_accepted_by_local_schemas(self):
+        """davs:// turl must pass is_directaccess when davs is in local schemas."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('davs://dcache-atlas-webdav-job.desy.de:2880/path/to/file.data')
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertIn('davs', schemas,
+                      "direct_localinput_allowed_schemas must include 'davs'")
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must return True for a davs:// turl"
+        )
+
+    def test_davs_turl_accepted_by_remote_schemas(self):
+        """davs:// turl must pass is_directaccess when davs is in remote schemas."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('davs://dcache-atlas-webdav.desy.de:2880/path/to/file.data')
+        schemas = StagingClient.direct_remoteinput_allowed_schemas
+        self.assertIn('davs', schemas,
+                      "direct_remoteinput_allowed_schemas must include 'davs'")
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must return True for a davs:// turl on remote schemas"
+        )
+
+    def test_root_turl_still_accepted_by_local_schemas(self):
+        """root:// turl must continue to pass is_directaccess (no regression)."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('root://dcache-atlas-xrootd-job.desy.de:1094//path/file.data')
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "root:// turl must remain accepted after adding davs to the schema list"
+        )
+
+    def test_davs_turl_rejected_when_accessmode_copy(self):
+        """davs:// turl must be rejected when accessmode is 'copy'."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec(
+            'davs://dcache-atlas-webdav-job.desy.de:2880/path/to/file.data',
+            accessmode='copy'
+        )
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertFalse(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must be False when accessmode='copy' regardless of turl schema"
+        )
 
 
 if __name__ == '__main__':
