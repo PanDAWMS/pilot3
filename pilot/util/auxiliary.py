@@ -17,11 +17,10 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
 """Auxiliary functions."""
 
-from __future__ import annotations
 import logging
 import os
 import re
@@ -428,6 +427,11 @@ def check_for_final_server_update(update_server: bool) -> None:
                 break
         if server_update == SERVER_UPDATE_RUNNING:
             logger.warning('server update is still in RUNNING state after waiting - proceeding anyway')
+            # The job_monitor will have sent (or is about to send) the update and will set
+            # SERVER_UPDATE=FINAL directly. Running the full 20*30 s outer loop when SERVER_UPDATE
+            # is still RUNNING means no UPDATING_FINAL transition is in progress, so there is
+            # nothing to wait for. Return here to avoid a ~10-minute unnecessary stall.
+            return
 
     while counter < max_i and update_server:
         server_update = os.environ.get('SERVER_UPDATE', '')

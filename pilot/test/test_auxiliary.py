@@ -61,13 +61,13 @@ class TestCheckForFinalServerUpdate(unittest.TestCase):
     def test_waits_when_running_and_update_server_true(self):
         """Wait (bounded) when SERVER_UPDATE is RUNNING and update_server=True.
 
-        This is the MAXTIME fix: instead of returning immediately (which caused
-        lost heartbeats), the function now waits up to
-        _MAX_RUNNING_WAIT_ITERATIONS * _RUNNING_WAIT_SLEEP s for the state to
-        advance.  We monkey-patch sleep so the test completes quickly.
+        When SERVER_UPDATE stays RUNNING for the full inner wait, the function
+        now returns immediately afterwards (rather than entering the 20*30 s
+        outer polling loop). The job_monitor is responsible for setting
+        SERVER_UPDATE=FINAL directly after a successful send in the REACHED_MAXTIME
+        path, so there is nothing for the outer loop to wait for.
 
-        After the bounded wait the function must fall through and return even
-        if the state is still RUNNING (no infinite block).
+        We monkey-patch sleep so the inner wait completes quickly.
         """
         import pilot.util.auxiliary as aux_module
 
