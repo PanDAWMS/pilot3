@@ -913,15 +913,17 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
         # for diagnosing lsetup timeouts (pilot error 1378) at sites where container startup
         # is slow or intermittently failing.
         command += 'export ALRB_CONT_VERBOSE=3;'
-        # Override HOME to the per-job workdir so that atlasLocalSetup.sh writes its
-        # temporary startContainer.sh.XXXXXX files (and the .alrb/container tree) into
-        # the job workdir rather than the shared NFS home directory.  Without this,
-        # every concurrent pilot on the worker node writes to the same directory,
-        # causing the file count to grow unbounded and generating excessive NFS IOPS
-        # (observed as 200k+ IOPS at BNL from April 8 onwards, correlating with
-        # pilot error 1378 spikes).  Files in the job workdir are cleaned up
-        # automatically when the job ends.
-        command += f'export HOME={workdir};'
+        # Redirect ALRB's container temp files (startContainer.sh.XXXXXX and the
+        # .alrb/container tree) into the per-job workdir by setting ALRB_CONT_CHOME.
+        # ALRB bind-mounts this directory into the container automatically and
+        # propagates it to nested containers, so no further action is needed.
+        # Using the job workdir means the files are isolated per job and cleaned up
+        # automatically when the job ends, avoiding the NFS accumulation problem
+        # (117k files, 200k+ IOPS at BNL) caused by all pilots on a worker node
+        # sharing the same $HOME/.alrb/container/scripts/.
+        # Only set if not already defined, to respect any site-level override.
+        if not os.environ.get('ALRB_CONT_CHOME'):
+            command += f'export ALRB_CONT_CHOME={workdir};'
         _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         _asetup = fix_asetup(_asetup)
         command += _asetup
@@ -1038,6 +1040,13 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
             # blocking indefinitely.  With O_NONBLOCK, readline() may return
             # None (no data yet) or b'' (EOF); both must be handled without
             # attempting .decode().
+            #
+            # IMPORTANT: process.poll() must NOT be used as a loop-exit condition
+            # while the pipe may still have unread data.  The only reliable EOF
+            # signal is readline() returning b''.  The process can exit while
+            # output is still buffered in the pipe; polling before the pipe is
+            # drained causes a race where sentinels (LSETUP_COMPLETED,
+            # PYTHON_COMPLETED) are never read even on a successful run.
             ready, _, _ = select.select([process.stdout], [], [], 1.0)
             if ready:
                 raw = process.stdout.readline()  # bytes, None, or b''
@@ -1045,13 +1054,13 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
                     # Spurious readiness on a drained non-blocking pipe — skip.
                     pass
                 elif raw == b'':
-                    # EOF: the bash process has closed its stdout.  If we never
-                    # saw PYTHON_COMPLETED the script exited without the sentinel
-                    # (e.g. the container failed to start).  Exit the loop now so
-                    # we don't spin until lsetup_timeout fires.
+                    # EOF: pipe is fully drained and the process has closed stdout.
+                    # If PYTHON_COMPLETED was never seen the script exited without
+                    # the sentinel (container failed to start, or lsetup/script
+                    # error before the python line).
                     logger.warning(
                         "bash process stdout closed without PYTHON_COMPLETED sentinel "
-                        "- container likely failed to start (exit_code=1)"
+                        f"(process rc={process.poll()})"
                     )
                     break
                 else:
@@ -1074,18 +1083,6 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
                         else:
                             logger.info("python remote open command has completed without any exit code")
                         break
-
-            # ── normal process completion (no sentinel) ───────────────────────
-            # If the bash process exits cleanly without printing PYTHON_COMPLETED
-            # (e.g. open_file.sh itself errored before reaching the python line),
-            # break immediately rather than waiting for lsetup_timeout to fire.
-            return_code = process.poll()
-            if return_code is not None:
-                logger.warning(
-                    f"bash process exited with return code {return_code} "
-                    "before PYTHON_COMPLETED sentinel was seen"
-                )
-                break
 
             time.sleep(0.5)
 
@@ -1229,7 +1226,7 @@ def fix_asetup(asetup: str) -> str:
     return asetup
 
 
-def create_middleware_container_command(job: JobData, cmd: str, label: str = 'stage-in', proxy: bool = True) -> str:
+def create_middleware_container_command(job: JobData, cmd: str, label: str = 'stage-in', proxy: bool = True) -> str:  # noqa: C901
     """Create the container command for stage-in/out or other middleware.
 
     The function takes the isolated middleware command, adds bits and pieces needed for the containerisation and stores
@@ -1288,10 +1285,15 @@ def create_middleware_container_command(job: JobData, cmd: str, label: str = 'st
             command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
             if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
                 command += f"export ALRB_CONT_UNPACKEDDIR={os.environ.get('ALRB_CONT_UNPACKEDDIR')};"
-        # Override HOME to the per-job workdir so that atlasLocalSetup.sh writes its
-        # temporary startContainer.sh.XXXXXX files into the job workdir rather than the
-        # shared NFS home directory.  See create_root_container_command for full rationale.
-        command += f'export HOME={job.workdir};'
+        # Redirect ALRB's container temp files into the per-job workdir via
+        # ALRB_CONT_CHOME.  See create_root_container_command for full rationale.
+        # NOTE: setting export HOME={workdir} was attempted here and found to break
+        # all sites (atlasLocalSetup.sh validates the HOME directory structure and
+        # exits rc=64 when HOME is a bare job workdir).  ALRB_CONT_CHOME is the
+        # correct mechanism; it redirects only the ALRB temp files without touching HOME.
+        # Only set if not already defined, to respect any site-level override.
+        if not os.environ.get('ALRB_CONT_CHOME'):
+            command += f'export ALRB_CONT_CHOME={job.workdir};'
         command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         if label == 'setup':
             # set the platform info
