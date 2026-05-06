@@ -4000,14 +4000,18 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                         # staged prevents the fail-safe (post-loop) from re-attempting the update.
                         # job.completed is set to True inside send_state() after a successful final update.
 
-                        sent = send_state(jobs[i], args, jobs[i].state)
-                        # send_state() only sets SERVER_UPDATE=FINAL when is_final_update() returns True,
-                        # which requires LOG_TRANSFER to have completed. If the log stage-out above
-                        # succeeded that will happen naturally; if it did not (e.g. copytool_out was
-                        # already gone), force SERVER_UPDATE to FINAL so check_for_final_server_update()
-                        # does not spin for 20*30 s after the PanDA update has already been delivered.
-                        if sent and os.environ.get('SERVER_UPDATE', '') == SERVER_UPDATE_RUNNING:
-                            logger.info('setting SERVER_UPDATE to FINAL after successful REACHED_MAXTIME send_state')
+                        # Use update_server() rather than send_state() directly so that
+                        # job.fileinfo (populated by _stage_out_new after the log transfer above)
+                        # is serialised into the job_output_report field of the PanDA update.
+                        # Calling send_state() bare leaves xml="" and the log file entry is absent
+                        # from the server-side record.
+                        update_server(jobs[i], args)
+                        # update_server/send_state only sets SERVER_UPDATE=FINAL when
+                        # is_final_update() returns True (LOG_TRANSFER done/failed). If it did
+                        # not advance past RUNNING (e.g. copytool_out was unavailable), set it
+                        # directly so check_for_final_server_update() does not spin 20*30 s.
+                        if os.environ.get('SERVER_UPDATE', '') == SERVER_UPDATE_RUNNING:
+                            logger.info('setting SERVER_UPDATE to FINAL after REACHED_MAXTIME update_server')
                             os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
                         if jobs[i].pid:
                             logger.debug('killing payload processes')
