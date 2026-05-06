@@ -907,6 +907,12 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
         if x509:
             command += f'export X509_USER_PROXY={x509};'
         command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
+        # ALRB_CONT_VERBOSE=3 emits timestamped container startup lines (apptainer version,
+        # host OS, bind-mounts, etc.) to stdout so they are captured by execute_remote_file_open
+        # and appear in both open_remote_file_cmd.stdout and the pilot log.  This is essential
+        # for diagnosing lsetup timeouts (pilot error 1378) at sites where container startup
+        # is slow or intermittently failing.
+        command += 'export ALRB_CONT_VERBOSE=3;'
         _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         _asetup = fix_asetup(_asetup)
         command += _asetup
@@ -920,54 +926,74 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
 def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int, str, int]:  # noqa: C901
     """Execute the remote file open script.
 
+    Runs ``open_remote_file_cmd.sh`` as a subprocess with merged stdout/stderr,
+    reading output line-by-line in a non-blocking polling loop.  The loop
+    watches for two sentinel strings emitted by ``open_file.sh``:
+
+    * ``LSETUP_COMPLETED`` — lsetup finished; start the python-script timeout.
+    * ``PYTHON_COMPLETED <ec>`` — ``open_remote_file.py`` finished; record its
+      exit code and exit the loop.
+
+    Exit codes returned:
+
+    * 0 — success (PYTHON_COMPLETED 0 seen, or lsetup-timeout recovery succeeded).
+    * 1 — general error (default; also set when the bash process exits without
+      printing PYTHON_COMPLETED, i.e. the container failed to start).
+    * 2 — lsetup timed out (``lsetup_timeout`` exceeded before LSETUP_COMPLETED).
+    * 3 — python-script timed out (``python_script_timeout`` exceeded after
+      LSETUP_COMPLETED).
+
+    All captured output is written to ``<path-stem>.stdout`` on disk so that it
+    is available in the BigPanda file browser regardless of whether it is also
+    emitted to the pilot log (see ``open_remote_files()`` in ``common.py``).
+
     Args:
-        path: path to container script.
-        python_script_timeout: timeout.
+        path: path to the container wrapper script (``open_remote_file_cmd.sh``).
+        python_script_timeout: seconds to allow ``open_remote_file.py`` to run
+            after lsetup has completed.
 
     Returns:
-        tuple[int, str, int]: exit code, stdout, lsetup time.
+        tuple[int, str, int]: exit code, captured stdout, lsetup wall-clock time
+        in seconds (0 if lsetup never completed).
     """
     lsetup_timeout = 900  # Timeout for 'lsetup' step
     exit_code = 1
     stdout = ""
 
-    # Start the Bash script process with non-blocking I/O
+    # Start the Bash script process with merged stdout+stderr, non-blocking I/O.
     try:
         process = subprocess.Popen(["bash", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
         fcntl.fcntl(process.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)  # Set non-blocking
-    except OSError as e:
-        logger.warning(f"error starting subprocess: {e}")
+    except OSError as exc:
+        logger.warning(f"error starting subprocess: {exc}")
         return exit_code, "", 0
 
-    # Split the path at the last dot
+    # Derive the on-disk stdout mirror path: open_remote_file_cmd.stdout
     filename, _ = path.rsplit(".", 1)
-
-    # Create the new path with the desired suffix
     new_path = f"{filename}.stdout"
 
-    start_time = time.time()  # Track execution start time
+    start_time = time.time()        # tracks lsetup phase; reset to now when LSETUP_COMPLETED seen
     lsetup_start_time = start_time
-    lsetup_completed = False  # Flag to track completion of 'lsetup' process
-    python_completed = False  # Flag to track completion of 'python3' process
-    lsetup_completed_at = None
+    lsetup_completed = False        # True once LSETUP_COMPLETED sentinel is read
+    lsetup_completed_at = None      # wall-clock time when LSETUP_COMPLETED was read
 
     with open(new_path, "w", encoding='utf-8') as file:
         while True:
-            # Check for timeout (once per second)
-            if time.time() - start_time > lsetup_timeout and not lsetup_completed:
+
+            # ── lsetup phase timeout ──────────────────────────────────────────
+            if not lsetup_completed and time.time() - lsetup_start_time > lsetup_timeout:
                 logger.warning("timeout for 'lsetup' exceeded - killing script")
-                exit_code = 2  # 'lsetup' timeout
+                exit_code = 2  # lsetup timeout
                 process.kill()
 
-                # Recovery: lsetup may have finished just as the timeout fired, with the python
-                # script completing successfully before the kill took effect.  Check whether
-                # open_remote_file.py left its sentinel line in remote_open.stdout.
+                # Recovery: lsetup may have finished just as the timeout fired,
+                # with open_remote_file.py completing successfully before the kill
+                # took effect.  Check for its sentinel line in remote_open.stdout.
                 workdir = os.path.dirname(path)
                 remote_open_stdout = os.path.join(workdir, 'remote_open.stdout')
                 sentinel = 'file remote open script has finished'
                 if os.path.exists(remote_open_stdout):
-                    matches = grep([sentinel], remote_open_stdout)
-                    if matches:
+                    if grep([sentinel], remote_open_stdout):
                         logger.info(
                             "lsetup timeout fired but open_remote_file.py completed successfully "
                             f"(sentinel found in {remote_open_stdout}) - recovering exit code to 0"
@@ -988,24 +1014,50 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
                     )
                 break
 
-            # Use select to check if there is data to read (to byspass any blocking operation that will prevent time-out checks)
+            # ── python-script phase timeout (measured from LSETUP_COMPLETED) ─
+            if lsetup_completed and time.time() - lsetup_completed_at > python_script_timeout:
+                logger.warning(
+                    f"timeout for 'python3' subscript exceeded - killing script "
+                    f"({time.time() - lsetup_completed_at:.1f}s > {python_script_timeout}s)"
+                )
+                exit_code = 3
+                process.kill()
+                break
+
+            # ── read available output ─────────────────────────────────────────
+            # select() with a 1-second timeout lets us check timeouts without
+            # blocking indefinitely.  With O_NONBLOCK, readline() may return
+            # None (no data yet) or b'' (EOF); both must be handled without
+            # attempting .decode().
             ready, _, _ = select.select([process.stdout], [], [], 1.0)
             if ready:
-                output = process.stdout.readline()  # Read bytes directly
-                if output:
-                    output = output.decode().strip()
+                raw = process.stdout.readline()  # bytes, None, or b''
+                if raw is None:
+                    # Spurious readiness on a drained non-blocking pipe — skip.
+                    pass
+                elif raw == b'':
+                    # EOF: the bash process has closed its stdout.  If we never
+                    # saw PYTHON_COMPLETED the script exited without the sentinel
+                    # (e.g. the container failed to start).  Exit the loop now so
+                    # we don't spin until lsetup_timeout fires.
+                    logger.warning(
+                        "bash process stdout closed without PYTHON_COMPLETED sentinel "
+                        "- container likely failed to start (exit_code=1)"
+                    )
+                    break
+                else:
+                    output = raw.decode().strip()
                     file.write(output + "\n")
                     stdout += output + "\n"
 
-                    # Check for LSETUP_COMPLETED message
+                    # LSETUP_COMPLETED: lsetup finished; reset timer for python phase.
                     if output == "LSETUP_COMPLETED":
                         lsetup_completed = True
                         lsetup_completed_at = time.time()
-                        start_time = time.time()  # Reset start time for 'python3' timeout
+                        start_time = lsetup_completed_at  # kept for reference; timeout uses lsetup_completed_at
 
-                    # Check for PYTHON_COMPLETED message
-                    if "PYTHON_COMPLETED" in output:
-                        python_completed = True
+                    # PYTHON_COMPLETED <ec>: open_remote_file.py finished.
+                    elif "PYTHON_COMPLETED" in output:
                         match = re.search(r"\d+$", output)
                         if match:
                             exit_code = int(match.group())
@@ -1014,45 +1066,24 @@ def execute_remote_file_open(path: str, python_script_timeout: int) -> tuple[int
                             logger.info("python remote open command has completed without any exit code")
                         break
 
-            # Timeout for python script after LSETUP_COMPLETED
-            if lsetup_completed and ((time.time() - lsetup_completed_at) > python_script_timeout):
-                logger.warning(f"(1) timeout for 'python3' subscript exceeded - killing script "
-                               f"({time.time()} - {lsetup_completed_at} > {python_script_timeout})")
-                exit_code = 3
-                process.kill()
-                break
-
-            # Timeout for python script after LSETUP_COMPLETED
-            if lsetup_completed and ((time.time() - start_time) > python_script_timeout):
-                logger.warning(f"(2) timeout for 'python3' subscript exceeded - killing script "
-                               f"({time.time()} - {start_time} > {python_script_timeout})")
-                exit_code = 3
-                process.kill()
-                break
-
-            if python_completed:
-                logger.info('aborting since python command has finished')
-                return_code = process.poll()
-                if return_code:
-                    logger.warning(f"script execution completed with return code: {return_code}")
-                    # exit_code = return_code
-                break
-
-            # Check if script has completed normally
+            # ── normal process completion (no sentinel) ───────────────────────
+            # If the bash process exits cleanly without printing PYTHON_COMPLETED
+            # (e.g. open_file.sh itself errored before reaching the python line),
+            # break immediately rather than waiting for lsetup_timeout to fire.
             return_code = process.poll()
             if return_code is not None:
-                pass
-            #    logger.info(f"script execution completed with return code: {return_code}")
-            #    exit_code = return_code
-            #    break
+                logger.warning(
+                    f"bash process exited with return code {return_code} "
+                    "before PYTHON_COMPLETED sentinel was seen"
+                )
+                break
 
             time.sleep(0.5)
 
-    # Ensure process is terminated
+    # Ensure the process is fully stopped before returning.
     if process.poll() is None:
         process.terminate()
 
-    # Check if 'lsetup' was completed
     lsetup_time = int(lsetup_completed_at - lsetup_start_time) if lsetup_completed_at else 0
 
     return exit_code, stdout, lsetup_time

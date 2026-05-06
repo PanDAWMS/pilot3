@@ -294,11 +294,18 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
         except PilotException as exc:
             logger.warning(f'caught pilot exception: {exc}')
             exitcode = 11
-            stdout = exc
-#        exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
-#        if config.Pilot.remotefileverification_log:
-#            fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
-#            write_file(fpath, stdout + stderr, mute=False)
+            stdout = str(exc)
+
+        # Log all captured container output so that apptainer startup lines, lsetup
+        # trace (ALRB_CONT_VERBOSE=3), and any error messages are visible in the
+        # pilot log and not only in open_remote_file_cmd.stdout on disk.
+        # Log at WARNING level on failure so the output is visible without raising
+        # the log level at the site; log at DEBUG on success to keep normal logs quiet.
+        if stdout:
+            if exitcode:
+                logger.warning(f'container output from open_remote_file_cmd (ec={exitcode}):\n{stdout}')
+            else:
+                logger.debug(f'container output from open_remote_file_cmd:\n{stdout}')
 
         logger.info(f'remote file open finished with ec={exitcode}')
         if lsetup_time > 0:
