@@ -913,6 +913,15 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
         # for diagnosing lsetup timeouts (pilot error 1378) at sites where container startup
         # is slow or intermittently failing.
         command += 'export ALRB_CONT_VERBOSE=3;'
+        # Override HOME to the per-job workdir so that atlasLocalSetup.sh writes its
+        # temporary startContainer.sh.XXXXXX files (and the .alrb/container tree) into
+        # the job workdir rather than the shared NFS home directory.  Without this,
+        # every concurrent pilot on the worker node writes to the same directory,
+        # causing the file count to grow unbounded and generating excessive NFS IOPS
+        # (observed as 200k+ IOPS at BNL from April 8 onwards, correlating with
+        # pilot error 1378 spikes).  Files in the job workdir are cleaned up
+        # automatically when the job ends.
+        command += f'export HOME={workdir};'
         _asetup = get_asetup(alrb=True)  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         _asetup = fix_asetup(_asetup)
         command += _asetup
@@ -1279,6 +1288,10 @@ def create_middleware_container_command(job: JobData, cmd: str, label: str = 'st
             command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
             if 'ALRB_CONT_UNPACKEDDIR' in os.environ:
                 command += f"export ALRB_CONT_UNPACKEDDIR={os.environ.get('ALRB_CONT_UNPACKEDDIR')};"
+        # Override HOME to the per-job workdir so that atlasLocalSetup.sh writes its
+        # temporary startContainer.sh.XXXXXX files into the job workdir rather than the
+        # shared NFS home directory.  See create_root_container_command for full rationale.
+        command += f'export HOME={job.workdir};'
         command += fix_asetup(get_asetup(alrb=True))  # export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         if label == 'setup':
             # set the platform info
