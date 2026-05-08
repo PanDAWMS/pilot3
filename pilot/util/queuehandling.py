@@ -107,41 +107,46 @@ def scan_for_jobs(queues: namedtuple) -> list:
     return jobs
 
 
-def get_timeinfo_from_job(queues: namedtuple, params: dict) -> tuple[Optional[int], Optional[int]]:
+def get_timeinfo_from_job(queues: namedtuple, params: dict, harvester_submitmode: str = '') -> tuple[Optional[int], Optional[int]]:
     """Return the maxwalltime and starttime from the job object.
 
     Requires the ``PANDAID`` environment variable to be set in order to find
     the correct walltime.
 
+    ``job.maxwalltime`` is only used when the pilot is running in Harvester
+    push mode (ARC CEs, OBS), where the batch system uses the job-definition
+    ``maxWalltime`` field as its actual kill limit.  In all other cases the
+    PQ-level ``queuedata.maxtime`` from CRIC drives the time check.
+
     Args:
         queues: Named tuple of queue objects.
-        params: ``queuedata.params`` dictionary.
+        params: ``queuedata.params`` dictionary (kept for API compatibility).
+        harvester_submitmode: Harvester submit mode string (``'push'`` or ``'pull'``).
 
     Returns:
         Tuple of ``(maxwalltime, starttime)``, each an int or None.
     """
     maxwalltime = None
     starttime = None
-    use_job_maxwalltime = False
     current_job_id = os.environ.get('PANDAID', None)
     if not current_job_id:
         return None, None
 
-    # on push queues, one can set params.use_job_maxwalltime to decide if job.maxwalltime should be used to check
-    # job running time
-    if params:
-        use_job_maxwalltime = params.get('job_maxwalltime', False)
-        logger.debug(f'use_job_maxwalltime={use_job_maxwalltime} (type={type(use_job_maxwalltime)}, current job id={current_job_id})')
+    # job.maxwalltime is only meaningful when the pilot is running in push mode
+    # (ARC CE / OBS), where the batch system enforces maxWalltime from the job
+    # definition as the hard wall-clock limit.  In pull mode, maxWalltime in the
+    # job definition is task-level metadata and should not override the PQ limit.
+    use_job_maxwalltime = harvester_submitmode.lower() == 'push'
+    logger.debug(f'use_job_maxwalltime={use_job_maxwalltime} (harvester_submitmode={harvester_submitmode!r}, '
+                 f'current job id={current_job_id})')
 
     # extract jobs from the queues
     jobs = scan_for_jobs(queues)
     if jobs:
         for job in jobs:
             if current_job_id == job.jobid:
-                maxwalltime = job.maxwalltime if job.maxwalltime and use_job_maxwalltime else None
-                # make sure maxwalltime is an int (might be 'NULL')
-                if not isinstance(maxwalltime, int):
-                    maxwalltime = None
+                if use_job_maxwalltime and job.maxwalltime and isinstance(job.maxwalltime, int):
+                    maxwalltime = job.maxwalltime
                 starttime = job.starttime
                 if not isinstance(starttime, int):
                     starttime = None

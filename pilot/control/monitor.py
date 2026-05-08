@@ -232,7 +232,7 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
                 grace_time = 0
             # get the current max_running_time (can change with job)
             try:
-                max_running_time, start_time = get_timeinfo(args.lifetime, queuedata, queues, args.pod)
+                max_running_time, start_time = get_timeinfo(args.lifetime, queuedata, queues, args.pod, args.harvester_submitmode)
             except Exception as exc:
                 logger.warning(f'caught exception: {exc}')
                 max_running_time = args.lifetime
@@ -579,17 +579,24 @@ def run_checks(queues: namedtuple, args: object) -> None:
 #            raise ExceededMaxWaitTime(diagnostics)
 
 
-def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool) -> tuple[Optional[int], Optional[int]]:
+def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool,
+                 harvester_submitmode: str = '') -> tuple[Optional[int], Optional[int]]:
     """Return the maximum allowed running time for the pilot and any start time for the running job.
 
     The max time is set either as a pilot option or via the schedconfig.maxtime for the PQ in question.
     If running in a Kubernetes pod, always use the args.lifetime as maxtime (it will be determined by the harvester submitter).
+
+    When running in Harvester push mode (ARC CEs, OBS), ``job.maxwalltime`` from
+    the job definition is used instead of the PQ-level ``queuedata.maxtime``,
+    because in that deployment the batch system enforces ``maxWalltime`` as the
+    hard wall-clock kill limit.
 
     Args:
         lifetime: Optional pilot option time in seconds.
         queuedata: Queuedata object.
         queues: Queues object.
         pod: Pod mode flag.
+        harvester_submitmode: Harvester submit mode (``'push'`` or ``'pull'``).
 
     Returns:
         tuple[Optional[int], Optional[int]]: Max running time in seconds and start time in seconds;
@@ -607,7 +614,7 @@ def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool) -
         return max_running_time, start_time
 
     try:
-        _max_running_time, start_time = get_timeinfo_from_job(queues, queuedata.params)
+        _max_running_time, start_time = get_timeinfo_from_job(queues, queuedata.params, harvester_submitmode)
     except Exception as exc:
         logger.warning(f'caught exception: {exc}')
     else:
