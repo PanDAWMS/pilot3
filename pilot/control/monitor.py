@@ -203,6 +203,7 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
         n_iterations = 0
 
         max_running_time_old = 0
+        limit_old = 0
         while not args.graceful_stop.is_set():
             # every few seconds, run the monitoring checks
             if args.graceful_stop.wait(1) or args.graceful_stop.is_set():
@@ -260,10 +261,12 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
                     reached_maxtime_abort(args)
                     break
                 else:
+                    if limit != limit_old:
+                        limit_old = limit
+                        logger.info(f'using max running time = {max_running_time}s, intrinsic buffer = {intrinsic_buffer}s, '
+                                    f'pilot_walltime_grace = {queuedata.pilot_walltime_grace} -> limit = {int(limit)}s')
                     if n_iterations % 60 == 0:
                         logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
-                    logger.debug(f'max running time = {max_running_time}s, intrinsic buffer = {intrinsic_buffer}s, '
-                                 f'queuedata.pilot_walltime_grace = {queuedata.pilot_walltime_grace}')
                     start_time_ok = True
 
             # fallback to max_running_time if start_time is not known
@@ -614,10 +617,13 @@ def get_timeinfo(lifetime: int, queuedata: Any, queues: namedtuple, pod: bool,
         return max_running_time, start_time
 
     try:
-        _max_running_time, start_time = get_timeinfo_from_job(queues, queuedata.params, harvester_submitmode)
+        _max_running_time, _start_time = get_timeinfo_from_job(queues, queuedata.params, harvester_submitmode)
     except Exception as exc:
         logger.warning(f'caught exception: {exc}')
     else:
+        # Always preserve start_time from the job even when job.maxwalltime is not used (e.g. PULL mode),
+        # so that the pilot_walltime_grace calculation in the monitor loop can use job.starttime.
+        start_time = _start_time
         if _max_running_time:
             logger.debug(f'using max running time from job: {_max_running_time}s and start time: {start_time}')
             return _max_running_time, start_time

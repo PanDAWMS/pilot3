@@ -41,13 +41,17 @@ from pilot.util.filehandling import (
     remove_dir_tree
 )
 from pilot.util.processgroups import kill_process_group
-from pilot.util.psutils import list_processes_and_threads
+from pilot.util.psutils import find_zombies  # noqa: F401 – re-exported; loopingjob imports find_zombies from this module
+from pilot.util.psutils import (
+    is_zombie,
+    list_processes_and_threads
+)
 from pilot.util.timer import timeout
 
 logger = logging.getLogger(__name__)
 
 
-def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
+def find_processes_in_group(cpids: list, pid: int, ps_cache: str = "") -> None:
     """Find all processes that belong to the same group using the given ps command output.
 
     Search for the children processes belonging to pid and return their pid's.
@@ -86,7 +90,7 @@ def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
                         stack.append(thispid)
 
 
-def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = ""):
+def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = "") -> None:
     """Find all processes that belong to the same group (recursive version).
 
     Recursively search for the children processes belonging to pid and return
@@ -117,25 +121,6 @@ def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = ""):
                 else:
                     if thisppid == pid:
                         find_processes_in_group(cpids, thispid, ps_cache)
-
-
-def is_zombie(pid: int) -> bool:
-    """Check if the given process is a zombie process.
-
-    Args:
-        pid: Process id.
-
-    Returns:
-        True if process is defunct, False otherwise.
-    """
-    status = False
-
-    cmd = f"ps aux | grep {pid}"
-    _, stdout, _ = execute(cmd, mute=True)
-    if "<defunct>" in stdout:
-        status = True
-
-    return status
 
 
 def get_process_commands(euid: int, pids: list) -> list:
@@ -500,6 +485,8 @@ def kill_orphans() -> None:
                 logger.info(f"ignoring possible orphan process running cvmfs2: pid={pid}, ppid={ppid}, args='{args}'")
             elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args or 'runpilot3-wrapper.sh' in args:
                 logger.info(f"ignoring pilot launcher: pid={pid}, ppid={ppid}, args='{args}'")
+            elif 'nvidia-cuda-mps' in args:
+                logger.info(f"ignoring NVIDIA MPS daemon: pid={pid}, ppid={ppid}, args='{args}'")
             elif ppid == '1':
                 count += 1
                 logger.info(f"found orphan process: pid={pid}, ppid={ppid}, args='{args}'")
@@ -922,52 +909,13 @@ def is_child(pid: int, pandaid_pid: int, dictionary: dict) -> bool:
     return is_child(ppid, pandaid_pid, dictionary)
 
 
-def identify_numbers_and_strings(s: str) -> list:
-    """Identify numbers and strings in a given string.
+def handle_zombies(zombies: dict, job: JobData = None) -> None:
+    """Log info about zombie processes and optionally record their pids on the job.
 
     Args:
-        s: The string to be processed.
-
-    Returns:
-        A list of tuples, where each tuple contains the matched numbers and strings.
-    """
-    return re.findall(r'(\d+)\s+(\d+)\s+([A-Za-z]+)\s+([A-Za-z]+)', s)
-
-
-def find_zombies(parent_pid: int) -> dict:
-    """Find all zombie/defunct processes under the given parent pid.
-
-    Args:
-        parent_pid: Parent pid.
-
-    Returns:
-        Dictionary mapping parent pid to list of zombie process info.
-    """
-    zombies = {}
-    cmd = 'ps -eo pid,ppid,stat,comm'
-    _, stdout, _ = execute(cmd)
-    for line in stdout.split('\n'):
-        matches = identify_numbers_and_strings(line)
-        if matches:
-            pid = int(matches[0][0])
-            ppid = int(matches[0][1])
-            stat = matches[0][2]
-            comm = matches[0][3]
-            #print(f'pid={pid} ppid={ppid} stat={stat} comm={comm}')
-            if ppid == parent_pid and stat.startswith('Z'):
-                if not zombies.get(parent_pid):
-                    zombies[parent_pid] = []
-                zombies[parent_pid].append([pid, stat, comm])
-
-    return zombies
-
-
-def handle_zombies(zombies: list, job: JobData = None) -> None:
-    """Dump some info about the given zombies.
-
-    Args:
-        zombies: List of zombies.
-        job: If provided, the zombie pid will be added to the job.zombies list.
+        zombies: Mapping of parent pid to list of zombie process info, as returned
+            by find_zombies().
+        job: If provided, each zombie pid will be appended to job.zombies.
     """
     for parent in zombies:
         #logger.info(f'sending SIGCHLD to ppid={parent}')
@@ -995,7 +943,12 @@ def reap_zombies(pid: int = -1) -> None:
     max_timeout = 20
 
     @timeout(seconds=max_timeout)
-    def waitpid(pid: int = -1):
+    def waitpid(pid: int = -1) -> None:
+        """Reap zombie child processes using WNOHANG until none remain.
+
+        Args:
+            pid: Process id to wait on. Use -1 for any child of the current process.
+        """
         try:
             while True:
                 _pid, status = os.waitpid(pid, os.WNOHANG)
