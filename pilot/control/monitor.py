@@ -242,7 +242,7 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
                     max_running_time_old = max_running_time
                     logger.info(f'using max running time = {max_running_time}s')
 
-            # if start_time for the current job is known (push queues), a more detailed check can be performed
+            # if start_time for the current job is known (push and pull queues), a more detailed check can be performed
             start_time_ok = False
             if start_time and queuedata:  # in epoch seconds
                 time_since_job_start = int(time.time()) - start_time
@@ -269,12 +269,17 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
                         logger.info(f'time since job start ({time_since_job_start}s) is within the limit ({limit}s)')
                     start_time_ok = True
 
-            # fallback to max_running_time if start_time is not known
-            if (time_since_start > max_running_time - grace_time) and not start_time_ok:
-                logger.fatal(f'max running time ({max_running_time}s) minus grace time ({grace_time}s) has been '
-                             f'exceeded - time to abort pilot')
-                reached_maxtime_abort(args)
-                break
+            # fallback when start_time is not yet known (e.g. early in job lifecycle);
+            # pilot_walltime_grace is applied here too so PULL queues are treated consistently
+            if not start_time_ok:
+                fallback_grace = queuedata.pilot_walltime_grace if queuedata else 1.0
+                fallback_limit = (max_running_time - grace_time) * fallback_grace
+                if time_since_start > fallback_limit:
+                    logger.fatal(f'time since pilot start ({time_since_start}s) has exceeded the fallback limit '
+                                 f'({int(fallback_limit)}s) - (max running time ({max_running_time}s) - grace time '
+                                 f'({grace_time}s)) * pilot_walltime_grace ({fallback_grace}) - time to abort pilot')
+                    reached_maxtime_abort(args)
+                    break
 
             if n_iterations % 60 == 0:
                 logger.info(f"{time_since_start}s have passed since pilot start - server update state is \'{environ['SERVER_UPDATE']}\'")

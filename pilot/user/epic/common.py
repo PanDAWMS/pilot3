@@ -871,4 +871,4 @@ def allow_send_workernode_map() -> bool:
     Returns:
         bool: False unless requested.
     """
-    return False
+    return True
