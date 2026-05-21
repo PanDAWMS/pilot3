@@ -33,13 +33,17 @@ logger = logging.getLogger(__name__)
 
 
 def should_abort(args: Any, limit: int = 30, label: str = '') -> bool:
-    """
-    Abort in case graceful_stop has been set, and less than 30 s has passed since MAXTIME was reached (if set).
+    """Abort if graceful_stop has been set and the optional grace period has not expired.
 
-    :param args: pilot arguments object
-    :param limit: optional time limit (int)
-    :param label: optional label prepending log messages (str)
-    :return: True if graceful_stop has been set (and less than optional time limit has passed since maxtime) or False (bool).
+    Args:
+        args: Pilot arguments object with ``graceful_stop`` event and ``timing`` dict.
+        limit: Grace period in seconds after ``REACHED_MAXTIME`` is set before aborting.
+            Pass 0 to abort immediately.
+        label: Optional prefix appended to log messages (used to identify the caller).
+
+    Returns:
+        True if ``graceful_stop`` is set and the grace period has expired (or was not
+        applicable), False otherwise.
     """
     abort = False
     if args.graceful_stop.wait(1) or args.graceful_stop.is_set():  # 'or' added for 2.6 compatibility reasons
@@ -59,23 +63,31 @@ def should_abort(args: Any, limit: int = 30, label: str = '') -> bool:
 
 
 def was_pilot_killed(timing: dict) -> bool:
-    """
-    Check if the pilot was killed by a KILL signal (i.e., is about to be killed).
+    """Check if the pilot was killed by a KILL signal.
 
-    :param timing: args.timing dictionary (dict)
-    :return: True if pilot was killed by KILL signal, False otherwise (bool).
+    Args:
+        timing: The ``args.timing`` dictionary mapping event labels to timing data.
+
+    Returns:
+        True if a ``PILOT_KILL_SIGNAL`` entry is present in any timing record,
+        False otherwise.
     """
     return any(PILOT_KILL_SIGNAL in timing[i] for i in timing)
 
 
 def is_pilot_check(check: str = '') -> bool:
-    """
-    Determine if the given pilot check is to be run.
+    """Determine whether the given pilot check should be run.
 
-    Consult config.Pilot.checks if the given check is listed.
+    Consults ``config.Pilot.checks`` to decide if *check* is enabled. When
+    the config attribute is absent (outdated config file), returns ``True``
+    to allow the check to proceed.
 
-    :param check: name of check (str)
-    :return: True if check is present in config.Pilot.checks (and if config is outdated), False otherwise (bool).
+    Args:
+        check: Name of the pilot check to look up.
+
+    Returns:
+        True if the check is listed in ``config.Pilot.checks``, or if the
+        config attribute is missing; False if *check* is empty or not listed.
     """
     status = False
     if not check:

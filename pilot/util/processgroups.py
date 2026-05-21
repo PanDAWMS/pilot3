@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
 
+"""Utilities for killing and inspecting process groups and defunct subprocesses."""
+
 import os
 import re
 import subprocess
@@ -33,15 +35,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def kill_process_group(pgrp, nap=10):
-    """
-    Kill the process group.
-    DO NOT MOVE TO PROCESSES.PY - will lead to circular import since execute() needs it as well.
-    :param pgrp: process group id (int).
-    :param nap: napping time between kill signals in seconds (int)
-    :return: boolean (True if SIGTERM followed by SIGKILL signalling was successful)
-    """
+def kill_process_group(pgrp: int, nap: int = 10) -> bool:
+    """Kill the process group.
 
+    DO NOT MOVE TO PROCESSES.PY — will lead to a circular import since
+    ``execute()`` needs this function as well.
+
+    Args:
+        pgrp: Process group id.
+        nap: Napping time between kill signals in seconds.
+
+    Returns:
+        True if SIGTERM followed by SIGKILL signalling was successful.
+    """
     status = False
     _sleep = True
 
@@ -70,13 +76,12 @@ def kill_process_group(pgrp, nap=10):
     return status
 
 
-def kill_defunct_process(pid):
-    """
-    Kills a process if it is in a defunct state.
+def kill_defunct_process(pid: int) -> None:
+    """Kill a process if it is in a defunct state.
 
-    :param pid: main process PID (int).
+    Args:
+        pid: Main process PID.
     """
-
     try:
         cmd = f"ps -p {pid} -o stat"
         logger.info(f'executing command with os.popen(): {cmd}')
@@ -93,7 +98,15 @@ def kill_defunct_process(pid):
                 os.kill(pid, SIGKILL)
 
 
-def get_all_child_pids(parent_pid):
+def get_all_child_pids(parent_pid: int) -> list:
+    """Return all child PIDs of the given parent process using pstree.
+
+    Args:
+        parent_pid: Parent process PID.
+
+    Returns:
+        List of child PIDs, or an empty list if pstree is unavailable or fails.
+    """
 
     def extract_pids_from_string(s):
         pid_pattern = re.compile(r'\((\d+)\)')
@@ -111,7 +124,15 @@ def get_all_child_pids(parent_pid):
         return []
 
 
-def is_defunct(pid):
+def is_defunct(pid: int) -> bool:
+    """Check whether the given process is in a defunct (zombie) state.
+
+    Args:
+        pid: Process PID.
+
+    Returns:
+        True if the process stat contains 'Z', False otherwise.
+    """
     def get_process_info(pid):
         process = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True)
         return process.returncode, process.stdout, process.stderr
@@ -129,14 +150,15 @@ def is_defunct(pid):
         return False
 
 
-def find_defunct_subprocesses(parent_pid):
-    """
-    Finds all defunct subprocesses to the given process.
+def find_defunct_subprocesses(parent_pid: int) -> list:
+    """Find all defunct subprocesses of the given process.
 
-    :param pid: main process PID (int).
-    :return: A list of all defunct subprocesses to the given process.
-    """
+    Args:
+        parent_pid: Main process PID.
 
+    Returns:
+        List of PIDs of all defunct child processes.
+    """
     child_pids = get_all_child_pids(parent_pid)
     logger.info(f'child pids={child_pids}')
     defunct_subprocesses = []

@@ -17,7 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-26
+
+"""psutil-based worker-node resource monitoring (CPU, memory, disk, processes)."""
 
 import logging
 import os
@@ -30,10 +32,44 @@ except ImportError:
 else:
     _is_psutil_available = True
 from re import findall
+from typing import Optional
 
 # from pilot.common.exception import MiddlewareImportFailure
 
 logger = logging.getLogger(__name__)
+
+
+def is_zombie(pid: int) -> bool:
+    """Check whether the given process is in zombie (defunct) state.
+
+    Uses ``psutil.Process.status()`` when psutil is available. Falls back to
+    reading the state field from ``/proc/<pid>/stat`` (field index 2, value
+    ``'Z'``) when psutil is not importable, which avoids spawning a subprocess.
+
+    Args:
+        pid: Process ID to check.
+
+    Returns:
+        True if the process is a zombie, False otherwise (including when the
+        process no longer exists or cannot be inspected).
+    """
+    if _is_psutil_available:
+        try:
+            return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            return False
+
+    # Fallback: read /proc/<pid>/stat directly.  The third field (index 2) is
+    # the single-character process state; 'Z' means zombie/defunct.
+    try:
+        with open(f'/proc/{pid}/stat', 'r', encoding='utf-8') as fh:
+            # comm field may contain spaces and is wrapped in parentheses;
+            # split on ')' to reliably isolate the state field that follows.
+            after_comm = fh.read().split(')', 1)[-1].lstrip()
+            state = after_comm[0] if after_comm else ''
+        return state == 'Z'
+    except OSError:
+        return False
 
 
 def is_process_running_by_pid(pid: int) -> bool:
@@ -135,7 +171,7 @@ def find_pid_by_command_and_ppid(command: str, payload_pid: int) -> int:
     return None
 
 
-def get_parent_pid(pid: int) -> int or None:
+def get_parent_pid(pid: int) -> Optional[int]:
     """Return the parent process ID for the given PID.
 
     Args:
@@ -275,7 +311,7 @@ def get_subprocesses(pid: int, debug: bool = False) -> list:
     #return [int(line) for line in out.splitlines()] if out else []
 
 
-def get_command_by_pid(pid: int) -> str or None:
+def get_command_by_pid(pid: int) -> Optional[str]:
     """Return the full command line for the given process ID.
 
     Args:
@@ -297,7 +333,7 @@ def get_command_by_pid(pid: int) -> str or None:
         return None
 
 
-def find_process_by_jobid(jobid: int) -> int or None:
+def find_process_by_jobid(jobid: int) -> Optional[int]:
     """Find the PID of a process whose command arguments contain the given job ID.
 
     Args:
@@ -323,7 +359,7 @@ def find_process_by_jobid(jobid: int) -> int or None:
     return None
 
 
-def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> int or None:
+def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> Optional[int]:
     """Find the PID of the actual payload process launched under the given bash PID.
 
     Walks the subprocesses of ``bash_pid`` looking for one whose command line
@@ -498,7 +534,7 @@ def list_processes_and_threads() -> list:
     return lines
 
 
-def get_clock_speed() -> float or None:
+def get_clock_speed() -> Optional[float]:
     """Return the current CPU clock speed in MHz.
 
     Returns:
@@ -552,6 +588,61 @@ def get_pilot_process_tree(root_pid: int) -> str:
 
     _walk(root_pid)
     return '\n'.join(lines)
+
+
+def find_zombies(parent_pid: int) -> dict:
+    """Find all zombie/defunct processes that are direct children of parent_pid.
+
+    Uses ``psutil.process_iter()`` when available, querying ``pid``, ``ppid``,
+    ``status``, and ``name`` attributes — all of which are readable from
+    ``/proc/<pid>/stat`` and therefore safe to access on zombie processes.
+    Falls back to parsing ``ps -eo pid,ppid,stat,comm`` output when psutil is
+    not importable, preserving the original behaviour exactly.
+
+    The return value preserves the same structure as the legacy implementation
+    so that ``handle_zombies()`` requires no changes.
+
+    Args:
+        parent_pid: Only zombies whose immediate parent PID equals this value
+            are included in the result.
+
+    Returns:
+        Dictionary mapping ``parent_pid`` to a list of ``[pid, stat, comm]``
+        entries, one per zombie child.  Returns an empty dict when no zombies
+        are found.
+    """
+    zombies: dict = {}
+
+    if _is_psutil_available:
+        for proc in psutil.process_iter(['pid', 'ppid', 'status', 'name']):
+            try:
+                info = proc.info
+                if info['ppid'] == parent_pid and info['status'] == psutil.STATUS_ZOMBIE:
+                    if parent_pid not in zombies:
+                        zombies[parent_pid] = []
+                    zombies[parent_pid].append([info['pid'], info['status'], info['name']])
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, KeyError):
+                pass
+        return zombies
+
+    # Fallback: parse ps output directly.
+    import re as _re
+    from pilot.util.container import execute as _execute
+    cmd = 'ps -eo pid,ppid,stat,comm'
+    _, stdout, _ = _execute(cmd)
+    pattern = _re.compile(r'(\d+)\s+(\d+)\s+([A-Za-z]+)\s+([A-Za-z]+)')
+    for line in stdout.split('\n'):
+        match = pattern.search(line)
+        if match:
+            pid = int(match.group(1))
+            ppid = int(match.group(2))
+            stat = match.group(3)
+            comm = match.group(4)
+            if ppid == parent_pid and stat.startswith('Z'):
+                if parent_pid not in zombies:
+                    zombies[parent_pid] = []
+                zombies[parent_pid].append([pid, stat, comm])
+    return zombies
 
 
 def get_process_details(pid: int) -> str:

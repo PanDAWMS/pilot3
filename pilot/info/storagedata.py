@@ -43,9 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 class StorageData(BaseData):
-    """
-    High-level object to host Storage details (available protocols, etc.)
-    """
+    """High-level object to host Storage details (available protocols, etc.)."""
 
     ## put explicit list of all the attributes with comments for better inline-documentation by sphinx
     ## FIX ME LATER: use proper doc format

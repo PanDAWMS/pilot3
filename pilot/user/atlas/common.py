@@ -22,6 +22,7 @@
 
 """Common functions for ATLAS."""
 
+from __future__ import annotations
 import fnmatch
 import logging
 import os
@@ -268,7 +269,7 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
             return exitcode, diagnostics, not_opened, lsetup_time
 
         logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
-        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads)
+        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir)
         if not _cmd:
             diagnostics = (f'cannot perform file open test - failed to create file open command from path '
                            f'{final_paths["open_remote_file.py"]}')
@@ -293,11 +294,18 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
         except PilotException as exc:
             logger.warning(f'caught pilot exception: {exc}')
             exitcode = 11
-            stdout = exc
-#        exitcode, stdout, stderr = execute(cmd, usecontainer=False, timeout=timeout)
-#        if config.Pilot.remotefileverification_log:
-#            fpath = os.path.join(workdir, config.Pilot.remotefileverification_log)
-#            write_file(fpath, stdout + stderr, mute=False)
+            stdout = str(exc)
+
+        # Log all captured container output so that apptainer startup lines, lsetup
+        # trace (ALRB_CONT_VERBOSE=3), and any error messages are visible in the
+        # pilot log and not only in open_remote_file_cmd.stdout on disk.
+        # Log at WARNING level on failure so the output is visible without raising
+        # the log level at the site; log at DEBUG on success to keep normal logs quiet.
+        if stdout:
+            if exitcode:
+                logger.warning(f'container output from open_remote_file_cmd (ec={exitcode}):\n{stdout}')
+            else:
+                logger.debug(f'container output from open_remote_file_cmd:\n{stdout}')
 
         logger.info(f'remote file open finished with ec={exitcode}')
         if lsetup_time > 0:
@@ -398,27 +406,44 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
 
 
 def get_file_open_command(script_path: str, turls: str, nthreads: int,
-                          stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr') -> str:
+                          stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr',
+                          workdir: str = '') -> str:
     """Return the command for opening remote files.
 
     When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
-    a plain-text file (one TURL per line) next to the script, and --turl-file is
+    a plain-text file (one TURL per line) inside ``workdir``, and --turl-file is
     passed instead of --turls, preventing 'Argument list too long' errors.
 
+    ``script_path`` may be a container-relative path such as ``./open_remote_file.py``
+    whose ``dirname`` is ``'.'``.  The ``workdir`` parameter provides the real on-disk
+    destination so that ``turls.txt`` is written into the directory that is
+    bind-mounted as the working directory inside the container (typically ``/srv``).
+    When ``workdir`` is empty the directory part of ``script_path`` is used as a
+    fallback, which is correct when the path is absolute (e.g. in unit tests).
+
     Args:
-        script_path: path to script.
+        script_path: path to script (may be container-relative, e.g. ``./open_remote_file.py``).
         turls: comma-separated turls.
         nthreads: number of concurrent file open threads.
         stdout: stdout file name.
         stderr: stderr file name.
+        workdir: real on-disk working directory used as the write destination for
+            ``turls.txt``; falls back to ``os.path.dirname(script_path)`` when empty.
 
     Returns:
         str: command string.
     """
     turl_list = turls.split(',')
 
+    # Determine the directory that is reachable from the pilot process for writing
+    # turls.txt.  script_path may have been adjusted to a container-relative form
+    # (e.g. './open_remote_file.py') whose dirname resolves to '.' in the pilot's
+    # CWD, which differs from workdir.  Using workdir explicitly ensures the file
+    # lands in the bind-mounted directory that the container script can read.
+    write_dir = workdir if workdir else os.path.dirname(script_path)
+
     if len(turl_list) > _TURL_CMDLINE_LIMIT:
-        turl_file = os.path.join(os.path.dirname(script_path), 'turls.txt')
+        turl_file = os.path.join(write_dir, 'turls.txt')
         try:
             write_file(turl_file, '\n'.join(turl_list))
         except FileHandlingFailure as exc:
@@ -426,7 +451,9 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
             turls_arg = f"--turls='{turls}'"
         else:
             logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using --turl-file')
-            turls_arg = f"--turl-file='{turl_file}'"
+            # Use a relative path in the command so it resolves correctly inside
+            # the container regardless of how the bind-mount is labelled.
+            turls_arg = "--turl-file='./turls.txt'"
     else:
         turls_arg = f"--turls='{turls}'"
 
@@ -455,6 +482,45 @@ def extract_turls(indata: list) -> str:
     return ",".join(
         fspec.turl for fspec in indata if fspec.status == 'remote_io'
     )
+
+
+def update_turls_with_filetype_raw(job: JobData) -> None:
+    """Update fspec.turl for input files that required the ``?filetype=raw`` fallback during the remoteIO check.
+
+    ``open_remote_file.py`` retries a failed file open by appending ``?filetype=raw`` to the TURL.
+    When that retry succeeds the modified TURL is written to the remotefileverification dictionary
+    (value ``True``), while the original bare TURL is absent from it.  This function reads that
+    dictionary and, for every ``remote_io`` input file whose bare TURL is not present but whose
+    ``?filetype=raw`` variant is present and marked as opened, updates ``fspec.turl`` in place so
+    that the PFC (``PoolFileCatalog.xml``) handed to the payload contains the correct TURL.
+
+    Must be called after ``open_remote_files()`` has completed and the dictionary has been written,
+    and before ``get_input_file_dictionary()`` / ``create_input_file_metadata()`` builds the PFC.
+
+    Args:
+        job: Job object with workdir and indata populated.
+    """
+    dictionary_path = os.path.join(job.workdir, config.Pilot.remotefileverification_dictionary)
+    if not os.path.exists(dictionary_path):
+        logger.debug(f'remotefileverification dictionary not found at {dictionary_path} — skipping ?filetype=raw turl update')
+        return
+
+    try:
+        file_dictionary = read_json(dictionary_path)
+    except PilotException as exc:
+        logger.warning(f'failed to read remotefileverification dictionary: {exc} — skipping ?filetype=raw turl update')
+        return
+
+    if not file_dictionary:
+        return
+
+    for fspec in job.indata:
+        if fspec.status != 'remote_io':
+            continue
+        raw_turl = fspec.turl + '?filetype=raw'
+        if file_dictionary.get(raw_turl) is True and not file_dictionary.get(fspec.turl):
+            logger.info(f'updating turl for lfn={fspec.lfn}: appending ?filetype=raw (required by remoteIO file-open check)')
+            fspec.turl = raw_turl
 
 
 def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list) -> None:
@@ -593,6 +659,12 @@ def get_payload_command(job: JobData, args: object = None) -> str:
                                f'input file traces should already have been sent')
             else:
                 process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
+
+            # if the remoteIO file-open check fell back to ?filetype=raw for any input file,
+            # propagate that modified TURL to fspec so the PFC handed to the payload is correct.
+            # pending confirmation from Rod that ?filetype=raw should be passed to the application:
+            # update_turls_with_filetype_raw(job)
+            # later it was requested not to append ?filetype=raw to the TURL in the PFC (https://its.cern.ch/jira/browse/ATLASPANDA-1096)
 
             t1 = int(time.time())
             add_to_pilot_timing(job.jobid, PILOT_POST_REMOTEIO, t1, args)
@@ -2109,7 +2181,8 @@ def get_redundants() -> list:
                 "venv",
                 "usr",
                 "%1",
-                "open_remote_file_cmd.sh"]
+                "open_remote_file_cmd.sh",
+                "*.md"]
 
     return dir_list
 
@@ -2592,13 +2665,30 @@ def get_utility_command_setup(name: str, job: JobData, setup: str = None) -> str
             use_container=use_container
         )
 
-        _pattern = r"([\S]+)\ ."
-        pattern = re.compile(_pattern)
-        _name = re.findall(pattern, setup.split(';')[-1])
-        if _name:
-            job.memorymonitor = _name[0]
+        # Allow the prmon invocation to be replaced entirely, e.g. on HPC sites
+        # using fapptainer where the pilot runs inside a container and cannot
+        # observe the payload process tree.  The override command receives the
+        # detected payload PID appended as '--pid <pid>' and is responsible for
+        # writing memory_monitor_output.txt and memory_monitor_summary.json to
+        # the job work directory.  The CLI option --prmon-cmd is published to
+        # this environment variable by pilot.py; a value set in the environment
+        # before pilot launch is superseded by the CLI option.
+        prmon_cmd_override = os.environ.get('PILOT_PRMON_CMD', '')
+        if prmon_cmd_override:
+            if pid and pid != -1:
+                setup = f'{prmon_cmd_override} --pid {pid}'
+            else:
+                setup = prmon_cmd_override
+            job.memorymonitor = 'prmon'
+            logger.info(f'prmon command overridden via PILOT_PRMON_CMD: {setup}')
         else:
-            logger.warning('trf name could not be identified in setup string')
+            _pattern = r"([\S]+)\ ."
+            pattern = re.compile(_pattern)
+            _name = re.findall(pattern, setup.split(';')[-1])
+            if _name:
+                job.memorymonitor = _name[0]
+            else:
+                logger.warning('trf name could not be identified in setup string')
 
         # update the pgrp if the pid changed
         if pid not in (job.pid, -1):
@@ -2979,6 +3069,7 @@ def get_pilot_id(data: dict) -> str:
 
     Args:
         data: data dictionary.
+
     Returns:
         str: pilot id.
     """

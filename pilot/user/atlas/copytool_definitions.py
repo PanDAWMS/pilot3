@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-24
 
+"""Copytool capability definitions for the ATLAS experiment plugin."""
+
 from hashlib import md5
 
 

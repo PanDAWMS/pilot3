@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Metadata XML generation utilities for the ATLAS experiment plugin."""
+
 import os
 import logging
 from typing import Optional

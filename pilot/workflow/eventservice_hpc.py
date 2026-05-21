@@ -20,6 +20,8 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Event service HPC workflow for PanDA Pilot."""
+
 import functools
 import logging
 import signal

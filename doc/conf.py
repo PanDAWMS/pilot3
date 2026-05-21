@@ -3,6 +3,8 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+"""Sphinx configuration for PanDA Pilot 3 documentation."""
+
 import os
 import sys
 

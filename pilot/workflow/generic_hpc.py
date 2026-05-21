@@ -21,6 +21,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 # - Danila Oleynik danila.oleynik@cern.ch, 2018
 
+"""Generic HPC workflow for PanDA Pilot."""
+
 import functools
 import logging
 import os
@@ -66,8 +68,8 @@ Traces = namedtuple("Traces", ["pilot"])
 
 
 def interrupt(args: object, signum: int, frame: FrameType):
-    """
-    Interrupt function on the receiving end of kill signals.
+    """Interrupt function on the receiving end of kill signals.
+
     This function is forwarded any incoming signals (SIGINT, SIGTERM, etc) and will set abort_job which instructs
     the threads to abort the job.
 

@@ -19,7 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
-"""Memory related functionality"""
+"""Memory related functionality."""
+
+from __future__ import annotations
 
 
 def allow_memory_usage_verifications() -> bool:

@@ -20,6 +20,8 @@
 # - Wen Guan, wen.guan@cern.ch, 2023-24
 # - Paul Nilsson, paul.nilsson@cern.ch, 2024-26
 
+"""FineGrainedProc executor with one process to manage EventService."""
+
 from __future__ import annotations
 
 import json
@@ -35,12 +37,9 @@ from .baseexecutor import BaseExecutor
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
-"""
-FineGrainedProc Executor with one process to manage EventService
-"""
-
 
 class FineGrainedProcExecutor(BaseExecutor):
+    """Executor that runs event service payloads via ESProcessFineGrainedProc."""
     def __init__(self, **kwargs: Any) -> None:
         """Init function for FineGrainedProcExecutor.
 
@@ -219,8 +218,17 @@ class FineGrainedProcExecutor(BaseExecutor):
         self.stop_communicator()
         self.stop()
 
-    def get_esprocess_finegrainedproc(self, payload):
-        # get the payload command from the user specific code
+    def get_esprocess_finegrainedproc(self, payload: dict) -> object:
+        """Return an ESProcessFineGrainedProc instance for the given payload.
+
+        Tries the user-specific implementation first, falling back to the default.
+
+        Args:
+            payload: payload dict containing executable, workdir, and job.
+
+        Returns:
+            ESProcessFineGrainedProc instance.
+        """
         try:
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
             esprocessfinegrainedproc = __import__(f'pilot.user.{pilot_user}.esprocessfinegrainedproc',
@@ -235,7 +243,6 @@ class FineGrainedProcExecutor(BaseExecutor):
 
     def run(self) -> None:
         """Initialize and run ESProcess."""
-
         try:
             logger.info(f"starting ES FineGrainedProcExecutor with thread identifier: {self.ident}")
             if self.is_set_payload():

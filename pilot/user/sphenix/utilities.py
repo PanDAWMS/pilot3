@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
 
+"""Utility functions for the sPHENIX experiment plugin."""
+
+from __future__ import annotations
 import logging
 import os
 import time
@@ -509,14 +512,14 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
         def filter_value(value):
-            """ Filter value."""
+            """Filter value."""
             if isinstance(value, str) or value is None:
                 return False
             else:
                 return True
 
         def get_last_value(value_list):
-            """ Return the last value in the given list."""
+            """Return the last value in the given list."""
             value = None
             if value_list:
                 value = value_list[-1]

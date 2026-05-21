@@ -396,6 +396,22 @@ def add_hpc_args(parser: argparse.ArgumentParser) -> None:
         default=False,
         help="Pilot running in a Kubernetes pod",
     )
+    parser.add_argument(
+        "--prmon-cmd",
+        dest="prmon_cmd",
+        default="",
+        help=(
+            "Override the prmon invocation command used by MemoryMonitor. "
+            "When set, this command replaces the standard 'lsetup prmon; prmon --pid ...' "
+            "invocation. The replacement command receives the detected payload PID appended "
+            "as '--pid <pid>' and is responsible for writing the expected output files "
+            "memory_monitor_output.txt and memory_monitor_summary.json to the job work "
+            "directory. Useful on HPC sites using fapptainer where the pilot runs inside "
+            "a container and cannot observe the payload process tree directly. "
+            "Can also be set via the PILOT_PRMON_CMD environment variable; "
+            "the command-line option takes precedence."
+        ),
+    )
 
 
 def add_proxy_args(parser: argparse.ArgumentParser) -> None:

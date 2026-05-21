@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
 
+"""Utility functions for the Rubin experiment plugin."""
+
+from __future__ import annotations
 import logging
 import os
 import time
@@ -283,7 +286,7 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
         def filter_value(value: str or None) -> bool:
-            """ Inline function used to remove any string or None values from data. """
+            """Inline function used to remove any string or None values from data."""
             if isinstance(value, str) or value is None:
                 return False
 

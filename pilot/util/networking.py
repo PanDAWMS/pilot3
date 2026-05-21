@@ -61,7 +61,6 @@ def extract_ipv6_addresses(ifconfig_output: str) -> list:
     Returns:
         A list of IPv6 addresses.
     """
-
     ipv6_addresses = []
     for line in ifconfig_output.splitlines():
         line = line.strip().replace("\t", " ").replace("\r", "").replace("\n", "")
@@ -73,11 +72,13 @@ def extract_ipv6_addresses(ifconfig_output: str) -> list:
 
 
 def extract_ipv6(ifconfig: str) -> str:
-    """
-    Extract the IPv6 address from the ifconfig output.
+    """Extract IPv6 addresses from ifconfig output.
 
-    :param ifconfig: ifconfig output (str)
-    :return: IPv6 address (str).
+    Args:
+        ifconfig: Output of the ifconfig command.
+
+    Returns:
+        List of valid IPv6 address strings.
     """
     # Regular expression pattern to match MAC addresses
     mac_pattern = r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})'

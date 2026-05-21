@@ -20,7 +20,7 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
 # - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
 
-""" Functions for interpreting the payload stdout/err. """
+"""Functions for interpreting the payload stdout/err."""
 
 import logging
 import os

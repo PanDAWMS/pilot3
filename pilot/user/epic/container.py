@@ -21,6 +21,7 @@
 
 """Functions related to containerisation for epic user."""
 
+from __future__ import annotations
 import json
 import logging
 import os

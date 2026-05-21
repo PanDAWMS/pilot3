@@ -19,10 +19,10 @@
 # - Wen Guan, wen.guan@cern.ch, 2023-24
 # - Paul Nilsson, paul.nilsson@cern.ch, 2024-25
 
-"""
-Main process to handle event service.
-It makes use of two hooks get_event_ranges_hook and handle_out_message_hook to communicate with other processes when
-it's running. The process will handle the logic of event service independently.
+"""Main process to handle event service.
+
+It makes use of two hooks get_event_ranges_hook and handle_out_message_hook to communicate with other
+processes when it's running. The process will handle the logic of event service independently.
 """
 
 import base64
@@ -55,10 +55,17 @@ errors = ErrorCodes()
 
 
 class ESRunnerThreadPool(futures.ThreadPoolExecutor):
-    """
-    ThreadPoolExecutor with additional methods to handle event service.
-    """
+    """ThreadPoolExecutor extended with event-service tracking methods."""
+
     def __init__(self, max_workers: int = None, thread_name_prefix: str = '', initializer: Any = None, initargs: tuple = ()):
+        """Initialize the thread pool with event and output tracking structures.
+
+        Args:
+            max_workers: Maximum number of worker threads.
+            thread_name_prefix: Prefix for worker thread names.
+            initializer: Optional callable run at thread start.
+            initargs: Arguments passed to *initializer*.
+        """
         self.futures = {}
         self.outputs = {}
         self._lock = threading.RLock()
@@ -69,15 +76,32 @@ class ESRunnerThreadPool(futures.ThreadPoolExecutor):
                          initargs=initargs)
 
     def submit(self, fn, *args, **kwargs):
+        """Submit a callable and return the resulting Future.
+
+        Args:
+            fn: Callable to execute in the thread pool.
+            *args: Positional arguments forwarded to *fn*.
+            **kwargs: Keyword arguments forwarded to *fn*.
+
+        Returns:
+            Future representing the execution of the callable.
+        """
         future = super().submit(fn, *args, **kwargs)
         return future
 
     def run_event(self, fn, event):
+        """Submit an event for processing and register its Future.
+
+        Args:
+            fn: Callable that processes a single event dict.
+            event: Event dict containing at least ``eventRangeID``.
+        """
         future = super().submit(fn, event)
         with self._lock:
             self.futures[event['eventRangeID']] = {'event': event, 'future': future}
 
     def scan(self):
+        """Move completed futures into the outputs dict."""
         with self._lock:
             for event_range_id in list(self.futures.keys()):
                 event_future = self.futures[event_range_id]
@@ -88,6 +112,11 @@ class ESRunnerThreadPool(futures.ThreadPoolExecutor):
                     del self.futures[event_range_id]
 
     def get_outputs(self):
+        """Return and clear all completed event results.
+
+        Returns:
+            List of result objects for all completed events.
+        """
         outputs = []
         with self._lock:
             for event_range_id in self.outputs:
@@ -96,24 +125,38 @@ class ESRunnerThreadPool(futures.ThreadPoolExecutor):
         return outputs
 
     def get_max_workers(self):
+        """Return the maximum number of worker threads.
+
+        Returns:
+            Maximum worker count as set at construction time.
+        """
         return self.max_workers
 
     def get_num_running_workers(self):
+        """Return the number of currently running worker futures.
+
+        Returns:
+            Count of in-flight futures.
+        """
         return len(list(self.futures.keys()))
 
     def get_num_free_workers(self):
+        """Return the number of idle worker slots.
+
+        Returns:
+            Difference between max workers and currently running workers.
+        """
         return self.max_workers - self.get_num_running_workers()
 
 
 class ESProcessFineGrainedProc(threading.Thread):
-    """
-    Main EventService Process.
-    """
+    """Main event-service process thread for the Rubin fine-grained executor."""
     def __init__(self, payload, waiting_time=30 * 60):
-        """Init ESProcessFineGrainedProc.
+        """Initialize ESProcessFineGrainedProc.
 
         Args:
-            payload: a dict of {'executable': <cmd string>, 'output_file': <filename or without it>, 'error_file': <filename or without it>}
+            payload: dict with keys ``executable``, ``output_file``, ``error_file``, ``workdir``, and ``job``.
+            waiting_time: seconds to wait for more events before declaring no-more-events; default 30 minutes.
         """
         threading.Thread.__init__(self, name='esprocessFineGrainedProc')
 
@@ -144,13 +187,24 @@ class ESProcessFineGrainedProc(threading.Thread):
         self._lock = threading.RLock()
 
     def __del__(self):
+        """Shut down the thread pool on object destruction."""
         if self.__thread_pool:
             del self.__thread_pool
 
     def is_payload_started(self):
+        """Return True if the payload has started.
+
+        Returns:
+            bool: True once the run loop has begun.
+        """
         return self.__is_payload_started
 
     def stop(self, delay=1800):
+        """Signal the process to stop and shut down the thread pool.
+
+        Args:
+            delay: Seconds to allow for graceful shutdown before forcing termination.
+        """
         if not self.__stop.is_set():
             self.__stop.set()
             self.__stop_set_time = time.time()
@@ -159,16 +213,31 @@ class ESProcessFineGrainedProc(threading.Thread):
         self.__thread_pool.shutdown(wait=False)
 
     def get_job_id(self) -> int:
+        """Return the job ID from the payload, or 0 if not set.
+
+        Returns:
+            int: job ID.
+        """
         if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].jobid:
             return self.__payload['job'].jobid
         return 0
 
     def get_job(self):
+        """Return the job object from the payload, or None if not set.
+
+        Returns:
+            Job object or None.
+        """
         if 'job' in self.__payload and self.__payload['job']:
             return self.__payload['job']
         return None
 
     def get_transformation(self):
+        """Return the full path to the transformation executable in the workdir.
+
+        Returns:
+            str: Path to the transformation script, or None if not available.
+        """
         if 'job' in self.__payload and self.__payload['job'] and self.__payload['job'].transformation:
             base_transform = os.path.basename(self.__payload['job'].transformation)
             transform = os.path.join(self.__payload['job'].workdir, base_transform)
@@ -176,6 +245,13 @@ class ESProcessFineGrainedProc(threading.Thread):
         return None
 
     def get_corecount(self):
+        """Return the number of cores to use for event processing.
+
+        Reads ``RUBIN_ES_CORES`` env var first, then the job corecount, defaulting to 1.
+
+        Returns:
+            int: core count.
+        """
         try:
             if os.environ.get("RUBIN_ES_CORES", None) is not None:
                 rubin_es_cores = int(os.environ.get("RUBIN_ES_CORES"))
@@ -224,7 +300,6 @@ class ESProcessFineGrainedProc(threading.Thread):
         Raises:
             SetupFailure: in case workdir is not a directory.
         """
-
         workdir = ''
         if 'workdir' in self.__payload:
             workdir = self.__payload['workdir']
@@ -248,6 +323,7 @@ class ESProcessFineGrainedProc(threading.Thread):
         return executable
 
     def init_logs(self):
+        """Initialize stdout, stderr, and real-time log file handles and queues."""
         workdir = self.get_workdir()
         # logger.info("payload: %s", str(self.__payload))
         output_file_fd = self.get_file(workdir, file_label='output_file', file_name='payload.stdout')
@@ -272,6 +348,7 @@ class ESProcessFineGrainedProc(threading.Thread):
         logger.info(f"self.realtime_log_queues: {self.realtime_log_queues}")
 
     def write_logs_from_queue(self):
+        """Drain stdout, stderr, and real-time log queues into their respective files."""
         while not self.stdout_queue.empty():
             item = self.stdout_queue.get(block=False)
             itemb = item.encode('utf-8')
@@ -290,6 +367,7 @@ class ESProcessFineGrainedProc(threading.Thread):
                 # logger.debug("write realtime log %s: %s" % (fd, item))
 
     def close_logs(self):
+        """Close all open log file handles."""
         try:
             # cmd = "pwd; ls -ltr"
             # execute(cmd, stdout=self.stdout_file, stderr=self.stderr_file, timeout=120)
@@ -306,7 +384,6 @@ class ESProcessFineGrainedProc(threading.Thread):
         Args:
             hook: a hook method to get event ranges.
         """
-
         self.get_event_ranges_hook = hook
 
     def get_get_event_ranges_hook(self):
@@ -315,7 +392,6 @@ class ESProcessFineGrainedProc(threading.Thread):
         Returns:
             The hook method to get event ranges.
         """
-
         return self.get_event_ranges_hook
 
     def set_handle_out_message_hook(self, hook) -> None:
@@ -324,7 +400,6 @@ class ESProcessFineGrainedProc(threading.Thread):
         Args:
             hook: a hook method to handle payload output and error messages.
         """
-
         self.handle_out_message_hook = hook
 
     def get_handle_out_message_hook(self):
@@ -333,12 +408,10 @@ class ESProcessFineGrainedProc(threading.Thread):
         Returns:
             The hook method to handle payload output and error messages.
         """
-
         return self.handle_out_message_hook
 
     def init(self) -> None:
         """Initialize message thread and payload process."""
-
         try:
             self.init_logs()
             self.__thread_pool = ESRunnerThreadPool(max_workers=self.get_corecount(),
@@ -350,6 +423,14 @@ class ESProcessFineGrainedProc(threading.Thread):
             raise e
 
     def try_get_events(self, num_free_workers):
+        """Fetch event ranges for all free worker slots and mark no-more-events when exhausted.
+
+        Args:
+            num_free_workers: Number of idle worker slots to fill.
+
+        Returns:
+            List of event range dicts, or an empty list when none are available.
+        """
         events = []
         if num_free_workers:
             queue_factor = 1
@@ -362,6 +443,14 @@ class ESProcessFineGrainedProc(threading.Thread):
         return events
 
     def get_event_dir(self, event_range_id):
+        """Return (and create if needed) the per-event working directory.
+
+        Args:
+            event_range_id: Event range identifier used as the directory name.
+
+        Returns:
+            str: Path to the event-specific subdirectory.
+        """
         work_dir = self.get_workdir()
         event_dir = os.path.join(work_dir, event_range_id)
         if not os.path.exists(event_dir):
@@ -369,6 +458,15 @@ class ESProcessFineGrainedProc(threading.Thread):
         return event_dir
 
     def get_env_item(self, env, str_item):
+        """Extract the value of an env-var assignment from a semicolon-separated string.
+
+        Args:
+            env: Environment variable name including ``=`` (e.g. ``'FOO='``).
+            str_item: Semicolon-separated string of ``KEY=value`` tokens.
+
+        Returns:
+            Value string after the ``=``, or None if *env* is not found.
+        """
         items = str_item.replace(" ", ";").split(";")
         for item in items:
             if env in item:
@@ -376,6 +474,7 @@ class ESProcessFineGrainedProc(threading.Thread):
         return None
 
     def get_event_range_map_info(self):
+        """Populate ``rubin_es_map`` from ``RUBIN_ES_MAP_FILE`` or ``RUBIN_ES_MAP`` embedded in the executable."""
         executable = self.get_executable(self.get_workdir())
         exec_list = executable.split(" ")
         es_map_env, es_map_file = None, None
@@ -407,6 +506,14 @@ class ESProcessFineGrainedProc(threading.Thread):
                 logger.error(f"failed to load RUBIN_ES_MAP: {ex}")
 
     def get_event_range_file_map(self, event):
+        """Return a mapping from input-file name to event-range identifier for *event*.
+
+        Args:
+            event: Event range dict containing ``LFN`` and ``startEvent`` keys.
+
+        Returns:
+            dict: Mapping of ``{input_file_name: range_id}``.
+        """
         if not self.rubin_es_map:
             self.get_event_range_map_info()
         # input_file = self.__payload['job'].input_file
@@ -425,6 +532,14 @@ class ESProcessFineGrainedProc(threading.Thread):
         return {input_file_name: input_file_name + "^" + str(event_index)}
 
     def is_base64(self, sb):
+        """Return True if *sb* is a valid Base64-encoded string.
+
+        Args:
+            sb: String or bytes to test.
+
+        Returns:
+            bool: True if *sb* round-trips through base64 decode/encode unchanged.
+        """
         try:
             if isinstance(sb, str):
                 sb_bytes = bytes(sb, 'ascii')
@@ -438,6 +553,14 @@ class ESProcessFineGrainedProc(threading.Thread):
             return False
 
     def decode_base64(self, sb):
+        """Decode a Base64-encoded string or bytes to a UTF-8 string.
+
+        Args:
+            sb: Base64-encoded string or bytes.
+
+        Returns:
+            Decoded UTF-8 string, or *sb* unchanged on failure or unsupported type.
+        """
         try:
             if isinstance(sb, str):
                 sb_bytes = bytes(sb, 'ascii')
@@ -451,6 +574,14 @@ class ESProcessFineGrainedProc(threading.Thread):
             return sb
 
     def encode_base64(self, sb):
+        """Encode a string or bytes to a Base64 ASCII string.
+
+        Args:
+            sb: String or bytes to encode.
+
+        Returns:
+            Base64-encoded ASCII string, or None if encoding is not possible.
+        """
         try:
             sb_bytes = None
             if isinstance(sb, str):
@@ -463,6 +594,15 @@ class ESProcessFineGrainedProc(threading.Thread):
             return sb
 
     def replace_executable(self, executable, event_range_file_map):
+        """Substitute input-file references in the executable string with event-range identifiers.
+
+        Args:
+            executable: Shell command string, possibly containing Base64-encoded tokens.
+            event_range_file_map: Mapping of ``{input_file: range_id}`` to substitute.
+
+        Returns:
+            str: Modified executable string with substitutions applied.
+        """
         exec_list = executable.split(" ")
         new_exec_list = []
         for exec_item in exec_list:
@@ -480,6 +620,15 @@ class ESProcessFineGrainedProc(threading.Thread):
         return " ".join(new_exec_list)
 
     def get_event_executable(self, event_dir, event):
+        """Build the per-event executable command and open its stdout/stderr/realtime-log files.
+
+        Args:
+            event_dir: Working directory for this event.
+            event: Event range dict used to resolve input-file substitutions.
+
+        Returns:
+            Tuple of ``(executable, stdout_file, stderr_file, stdout_filename, stderr_filename, realtime_log_files)``.
+        """
         executable = self.get_executable(event_dir)
         event_range_file_map = self.get_event_range_file_map(event)
         executable = self.replace_executable(executable, event_range_file_map)
@@ -501,6 +650,11 @@ class ESProcessFineGrainedProc(threading.Thread):
         return executable, stdout_file, stderr_file, stdout_filename, stderr_filename, realtime_log_files
 
     def get_worker_id(self):
+        """Return a unique, monotonically increasing worker ID under a lock.
+
+        Returns:
+            int: Next available worker ID.
+        """
         worker_id = None
         with self._lock:
             self._worker_id += 1
@@ -508,6 +662,15 @@ class ESProcessFineGrainedProc(threading.Thread):
         return worker_id
 
     def open_log_file(self, filename, perm='r'):
+        """Open *filename* and seek to the beginning if it exists, otherwise return None.
+
+        Args:
+            filename: Path to the log file.
+            perm: File-open mode string; defaults to ``'r'``.
+
+        Returns:
+            Open file object, or None if the file does not exist.
+        """
         if os.path.exists(filename):
             fd = open(filename, perm, encoding='utf-8')
             fd.seek(0)
@@ -643,6 +806,14 @@ class ESProcessFineGrainedProc(threading.Thread):
         return exit_code
 
     def run_event(self, event):
+        """Execute a single event range as a subprocess and return its result.
+
+        Args:
+            event: Event range dict containing at least ``eventRangeID``, ``LFN``, and ``startEvent``.
+
+        Returns:
+            dict: Result with keys ``id``, ``status``, ``error_code``, ``error_diag``, and ``wall_time``.
+        """
         time_start = time.time()
         ret = {}
         worker_id = self.get_worker_id()
@@ -750,6 +921,11 @@ class ESProcessFineGrainedProc(threading.Thread):
         return ret
 
     def send_terminate_events(self, outputs):
+        """Forward each completed event result to the out-message handler.
+
+        Args:
+            outputs: List of result dicts from :meth:`run_event`.
+        """
         for output in outputs:
             self.handle_out_message(output)
 
@@ -815,7 +991,6 @@ class ESProcessFineGrainedProc(threading.Thread):
             PilotException: when a PilotException is caught.
             UnknownException: when other unknown exception is caught.
         """
-
         logger.debug(f'parsing message: {message}')
         return message
 
@@ -831,7 +1006,6 @@ class ESProcessFineGrainedProc(threading.Thread):
             SetupFailure: when handle_out_message_hook is not set.
             RunPayloadFailure: when failed to handle an output or error message.
         """
-
         logger.debug(f'handling out message: {message}')
         if not self.handle_out_message_hook:
             raise SetupFailure("handle_out_message_hook is not set")
@@ -882,7 +1056,6 @@ class ESProcessFineGrainedProc(threading.Thread):
             PilotException: when a PilotException is caught.
             UnknownException: when other unknown exception is caught.
         """
-
         self.__is_payload_started = True
         logger.info(f'start esprocess with thread ident: {self.ident}')
         logger.debug('initializing')

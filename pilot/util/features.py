@@ -35,29 +35,29 @@ class Features:
     """Common machine and job features."""
 
     def get_data_members(self) -> list:
-        """
-        Return all data members.
+        """Return all data members.
 
-        :return: list of data members (list).
+        Returns:
+            List of data member names.
         """
         return [attr for attr in dir(self) if not callable(getattr(self, attr)) and not attr.startswith("__")]
 
     def get(self) -> dict:
-        """
-        Convert class to dictionary.
+        """Convert class to dictionary.
 
-        :return: class dictionary (dict).
+        Returns:
+            Class data members as a dictionary.
         """
         # convert class data members to a dictionary string (dumps), then to a dictionary (loads)
         # note that all data members will remain as strings
         return loads(dumps(self, default=lambda par: par.__dict__))
 
-    def set(self, path: str, label: str):
-        """
-        Set all values.
+    def set(self, path: str, label: str) -> None:
+        """Set all values by reading from the features directory.
 
-        :param path: path to job or machine features directory (str)
-        :param label: machine or job string (str).
+        Args:
+            path: Path to job or machine features directory.
+            label: Descriptor string (e.g. ``'machine'`` or ``'job'``).
         """
         if path and os.path.exists(path):
             data_members = self.get_data_members()

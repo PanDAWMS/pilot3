@@ -20,6 +20,9 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
 
+"""Looping-job detection settings for the Rubin experiment plugin."""
+
+
 def allow_loopingjob_detection() -> bool:
     """Decide if the looping job detection algorithm should be allowed.
 

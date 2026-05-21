@@ -19,8 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
 
-""" CPU related functionality."""
+"""CPU related functionality."""
 
+from __future__ import annotations
 import logging
 from typing import Any
 

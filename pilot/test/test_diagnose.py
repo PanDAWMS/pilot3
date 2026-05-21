@@ -83,8 +83,8 @@ class TestIsDirectAccessError(unittest.TestCase):
         job.workdir = '/nonexistent/path'
         with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
             mock_cfg.Payload.payloadstdout = 'payload.stdout'
-            result = is_direct_access_error(job)
-        self.assertEqual(result, '')
+            diag, _lfns = is_direct_access_error(job)
+        self.assertEqual(diag, '')
 
     def test_returns_empty_when_no_pattern_matches(self):
         """Return empty string when stdout contains no XRootD error patterns."""
@@ -96,8 +96,8 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertEqual(result, '')
+                diag, _lfns = is_direct_access_error(job)
+        self.assertEqual(diag, '')
 
     def test_detects_tnetxngfile_error(self):
         """Detect TNetXNGFile::Open ERROR pattern."""
@@ -109,9 +109,9 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertNotEqual(result, '')
-        self.assertIn('TNetXNGFile', result)
+                diag, _lfns = is_direct_access_error(job)
+        self.assertNotEqual(diag, '')
+        self.assertIn('TNetXNGFile', diag)
 
     def test_detects_unable_to_open_root_file(self):
         """Detect 'Unable to open ROOT file' pattern."""
@@ -123,9 +123,9 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertNotEqual(result, '')
-        self.assertIn('root://', result)
+                diag, _lfns = is_direct_access_error(job)
+        self.assertNotEqual(diag, '')
+        self.assertIn('root://', diag)
 
     def test_detects_operation_expired(self):
         """Detect '[ERROR] Operation expired' pattern."""
@@ -137,8 +137,8 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertNotEqual(result, '')
+                diag, _lfns = is_direct_access_error(job)
+        self.assertNotEqual(diag, '')
 
     def test_detects_no_servers_available(self):
         """Detect '[ERROR] No servers are available' pattern."""
@@ -150,8 +150,8 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertNotEqual(result, '')
+                diag, _lfns = is_direct_access_error(job)
+        self.assertNotEqual(diag, '')
 
     def test_prefers_line_with_file_path(self):
         """When multiple lines match, prefer the one containing a file path."""
@@ -165,8 +165,8 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertIn('root://', result, 'line with file URL should be preferred as diagnostics')
+                diag, _lfns = is_direct_access_error(job)
+        self.assertIn('root://', diag, 'line with file URL should be preferred as diagnostics')
 
     def test_fallback_to_first_matched_line_when_no_path(self):
         """When no matched line contains a path, return the first matched line."""
@@ -179,8 +179,8 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                result = is_direct_access_error(job)
-        self.assertIn('Operation expired', result)
+                diag, _lfns = is_direct_access_error(job)
+        self.assertIn('Operation expired', diag)
 
 
 class TestInterpretPayloadExitInfoDirectAccess(unittest.TestCase):

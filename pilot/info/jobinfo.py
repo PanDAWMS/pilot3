@@ -20,8 +20,9 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
 
-"""Job specific info provider mainly used to customize Queue, Site, etc data of Information Service
-with details fetched directly from Job instance.
+"""Job-specific info provider for customising Information Service queue/site/storage data.
+
+Fetches overrides directly from the Job instance.
 
 Author: Alexey Anisenkov
 Contact: anisyonk@cern.ch
@@ -35,10 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class JobInfoProvider:
-    """
-    Job info provider used to extract settings specific for a given job
-    and to overwrite the general configuration used by the Information Service.
-    """
+    """Job info provider that extracts per-job settings to override the Information Service configuration."""
 
     job = None  # Job instance
 

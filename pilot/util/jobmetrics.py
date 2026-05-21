@@ -29,14 +29,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_job_metrics_entry(name: str, value: str) -> str:
-    """
-    Get a formatted job metrics entry.
+    """Get a formatted job metrics entry.
 
-    Return a job metrics substring with the format 'name=value ' (return empty entry if value is not set).
+    Returns a job metrics substring with the format ``name=value `` (returns
+    empty string if value is not set).
 
-    :param name: job metrics parameter name (str)
-    :param value: job metrics parameter value (str)
-    :return: job metrics entry (str).
+    Args:
+        name: Job metrics parameter name.
+        value: Job metrics parameter value.
+
+    Returns:
+        Formatted job metrics entry string, or empty string if value is unset.
     """
     job_metrics_entry = ""
     if value != "":
@@ -46,21 +49,26 @@ def get_job_metrics_entry(name: str, value: str) -> str:
 
 
 def get_job_metrics(job: Any, extra: dict = None) -> str:
-    """
-    Return a properly formatted job metrics string.
+    """Return a properly formatted job metrics string.
 
-    Job metrics are highly user specific, so this function merely calls a corresponding get_job_metrics() in the
-    user code. The format of the job metrics string is defined by the server. It will be reported to the server during
-    updateJob.
+    Job metrics are highly user-specific, so this function delegates to the
+    corresponding ``get_job_metrics()`` in the user module. The format of the
+    job metrics string is defined by the server and is reported during
+    ``updateJob``.
 
-    Example of job metrics:
-    Number of events read | Number of events written | vmPeak maximum | vmPeak average | RSS average | ..
-    Format: nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int> RSSMean=<int> hs06=<float> shutdownTime=<int>
-            cpuFactor=<float> cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int> runLimit=<float>
+    Example format::
 
-    :param job: job object (Any)
-    :param extra: any extra information to be added (dict)
-    :return: job metrics (str).
+        nEvents=<int> nEventsW=<int> vmPeakMax=<int> vmPeakMean=<int>
+        RSSMean=<int> hs06=<float> shutdownTime=<int> cpuFactor=<float>
+        cpuLimit=<float> diskLimit=<float> jobStart=<int> memLimit=<int>
+        runLimit=<float>
+
+    Args:
+        job: Job object.
+        extra: Any extra information to be added.
+
+    Returns:
+        Job metrics string.
     """
     if extra is None:
         extra = {}

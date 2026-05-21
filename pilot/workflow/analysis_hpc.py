@@ -20,10 +20,13 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016
 # - Paul Nilsson, paul.nilsson@cern.ch, 2023
 
+"""Analysis HPC workflow (stub)."""
+
 import logging
 logger = logging.getLogger(__name__)
 
 
 def run():
+    """Run the analysis HPC workflow (not implemented)."""
     logger.critical('not implemented')
     return -1

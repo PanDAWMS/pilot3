@@ -21,6 +21,7 @@
 
 """This script is executed by the pilot in a container to perform stage-out of output files."""
 
+from __future__ import annotations
 import argparse
 import logging
 import os

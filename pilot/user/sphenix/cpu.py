@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
+"""CPU usage monitoring for the sPHENIX experiment plugin."""
+
+from __future__ import annotations
 import logging
 from typing import Any
 

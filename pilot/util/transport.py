@@ -19,6 +19,8 @@
 # - Aleksandr Alekseev, aleksandr.alekseev@cern.ch, 2022
 # - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
 
+"""Transport classes for sending log events to Logstash and Beats endpoints."""
+
 from abc import ABC, abstractmethod
 from typing import Iterator, Union
 import json
@@ -41,25 +43,20 @@ logger = logging.getLogger(__name__)
 
 
 class TimeoutNotSet:
-    pass
+    """Sentinel class used as the default value when no timeout has been specified."""
 
 
 class Transport(ABC):
-    """The :class:`Transport <Transport>` is the abstract base class of
-    all transport protocols.
+    """Abstract base class for all transport protocols.
 
-    :param host: The name of the host.
-    :type host: str
-    :param port: The TCP/UDP port.
-    :type port: int
-    :param timeout: The connection timeout.
-    :type timeout: None or float
-    :param ssl_enable: Activates TLS.
-    :type ssl_enable: bool
-    :param ssl_verify: Activates the TLS certificate verification.
-    :type ssl_verify: bool or str
-    :param use_logging: Use logging for debugging.
-    :type use_logging: bool
+    Args:
+        host: Hostname of the remote endpoint.
+        port: TCP/UDP port number.
+        timeout: Connection timeout, or None for no timeout.
+        ssl_enable: If True, activates TLS.
+        ssl_verify: If True, enables TLS certificate verification. A string
+            may be passed as a path to a CA certificate file.
+        use_logging: If True, use logging for debugging output.
     """
 
     def __init__(
@@ -71,6 +68,17 @@ class Transport(ABC):
             ssl_verify: Union[bool, str],
             use_logging: bool,
     ):
+        """Set up common transport parameters shared by all concrete subclasses.
+
+        Args:
+            host: Hostname of the remote endpoint.
+            port: TCP/UDP port number.
+            timeout: Connection timeout in seconds, or None for no timeout.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, enables TLS certificate verification. A string
+                may be passed as a path to a CA certificate file.
+            use_logging: If True, use logging for debugging output.
+        """
         self._host = host
         self._port = port
         self._timeout = None if timeout is TimeoutNotSet else timeout
@@ -81,20 +89,29 @@ class Transport(ABC):
 
     @abstractmethod
     def send(self, events: list, **kwargs):
-        pass
+        """Send a list of events to the remote endpoint."""
 
     @abstractmethod
     def close(self):
-        pass
+        """Close the transport connection and release any held resources."""
 
 
 class UdpTransport:
+    """UDP transport that sends log events as individual datagrams."""
 
     _keep_connection = False
 
     # ----------------------------------------------------------------------
     # pylint: disable=unused-argument
     def __init__(self, host, port, timeout=TimeoutNotSet, **kwargs):
+        """Initialize the UDP transport.
+
+        Args:
+            host: Hostname of the remote UDP endpoint.
+            port: UDP port number.
+            timeout: Socket timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional keyword arguments (ignored).
+        """
         self._host = host
         self._port = port
         self._timeout = timeout
@@ -102,6 +119,14 @@ class UdpTransport:
 
     # ----------------------------------------------------------------------
     def send(self, events, use_logging=False):  # pylint: disable=unused-argument
+        """Send events as UDP datagrams to the remote endpoint.
+
+        A new socket is created for each call and closed afterwards.
+
+        Args:
+            events: Iterable of event data to send.
+            use_logging: Unused; accepted for API compatibility.
+        """
         # Ideally we would keep the socket open but this is risky because we might not notice
         # a broken TCP connection and send events into the dark.
         # On UDP we push into the dark by design :)
@@ -147,10 +172,12 @@ class UdpTransport:
 
     # ----------------------------------------------------------------------
     def close(self):
+        """Close the UDP socket, releasing any held resources."""
         self._close(force=True)
 
 
 class TcpTransport(UdpTransport):
+    """TCP transport that sends log events over a persistent stream socket, with optional TLS."""
 
     # ----------------------------------------------------------------------
     def __init__(  # pylint: disable=too-many-arguments
@@ -164,6 +191,20 @@ class TcpTransport(UdpTransport):
             ca_certs,
             timeout=TimeoutNotSet,
             **kwargs):
+        """Initialize the TCP transport.
+
+        Args:
+            host: Hostname of the remote TCP endpoint.
+            port: TCP port number.
+            ssl_enable: If True, wraps the connection with TLS.
+            ssl_verify: If True, verifies the server certificate. A string
+                path to a CA certificate file is also accepted.
+            keyfile: Path to the client private key file for mutual TLS.
+            certfile: Path to the client certificate file for mutual TLS.
+            ca_certs: Path to the CA certificates file used for verification.
+            timeout: Socket timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional keyword arguments (ignored).
+        """
         super().__init__(host, port)
         self._ssl_enable = ssl_enable
         self._ssl_verify = ssl_verify
@@ -211,6 +252,7 @@ class TcpTransport(UdpTransport):
 
 
 class BeatsTransport:
+    """Beats transport that ships log events via the PyLogBeat client."""
 
     _batch_size = 10
 
@@ -226,6 +268,19 @@ class BeatsTransport:
             ca_certs,
             timeout=TimeoutNotSet,
             **kwargs):
+        """Initialize the Beats transport.
+
+        Args:
+            host: Hostname of the Beats/Logstash endpoint.
+            port: TCP port number.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, enables TLS certificate verification.
+            keyfile: Path to the client private key file.
+            certfile: Path to the client certificate file.
+            ca_certs: Path to the CA certificates file.
+            timeout: Connection timeout in seconds, or TimeoutNotSet for no timeout.
+            **kwargs: Additional arguments forwarded to PyLogBeatClient.
+        """
         timeout_ = None if timeout is TimeoutNotSet else timeout
         self._client_arguments = dict(
             host=host,
@@ -240,10 +295,16 @@ class BeatsTransport:
 
     # ----------------------------------------------------------------------
     def close(self):
-        pass  # nothing to do
+        """Close the Beats transport (no-op; connections are per-send)."""
 
     # ----------------------------------------------------------------------
     def send(self, events, use_logging=False):
+        """Send events to the Beats/Logstash endpoint in batches.
+
+        Args:
+            events: Iterable of event data to send.
+            use_logging: If True, pass logging flag through to PyLogBeatClient.
+        """
         try:
             client = pylogbeat.PyLogBeatClient(use_logging=use_logging, **self._client_arguments)
         except Exception as exc:
@@ -258,34 +319,20 @@ class BeatsTransport:
 
 
 class HttpTransport(Transport):
-    """The :class:`HttpTransport <HttpTransport>` implements a client for the
-    logstash plugin `inputs_http`.
+    """HTTP transport client for the logstash ``inputs_http`` plugin.
 
-    For more details visit:
-    https://www.elastic.co/guide/en/logstash/current/plugins-inputs-http.html
-
-    :param host: The hostname of the logstash HTTP server.
-    :type host: str
-    :param port: The TCP port of the logstash HTTP server.
-    :type port: int
-    :param timeout: The connection timeout. (Default: None)
-    :type timeout: float
-    :param ssl_enable: Activates TLS. (Default: True)
-    :type ssl_enable: bool
-    :param ssl_verify: Activates the TLS certificate verification. If the flag
-    is True the class tries to verify the TLS certificate with certifi. If you
-    pass a string with a file location to CA certificate the class tries to
-    validate it against it. (Default: True)
-    :type ssl_verify: bool or str
-    :param use_logging: Use logging for debugging.
-    :type use_logging: bool
-    :param username: Username for basic authorization. (Default: "")
-    :type username: str
-    :param password: Password for basic authorization. (Default: "")
-    :type password: str
-    :param max_content_length: The max content of an HTTP request in bytes.
-    (Default: 100MB)
-    :type max_content_length: int
+    Args:
+        host: Hostname of the logstash HTTP server.
+        port: TCP port of the logstash HTTP server.
+        timeout: Connection timeout in seconds. Defaults to None (no timeout).
+        ssl_enable: If True, activates TLS.
+        ssl_verify: If True, verifies the TLS certificate with certifi. A
+            string path to a CA certificate file is also accepted.
+        use_logging: If True, use logging for debugging output.
+        username: Username for HTTP basic authorization.
+        password: Password for HTTP basic authorization.
+        max_content_length: Maximum HTTP request body size in bytes.
+            Defaults to 100 MB.
     """
 
     def __init__(
@@ -300,6 +347,19 @@ class HttpTransport(Transport):
             #certfile: Union[bool, str] = True,
             **kwargs
     ):
+        """Initialize the HTTP transport.
+
+        Args:
+            host: Hostname of the logstash HTTP server.
+            port: TCP port of the logstash HTTP server.
+            timeout: Connection timeout in seconds. Defaults to no timeout.
+            ssl_enable: If True, activates TLS.
+            ssl_verify: If True, verifies the TLS certificate. A string path
+                to a CA certificate file is also accepted.
+            use_logging: If True, use logging for debugging output.
+            **kwargs: Optional keys: ``username``, ``password``,
+                ``max_content_length``, ``cert``.
+        """
         super().__init__(host, port, timeout, ssl_enable, ssl_verify, use_logging)
         self._username = kwargs.get('username', None)
         self._password = kwargs.get('password', None)
@@ -309,11 +369,10 @@ class HttpTransport(Transport):
 
     @property
     def url(self) -> str:
-        """The URL of the logstash pipeline based on the hostname, the port and
-        the TLS usage.
+        """The URL of the logstash HTTP pipeline.
 
-        :return: The URL of the logstash HTTP pipeline.
-        :rtype: str
+        Returns:
+            URL string built from hostname, port, and TLS setting.
         """
         protocol = 'http'
         if self._ssl_enable:
@@ -321,12 +380,14 @@ class HttpTransport(Transport):
         return f'{protocol}://{self._host}:{self._port}'
 
     def __batches(self, events: list) -> Iterator[list]:
-        """Generate dynamic sized batches based on the max content length.
+        """Generate dynamically-sized batches based on the max content length.
 
-        :param events: A list of events.
-        :type events: list
-        :return: A iterator which generates batches of events.
-        :rtype: Iterator[list]
+        Args:
+            events: List of JSON-encoded event strings.
+
+        Returns:
+            Iterator that yields lists of event objects fitting within
+            ``_max_content_length``.
         """
         current_batch = []
         event_iter = iter(events)
@@ -356,11 +417,11 @@ class HttpTransport(Transport):
                 current_batch += [obj]
 
     def __auth(self) -> HTTPBasicAuth:
-        """The authentication method for the logstash pipeline. If the username
-        or the password is not set correctly it will return None.
+        """Return an HTTP basic auth object for the logstash pipeline.
 
-        :return: A HTTP basic auth object or None.
-        :rtype: HTTPBasicAuth
+        Returns:
+            An ``HTTPBasicAuth`` instance, or None if the username or password
+            is not set.
         """
         if self._username is None or self._password is None:
             return None
@@ -371,24 +432,18 @@ class HttpTransport(Transport):
             return None
 
     def close(self) -> None:
-        """Close the HTTP session.
-        """
+        """Close the HTTP session."""
         if self.__session is not None:
             self.__session.close()
 
-    def send(self, events: list, **kwargs):
+    def send(self, events: list, **kwargs) -> None:
         """Send events to the logstash pipeline.
 
-        Max Events: `logstash_async.Constants.QUEUED_EVENTS_BATCH_SIZE`
-        Max Content Length: `HttpTransport._max_content_length`
+        Batches events so that each POST body does not exceed
+        ``_max_content_length``. Oversized individual events are skipped.
 
-        The method receives a list of events from the worker. It tries to send
-        as much of the events as possible in one request. If the total size of
-        the received events is greater than the maximal content length the
-        events will be divide into batches.
-
-        :param events: A list of events
-        :type events: list
+        Args:
+            events: List of JSON-encoded event strings to send.
         """
         try:
             self.__session = requests.Session()

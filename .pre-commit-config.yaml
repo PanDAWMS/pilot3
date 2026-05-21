@@ -11,6 +11,10 @@ repos:
     rev: 6.1.0
     hooks:
     -   id: flake8
+-   repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+    -   id: pydocstyle
 -   repo: local
     hooks:
       - id: circular-imports
@@ -22,4 +26,3 @@ repos:
         pass_filenames: true
         types_or: [python]
         stages: [pre-commit]
-

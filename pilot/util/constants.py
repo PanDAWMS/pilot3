@@ -27,8 +27,8 @@ from os import environ
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
 VERSION = '13'  # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '0'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '23'        # build number should be reset to '1' for every new development cycle
+REVISION = '1'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '30'        # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1
@@ -86,22 +86,24 @@ MAX_KILL_WAIT_TIME = 120  # twenty minutes
 
 
 def get_pilot_version() -> str:
-    """
-    Return the current Pilot version string with the format <release>.<version>.<revision> (<build>).
+    """Return the current pilot version string.
 
-    E.g. pilot_version = '2.1.3 (12)'
+    The format is ``<release>.<version>.<revision>.<build>``, e.g.
+    ``'3.1.3.12'``.
 
-    :return: version string (str).
+    Returns:
+        Version string.
     """
     return f'{RELEASE}.{VERSION}.{REVISION}.{BUILD}'
 
 
 def get_rucio_client_version() -> str:
-    """
-    Return the current Rucio client version string using the environmental variable ATLAS_LOCAL_RUCIOCLIENTS_VERSION.
+    """Return the current Rucio client version string.
 
-    If the environmental variable is not set, then an empty string will be returned.
+    Reads the ``ATLAS_LOCAL_RUCIOCLIENTS_VERSION`` environment variable.
 
-    :return: $ATLAS_LOCAL_RUCIOCLIENTS_VERSION (str).
+    Returns:
+        Value of ``$ATLAS_LOCAL_RUCIOCLIENTS_VERSION``, or empty string if
+        not set.
     """
     return environ.get('ATLAS_LOCAL_RUCIOCLIENTS_VERSION', '')

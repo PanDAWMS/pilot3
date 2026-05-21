@@ -20,6 +20,8 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
 # - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
 
+"""Payload stdout/stderr interpretation for the Rubin experiment plugin."""
+
 import logging
 import os
 

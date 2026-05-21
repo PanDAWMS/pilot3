@@ -19,8 +19,11 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
+"""Job metrics helpers for the generic experiment plugin."""
+
 # from pilot.util.jobmetrics import get_job_metrics_entry
 
+from __future__ import annotations
 import logging
 
 from pilot.info.jobdata import JobData

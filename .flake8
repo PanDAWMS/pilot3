@@ -1,5 +1,8 @@
 [flake8]
 ignore = E262,E265,E266,N804,W504,B902,N818,N806
+per-file-ignores =
+    # pilot.py intentionally places a Python version check before imports
+    pilot.py: E402
 show-source = true
 max-line-length = 200
 select=A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z

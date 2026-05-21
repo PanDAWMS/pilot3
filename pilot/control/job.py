@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 
 """Job module with functions for job handling."""
@@ -104,6 +104,7 @@ from pilot.util.constants import (
     LOG_TRANSFER_FAILED,
     SERVER_UPDATE_TROUBLE,
     SERVER_UPDATE_FINAL,
+    SERVER_UPDATE_RUNNING,
     SERVER_UPDATE_UPDATING,
     SERVER_UPDATE_NOT_DONE
 )
@@ -2094,9 +2095,7 @@ def get_job_definition(queues: namedtuple, args: object) -> Optional[dict]:
 
 
 def get_load_factor() -> float:
-    """
-    Get the pilot load factor.
-    """
+    """Get the pilot load factor."""
     try:
         load_factor = os.environ.get('PILOT_LOAD_FACTOR', None)
         if load_factor:
@@ -2113,9 +2112,7 @@ def get_load_factor() -> float:
 
 
 def is_delay_to_get_job_enabled() -> bool:
-    """
-    To check if it's enabled to delay to get jobs based on load.
-    """
+    """Check if it's enabled to delay to get jobs based on load."""
     try:
         enabled = os.environ.get('PILOT_ENABLE_DELAY_TO_GET_JOB', 'false').lower() == 'true'
         if enabled:
@@ -3977,6 +3974,19 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                             time.sleep(1)
                             counter += 1
 
+                        # Order a log stage-out BEFORE setting graceful_stop. copytool_out is still
+                        # alive at this point; once graceful_stop is set it will exit on its next
+                        # empty-queue iteration. Calling order_log_transfer here (which blocks until
+                        # the transfer completes) ensures the log is staged even when REACHED_MAXTIME
+                        # fires mid-execution (e.g. during stage-in where the normal stage-out path
+                        # never runs).
+                        log_transfer = get_job_status(jobs[i], 'LOG_TRANSFER')
+                        if log_transfer == LOG_TRANSFER_NOT_DONE:
+                            set_pilot_state(job=jobs[i], state='failed')
+                            jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(errors.REACHEDMAXTIME)
+                            logger.info('ordering log transfer before setting graceful_stop')
+                            order_log_transfer(queues, jobs[i])
+
                         if not args.graceful_stop.is_set():
                             logger.info('setting graceful_stop since it was not set already')
                             args.graceful_stop.set()
@@ -3985,9 +3995,24 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                     if error_code:
                         set_pilot_state(job=jobs[i], state='failed')
                         jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(error_code)
-                        jobs[i].completed = True
-                        #if not jobs[i].completed:  # job.completed gets set to True after a successful final server update:
-                        send_state(jobs[i], args, jobs[i].state)
+                        # Do not set job.completed=True here: is_final_update() gates the final update on
+                        # LOG_TRANSFER being done/failed. Setting completed=True before the log has been
+                        # staged prevents the fail-safe (post-loop) from re-attempting the update.
+                        # job.completed is set to True inside send_state() after a successful final update.
+
+                        # Use update_server() rather than send_state() directly so that
+                        # job.fileinfo (populated by _stage_out_new after the log transfer above)
+                        # is serialised into the job_output_report field of the PanDA update.
+                        # Calling send_state() bare leaves xml="" and the log file entry is absent
+                        # from the server-side record.
+                        update_server(jobs[i], args)
+                        # update_server/send_state only sets SERVER_UPDATE=FINAL when
+                        # is_final_update() returns True (LOG_TRANSFER done/failed). If it did
+                        # not advance past RUNNING (e.g. copytool_out was unavailable), set it
+                        # directly so check_for_final_server_update() does not spin 20*30 s.
+                        if os.environ.get('SERVER_UPDATE', '') == SERVER_UPDATE_RUNNING:
+                            logger.info('setting SERVER_UPDATE to FINAL after REACHED_MAXTIME update_server')
+                            os.environ['SERVER_UPDATE'] = SERVER_UPDATE_FINAL
                         if jobs[i].pid:
                             logger.debug('killing payload processes')
                             kill_processes(jobs[i].pid)
@@ -4093,9 +4118,27 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
         if not final_job:
             logger.warning('REACHED_MAXTIME seen by job monitor - but final job object not set, cannot report')
         else:
-            logger.warning('REACHED_MAXTIME seen by job monitor - will report final job')
+            logger.warning('REACHED_MAXTIME seen by job monitor - will send final update directly')
             try:
-                fail_monitored_job(final_job, errors.REACHEDMAXTIME, "Reached maxtime", queues, traces)
+                # Set the REACHEDMAXTIME error on the job and send the final update directly via
+                # update_server(). Routing through fail_monitored_job() -> failed_payloads ->
+                # failed_post -> queue_monitor is not safe here: graceful_stop is already set,
+                # so failed_post has exited and queue_monitor will not find a job in failed_jobs.
+                if not final_job.completed:
+                    set_pilot_state(job=final_job, state='failed')
+                    final_job.piloterrorcodes, final_job.piloterrordiags = errors.add_error_code(
+                        errors.REACHEDMAXTIME, msg='Reached maxtime'
+                    )
+                    # attempt log transfer before the final update, mirroring the in-loop
+                    # REACHED_MAXTIME path (line ~3984). This covers jobs that were still
+                    # in stage-in when REACHED_MAXTIME fired: the in-loop path is never
+                    # reached for those jobs (they never enter monitored_payloads), so the
+                    # log would otherwise be lost.
+                    log_transfer = get_job_status(final_job, 'LOG_TRANSFER')
+                    if log_transfer == LOG_TRANSFER_NOT_DONE:
+                        logger.info('ordering log transfer in post-loop REACHED_MAXTIME fail-safe')
+                        order_log_transfer(queues, final_job)
+                    update_server(final_job, args)
             except Exception as error:
                 logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
 

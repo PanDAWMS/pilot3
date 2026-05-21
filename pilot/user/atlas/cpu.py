@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
 
-""" CPU related functionality."""
+"""CPU related functionality."""
 
 import logging
 import os

@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
 
+"""Payload stdout/stderr interpretation for the ATLAS experiment plugin."""
+
+from __future__ import annotations
 import json
 import os
 import re
@@ -40,10 +43,12 @@ from pilot.util.filehandling import (
     grep,
     open_file,
     read_file,
+    read_json,
     scan_file,
     tail,
     write_json,
 )
+from pilot.util.tracereport import TraceReport
 from pilot.util.math import convert_mb_to_b
 from pilot.util.workernode import get_local_disk_space
 
@@ -220,9 +225,10 @@ def interpret_payload_exit_info(job: JobData):
 
     # did a direct-access (remoteIO) file open fail inside the payload?
     if job.has_remoteio():
-        _diag = is_direct_access_error(job)
+        _diag, _failed_lfns = is_direct_access_error(job)
         if _diag:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True, msg=_diag)
+            send_direct_access_failure_traces(job, _failed_lfns)
             return
 
     # set a general Pilot error code if the payload error could not be identified
@@ -314,7 +320,76 @@ def is_cling_jit_error(job: JobData) -> bool:
     return False
 
 
-def is_direct_access_error(job: JobData) -> str:
+def send_direct_access_failure_traces(job: JobData, failed_lfns: list[str]) -> None:
+    """Send a Rucio failure trace for each direct-access input file that failed to open in the payload.
+
+    Reads back the base trace report written during stage-in and sends one trace per
+    matching ``remote_io`` input file with ``clientState='FAILED_REMOTE_OPEN'`` and
+    ``stateReason='payload_direct_access_failure'``. Only files whose LFN basename
+    appears in *failed_lfns* are reported; if *failed_lfns* is empty (the log matched a
+    pattern but contained no extractable path) no traces are sent.
+
+    This is a separate, post-payload trace from the one sent by
+    :func:`~pilot.user.atlas.common.process_remote_file_traces` during the pre-payload
+    remoteIO check (``clientState='FOUND_ROOT'``).
+
+    Args:
+        job: Job object with workdir and indata populated.
+        failed_lfns: List of LFN basenames extracted from payload stdout error lines by
+            :func:`is_direct_access_error`. If empty, the function returns immediately.
+    """
+    if not failed_lfns:
+        logger.debug('no failed LFNs extracted from payload stdout — skipping direct-access failure traces')
+        return
+
+    path = os.path.join(job.workdir, config.Pilot.base_trace_report)
+    if not os.path.exists(path):
+        logger.warning(f'base trace report not found ({path}) — cannot send direct-access failure traces')
+        return
+
+    try:
+        base_trace_report = read_json(path)
+    except PilotException as exc:
+        logger.warning(f'failed to read base trace report: {exc} — cannot send direct-access failure traces')
+        return
+
+    if not base_trace_report:
+        logger.warning('base trace report is empty — cannot send direct-access failure traces')
+        return
+
+    if 'workdir' not in base_trace_report:
+        base_trace_report['workdir'] = job.workdir
+
+    sent = 0
+    for fspec in job.indata:
+        if fspec.status != 'remote_io':
+            continue
+        if fspec.lfn not in failed_lfns:
+            continue
+        base_trace_report.update(
+            url=fspec.turl,
+            remoteSite=fspec.ddmendpoint,
+            filesize=fspec.filesize,
+            filename=fspec.lfn,
+            guid=fspec.guid.replace('-', ''),
+            scope=fspec.scope,
+            dataset=fspec.dataset,
+            clientState='FAILED_REMOTE_OPEN',
+            stateReason='payload_direct_access_failure',
+        )
+        trace_report = TraceReport(**base_trace_report)
+        if trace_report:
+            trace_report.send()
+            sent += 1
+            logger.info(f'sent direct-access failure trace for lfn={fspec.lfn}')
+        else:
+            logger.warning(f'failed to create trace report for lfn={fspec.lfn}')
+
+    if not sent:
+        logger.warning(f'no remote_io indata matched failed LFNs {failed_lfns} — no traces sent')
+
+
+def is_direct_access_error(job: JobData) -> tuple[str, list[str]]:
     """Check whether a direct-access (remoteIO) file-open error occurred inside the payload.
 
     Scans the full payload stdout for XRootD and ROOT file-open error patterns that are
@@ -327,39 +402,53 @@ def is_direct_access_error(job: JobData) -> str:
     If no line contains a path, the first matched line is used as a fallback. Up to five
     matched lines are also logged at WARNING level.
 
-    The returned string is intended to be passed directly to
-    ``errors.add_error_code(..., msg=<return value>)`` so it reaches the server as the
-    human-readable error diagnostics rather than the generic STAGEINFAILED message.
+    The LFN basename is extracted from every matched line that contains a path, so that
+    the caller can send a targeted Rucio trace for each affected file rather than for all
+    remote-IO input files. Trailing punctuation (semicolons, quotes, commas) is stripped
+    from each extracted path before the basename is taken.
 
     Args:
         job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        The best diagnostics line (stripped) if a direct-access error pattern was found,
-        otherwise an empty string.
+        tuple: (diagnostics, failed_lfns) where ``diagnostics`` is the best matched line
+        (stripped), or an empty string if no pattern was found, and ``failed_lfns`` is a
+        list of LFN basenames extracted from matched lines (may be empty if no paths were
+        found in the log).
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     if not os.path.exists(stdout):
         logger.warning(f'payload stdout does not exist, cannot scan for direct-access errors: {stdout}')
-        return ""
+        return "", []
 
     matched_lines = grep(_DIRECT_ACCESS_ERROR_PATTERNS, stdout)
     if not matched_lines:
-        return ""
+        return "", []
 
     logger.warning('detected direct-access (remoteIO) error pattern(s) in payload stdout:')
     for line in matched_lines[:5]:  # cap output to avoid flooding the pilot log
         logger.warning(f'  {line.rstrip()}')
 
-    # Prefer the first line that contains a recognisable file path so the diagnostics
-    # string identifies the specific file that could not be read.
+    # Extract LFN basenames from all matched lines that contain a recognisable path.
+    # Trailing punctuation (semicolons, quotes) that may follow the path in the log line
+    # is stripped before taking the basename.
+    failed_lfns = []
+    best_diag = ""
     for line in matched_lines:
         m = _FILE_PATH_RE.search(line)
         if m:
-            return line.strip()
+            raw_path = m.group(1).rstrip(';"\',')
+            lfn = os.path.basename(raw_path)
+            if lfn and lfn not in failed_lfns:
+                failed_lfns.append(lfn)
+            if not best_diag:
+                best_diag = line.strip()
 
-    # Fallback: no line contained a path — return the first matched line as-is.
-    return matched_lines[0].strip()
+    if best_diag:
+        return best_diag, failed_lfns
+
+    # Fallback: no line contained a path — return the first matched line, no LFNs.
+    return matched_lines[0].strip(), []
 
 
 def is_out_of_space(job: JobData) -> bool:

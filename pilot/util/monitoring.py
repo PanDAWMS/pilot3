@@ -19,8 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
-""" This module contains implementations of job monitoring tasks. """
+"""This module contains implementations of job monitoring tasks."""
 
+from __future__ import annotations
 import logging
 import os
 import subprocess
@@ -29,7 +30,7 @@ import time
 import traceback
 from glob import glob
 from signal import SIGKILL
-from typing import Any
+from typing import Any, Optional
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.exception import (
@@ -83,16 +84,18 @@ errors = ErrorCodes()
 
 
 def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[int, str]:  # noqa: C901
-    """
-    Perform the tasks for the job monitoring.
+    """Perform the tasks for the job monitoring.
 
-    The function is called once a minute. Individual checks will be performed at any desired time interval (>= 1
-    minute).
+    Called once a minute. Individual checks will be performed at any desired
+    time interval (>= 1 minute).
 
-    :param job: job object (JobData)
-    :param mt: monitoring time object to keep track of time measurements (MonitoringTime)
-    :param args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc) (object)
-    :return: exit code (int), diagnostics (str).
+    Args:
+        job: Job object.
+        mt: Monitoring time object to keep track of time measurements.
+        args: Pilot arguments (e.g. containing queue name, queuedata dictionary, etc).
+
+    Returns:
+        Tuple of (exit code, diagnostics string).
     """
     exit_code = 0
     diagnostics = ""
@@ -184,11 +187,13 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
 
 
 def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
-    """
-    Set the CPU consumption time for the job.
+    """Set the CPU consumption time for the job.
 
-    :param job: job object (JobData)
-    :return: exit code (int), diagnostics (str).
+    Args:
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, diagnostics string).
     """
     try:
         cpuconsumptiontime = get_current_cpu_consumption_time(job.pid)
@@ -233,11 +238,13 @@ def set_cpu_consumption_time(job: JobData) -> tuple[int, str]:
 
 
 def still_running(pid: int) -> bool:
-    """
-    Verify that the given process is still alive.
+    """Verify that the given process is still alive.
 
-    :param pid: process id (int)
-    :return: True if the process is still running, False otherwise (bool).
+    Args:
+        pid: Process id.
+
+    Returns:
+        True if the process is still running, False otherwise.
     """
     running = False
     try:
@@ -253,15 +260,16 @@ def still_running(pid: int) -> bool:
     return running
 
 
-def update_oom_info(bash_pid: int, payload_cmd: str):
-    """
-    Update OOM process info.
+def update_oom_info(bash_pid: int, payload_cmd: str) -> None:
+    """Update OOM process info.
 
-    In case the job is killed, the OOM process info should be updated to prevent killing processes in the wrong order.
-    It will otherwise lead to lingering processes.
+    In case the job is killed, the OOM process info should be updated to prevent
+    killing processes in the wrong order, which would otherwise lead to lingering
+    processes.
 
-    :param bash_pid: bash chain pid (int)
-    :param payload_cmd: payload command (str).
+    Args:
+        bash_pid: Bash chain pid.
+        payload_cmd: Payload command.
     """
     # use the pid of the bash chain to get the actual payload pid which should be a child process
     payload_pid = find_actual_payload_pid(bash_pid, payload_cmd)
@@ -293,12 +301,12 @@ def update_oom_info(bash_pid: int, payload_cmd: str):
         logger.info(f'oom_score(pilot) = {pilot_score}, oom_score(payload) = {payload_score} (attempted writing relative score 1 to {fname})')
 
 
-def write_to_oom_score_adj(pid: int, value: int):
-    """
-    Write the specified value to the oom_score_adj file for the given PID.
+def write_to_oom_score_adj(pid: int, value: int) -> None:
+    """Write the specified value to the oom_score_adj file for the given PID.
 
-    :param pid: process id (int)
-    :param value: value to write (int).
+    Args:
+        pid: Process id.
+        value: Value to write.
     """
     command = f"echo {value} > /proc/{pid}/oom_score_adj"
     try:
@@ -312,11 +320,13 @@ def write_to_oom_score_adj(pid: int, value: int):
 
 
 def get_score(pid: int) -> str:
-    """
-    Get the OOM process score.
+    """Get the OOM process score.
 
-    :param pid: process id (int)
-    :return: score (str).
+    Args:
+        pid: Process id.
+
+    Returns:
+        OOM score string, or ``'UNKNOWN'`` if the file cannot be read.
     """
     try:
         score = read_file(f'/proc/{pid}/oom_score')
@@ -361,17 +371,18 @@ def get_exception_error_code(diagnostics: str) -> int:
     return exit_code
 
 
-def set_number_used_cores(job: JobData, walltime: int):
-    """
-    Set the number of cores used by the payload.
+def set_number_used_cores(job: JobData, walltime: int) -> None:
+    """Set the number of cores used by the payload.
 
     The number of actual used cores is reported with job metrics (if set).
-    The walltime can be used to estimate the number of used cores in combination with memory monitor output,
-    (utime+stime)/walltime. If memory momitor information is not available, a ps command is used (not reliable for
-    multi-core jobs).
+    The walltime can be used to estimate the number of used cores in
+    combination with memory monitor output, ``(utime+stime)/walltime``. If
+    memory monitor information is not available, a ps command is used (not
+    reliable for multi-core jobs).
 
-    :param job: job object (JobData)
-    :param walltime: wall time for payload in seconds (int)
+    Args:
+        job: Job object.
+        walltime: Wall time for payload in seconds.
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     cpu = __import__(f'pilot.user.{pilot_user}.cpu', globals(), locals(), [pilot_user], 0)
@@ -380,16 +391,19 @@ def set_number_used_cores(job: JobData, walltime: int):
 
 
 def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, resource_type: str, debug: bool = False) -> tuple[int, str]:
-    """
-    Verify the memory usage (optional).
-    Note: this function relies on a stand-alone memory monitor tool that may be executed by the Pilot.
+    """Verify the memory usage (optional).
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :param job: job object (object)
-    :param resource_type: resource type (str)
-    :param debug: True for args.debug==True (bool)
-    :return: exit code (int), error diagnostics (str).
+    Relies on a stand-alone memory monitor tool that may be executed by the Pilot.
+
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        job: Job object.
+        resource_type: Resource type.
+        debug: True when args.debug is True.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     if debug:
         pass
@@ -418,18 +432,20 @@ def verify_memory_usage(current_time: int, mt: MonitoringTime, job: object, reso
     return 0, ""
 
 
-def should_abort_payload(current_time: int, mt: MonitoringTime):
-    """
-    Check if the pilot should abort the payload.
+def should_abort_payload(current_time: int, mt: MonitoringTime) -> tuple[int, str]:
+    """Check if the pilot should abort the payload.
 
-    In the case of Raythena, the Driver is monitoring the time to end jobs and may decide
-    that the pilot should abort the payload. Internally, this is achieved by letting the Actors
-    know it's time to end, and they in turn contacts the pilot by placing a 'pilot_kill_payload' file
-    in the run directory.
+    In the case of Raythena, the Driver monitors the time to end jobs and may
+    decide that the pilot should abort the payload. Internally, this is achieved
+    by letting the Actors know it's time to end; they in turn contact the pilot
+    by placing a ``pilot_kill_payload`` file in the run directory.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     # is it time to look for the kill instruction file?
     killing_time = convert_to_int(config.Pilot.kill_instruction_time, default=600)
@@ -443,14 +459,14 @@ def should_abort_payload(current_time: int, mt: MonitoringTime):
 
 
 def verify_user_proxy(current_time: int, mt: MonitoringTime) -> tuple[int, str]:
-    """
-    Verify the user proxy.
+    """Verify the user proxy.
 
-    This function is called by the job_monitor_tasks() function.
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
@@ -471,15 +487,17 @@ def verify_user_proxy(current_time: int, mt: MonitoringTime) -> tuple[int, str]:
     return 0, ""
 
 
-def verify_looping_job(current_time: int, mt: MonitoringTime, job: JobData, args: object):
-    """
-    Verify that the job is not looping.
+def verify_looping_job(current_time: int, mt: MonitoringTime, job: JobData, args: object) -> tuple[int, str]:
+    """Verify that the job is not looping.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :param job: job object (JobData)
-    :param args: pilot arguments (object)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        job: Job object.
+        args: Pilot arguments.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     # only perform looping job check if desired and enough time has passed since start
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -528,13 +546,15 @@ def verify_looping_job(current_time: int, mt: MonitoringTime, job: JobData, args
 
 
 def check_lease_time(current_time: int, mt: MonitoringTime, leasetime: int) -> tuple[int, str]:
-    """
-    Check the lease time in stager mode.
+    """Check the lease time in stager mode.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :param leasetime: lease time in seconds (int)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        leasetime: Lease time in seconds.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     exit_code = 0
     diagnostics = ''
@@ -554,15 +574,18 @@ def check_lease_time(current_time: int, mt: MonitoringTime, leasetime: int) -> t
 
 
 def verify_disk_usage(current_time: int, mt: MonitoringTime, job: JobData) -> tuple[int, str]:
-    """
-    Verify the disk usage.
+    """Verify the disk usage.
 
-    The function checks 1) payload stdout size, 2) local space, 3) work directory size, 4) output file sizes.
+    Checks: (1) payload stdout size, (2) local space, (3) work directory size,
+    (4) output file sizes.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :param job: job object (JobData)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     disk_space_verification_time = convert_to_int(config.Pilot.disk_space_verification_time, default=300)
     if current_time - mt.get('ct_diskspace') > disk_space_verification_time:
@@ -599,17 +622,19 @@ def verify_disk_usage(current_time: int, mt: MonitoringTime, job: JobData) -> tu
 
 
 def verify_running_processes(current_time: int, mt: MonitoringTime, pid: int) -> tuple[int, str]:
-    """
-    Verify the number of running processes.
+    """Verify the number of running processes.
 
-    The function sets the environmental variable PILOT_MAXNPROC to the maximum number of found (child) processes
-    corresponding to the main payload process id.
-    The function does not return an error code (always returns exit code 0).
+    Sets the environmental variable ``PILOT_MAXNPROC`` to the maximum number of
+    found child processes corresponding to the main payload process id. Always
+    returns exit code 0.
 
-    :param current_time: current time at the start of the monitoring loop (int)
-    :param mt: measured time object (MonitoringTime)
-    :param pid: payload process id (int)
-    :return: exit code (int), error diagnostics (string) (tuple).
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        pid: Payload process id.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     nproc_env = 0
 
@@ -635,14 +660,14 @@ def verify_running_processes(current_time: int, mt: MonitoringTime, pid: int) ->
     return 0, ""
 
 
-def utility_monitor(job: JobData):  # noqa: C901
-    """
-    Make sure that any utility commands are still running.
+def utility_monitor(job: JobData) -> None:  # noqa: C901
+    """Make sure that any utility commands are still running.
 
     In case a utility tool has crashed, this function may restart the process.
-    The function is used by the job monitor thread.
+    Used by the job monitor thread.
 
-    :param job: job object (JobData).
+    Args:
+        job: Job object.
     """
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     usercommon = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
@@ -698,11 +723,11 @@ def utility_monitor(job: JobData):  # noqa: C901
             time.sleep(10)
 
 
-def kill_process(process: Any):
-    """
-    Kill process before restart to get rid of defunct processes.
+def kill_process(process: Any) -> None:
+    """Kill process before restart to get rid of defunct processes.
 
-    :param process: process object (Any).
+    Args:
+        process: Process object.
     """
     diagnostics = ''
     try:
@@ -720,10 +745,12 @@ def kill_process(process: Any):
 
 
 def get_local_size_limit_stdout() -> int:
-    """
-    Return a proper value for the local size limit for payload stdout (from config file).
+    """Return a proper value for the local size limit for payload stdout.
 
-    :return: size limit (int).
+    The value is read from the config file.
+
+    Returns:
+        Size limit in bytes.
     """
     try:
         localsizelimit_stdout = int(config.Pilot.local_size_limit_stdout)
@@ -738,11 +765,13 @@ def get_local_size_limit_stdout() -> int:
 
 
 def check_payload_stdout(job: JobData) -> tuple[int, str]:
-    """
-    Check the size of the payload stdout.
+    """Check the size of the payload stdout.
 
-    :param job: job object (JobData)
-    :return: exit code (int), diagnostics (string) (tuple).
+    Args:
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, diagnostics string).
     """
     exit_code = 0
     diagnostics = ""
@@ -813,15 +842,17 @@ def check_payload_stdout(job: JobData) -> tuple[int, str]:
 
 
 def check_log_size(filename: str, to_be_zipped: list = None, archive: bool = False) -> tuple[int, bool]:
-    """
-    Check the payload log file size.
+    """Check the payload log file size.
 
-    The log will be added to the list of files to be zipped, if too large.
+    The log will be added to the list of files to be zipped if it is too large.
 
-    :param filename: file path (str)
-    :param to_be_zipped: list of files to be zipped (list)
-    :param archive: is this file an archive? (bool)
-    :return: exit code (int), to_be_zipped (list) (tuple).
+    Args:
+        filename: File path.
+        to_be_zipped: List of files to be zipped.
+        archive: True if this file is an archive.
+
+    Returns:
+        Tuple of (exit code, to_be_zipped list).
     """
     exit_code = 0
 
@@ -848,14 +879,17 @@ def check_log_size(filename: str, to_be_zipped: list = None, archive: bool = Fal
 
 
 def check_local_space(initial: bool = True) -> tuple[int, str]:
-    """
-    Check if we have enough local disk space left to run the job.
+    """Check if we have enough local disk space left to run the job.
 
-    For the initial local space check, the Pilot will require 2 GB of free space, but during running
-    this can be lowered to 1 GB.
+    For the initial local space check the Pilot requires 2 GB of free space,
+    but during running this can be lowered to 1 GB.
 
-    :param initial: True means a 2 GB limit, False means a 1 GB limit (bool)
-    :return: pilot error code (0 if success, NOLOCALSPACE if failure) (int), diagnostics (str) (tuple).
+    Args:
+        initial: True means a 2 GB limit, False means a 1 GB limit.
+
+    Returns:
+        Tuple of (pilot error code (0 if success, NOLOCALSPACE if failure),
+        diagnostics string).
     """
     ec = 0
     diagnostics = ""
@@ -915,13 +949,15 @@ def _get_disk_usage_with_timeout(path: str, timeout: int = 120) -> int:
 
 
 def check_work_dir(job: JobData) -> tuple[int, str]:
-    """
-    Check the size of the work directory.
+    """Check the size of the work directory.
 
-    The function also updates the workdirsizes list in the job object.
+    Also updates the workdirsizes list in the job object.
 
-    :param job: job object (JobData)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     exit_code = 0
     diagnostics = ""
@@ -974,17 +1010,19 @@ def check_work_dir(job: JobData) -> tuple[int, str]:
     return exit_code, diagnostics
 
 
-def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pq_corecount: int or None, pilot_maxwdir_grace: float) -> int:
-    """
-    Return the maximum allowed size of the work directory.
+def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pq_corecount: Optional[int], pilot_maxwdir_grace: float) -> int:
+    """Return the maximum allowed size of the work directory.
 
-    Note: input sizes need not be added to [..] when copytool=mv (ie on storm/NDGF).
+    Input sizes need not be added when copytool=mv (i.e. on storm/NDGF).
 
-    :param resource_type: resource type (str)
-    :param corecount: number of cores (int)
-    :param pq_corecount: number of cores from PQ (int or None)
-    :param pilot_maxwdir_grace: grace margin in percent (float)
-    :return: max allowed work dir size in Bytes (int).
+    Args:
+        resource_type: Resource type.
+        corecount: Number of cores.
+        pq_corecount: Number of cores from PQ, or None.
+        pilot_maxwdir_grace: Grace margin in percent.
+
+    Returns:
+        Max allowed work directory size in bytes.
     """
     logger.debug(f"getting max allowed work dir size for resource_type={resource_type}, corecount={corecount}")
     # PQ.maxwdir is defined for MCORE jobs, so adjust for single core jobs
@@ -1014,11 +1052,13 @@ def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pq_corecou
 
 
 def get_max_input_size(megabyte: bool = False) -> int:
-    """
-    Return a proper maxinputsize value.
+    """Return a proper maxinputsize value.
 
-    :param megabyte: return results in MB (bool)
-    :return: max input size (int).
+    Args:
+        megabyte: Return results in MB instead of bytes.
+
+    Returns:
+        Max input size in bytes (or MB if megabyte is True).
     """
     _maxinputsize = infosys.queuedata.maxwdir  # normally 14336+2000 MB
     max_input_file_sizes = 14 * 1024 * 1024 * 1024  # 14 GB, 14336 MB (pilot default)
@@ -1047,12 +1087,14 @@ def get_max_input_size(megabyte: bool = False) -> int:
     return _maxinputsize
 
 
-def check_output_file_sizes(job: JobData):
-    """
-    Check if the output files are within the allowed size limits.
+def check_output_file_sizes(job: JobData) -> tuple[int, str]:
+    """Check if the output files are within the allowed size limits.
 
-    :param job: job object (JobData)
-    :return: exit code (int), error diagnostics (str) (tuple).
+    Args:
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
     """
     exit_code = 0
     diagnostics = ""
@@ -1080,11 +1122,11 @@ def check_output_file_sizes(job: JobData):
     return exit_code, diagnostics
 
 
-def store_subprocess_pids(job: JobData):
-    """
-    Keep track of all running subprocesses.
+def store_subprocess_pids(job: JobData) -> None:
+    """Keep track of all running subprocesses.
 
-    :param job: job object (JobData).
+    Args:
+        job: Job object.
     """
     # only store the pid once
     if job.subprocesses:
