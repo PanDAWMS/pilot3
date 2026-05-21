@@ -22,6 +22,7 @@
 """Generic utility functionality."""
 
 
+from __future__ import annotations
 import logging
 import os
 import time
@@ -521,14 +522,14 @@ def get_average_summary_dictionary_prmon(path: str) -> dict:
         summary_dictionary = {"Max": {}, "Avg": {}, "Other": {}, "Time": {}}
 
         def filter_value(value: Optional[str]) -> bool:
-            """ Inline function used to remove any string or None values from data. """
+            """Inline function used to remove any string or None values from data."""
             if isinstance(value, str) or value is None:
                 return False
 
             return True
 
         def get_last_value(value_list: list) -> Optional[int]:
-            """ Inline function used to get the last value in a list. """
+            """Inline function used to get the last value in a list."""
             value = None
             if value_list:
                 value = value_list[-1]

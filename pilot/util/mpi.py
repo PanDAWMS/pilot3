@@ -20,6 +20,8 @@
 # - Danila Oleynik, danila.oleynik@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-23
 
+"""MPI rank utilities for HPC workflows where the pilot acts as an MPI application."""
+
 # Note: The Pilot utilities to provide MPI related functionality through mpi4py
 # Required for HPC workflow where the Pilot acts like an MPI application
 
@@ -33,13 +35,13 @@
 
 
 def get_ranks_info():
-    """
-    Return current MPI rank and number of ranks
-    None, None - if MPI environment is not available
+    """Return current MPI rank and number of ranks.
 
-    :return: rank, max_rank
-    """
+    Returns None, None if MPI environment is not available.
 
+    Returns:
+        Tuple of (rank, max_rank), or (None, None) if MPI is not available.
+    """
     rank = None
     max_rank = None
     try:

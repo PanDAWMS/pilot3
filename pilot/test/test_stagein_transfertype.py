@@ -158,8 +158,8 @@ class TestGetDirectioPreferredSchemas(unittest.TestCase):
     """Tests for ``get_directio_preferred_schemas``."""
 
     # Default schema lists mirroring the class-level constants in data.py
-    _LOCAL_SCHEMAS = ['root', 'dcache', 'dcap', 'file', 'https']
-    _REMOTE_SCHEMAS = ['root', 'https']
+    _LOCAL_SCHEMAS = ['root', 'davs', 'dcache', 'dcap', 'file', 'https']
+    _REMOTE_SCHEMAS = ['root', 'davs', 'https']
 
     def test_empty_transfertype_returns_default(self):
         """Empty transfertype must leave the schema list unchanged."""
@@ -232,10 +232,18 @@ class TestGetDirectioPreferredSchemas(unittest.TestCase):
 
     def test_preferred_schema_not_in_default_list_is_prepended(self):
         """A valid directio keyword not already in the default list is prepended."""
+        # Use a minimal custom list that does not contain 'davs' to verify
+        # that the schema is still prepended when absent from the default.
         result = get_directio_preferred_schemas('davs', ['root', 'https'])
         self.assertEqual(result[0], 'davs')
         self.assertIn('root', result)
         self.assertIn('https', result)
+
+    def test_davs_already_in_local_schemas_no_duplicate(self):
+        """'davs' in default list must appear once and remain first after reorder."""
+        result = get_directio_preferred_schemas('davs', self._LOCAL_SCHEMAS)
+        self.assertEqual(result[0], 'davs')
+        self.assertEqual(result.count('davs'), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +347,216 @@ class TestGetDirectAccessVariables(unittest.TestCase):
         except Exception as exc:  # pylint: disable=broad-except
             self.fail(f'get_direct_access_variables(None) raised {exc!r}')
         self.assertTrue(allow)
+
+
+# ---------------------------------------------------------------------------
+# Tests for FileSpec.is_directaccess() with davs:// turl
+# ---------------------------------------------------------------------------
+
+class TestIsDirectaccessDavsTurl(unittest.TestCase):
+    """Tests that is_directaccess() accepts davs:// turls for direct I/O."""
+
+    def _make_fspec(self, turl: str, accessmode: str = 'direct') -> object:
+        """Return a minimal FileSpec-like object.
+
+        Args:
+            turl: The transport URL to assign to the file.
+            accessmode: The access mode ('direct' or 'copy').
+
+        Returns:
+            MagicMock: Configured mock FileSpec.
+        """
+        from pilot.info.filespec import FileSpec
+        fspec = FileSpec.__new__(FileSpec)
+        fspec.lfn = 'data18_13TeV.00359541.physics_Main.daq.RAW._lb0192._SFO-6._0004.data'
+        fspec.turl = turl
+        fspec.accessmode = accessmode
+        return fspec
+
+    def test_davs_turl_accepted_by_local_schemas(self):
+        """davs:// turl must pass is_directaccess when davs is in local schemas."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('davs://dcache-atlas-webdav-job.desy.de:2880/path/to/file.data')
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertIn('davs', schemas,
+                      "direct_localinput_allowed_schemas must include 'davs'")
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must return True for a davs:// turl"
+        )
+
+    def test_davs_turl_accepted_by_remote_schemas(self):
+        """davs:// turl must pass is_directaccess when davs is in remote schemas."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('davs://dcache-atlas-webdav.desy.de:2880/path/to/file.data')
+        schemas = StagingClient.direct_remoteinput_allowed_schemas
+        self.assertIn('davs', schemas,
+                      "direct_remoteinput_allowed_schemas must include 'davs'")
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must return True for a davs:// turl on remote schemas"
+        )
+
+    def test_root_turl_still_accepted_by_local_schemas(self):
+        """root:// turl must continue to pass is_directaccess (no regression)."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec('root://dcache-atlas-xrootd-job.desy.de:1094//path/file.data')
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "root:// turl must remain accepted after adding davs to the schema list"
+        )
+
+    def test_davs_turl_rejected_when_accessmode_copy(self):
+        """davs:// turl must be rejected when accessmode is 'copy'."""
+        from pilot.api.data import StagingClient
+        fspec = self._make_fspec(
+            'davs://dcache-atlas-webdav-job.desy.de:2880/path/to/file.data',
+            accessmode='copy'
+        )
+        schemas = StagingClient.direct_localinput_allowed_schemas
+        self.assertFalse(
+            fspec.is_directaccess(ensure_replica=True, allowed_replica_schemas=schemas),
+            "is_directaccess must be False when accessmode='copy' regardless of turl schema"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests for resolve_replica primary-schema ordering
+# ---------------------------------------------------------------------------
+
+class TestResolveReplicaPrimarySchemaOrdering(unittest.TestCase):
+    """Tests that resolve_replica honours primary_schemas priority ordering.
+
+    The core regression tested here: when primary_schemas=['davs', 'root']
+    and Rucio returns replicas in geoip order with root:// first, the pilot
+    must still select the davs:// replica because davs is the higher-priority
+    schema.  The old per-replica loop would short-circuit on the first replica
+    that matched *any* schema and always returned root://.
+    """
+
+    def _make_replicas(self) -> list:
+        """Return a replica list mimicking Rucio geoip order: root first, then davs.
+
+        Returns:
+            list: Two replica dicts for the same DDM endpoint.
+        """
+        return [
+            {'pfn': 'root://xrootd.example.org:1094//path/file.data',
+             'ddmendpoint': 'SITE_DATADISK', 'domain': 'lan', 'surl': None},
+            {'pfn': 'davs://webdav.example.org:2880/path/file.data',
+             'ddmendpoint': 'SITE_DATADISK', 'domain': 'lan', 'surl': None},
+        ]
+
+    def _make_fspec(self, replicas: list) -> object:
+        """Return a minimal FileSpec-like mock with the given replicas.
+
+        Args:
+            replicas: List of replica dicts to assign.
+
+        Returns:
+            MagicMock: Configured mock FileSpec.
+        """
+        fspec = MagicMock()
+        fspec.replicas = replicas
+        fspec.lfn = 'data.RAW._lb0001._SFO-1._0001.data'
+        return fspec
+
+    def _make_stagein_client(self) -> object:
+        """Return a StageInClient with a silent logger.
+
+        Returns:
+            StageInClient: Partially initialised client instance.
+        """
+        client = StageInClient.__new__(StageInClient)
+        client.logger = logging.getLogger('test.null')
+        client.logger.disabled = True
+        return client
+
+    def test_davs_preferred_over_root_when_davs_is_primary(self):
+        """davs:// replica must win when davs is the first primary schema."""
+        client = self._make_stagein_client()
+        fspec = self._make_fspec(self._make_replicas())
+
+        result = client.resolve_replica(
+            fspec,
+            primary_schemas=['davs', 'root'],
+            allowed_schemas=['root', 'davs', 'https'],
+            domain='lan'
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue(
+            result['pfn'].startswith('davs://'),
+            f"Expected davs:// replica but got: {result['pfn']}"
+        )
+
+    def test_root_wins_when_root_is_primary_and_davs_absent(self):
+        """root:// replica must be selected when it is the only available schema."""
+        client = self._make_stagein_client()
+        # Only a root:// replica available
+        replicas = [{'pfn': 'root://xrootd.example.org:1094//path/file.data',
+                     'ddmendpoint': 'SITE_DATADISK', 'domain': 'lan', 'surl': None}]
+        fspec = self._make_fspec(replicas)
+
+        result = client.resolve_replica(
+            fspec,
+            primary_schemas=['davs', 'root'],
+            allowed_schemas=['root', 'davs', 'https'],
+            domain='lan'
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue(result['pfn'].startswith('root://'))
+
+    def test_root_wins_when_root_is_first_primary(self):
+        """root:// replica must win when root is the first primary schema."""
+        client = self._make_stagein_client()
+        fspec = self._make_fspec(self._make_replicas())
+
+        result = client.resolve_replica(
+            fspec,
+            primary_schemas=['root', 'davs'],
+            allowed_schemas=['root', 'davs', 'https'],
+            domain='lan'
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue(result['pfn'].startswith('root://'))
+
+    def test_fallback_to_allowed_schemas_when_no_primary_match(self):
+        """Fallback replica must be returned when no primary schema matches."""
+        client = self._make_stagein_client()
+        # Only root:// and davs://, primary asks for https:// first
+        fspec = self._make_fspec(self._make_replicas())
+
+        result = client.resolve_replica(
+            fspec,
+            primary_schemas=['https'],
+            allowed_schemas=['root', 'davs'],
+            domain='lan'
+        )
+        # No https:// replica exists; fallback to allowed_schemas should give root://
+        self.assertIsNotNone(result)
+        self.assertTrue(result['pfn'].startswith('root://'))
+
+    def test_wan_domain_replicas_not_used_for_lan_selection(self):
+        """WAN-domain replicas must be ignored when domain='lan' is requested."""
+        client = self._make_stagein_client()
+        replicas = [
+            {'pfn': 'davs://webdav.example.org:2880/path/file.data',
+             'ddmendpoint': 'SITE_DATADISK', 'domain': 'wan', 'surl': None},
+            {'pfn': 'root://xrootd.example.org:1094//path/file.data',
+             'ddmendpoint': 'SITE_DATADISK', 'domain': 'lan', 'surl': None},
+        ]
+        fspec = self._make_fspec(replicas)
+
+        result = client.resolve_replica(
+            fspec,
+            primary_schemas=['davs', 'root'],
+            allowed_schemas=['root', 'davs'],
+            domain='lan'
+        )
+        # WAN davs:// must not win; the only LAN replica is root://
+        self.assertIsNotNone(result)
+        self.assertTrue(result['pfn'].startswith('root://'))
 
 
 if __name__ == '__main__':

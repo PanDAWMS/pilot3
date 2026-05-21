@@ -19,12 +19,16 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
 
+"""Process management utilities: monitoring, killing, and resource-usage tracking."""
+
+from __future__ import annotations
 import logging
 import os
 import time
 import signal
 import re
 import threading
+from typing import Optional, Union
 
 from pilot.info import JobData
 from pilot.util.container import execute
@@ -37,27 +41,32 @@ from pilot.util.filehandling import (
     remove_dir_tree
 )
 from pilot.util.processgroups import kill_process_group
-from pilot.util.psutils import list_processes_and_threads
+from pilot.util.psutils import find_zombies  # noqa: F401 – re-exported; loopingjob imports find_zombies from this module
+from pilot.util.psutils import (
+    is_zombie,
+    list_processes_and_threads
+)
 from pilot.util.timer import timeout
 
 logger = logging.getLogger(__name__)
 
 
-def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
-    """
-    Find all processes that belong to the same group using the given ps command output.
+def find_processes_in_group(cpids: list, pid: int, ps_cache: str = "") -> None:
+    """Find all processes that belong to the same group using the given ps command output.
 
     Search for the children processes belonging to pid and return their pid's.
-    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
-    the pids of the children AND the parent.
+    pid is the parent pid and cpids is a list that has to be initialized before
+    calling this function and it contains the pids of the children AND the parent.
 
     ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
 
     The cpids input parameter list gets updated in the function.
 
-    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int)
-    :param pid: parent process id (int)
-    :param ps_cache: ps command output (str).
+    Args:
+        cpids: List of pid's for all child processes to the parent pid, as well
+            as the parent pid itself.
+        pid: Parent process id.
+        ps_cache: ps command output.
     """
     visited = set()
     stack = [pid]
@@ -81,21 +90,23 @@ def find_processes_in_group(cpids: list, pid: int, ps_cache: str = ""):
                         stack.append(thispid)
 
 
-def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = ""):
-    """
-    Find all processes that belong to the same group using the given ps command output.
+def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = "") -> None:
+    """Find all processes that belong to the same group (recursive version).
 
-    Recursively search for the children processes belonging to pid and return their pid's.
-    pid is the parent pid and cpids is a list that has to be initialized before calling this function and it contains
-    the pids of the children AND the parent.
+    Recursively search for the children processes belonging to pid and return
+    their pid's. pid is the parent pid and cpids is a list that has to be
+    initialized before calling this function and it contains the pids of the
+    children AND the parent.
 
     ps_cache is expected to be the output from the command "ps -eo pid,ppid -m".
 
     The cpids input parameter list gets updated in the function.
 
-    :param cpids: list of pid's for all child processes to the parent pid, as well as the parent pid itself (int)
-    :param pid: parent process id (int)
-    :param ps_cache: ps command output (str).
+    Args:
+        cpids: List of pid's for all child processes to the parent pid, as well
+            as the parent pid itself.
+        pid: Parent process id.
+        ps_cache: ps command output.
     """
     if pid:
         cpids.append(pid)
@@ -112,30 +123,15 @@ def find_processes_in_group_old(cpids: list, pid: int, ps_cache: str = ""):
                         find_processes_in_group(cpids, thispid, ps_cache)
 
 
-def is_zombie(pid: int) -> bool:
-    """
-    Check if the given process is a zombie process.
-
-    :param pid: process id (int)
-    :return: True if process is defunct, False otherwise (bool).
-    """
-    status = False
-
-    cmd = f"ps aux | grep {pid}"
-    _, stdout, _ = execute(cmd, mute=True)
-    if "<defunct>" in stdout:
-        status = True
-
-    return status
-
-
 def get_process_commands(euid: int, pids: list) -> list:
-    """
-    Return a list of process commands corresponding to a pid list for user euid.
+    """Return a list of process commands corresponding to a pid list for user euid.
 
-    :param euid: user id (int)
-    :param pids: list of process id's (list)
-    :return: list of process commands (list).
+    Args:
+        euid: User id.
+        pids: List of process id's.
+
+    Returns:
+        List of process commands.
     """
     cmd = f'ps u -u {euid}'
     process_commands = []
@@ -167,11 +163,11 @@ def get_process_commands(euid: int, pids: list) -> list:
     return process_commands
 
 
-def dump_stack_trace(pid: int):
-    """
-    Execute the stack trace command (pstack <pid>).
+def dump_stack_trace(pid: int) -> None:
+    """Execute the stack trace command (pstack <pid>).
 
-    :param pid: process id (int).
+    Args:
+        pid: Process id.
     """
     # make sure that the process is not in a zombie state
     if not is_zombie(pid):
@@ -183,10 +179,12 @@ def dump_stack_trace(pid: int):
 
 
 def get_ps_cache() -> str:
-    """
-    Return the corresponding "ps -eo pid,ppid -m" command output (the psutil alternative is preferred).
+    """Return the "ps -eo pid,ppid -m" command output.
 
-    :return: ps command output (str).
+    The psutil alternative is preferred when available.
+
+    Returns:
+        ps command output.
     """
     _ps_cache = list_processes_and_threads()
     if _ps_cache:
@@ -197,14 +195,14 @@ def get_ps_cache() -> str:
     return ps_cache
 
 
-def kill_processes(pid: int, korphans: bool = True, ps_cache: str = None, nap: int = 10):
-    """
-    Kill process belonging to the process group that the given pid belongs to.
+def kill_processes(pid: int, korphans: bool = True, ps_cache: str = None, nap: int = 10) -> None:
+    """Kill processes belonging to the process group that the given pid belongs to.
 
-    :param pid: process id (int)
-    :param korphans: kill orphans (bool)
-    :param ps_cache: ps command output (str)
-    :param nap: napping time between kill signals in seconds (int).
+    Args:
+        pid: Process id.
+        korphans: Kill orphans.
+        ps_cache: ps command output.
+        nap: Napping time between kill signals in seconds.
     """
     # if there is a known subprocess pgrp, then it should be enough to kill the group in one go
     status = False
@@ -263,11 +261,11 @@ def kill_processes(pid: int, korphans: bool = True, ps_cache: str = None, nap: i
         logger.warning(f'exception caught: {exc}')
 
 
-def kill_defunct_children(pid: int):
-    """
-    Kills any defunct child processes of the specified process ID.
+def kill_defunct_children(pid: int) -> None:
+    """Kill any defunct child processes of the specified process ID.
 
-    :param pid: process id (int).
+    Args:
+        pid: Process id.
     """
     defunct_children = []
     for proc in os.listdir("/proc"):
@@ -294,12 +292,12 @@ def kill_defunct_children(pid: int):
             pass
 
 
-def kill_child_processes(pid: int, ps_cache: str = None):
-    """
-    Kill child processes.
+def kill_child_processes(pid: int, ps_cache: str = None) -> None:
+    """Kill child processes.
 
-    :param pid: process id (int).
-    :param ps_cache: ps command output (str).
+    Args:
+        pid: Process id.
+        ps_cache: ps command output.
     """
     # firstly find all the children process IDs to be killed
     children = []
@@ -334,12 +332,14 @@ def kill_child_processes(pid: int, ps_cache: str = None):
 
 
 def kill_process(pid: int, hardkillonly: bool = False) -> bool:
-    """
-    Kill process.
+    """Kill process.
 
-    :param pid: process id (int)
-    :param hardkillonly: only execute the hard kill (bool)
-    :return: True if successful SIGKILL), False otherwise (bool).
+    Args:
+        pid: Process id.
+        hardkillonly: Only execute the hard kill.
+
+    Returns:
+        True if successful (SIGKILL), False otherwise.
     """
     # start with soft kill (ignore any returned status)
     if not hardkillonly:
@@ -356,12 +356,14 @@ def kill_process(pid: int, hardkillonly: bool = False) -> bool:
 
 
 def kill(pid: int, sig: int) -> bool:
-    """
-    Kill the given process with the given signal.
+    """Kill the given process with the given signal.
 
-    :param pid: process id (int)
-    :param sig: signal (int)
-    :return status: True when successful (bool).
+    Args:
+        pid: Process id.
+        sig: Signal.
+
+    Returns:
+        True when successful, False otherwise.
     """
     status = False
     try:
@@ -377,11 +379,13 @@ def kill(pid: int, sig: int) -> bool:
 
 # called checkProcesses() in Pilot 1, used by process monitoring
 def get_number_of_child_processes(pid: int) -> int:
-    """
-    Get the number of child processes for a given parent process.
+    """Get the number of child processes for a given parent process.
 
-    :param pid: parent process id (int)
-    :return: number of child processes (int).
+    Args:
+        pid: Parent process id.
+
+    Returns:
+        Number of child processes.
     """
     children = []
     n = 0
@@ -399,12 +403,12 @@ def get_number_of_child_processes(pid: int) -> int:
     return n
 
 
-def killpg(pid: int or str, sig: int):
-    """
-    Kill given process group with given signal.
+def killpg(pid: Union[int, str], sig: int) -> None:
+    """Kill given process group with given signal.
 
-    :param pid: process group id (int or str)
-    :param sig: signal (int)
+    Args:
+        pid: Process group id.
+        sig: Signal.
     """
     try:
         _pid = int(pid) if isinstance(pid, str) else pid
@@ -421,13 +425,15 @@ def killpg(pid: int or str, sig: int):
         logger.info(f"killed orphaned process group {pid}")
 
 
-def get_pilot_pid_from_processes(ps_processes: str, pattern: re.Pattern) -> int or None:
-    """
-    Identify the pilot pid from the list of processes.
+def get_pilot_pid_from_processes(ps_processes: str, pattern: re.Pattern) -> Optional[int]:
+    """Identify the pilot pid from the list of processes.
 
-    :param ps_processes: ps output (str)
-    :param pattern: regex pattern (re.Pattern)
-    :return: pilot pid (int or None).
+    Args:
+        ps_processes: ps output.
+        pattern: Regex pattern.
+
+    Returns:
+        Pilot pid, or None if not found.
     """
     pilot_pid = None
     for line in ps_processes.split('\n'):
@@ -447,7 +453,7 @@ def get_pilot_pid_from_processes(ps_processes: str, pattern: re.Pattern) -> int 
     return pilot_pid
 
 
-def kill_orphans():
+def kill_orphans() -> None:
     """Find and kill all orphan processes belonging to current pilot user."""
     # exception for BOINC
     if 'BOINC' in os.environ.get('PILOT_SITENAME', ''):
@@ -479,6 +485,8 @@ def kill_orphans():
                 logger.info(f"ignoring possible orphan process running cvmfs2: pid={pid}, ppid={ppid}, args='{args}'")
             elif 'pilots_starter.py' in args or 'runpilot2-wrapper.sh' in args or 'runpilot3-wrapper.sh' in args:
                 logger.info(f"ignoring pilot launcher: pid={pid}, ppid={ppid}, args='{args}'")
+            elif 'nvidia-cuda-mps' in args:
+                logger.info(f"ignoring NVIDIA MPS daemon: pid={pid}, ppid={ppid}, args='{args}'")
             elif ppid == '1':
                 count += 1
                 logger.info(f"found orphan process: pid={pid}, ppid={ppid}, args='{args}'")
@@ -497,13 +505,12 @@ def kill_orphans():
         logger.info(f"found {count} orphan process" + "es" if count > 1 else "")
 
 
-def get_max_memory_usage_from_cgroups() -> int or None:
-    """
-    Read the max_memory from CGROUPS file memory.max_usage_in_bytes.
+def get_max_memory_usage_from_cgroups() -> Optional[int]:
+    """Read the max memory from the CGROUPS file memory.max_usage_in_bytes.
 
-    :return: max_memory (int or None).
+    Returns:
+        Max memory in bytes, or None if not available.
     """
-
     max_memory = None
 
     # Get the CGroups max memory using the pilot pid
@@ -537,12 +544,11 @@ def get_max_memory_usage_from_cgroups() -> int or None:
 
 
 def get_cgroups_base_path() -> str:
-    """
-    Return the base path for CGROUPS.
+    """Return the base path for CGROUPS.
 
-    :return: base path for CGROUPS (string).
+    Returns:
+        Base path for CGROUPS.
     """
-
     cmd = "grep \'^cgroup\' /proc/mounts|grep memory| awk \'{print $2}\'"
     _, base_path, _ = execute(cmd, mute=True)
 
@@ -550,13 +556,17 @@ def get_cgroups_base_path() -> str:
 
 
 def get_cpu_consumption_time(t0: tuple) -> float:
-    """
-    Return the CPU consumption time for child processes measured by system+user time from os.times().
-    Note: the os.times() tuple is user time, system time, s user time, s system time, and elapsed real time since a
-    fixed point in the past.
+    """Return the CPU consumption time for child processes.
 
-    :param t0: initial os.times() tuple prior to measurement (tuple)
-    :return: system+user time for child processes (float).
+    Measured by system+user time from os.times(). The os.times() tuple contains:
+    user time, system time, s user time, s system time, and elapsed real time
+    since a fixed point in the past.
+
+    Args:
+        t0: Initial os.times() tuple prior to measurement.
+
+    Returns:
+        System+user time for child processes.
     """
     t1 = os.times()
     user_time = t1[2] - t0[2]
@@ -566,15 +576,17 @@ def get_cpu_consumption_time(t0: tuple) -> float:
 
 
 def get_instant_cpu_consumption_time(pid: int) -> float:
-    """
-    Return the CPU consumption time (system+user time) for a given process, by parsing /prod/pid/stat.
+    """Return the CPU consumption time (system+user time) for a given process.
 
-    Note 1: the function returns 0.0 if the pid is not set.
-    Note 2: the function must sum up all the user+system times for both the main process (pid) and the child
-    processes, since the main process is most likely spawning new processes.
+    Parses /proc/pid/stat. Returns 0.0 if the pid is not set. Sums up all the
+    user+system times for both the main process (pid) and the child processes,
+    since the main process is most likely spawning new processes.
 
-    :param pid: process id (int)
-    :return: system+user time for a given pid (float).
+    Args:
+        pid: Process id.
+
+    Returns:
+        System+user time for a given pid.
     """
     utime = None
     stime = None
@@ -608,11 +620,15 @@ def get_instant_cpu_consumption_time(pid: int) -> float:
 
 
 def get_current_cpu_consumption_time(pid: int) -> float:
-    """
-    Get the current CPU consumption time (system+user time) for a given process, by looping over all child processes.
+    """Get the current CPU consumption time (system+user time) for a given process.
 
-    :param pid: process id (int)
-    :return: system+user time for a given pid (float).
+    Loops over all child processes to accumulate the total.
+
+    Args:
+        pid: Process id.
+
+    Returns:
+        System+user time for a given pid.
     """
     # get all the child processes
     children = []
@@ -633,11 +649,13 @@ def get_current_cpu_consumption_time(pid: int) -> float:
 
 
 def is_process_running(process_id: int) -> bool:
-    """
-    Check whether process is still running.
+    """Check whether process is still running.
 
-    :param process_id: process id (int)
-    :return: True if process is running, False otherwise (bool).
+    Args:
+        process_id: Process id.
+
+    Returns:
+        True if process is running, False otherwise.
     """
     try:
         # note that this kill function call will not kill the process
@@ -647,12 +665,12 @@ def is_process_running(process_id: int) -> bool:
         return False
 
 
-def cleanup(job: JobData, args: object):
-    """
-    Cleanup called after completion of job.
+def cleanup(job: JobData, args: object) -> None:
+    """Cleanup called after completion of job.
 
-    :param job: job object (JobData)
-    :param args: Pilot args object (object).
+    Args:
+        job: Job object.
+        args: Pilot args object.
     """
     logger.info("overall cleanup function is called")
 
@@ -682,16 +700,18 @@ def cleanup(job: JobData, args: object):
 
 
 def threads_aborted(caller: str = '') -> bool:
-    """
-    Check if the Pilot threads have been aborted.
+    """Check if the Pilot threads have been aborted.
 
-    Have the Pilot threads been aborted?
-    This function will count all the threads still running, but will only return True if all
-    threads started by the Pilot's main thread, i.e. not including the main thread itself or
-    any daemon threads (which might be created by Rucio or Google Logging).
+    Counts all threads still running, but only returns True if all threads
+    started by the Pilot's main thread have finished — not including the main
+    thread itself or any daemon threads (which might be created by Rucio or
+    Google Logging).
 
-    :param caller: caller name (str)
-    :return: True if number of running threads is zero, False otherwise (bool).
+    Args:
+        caller: Caller name.
+
+    Returns:
+        True if number of running pilot threads is zero, False otherwise.
     """
     abort = False
     #thread_count = threading.activeCount()
@@ -745,18 +765,23 @@ def threads_aborted(caller: str = '') -> bool:
 
 
 def convert_ps_to_dict(output: str, pattern: str = r'(\d+) (\d+) (\d+) (.+)') -> dict:
-    """
-    Convert output from a ps command to a dictionary.
+    """Convert output from a ps command to a dictionary.
 
-    Example: ps axo pid,ppid,pgid,cmd
-      PID  PPID  PGID COMMAND
-      22091  6672 22091 bash
-      32581 22091 32581 ps something;sdfsdfds/athena.py ddfg
-      -> dictionary = { 'PID': [22091, 32581], 'PPID': [22091, 6672], .. , 'COMMAND': ['ps ..', 'bash']}
+    Example::
 
-    :param output: ps stdout (str)
-    :param pattern: regex pattern matching the ps output (str)
-    :return: dictionary with ps output (dict).
+        ps axo pid,ppid,pgid,cmd
+          PID  PPID  PGID COMMAND
+          22091  6672 22091 bash
+          32581 22091 32581 ps something;sdfsdfds/athena.py ddfg
+
+        -> {'PID': [22091, 32581], 'PPID': [6672, 22091], ..., 'COMMAND': ['bash', 'ps something;...']}
+
+    Args:
+        output: ps stdout.
+        pattern: Regex pattern matching the ps output.
+
+    Returns:
+        Dictionary with ps output.
     """
     dictionary = {}
     first_line = []  # e.g. PID PPID PGID COMMAND
@@ -790,12 +815,14 @@ def convert_ps_to_dict(output: str, pattern: str = r'(\d+) (\d+) (\d+) (.+)') ->
 
 
 def get_trimmed_dictionary(keys: list, dictionary: dict) -> dict:
-    """
-    Return a sub-dictionary with only the given keys.
+    """Return a sub-dictionary with only the given keys.
 
-    :param keys: keys to keep (list)
-    :param dictionary: full dictionary (dict)
-    :return: trimmed dictionary (dict).
+    Args:
+        keys: Keys to keep.
+        dictionary: Full dictionary.
+
+    Returns:
+        Trimmed dictionary containing only the specified keys.
     """
     subdictionary = {}
     for key in keys:
@@ -806,14 +833,17 @@ def get_trimmed_dictionary(keys: list, dictionary: dict) -> dict:
 
 
 def find_cmd_pids(cmd: str, ps_dictionary: dict) -> list:
-    """
-    Find all pids for the given command.
+    """Find all pids for the given command.
 
-    Example. cmd = 'athena.py' -> pids = [1234, 2267] (in case there are two pilots running on the WN).
+    Example: ``cmd = 'athena.py'`` returns ``[1234, 2267]`` if two pilots are
+    running on the worker node.
 
-    :param cmd: command (str)
-    :param ps_dictionary: converted ps output (dict)
-    :return: list of pids (list).
+    Args:
+        cmd: Command.
+        ps_dictionary: Converted ps output.
+
+    Returns:
+        List of pids.
     """
     pids = []
     i = -1
@@ -826,12 +856,14 @@ def find_cmd_pids(cmd: str, ps_dictionary: dict) -> list:
 
 
 def find_pid(pandaid: int, ps_dictionary: dict) -> int:
-    """
-    Find the process id for the command that contains 'export PandaID=%d'.
+    """Find the process id for the command that contains 'export PandaID=<pandaid>'.
 
-    :param pandaid: PanDA ID (int)
-    :param ps_dictionary: ps output dictionary (dict)
-    :return: pid (int).
+    Args:
+        pandaid: PanDA ID.
+        ps_dictionary: ps output dictionary.
+
+    Returns:
+        Process id, or -1 if not found.
     """
     pid = -1
     i = -1
@@ -846,15 +878,18 @@ def find_pid(pandaid: int, ps_dictionary: dict) -> int:
 
 
 def is_child(pid: int, pandaid_pid: int, dictionary: dict) -> bool:
-    """
-    Check if the given pid is a child process of the pandaid_pid.
+    """Check if the given pid is a child process of the pandaid_pid.
 
-    Proceed recursively until the parent pandaid_pid has been found, or return False if it fails to find it.
+    Proceeds recursively until the parent pandaid_pid has been found, or
+    returns False if it fails to find it.
 
-    :param pid: process id (int)
-    :param pandaid_pid: parent process id (int)
-    :param dictionary: ps output dictionary (dict)
-    :return: True if process is a child, False otherwise (bool).
+    Args:
+        pid: Process id.
+        pandaid_pid: Parent process id.
+        dictionary: ps output dictionary.
+
+    Returns:
+        True if process is a child, False otherwise.
     """
     try:
         # where are we at in the PID list?
@@ -874,54 +909,13 @@ def is_child(pid: int, pandaid_pid: int, dictionary: dict) -> bool:
     return is_child(ppid, pandaid_pid, dictionary)
 
 
-def identify_numbers_and_strings(s: str) -> list:
-    """
-    Identify numbers and strings in a given string.
+def handle_zombies(zombies: dict, job: JobData = None) -> None:
+    """Log info about zombie processes and optionally record their pids on the job.
 
     Args:
-    string: The string to be processed.
-
-    Returns:
-    A list of tuples, where each tuple contains the matched numbers and strings.
-
-    :param s: string (str)
-    :return: list of tuples (list).
-    """
-    return re.findall(r'(\d+)\s+(\d+)\s+([A-Za-z]+)\s+([A-Za-z]+)', s)
-
-
-def find_zombies(parent_pid: int) -> dict:
-    """
-    Find all zombies/defunct processes under the given parent pid.
-
-    :param parent_pid: parent pid (int)
-    :return: dictionary with zombies (dict).
-    """
-    zombies = {}
-    cmd = 'ps -eo pid,ppid,stat,comm'
-    _, stdout, _ = execute(cmd)
-    for line in stdout.split('\n'):
-        matches = identify_numbers_and_strings(line)
-        if matches:
-            pid = int(matches[0][0])
-            ppid = int(matches[0][1])
-            stat = matches[0][2]
-            comm = matches[0][3]
-            #print(f'pid={pid} ppid={ppid} stat={stat} comm={comm}')
-            if ppid == parent_pid and stat.startswith('Z'):
-                if not zombies.get(parent_pid):
-                    zombies[parent_pid] = []
-                zombies[parent_pid].append([pid, stat, comm])
-
-    return zombies
-
-
-def handle_zombies(zombies: list, job: JobData = None):
-    """
-    Dump some info about the given zombies.
-
-    :param zombies: list of zombies (list)
-    :param job: if job object is given, then the zombie pid will be added to the job.zombies list (JobData).
+        zombies: Mapping of parent pid to list of zombie process info, as returned
+            by find_zombies().
+        job: If provided, each zombie pid will be appended to job.zombies.
     """
     for parent in zombies:
         #logger.info(f'sending SIGCHLD to ppid={parent}')
@@ -936,19 +930,25 @@ def handle_zombies(zombies: list, job: JobData = None):
                 job.zombies.append(pid)
 
 
-def reap_zombies(pid: int = -1):
-    """
-    Check for and reap zombie processes.
+def reap_zombies(pid: int = -1) -> None:
+    """Check for and reap zombie processes.
 
-    This function can be called by the monitoring loop. Using PID -1 in os.waitpid() means that the request pertains to
-    any child of the current process.
+    This function can be called by the monitoring loop. Using PID -1 in
+    os.waitpid() means that the request pertains to any child of the current
+    process.
 
-    :param pid: process id (int).
+    Args:
+        pid: Process id. Use -1 for any child of the current process.
     """
     max_timeout = 20
 
     @timeout(seconds=max_timeout)
-    def waitpid(pid: int = -1):
+    def waitpid(pid: int = -1) -> None:
+        """Reap zombie child processes using WNOHANG until none remain.
+
+        Args:
+            pid: Process id to wait on. Use -1 for any child of the current process.
+        """
         try:
             while True:
                 _pid, status = os.waitpid(pid, os.WNOHANG)
@@ -965,10 +965,10 @@ def reap_zombies(pid: int = -1):
 
 
 def check_proc_access() -> bool:
-    """
-    Verify that /proc/self/statm can be accessed.
+    """Verify that /proc/self/statm can be accessed.
 
-    :return: True if /proc/self/statm can be accessed, False otherwise (bool).
+    Returns:
+        True if /proc/self/statm can be accessed, False otherwise.
     """
     try:
         with open('/proc/self/statm', 'r') as f:

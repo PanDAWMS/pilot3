@@ -87,31 +87,32 @@ class TestGetFileOpenCommand(unittest.TestCase):
 
     def test_long_list_uses_turl_file_arg(self):
         """Lists above _TURL_CMDLINE_LIMIT must use --turl-file."""
-        cmd = get_file_open_command(self.script, make_turls(_TURL_CMDLINE_LIMIT + 1), nthreads=4)
+        cmd = get_file_open_command(self.script, make_turls(_TURL_CMDLINE_LIMIT + 1), nthreads=4,
+                                    workdir=self.tmpdir)
         self.assertIn('--turl-file=', cmd)
         self.assertNotIn('--turls=', cmd)
 
     def test_long_list_writes_turls_txt(self):
-        """turls.txt must be created next to the script for long lists."""
-        get_file_open_command(self.script, make_turls(1000), nthreads=4)
+        """turls.txt must be created in workdir for long lists."""
+        get_file_open_command(self.script, make_turls(1000), nthreads=4, workdir=self.tmpdir)
         self.assertTrue(os.path.exists(os.path.join(self.tmpdir, 'turls.txt')))
 
     def test_long_list_turls_txt_content(self):
         """turls.txt must contain exactly one TURL per line, in order."""
         turl_list = make_turls(1000).split(',')
-        get_file_open_command(self.script, ','.join(turl_list), nthreads=4)
+        get_file_open_command(self.script, ','.join(turl_list), nthreads=4, workdir=self.tmpdir)
         with open(os.path.join(self.tmpdir, 'turls.txt'), encoding='utf-8') as fh:
             written = [line.strip() for line in fh if line.strip()]
         self.assertEqual(written, turl_list)
 
     def test_long_list_turl_file_path_in_cmd(self):
-        """The --turl-file argument must point to turls.txt inside the workdir."""
-        cmd = get_file_open_command(self.script, make_turls(1000), nthreads=4)
-        self.assertIn(os.path.join(self.tmpdir, 'turls.txt'), cmd)
+        """The --turl-file argument must use the relative path ./turls.txt (container-safe)."""
+        cmd = get_file_open_command(self.script, make_turls(1000), nthreads=4, workdir=self.tmpdir)
+        self.assertIn("--turl-file='./turls.txt'", cmd)
 
     def test_long_list_turls_not_in_cmd(self):
         """The actual TURL strings must not appear inline in the command for long lists."""
-        cmd = get_file_open_command(self.script, make_turls(1000), nthreads=4)
+        cmd = get_file_open_command(self.script, make_turls(1000), nthreads=4, workdir=self.tmpdir)
         self.assertNotIn('root://xrootd.example.cern.ch', cmd)
 
     # -- command structure sanity checks ---------------------------------------
@@ -144,9 +145,9 @@ class TestGetFileOpenCommand(unittest.TestCase):
         self.assertNotIn('2>', cmd)
 
     def test_write_failure_falls_back_to_turls(self):
-        """If turls.txt cannot be written, fall back gracefully to --turls inline."""
-        bad_script = '/nonexistent_dir/open_remote_file.py'
-        cmd = get_file_open_command(bad_script, make_turls(1000), nthreads=1)
+        """If turls.txt cannot be written (bad workdir), fall back gracefully to --turls inline."""
+        cmd = get_file_open_command(self.script, make_turls(1000), nthreads=1,
+                                    workdir='/nonexistent_dir')
         self.assertIn('--turls=', cmd)
         self.assertNotIn('--turl-file=', cmd)
 
@@ -276,11 +277,19 @@ class TestEndToEnd(unittest.TestCase):
         :return: (original turl list, recovered turl list) (tuple)
         """
         original = make_turls(n_turls, long_form=long_form).split(',')
-        cmd = get_file_open_command(self.script, ','.join(original), nthreads=4)
+        cmd = get_file_open_command(self.script, ','.join(original), nthreads=4,
+                                    workdir=self.tmpdir)
 
         tokens = shlex.split(cmd)
         argv = [t for t in tokens[1:] if not t.startswith('1>') and not t.startswith('2>')]
-        args = get_args(argv)
+        # --turl-file uses a relative path in the command; resolve it against tmpdir
+        resolved_argv = []
+        for tok in argv:
+            if tok.startswith('--turl-file=./'):
+                resolved_argv.append('--turl-file=' + os.path.join(self.tmpdir, tok[len('--turl-file=./'):]))
+            else:
+                resolved_argv.append(tok)
+        args = get_args(resolved_argv)
 
         return original, get_file_lists(args.turls, turl_file=args.turl_file)['turls']
 
@@ -319,7 +328,8 @@ class TestEndToEnd(unittest.TestCase):
         arg_max = int(result.stdout.strip())
 
         original, recovered = self._round_trip(1000, long_form=True)
-        cmd = get_file_open_command(self.script, ','.join(original), nthreads=4)
+        cmd = get_file_open_command(self.script, ','.join(original), nthreads=4,
+                                    workdir=self.tmpdir)
 
         self.assertLess(len(cmd), arg_max,
                         f'command line ({len(cmd)} bytes) exceeds ARG_MAX ({arg_max} bytes)')

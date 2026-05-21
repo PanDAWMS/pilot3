@@ -754,7 +754,6 @@ def execute_command_with_timeout2(command: Any, timeout: int = 30) -> tuple:
         A 2-tuple ``(return_code, output)`` where *output* is the decoded
         stdout string, or ``(-1, None)`` if the command was interrupted.
     """
-
     # convert to list if necessary
     _command = shlex.split(command) if isinstance(command, str) else command
     process = subprocess.Popen(_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

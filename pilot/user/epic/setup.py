@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025
 
+"""Job setup and environment preparation for the ePIC experiment plugin."""
+
+from __future__ import annotations
 import glob
 import logging
 import os

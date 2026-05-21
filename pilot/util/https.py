@@ -186,6 +186,35 @@ def cacert_default_location() -> str | None:
     return None
 
 
+def is_proxy_certificate(path: str) -> bool:
+    """Return ``True`` if *path* is a GSI proxy certificate rather than an end-entity certificate.
+
+    A GSI proxy PEM file contains **more than one** ``BEGIN CERTIFICATE`` block
+    (the proxy certificate followed by its issuer chain).  An ordinary end-entity
+    certificate file contains exactly one such block.  If the file cannot be read
+    the function returns ``False`` so callers behave conservatively (i.e. they
+    still attempt to use the file as a cert).
+
+    Args:
+        path: Filesystem path to a PEM certificate or proxy file.
+
+    Returns:
+        ``True`` when *path* contains multiple PEM certificate blocks (proxy),
+        ``False`` when it contains exactly one block (end-entity) or cannot be
+        read.
+    """
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, 'r', encoding='ascii', errors='ignore') as fh:
+            content = fh.read()
+        count = content.count('-----BEGIN CERTIFICATE-----')
+        # A proxy has at least 2 certs; an EEC file has exactly 1.
+        return count >= 2
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+
+
 def cacert(args: object = None) -> str:
     """Return the path to the CA certificate or X.509 user proxy.
 
@@ -252,60 +281,29 @@ def https_setup(args: object = None, version: str = "") -> None:
     ctx.user_agent = _ctx.user_agent
 
     try:
-        ctx.ssl_context = ssl.create_default_context(capath=ctx.capath, cafile=ctx.cacert)
-        ctx.ssl_context.load_cert_chain(ctx.cacert)
+        ctx.ssl_context = ssl.create_default_context(capath=ctx.capath)
+        # Only load a client certificate chain when the file is a genuine end-entity
+        # certificate.  A GSI proxy certificate (multiple PEM blocks) must NOT be
+        # passed to load_cert_chain: unpatched OpenSSL rejects proxy extensions and
+        # the server will deny the TLS handshake.  Anonymous TLS (server-auth only)
+        # is correct for the vast majority of pilot HTTP calls.
+        if ctx.cacert and not is_proxy_certificate(ctx.cacert):
+            ctx.ssl_context.load_cert_chain(ctx.cacert)
+        elif ctx.cacert:
+            logger.debug('https_setup: cacert is a GSI proxy - skipping load_cert_chain (anonymous TLS)')
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f'Failed to initialize SSL context .. skipped, error: {exc}')
 
 
-def request(url: str,
-            data: dict[str, Any] | None = None,
-            plain: bool = False,
-            secure: bool = True,
-            ipv: str = "IPv6") -> Any:
-    """
-    Curl-based HTTP request fallback which uses a curl config file that references
-    a JSON payload file (data = @payload.json) and sets `request = POST`.
+def _get_request_timeouts() -> tuple[int, int]:
+    """Return ``(connect_timeout, total_timeout)`` from the pilot config.
 
-    This function delegates to send_request_with_token_via_curl_config() which:
-      - writes the JSON payload to a temporary file,
-      - writes a curl config file that sets headers and `request = POST`,
-      - executes curl with --config <file>,
-      - returns either a parsed dict (if response was JSON), a raw string (if curl succeeded but response not JSON),
-        or a string beginning with "failed to send request:" on error.
-
-    Args:
-        url: Full URL to call (including scheme and port).
-        data: Payload dictionary to send (JSON body). If None, an empty dict is used.
-        plain: If True, return the raw string response (or JSON-dumped string for dict).
-        secure: Kept for API compatibility; currently only logged.
-        ipv: Preferred IP family ("IPv4" or "IPv6"); currently only logged.
+    Falls back to ``(100, 120)`` seconds if either config value is absent or
+    cannot be converted to an integer.
 
     Returns:
-        Parsed dict on JSON success, raw string on parse failure, or failure string.
+        Two-element tuple ``(connect_timeout, total_timeout)`` in seconds.
     """
-    # Ensure payload exists
-    payload = data or {}
-
-    logger.info("curl fallback request: url=%s, secure=%s, ipv=%s", url, secure, ipv)
-    logger.debug("curl fallback payload preview (first 1024 chars): %s", json.dumps(payload)[:1024])
-
-    # Gather certificate / key and user-agent from module context (_ctx) and config
-    # NOTE: these names must match the ones used in your module:
-    #   _ctx.cacert  -> path to cert/cacert/key (used for cert/key/cacert)
-    #   _ctx.user_agent -> user agent string
-    #try:
-    #    certfile = _ctx.cacert
-    #    cacertfile = _ctx.cacert
-    #    keyfile = _ctx.cacert
-    #    user_agent = _ctx.user_agent
-    #except Exception as exc:
-    #    logger.warning("request() curl fallback: missing _ctx cert or user-agent: %s", exc)
-    #    # Fallback to sensible defaults (may still fail later)
-    #    certfile = cacertfile = keyfile = "/etc/ssl/certs/ca-bundle.crt"
-    #    user_agent = "pilot/unknown"
-
-    # Timeouts from config (fallback to sane defaults if not present)
     try:
         connect_timeout = int(config.Pilot.http_connect_timeout)
     except Exception:  # pylint: disable=broad-exception-caught
@@ -314,32 +312,21 @@ def request(url: str,
         total_timeout = int(config.Pilot.http_maxtime)
     except Exception:  # pylint: disable=broad-exception-caught
         total_timeout = 120
+    return connect_timeout, total_timeout
 
-    # Call the curl-config-based sender
-    try:
-        # get token content as your code already does
-        auth_token, _ = get_local_oidc_token_info()
-        auth_token_content = get_auth_token_content(auth_token)  # whatever function you have
 
-        res = send_request_with_token_via_curl_config(
-            url=url,
-            payload=data,
-            cacertfile=_ctx.capath or "/etc/grid-security/certificates",
-            use_capath=bool(_ctx.capath),
-            token=auth_token_content,
-            extra_headers={"Origin": "atlas.pilot"},
-            use_token_only=False,  # important
-            certfile=_ctx.cacert,
-            keyfile=_ctx.cacert,
-            connect_timeout=connect_timeout,
-            total_timeout=total_timeout,
-            verify=True,
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.exception("curl fallback raised unexpected exception: %s", exc)
-        return f"failed to send request: {exc}"
+def _format_request_response(res: Any, plain: bool) -> Any:
+    """Normalise a raw curl response for return from :func:`request`.
 
-    # If caller explicitly wants a plain string, return it (stringify dict if needed)
+    Args:
+        res: Raw value returned by :func:`send_request_with_token_via_curl_config`.
+        plain: If ``True``, return a string representation regardless of type.
+
+    Returns:
+        Parsed ``dict`` when the response is JSON, the raw string when it is
+        not parseable, a JSON-serialised string when *plain* is ``True`` and
+        *res* is a ``dict``, or the string representation of any other type.
+    """
     if plain:
         if isinstance(res, dict):
             try:
@@ -348,22 +335,86 @@ def request(url: str,
                 return str(res)
         return res
 
-    # Normal behaviour: prefer dict, else attempt to json.loads() string response,
-    # otherwise return the raw string (previously you attempted json.loads and warned)
     if isinstance(res, dict):
         return res
 
     if isinstance(res, str):
         try:
-            parsed = json.loads(res)
-            return parsed
+            return json.loads(res)
         except Exception:  # pylint: disable=broad-exception-caught
             logger.warning("json.loads() failed to parse curl output=%r", res[:2000])
             return res
 
-    # Unexpected type from helper: return string repr
     logger.warning("curl fallback returned unexpected type %s", type(res))
     return str(res)
+
+
+def request(url: str,
+            data: dict[str, Any] | None = None,
+            plain: bool = False,
+            secure: bool = True,
+            ipv: str = "IPv6") -> Any:
+    """Curl-based HTTP request fallback.
+
+    Delegates to :func:`send_request_with_token_via_curl_config` which writes
+    the JSON payload and a curl config file, executes curl with ``--config``,
+    and returns either a parsed dict, a raw string, or an error string prefixed
+    with ``"failed to send request:"``.
+
+    Args:
+        url: Full URL to call (including scheme and port).
+        data: Payload dictionary to send (JSON body). If ``None``, an empty
+            dict is used.
+        plain: If ``True``, return the raw string response (or JSON-dumped
+            string for dict).
+        secure: Kept for API compatibility; currently only logged.
+        ipv: Preferred IP family (``"IPv4"`` or ``"IPv6"``).  When
+            ``"IPv4"``, ``-4`` is passed to curl so that connections are
+            forced over IPv4.  Required on sites such as Karolina HPC where
+            only the IPv4 path is routed through the HTTP proxy and IPv6
+            connections are unreachable.
+
+    Returns:
+        Parsed dict on JSON success, raw string on parse failure, or failure
+        string beginning with ``"failed to send request:"``.
+    """
+    logger.info("curl fallback request: url=%s, secure=%s, ipv=%s", url, secure, ipv)
+    logger.debug("curl fallback payload preview (first 1024 chars): %s", json.dumps(data or {})[:1024])
+
+    connect_timeout, total_timeout = _get_request_timeouts()
+
+    try:
+        auth_token, _ = get_local_oidc_token_info()
+        auth_token_content = get_auth_token_content(auth_token)
+
+        # A GSI proxy must not be passed as --cert/--key to curl (unpatched OpenSSL
+        # rejects proxy-cert extensions).  When the cacert is a proxy, suppress
+        # client-certificate injection so the request uses server-auth-only TLS.
+        _cacert = _ctx.cacert or ""
+        _proxy_cert = is_proxy_certificate(_cacert)
+        if _proxy_cert:
+            logger.debug("request(): cacert is a GSI proxy - suppressing --cert/--key in curl call")
+
+        res = send_request_with_token_via_curl_config(
+            url=url,
+            payload=data,
+            cacertfile=_ctx.capath or "/etc/grid-security/certificates",
+            use_capath=bool(_ctx.capath),
+            token=auth_token_content,
+            extra_headers={"Origin": "atlas.pilot"},
+            use_token_only=_proxy_cert,
+            certfile=None if _proxy_cert else _cacert or None,
+            keyfile=None if _proxy_cert else _cacert or None,
+            connect_timeout=connect_timeout,
+            total_timeout=total_timeout,
+            verify=True,
+            force_ipv4=(ipv == "IPv4"),
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("curl fallback raised unexpected exception: %s", exc)
+        return f"failed to send request: {exc}"
+
+    return _format_request_response(res, plain)
 
 
 def update_ctx() -> None:
@@ -455,10 +506,15 @@ def _format_curl_headers(plain: bool,  # pylint: disable=too-many-positional-arg
             parts.append('-H ' + shlex.quote('Content-Type: application/json'))
         parts.append('-H ' + shlex.quote(f'Origin: {auth_origin}'))
     else:
-        # client certs + UA
-        parts.append(f'--cert {shlex.quote(ca_cert or "")}')
-        parts.append(f'--cacert {shlex.quote(ca_cert or "")}')
-        parts.append(f'--key {shlex.quote(ca_cert or "")}')
+        # Only pass --cert/--key when ca_cert is a genuine end-entity certificate.
+        # A GSI proxy (multiple PEM blocks) must not be used as a curl client cert:
+        # stock OpenSSL rejects the proxy extensions and the TLS handshake fails.
+        if ca_cert and not is_proxy_certificate(ca_cert):
+            parts.append(f'--cert {shlex.quote(ca_cert)}')
+            parts.append(f'--cacert {shlex.quote(ca_cert)}')
+            parts.append(f'--key {shlex.quote(ca_cert)}')
+        elif ca_cert:
+            logger.debug('_format_curl_headers: ca_cert is a GSI proxy - omitting --cert/--key')
         parts.append('-H ' + shlex.quote(f'User-Agent: {user_agent}'))
         if not plain:
             parts.append('-H ' + shlex.quote('Accept: application/json'))
@@ -928,10 +984,13 @@ def _build_curl_command(  # pylint: disable=too-many-positional-arguments
     else:
         cmd.extend(["--cacert", cacertfile])
 
-    if not use_token_only and certfile:
+    # Never pass a GSI proxy as --cert/--key; unpatched OpenSSL rejects proxy
+    # certificate extensions and the TLS handshake will fail on stock worker nodes.
+    _certfile_is_proxy = is_proxy_certificate(certfile or "")
+    if not use_token_only and certfile and not _certfile_is_proxy:
         cmd.extend(["--cert", certfile])
 
-    if not use_token_only and keyfile:
+    if not use_token_only and keyfile and not _certfile_is_proxy:
         cmd.extend(["--key", keyfile])
 
     cmd.extend(["--config", config_path])
@@ -1018,6 +1077,7 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
     total_timeout: int = 120,
     config_dir: str | None = None,
     verify: bool = True,
+    force_ipv4: bool = False,
 ) -> str | dict[str, Any]:
     """Send JSON via curl using a curl config file and return parsed JSON or raw stdout.
 
@@ -1047,6 +1107,8 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
         total_timeout: curl --max-time seconds.
         config_dir: Directory where temporary files should be created (defaults to PILOT_HOME or tmp dir).
         verify: Whether to verify server certificate. If False, pass --insecure to curl.
+        force_ipv4: If True, pass ``-4`` to curl to force IPv4. Required on sites (e.g. Karolina HPC)
+            where only IPv4 is routed through the HTTP proxy and IPv6 connections are unreachable.
 
     Returns:
         dict parsed from server JSON, raw stdout string on parse failure, or error string
@@ -1130,6 +1192,9 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
             str(total_timeout),
         ]
 
+        if force_ipv4:
+            curl_cmd.insert(1, "-4")
+
         if not verify:
             curl_cmd.append("--insecure")
 
@@ -1139,10 +1204,13 @@ def send_request_with_token_via_curl_config(  # noqa: C901  # pylint: disable=to
         elif cacertfile:
             curl_cmd.extend(["--cacert", cacertfile])
 
-        # Include client cert/key unless explicitly token-only
-        if not use_token_only and certfile:
+        # Include client cert/key unless explicitly token-only or the file is a
+        # GSI proxy.  Passing a proxy to curl --cert fails on unpatched OpenSSL
+        # (proxy-certificate extensions are rejected), causing TLS handshake errors.
+        _certfile_is_proxy = is_proxy_certificate(certfile or "")
+        if not use_token_only and certfile and not _certfile_is_proxy:
             curl_cmd.extend(["--cert", certfile])
-        if not use_token_only and keyfile:
+        if not use_token_only and keyfile and not _certfile_is_proxy:
             curl_cmd.extend(["--key", keyfile])
 
         curl_cmd.extend(["--config", config_path])
@@ -1320,12 +1388,13 @@ def send_request(pandaserver: str, update_function: str, data: dict, job: JobDat
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f'exception caught in https.request2(): {exc}')
 
-    # test fallback to curl
-    #if "update_job" in update_function:
-    #    res = None
+    # A non-empty error string from request2() is a transport failure, not a
+    # successful response.  Treat it the same as None so the curl fallback fires.
+    if isinstance(res, str):
+        logger.warning(f'request2() returned error string (will try curl fallback): {res}')
+        res = None
+
     if not res:
-        #if "api/v" in update_function:
-        #    return None
         logger.warning('failed to send request using urllib based request2(), will try curl based request()')
         try:
             res = request(f'{pandaserver}/{update_function}', data=data, ipv=ipv)
@@ -1630,7 +1699,15 @@ class IPv4HTTPHandler(urllib.request.HTTPHandler):
     when the environment variable ``PILOT_IP_VERSION`` is ``'IPv4'``.
     """
 
-    def http_open(self, req):
+    def http_open(self, req: object) -> object:
+        """Open an HTTP connection, forcing IPv4 via ``_create_connection``.
+
+        Args:
+            req: urllib request object.
+
+        Returns:
+            HTTP response object.
+        """
         return self.do_open(self._create_connection, req)
 
     def _create_connection(self, host, port=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
@@ -2196,8 +2273,12 @@ def upload_file(url: str, path: str) -> bool:
 def download_file(url: str, timeout: int = 20, headers: dict = None) -> str:
     """Download the content at *url* and return it as a string.
 
-    Uses the ``ctx`` SSL context (which includes client certificate chain).
-    Primarily used to download OIDC tokens from the PanDA server.
+    Uses the ``ctx`` SSL context for server certificate verification.  Client
+    certificate authentication is **not** applied: the ``ctx`` SSL context is
+    intentionally built without ``load_cert_chain`` when the configured cacert
+    is a GSI proxy, so anonymous TLS (server-auth only) is used.  This avoids
+    TLS handshake failures on worker nodes whose unpatched OpenSSL rejects GSI
+    proxy-certificate extensions.
 
     Args:
         url: URL to fetch.

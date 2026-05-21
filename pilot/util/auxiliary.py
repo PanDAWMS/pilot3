@@ -387,9 +387,18 @@ def check_for_final_server_update(update_server: bool) -> None:
     update. This function sleeps for a maximum of 20*30 s until the
     SERVER_UPDATE env variable has been set to SERVER_UPDATE_FINAL.
 
+    When SERVER_UPDATE is RUNNING (job was mid-execution when max time was
+    reached), wait up to _MAX_RUNNING_WAIT_ITERATIONS * _RUNNING_WAIT_SLEEP s
+    for the state to advance to a terminal value before returning. This
+    prevents graceful_stop from being set before the final server update has
+    had a chance to fire, which would otherwise result in a lost heartbeat on
+    the server side.
+
     Args:
         update_server: Whether the pilot should update the server (args.update_server).
     """
+    _MAX_RUNNING_WAIT_ITERATIONS = 5
+    _RUNNING_WAIT_SLEEP = 10  # s
     max_i = 20
     counter = 0
 
@@ -400,14 +409,29 @@ def check_for_final_server_update(update_server: bool) -> None:
     if server_update == SERVER_UPDATE_NOT_DONE:
         return
 
-    # if the server update is still in the RUNNING state (i.e. the job is still executing normally
-    # and has not yet entered its terminal update path), do not block here. This situation arises
-    # in the MAXTIME path where the monitor thread calls this function before the job thread has
-    # had a chance to drive the job to a terminal state and issue the final server update.
-    # Blocking in this case wastes up to 20*30 s unnecessarily.
-    if server_update == SERVER_UPDATE_RUNNING:
-        logger.info('server update is still in RUNNING state - not blocking for final update')
-        return
+    # If the server update is still in the RUNNING state (i.e. the job was still
+    # executing when max time was reached), wait a bounded time for the state to
+    # advance before falling through to the main polling loop. Without this wait,
+    # graceful_stop is set immediately and every downstream thread (job_monitor,
+    # failed_post, queue_monitor) exits before the final PanDA updateJob call is
+    # issued, causing a lost heartbeat on the server.
+    if server_update == SERVER_UPDATE_RUNNING and update_server:
+        logger.info('server update is still in RUNNING state - waiting for it to advance')
+        running_counter = 0
+        while running_counter < _MAX_RUNNING_WAIT_ITERATIONS:
+            sleep(_RUNNING_WAIT_SLEEP)
+            running_counter += 1
+            server_update = os.environ.get('SERVER_UPDATE', '')
+            logger.info(f'server update state after {running_counter * _RUNNING_WAIT_SLEEP}s: {server_update}')
+            if server_update != SERVER_UPDATE_RUNNING:
+                break
+        if server_update == SERVER_UPDATE_RUNNING:
+            logger.warning('server update is still in RUNNING state after waiting - proceeding anyway')
+            # The job_monitor will have sent (or is about to send) the update and will set
+            # SERVER_UPDATE=FINAL directly. Running the full 20*30 s outer loop when SERVER_UPDATE
+            # is still RUNNING means no UPDATING_FINAL transition is in progress, so there is
+            # nothing to wait for. Return here to avoid a ~10-minute unnecessary stall.
+            return
 
     while counter < max_i and update_server:
         server_update = os.environ.get('SERVER_UPDATE', '')

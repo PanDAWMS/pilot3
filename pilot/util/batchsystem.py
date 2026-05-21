@@ -22,20 +22,20 @@
 
 import subprocess
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 def is_version_sufficient(current_version: str, required_version: str) -> bool:
-    """
-    Compare two version strings without any external libraries.
+    """Compare two version strings without any external libraries.
 
     Args:
-        current_version (str): Current version string (e.g., '23.0.2').
-        required_version (str): Required version string (e.g., '24.0.7').
+        current_version: Current version string (e.g., ``'23.0.2'``).
+        required_version: Required version string (e.g., ``'24.0.7'``).
 
     Returns:
-        bool: True if current_version >= required_version, else False.
+        True if current_version >= required_version, else False.
     """
 
     def version_tuple(v):
@@ -44,12 +44,11 @@ def is_version_sufficient(current_version: str, required_version: str) -> bool:
     return version_tuple(current_version) >= version_tuple(required_version)
 
 
-def get_htcondor_version() -> str or None:
-    """
-    Get the HTCondor version.
+def get_htcondor_version() -> Optional[str]:
+    """Get the HTCondor version.
 
     Returns:
-        str or None: The HTCondor version number.
+        The HTCondor version number, or None if condor_version is not found or fails.
     """
     try:
         result = subprocess.check_output(['condor_version'], encoding='utf-8')
@@ -65,13 +64,12 @@ def get_htcondor_version() -> str or None:
 
 
 def is_htcondor_version_sufficient() -> bool:
-    """
-    Check if the HTCondor version is sufficient for cgroup support.
+    """Check if the HTCondor version is sufficient for cgroup support.
 
     For the new cgroups support, HTCondor version 24.0.7 or higher is required.
 
     Returns:
-        bool: True if the version is sufficient, False otherwise.
+        True if the version is sufficient, False otherwise.
     """
     required_htcondor_version = "24.0.7"
     htcondor_version = get_htcondor_version()

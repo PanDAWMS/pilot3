@@ -41,7 +41,7 @@ setup(
     author="PanDA Team",
     author_email="atlas-adc-panda@cern.ch",
     url="https://github.com/PanDAWMS/pilot3/wiki",
-    python_requires=">=3.6",
+    python_requires=">=3.9",
     packages=find_packages(),
     install_requires=[],
     data_files=[],

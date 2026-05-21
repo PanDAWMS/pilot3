@@ -26,12 +26,20 @@ import hashlib
 
 
 def get_rucio_path(scope: str, name: str) -> str:
-    """
-    Construct Rucio standard path using the scope and the LFN.
+    """Construct the Rucio standard storage path from a scope and LFN.
 
-    :param scope: The scope of the data (str)
-    :param name: The name of the data (str)
-    :return: The Rucio path (str).
+    The path follows the Rucio convention::
+
+        <scope_parts>/<hash[0:2]>/<hash[2:4]>/<name>
+
+    where the hash is the MD5 digest of ``<scope>:<name>``.
+
+    Args:
+        scope: Data scope (e.g. ``'user.jdoe'``).
+        name: Logical file name (LFN).
+
+    Returns:
+        Rucio storage path string.
     """
     s = f'{scope}:{name}'
     hash_hex = hashlib.md5(s.encode('utf-8')).hexdigest()

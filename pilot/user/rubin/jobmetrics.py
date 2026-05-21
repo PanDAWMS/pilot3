@@ -21,6 +21,7 @@
 
 """Functions for building job metrics."""
 
+from __future__ import annotations
 import logging
 
 from pilot.info import JobData

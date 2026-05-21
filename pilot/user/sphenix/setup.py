@@ -19,6 +19,9 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
 
+"""Job setup and environment preparation for the sPHENIX experiment plugin."""
+
+from __future__ import annotations
 import glob
 import logging
 import os
@@ -354,5 +357,4 @@ def should_verify_setup(job: Any) -> bool:
     Returns:
         bool: False.
     """
-
     return False

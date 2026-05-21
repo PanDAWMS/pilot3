@@ -19,6 +19,8 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
+"""DBRelease handling utilities for the ATLAS experiment plugin."""
+
 import logging
 import os
 import re

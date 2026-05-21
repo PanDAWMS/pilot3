@@ -44,21 +44,25 @@ logger = logging.getLogger(__name__)
 
 
 def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = False, time_since_detection: int = 0, name: str = 'pilot') -> bool:
-    """
-    Update the pilot heartbeat file.
+    """Update the pilot heartbeat file.
 
-    Dictionary = {last_pilot_heartbeat: <int>, last_server_update: <int>, ( last_looping_check: {job_id: <int>: <int>}, .. ) }
-    (optionally add looping job info later).
+    The heartbeat JSON file stores timestamps in the form::
 
-    The file write is executed in a background thread with a 30 s timeout.  If
-    the write does not complete in time (e.g. because PILOT_HOME is on a stalled
-    NFS mount), the function returns False without blocking the monitor thread.
+        {last_pilot_update: <int>, last_server_update: <int>, max_diff_time: <int>, ...}
 
-    :param update_time: time of last update (float)
-    :param detected_job_suspension: True if a job suspension was detected, False otherwise (bool)
-    :param time_since_detection: time since the job suspension was detected, in seconds (int)
-    :param name: name of the heartbeat to update, 'pilot' or 'server' (str)
-    :return: True if successfully updated heartbeat file, False otherwise (bool).
+    The file write runs in a background thread with a 30 s timeout. If the
+    write does not complete in time (e.g. due to a stalled NFS mount at
+    ``PILOT_HOME``), the function returns ``False`` without blocking the
+    monitor thread.
+
+    Args:
+        update_time: Unix timestamp of the current update.
+        detected_job_suspension: True if a job suspension was detected.
+        time_since_detection: Seconds elapsed since the job suspension was detected.
+        name: Which heartbeat field to update; either ``'pilot'`` or ``'server'``.
+
+    Returns:
+        True if the heartbeat file was written successfully, False otherwise.
     """
     _HEARTBEAT_WRITE_TIMEOUT = 30  # seconds; stalled NFS will block indefinitely without this
 
@@ -107,11 +111,14 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = F
 
 
 def read_pilot_heartbeat(path: str) -> dict:
-    """
-    Read the pilot heartbeat file.
+    """Read the pilot heartbeat JSON file and return its contents.
 
-    :param path: path to heartbeat file (str)
-    :return: dictionary with pilot heartbeat info (dict).
+    Args:
+        path: Absolute path to the heartbeat JSON file.
+
+    Returns:
+        Dictionary with pilot heartbeat data, or an empty dict if the file
+        does not exist or cannot be parsed.
     """
     dictionary = {}
 
@@ -126,12 +133,14 @@ def read_pilot_heartbeat(path: str) -> dict:
 
 
 def time_since_suspension() -> int:
-    """
-    Return the time since the pilot detected a job suspension.
+    """Return the time since the pilot detected a job suspension.
 
-    If non-zero, reset the time since detection to zero.
+    If the returned value is non-zero, the ``time_since_detection`` counter
+    is immediately reset to zero in the heartbeat file.
 
-    :return: time since the pilot detected a job suspension (int).
+    Returns:
+        Seconds elapsed since the last detected job suspension, or 0 if no
+        suspension was recorded.
     """
     path = os.path.join(os.getenv('PILOT_HOME', os.getcwd()), config.Pilot.pilot_heartbeat_file)
     dictionary = read_pilot_heartbeat(path)

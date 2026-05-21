@@ -48,15 +48,15 @@ COMMON_LIBEXEC_DIRS = [
 
 
 def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
-    """
-    Update the Condor ClassAd with PanDA information using condor_chirp.
+    """Update the Condor ClassAd with PanDA information using condor_chirp.
 
-    Params:
-        pandaid: PanDA job id (int).
-        pilotid: Pilot id (str).
+    Args:
+        pandaid: PanDA job ID to set as the ``PandaID`` ClassAd attribute.
+        pilotid: Pilot ID to set as the ``PandaPilotId`` ClassAd attribute.
 
     Returns:
-        bool: True if condor_chirp is available and was used, False otherwise.
+        True if ``condor_chirp`` was found and all attributes were set
+        successfully, False otherwise.
     """
     logger.debug('updating condor ClassAd with PanDA job id')
     path = find_condor_chirp()
@@ -132,10 +132,13 @@ def update_condor_classad_bulk(attrs: Dict[str, Any]) -> bool:
 
 
 def get_globaljobid() -> str:
-    """
-    Return the GlobalJobId value from the Condor ClassAd.
+    """Return the ``GlobalJobId`` value from the Condor ClassAd.
 
-    :return: GlobalJobId value (str).
+    Reads the file pointed to by ``_CONDOR_JOB_AD`` and extracts the
+    ``GlobalJobId`` attribute.
+
+    Returns:
+        ``GlobalJobId`` string, or an empty string if not found.
     """
     ret = ""
     with open(os.environ.get("_CONDOR_JOB_AD"), 'r', encoding='utf-8') as _fp:
@@ -153,22 +156,19 @@ def get_globaljobid() -> str:
 
 
 def encode_globaljobid(jobid: int, maxsize: int = 31) -> str:
-    """
-    Encode the global job id on HTCondor.
+    """Encode the HTCondor global job ID as a compact string for environment variables.
 
-    To be used as an environmental variable on HTCondor nodes to facilitate debugging.
+    Builds a string of the form ``<hostname>_<processid>_<jobid>`` to facilitate
+    debugging on HTCondor worker nodes. If the result exceeds *maxsize* characters,
+    it is truncated from the left (least-significant characters are preserved).
 
-    Format: <PanDA id>:<Processing type>:<cluster ID>.<process ID>_<schedd name code>
+    Args:
+        jobid: PanDA job ID to embed in the encoded string.
+        maxsize: Maximum allowed length of the returned string.
 
-    NEW FORMAT: WN hostname, process and user id
-
-    Note: due to batch system restrictions, this string is limited to 31 (maxsize) characters, using the least significant
-    characters (i.e. the left part of the string might get cut). Also, the cluster ID and process IDs are converted to hex
-    to limit the sizes. The schedd host name is further encoded using the last digit in the host name (spce03.sdcc.bnl.gov -> spce03 -> 3).
-
-    :param jobid: panda job id (int)
-    :param maxsize: max length allowed (int)
-    :return: encoded global job id (str).
+    Returns:
+        Encoded global job ID string, or an empty string if the ``GlobalJobId``
+        ClassAd attribute cannot be read or parsed.
     """
     def get_host_name():
         # spool1462.sdcc.bnl.gov -> spool1462
@@ -215,14 +215,19 @@ def encode_globaljobid(jobid: int, maxsize: int = 31) -> str:
     return global_name
 
 
-def get_condor_node_name(nodename):
-    """
-    On a condor system, add the SlotID to the nodename
+def get_condor_node_name(nodename: str) -> str:
+    """Prefix the node name with the HTCondor slot ID when running under HTCondor.
 
-    :param nodename:
-    :return:
-    """
+    When the ``_CONDOR_SLOT`` environment variable is set, the returned name
+    has the form ``<slot>@<nodename>`` (e.g. ``slot1@wn01.cern.ch``).
 
+    Args:
+        nodename: Base worker-node hostname.
+
+    Returns:
+        Slot-qualified hostname when ``_CONDOR_SLOT`` is set, otherwise the
+        original *nodename* unchanged.
+    """
     if "_CONDOR_SLOT" in os.environ:
         nodename = "%s@%s" % (os.environ.get("_CONDOR_SLOT"), nodename)
 

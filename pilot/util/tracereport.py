@@ -37,6 +37,7 @@ time but are stored as instance attributes rather than dict entries so they
 are never serialised into the payload sent to the server.
 """
 
+from __future__ import annotations
 import hashlib
 import logging
 import os

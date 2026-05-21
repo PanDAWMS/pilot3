@@ -23,6 +23,7 @@
 
 """Local site mover copy tool."""
 
+from __future__ import annotations
 import logging
 import errno
 import os

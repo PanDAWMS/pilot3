@@ -20,8 +20,8 @@
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 # - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
 
-"""
-Standalone implementation of time-out check on function call.
+"""Standalone implementation of time-out check on function call.
+
 Timer stops execution of wrapped function if it reaches the limit of provided time. Supports decorator feature.
 
 :author: Alexey Anisenkov
@@ -44,22 +44,33 @@ from pilot.util.auxiliary import TimeoutException
 
 
 class TimedThread:
-    """
-        Thread-based Timer implementation (`threading` module)
-        (shared memory space, GIL limitations, no way to kill thread, Windows compatible)
+    """Thread-based timer implementation using the ``threading`` module.
+
+    Operates in shared memory space; subject to GIL limitations and cannot
+    forcefully kill a running thread. Compatible with Windows.
     """
 
     def __init__(self, _timeout):
-        """
-            :param timeout: timeout value for operation in seconds.
-        """
+        """Initialize the timer.
 
+        Args:
+            _timeout: Timeout value for the operation in seconds.
+        """
         self.timeout = _timeout
         self.is_timeout = False
         self.result = None
 
     def execute(self, func, args, kwargs):
+        """Execute the function and store its return value or exception info.
 
+        Args:
+            func: Callable to execute.
+            args: Positional arguments for ``func``.
+            kwargs: Keyword arguments for ``func``.
+
+        Returns:
+            Tuple of (success_bool, result_or_exc_info).
+        """
         try:
             ret = (True, func(*args, **kwargs))
         except (TypeError, ValueError, AttributeError, KeyError):
@@ -70,10 +81,12 @@ class TimedThread:
         return ret
 
     def run(self, func, args, kwargs, _timeout=None):
-        """
-            :raise: TimeoutException if timeout value is reached before function finished
-        """
+        """Run the given function in a daemon thread with a timeout.
 
+        Raises:
+            TimeoutException: If the timeout value is reached before the
+                function finishes.
+        """
         thread = threading.Thread(target=self.execute, args=(func, args, kwargs))
         thread.daemon = True
 
@@ -105,23 +118,38 @@ class TimedThread:
 
 
 class TimedProcess:
-    """
-        Process-based Timer implementation (`multiprocessing` module). Uses shared Queue to keep result.
-        (completely isolated memory space)
-        In default python implementation multiprocessing considers (c)pickle as serialization backend
-        which is not able properly (requires a hack) to pickle local and decorated functions (affects Windows only)
-        Traceback data is printed to stderr
+    """Process-based timer implementation using the ``multiprocessing`` module.
+
+    Uses a shared Queue to return the result from a completely isolated memory
+    space. Python's default multiprocessing uses pickle for serialization, which
+    cannot properly handle local or decorated functions (affects Windows only).
+    Traceback data is printed to stderr.
     """
 
     def __init__(self, _timeout):
-        """
-            :param _timeout: timeout value for operation in seconds.
-        """
+        """Initialize the timer.
 
+        Args:
+            _timeout: Timeout value for the operation in seconds.
+        """
         self.timeout = _timeout
         self.is_timeout = False
 
     def run(self, func, args, kwargs, _timeout=None):
+        """Run the given function in a daemon process with a timeout.
+
+        Args:
+            func: Callable to execute in a subprocess.
+            args: Positional arguments for ``func``.
+            kwargs: Keyword arguments for ``func``.
+            _timeout: Timeout override in seconds; falls back to ``self.timeout``.
+
+        Returns:
+            Return value of ``func``.
+
+        Raises:
+            TimeoutException: If the timeout is reached before ``func`` returns.
+        """
 
         def _execute(func, args, kwargs, queue):
             try:
@@ -168,12 +196,14 @@ Timer = TimedProcess
 
 
 def timeout(seconds: int, timer: Timer = None):
-    """
-    Decorator for a function which causes it to timeout (stop execution) once passed given number of seconds.
+    """Decorator that causes a function to time out after a given number of seconds.
 
-    :param seconds: timeout value in seconds (int)
-    :param timer: timer class (None or Timer)
-    :raise: TimeoutException in case of timeout interrupt.
+    Args:
+        seconds: Timeout value in seconds.
+        timer: Timer class to use. Defaults to ``Timer`` (``TimedProcess``).
+
+    Raises:
+        TimeoutException: If the timeout is reached before the function finishes.
     """
     timer = timer or Timer
 

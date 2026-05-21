@@ -20,6 +20,7 @@
 
 """Script for remote file open verification."""
 
+from __future__ import annotations
 import argparse
 import functools
 import os

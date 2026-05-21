@@ -21,6 +21,7 @@
 
 """Functions for interactiving with Harvester."""
 
+from __future__ import annotations
 import logging
 import os
 import os.path
@@ -34,22 +35,24 @@ from pilot.util.timing import time_stamp
 logger = logging.getLogger(__name__)
 
 
-def dump(obj: Any):
-    """
-    Dump given object to stdout.
+def dump(obj: Any) -> None:
+    """Dump given object's attributes to stdout.
 
-    :param obj: object (Any).
+    Args:
+        obj: Object to inspect.
     """
     for attr in dir(obj):
         print(f"obj.{attr} = {getattr(obj, attr)}")
 
 
 def is_harvester_mode(args: Any) -> bool:
-    """
-    Determine if the pilot is running in Harvester mode.
+    """Determine if the pilot is running in Harvester mode.
 
-    :param args: Pilot arguments object (Any)
-    :return: True if Harvester mode, False otherwise (bool).
+    Args:
+        args: Pilot arguments object.
+
+    Returns:
+        True if Harvester mode, False otherwise.
     """
     if (args.harvester_workdir != '' or args.harvester_datadir != '') and not args.update_server:
         harvester = True
@@ -64,10 +67,10 @@ def is_harvester_mode(args: Any) -> bool:
 
 
 def get_job_request_file_name() -> str:
-    """
-    Return the name of the job request file as defined in the pilot config file.
+    """Return the name of the job request file as defined in the pilot config file.
 
-    :return: job request file name (str).
+    Returns:
+        Full path to the job request file.
     """
     return os.path.join(os.environ.get('PILOT_HOME'), config.Harvester.job_request_file)
 
@@ -83,14 +86,17 @@ def remove_job_request_file():
 
 
 def request_new_jobs(njobs: int = 1) -> bool:
-    """
-    Inform Harvester that the pilot is ready to process new jobs by creating a job request file.
+    """Inform Harvester that the pilot is ready to process new jobs.
 
-    The request file will contain the desired number of jobs.
+    Creates a job request file containing the desired number of jobs. The
+    default is 1 because on grids and clouds the pilot does not know in
+    advance how many jobs it can process before running out of time.
 
-    :param njobs: Number of jobs. Default is 1 since on grids and clouds the pilot does not know how many jobs it can
-    process before it runs out of time (int)
-    :return: True if the job request file was successfully created, False otherwise (bool).
+    Args:
+        njobs: Number of jobs to request.
+
+    Returns:
+        True if the job request file was successfully created, False otherwise.
     """
     path = get_job_request_file_name()
     if os.path.exists(path):
@@ -118,12 +124,13 @@ def kill_worker():
 
 
 def get_initial_work_report() -> dict:
-    """
-    Prepare the work report dictionary.
+    """Prepare the initial work report dictionary.
 
-    Note: the work_report should also contain all fields defined in parse_jobreport_data().
+    The work report should also contain all fields defined in
+    ``parse_jobreport_data()``.
 
-    :return: work report dictionary (dict).
+    Returns:
+        Work report dictionary with initial field values.
     """
     # set a timeout of 10 seconds to prevent potential hanging due to problems with DNS resolution, or if the DNS
     # server is slow to respond
@@ -148,11 +155,13 @@ def get_initial_work_report() -> dict:
 
 
 def get_event_status_file(args: Any) -> str:
-    """
-    Return the name of the event_status.dump file.
+    """Return the path to the event_status.dump file.
 
-    :param args: Pilot arguments object (Any)
-    :return: event staus file name (str).
+    Args:
+        args: Pilot arguments object.
+
+    Returns:
+        Full path to the event status file.
     """
     logger.debug(f'config.Harvester.__dict__ : {config.Harvester.__dict__}')
 
@@ -167,12 +176,14 @@ def get_event_status_file(args: Any) -> str:
     return event_status_file
 
 
-def get_worker_attributes_file(args: Any):
-    """
-    Return the name of the worker attributes file.
+def get_worker_attributes_file(args: Any) -> str:
+    """Return the path to the worker attributes file.
 
-    :param args: Pilot arguments object (Any)
-    :return: worker attributes file name (str).
+    Args:
+        args: Pilot arguments object.
+
+    Returns:
+        Full path to the worker attributes file.
     """
     if args.harvester_workdir != '':
         work_dir = args.harvester_workdir
@@ -183,12 +194,14 @@ def get_worker_attributes_file(args: Any):
 
 
 def findfile(path: str, name: str) -> str:
-    """
-    Find the first instance of file in the directory tree.
+    """Find the first instance of a file in a directory tree.
 
-    :param path: directory tree to search (str)
-    :param name: name of the file to search (str)
-    :return: the path to the first instance of the file (str).
+    Args:
+        path: Root directory tree to search.
+        name: Name of the file to search for.
+
+    Returns:
+        Full path to the first instance of the file, or an empty string if not found.
     """
     filename = ""
     for root, dirs, files in os.walk(path):
@@ -200,14 +213,14 @@ def findfile(path: str, name: str) -> str:
 
 
 def publish_stageout_files(job: Any, event_status_file: str) -> bool:
-    """
-    Publish the work report for stageout.
+    """Publish the file report for stage-out to Harvester.
 
-    The work report dictionary should contain the fields defined in get_initial_work_report().
+    Args:
+        job: Job object.
+        event_status_file: Path to the event status file.
 
-    :param job: job object (Any)
-    :param event_status_file: file ane (str)
-    :return: status of writing the file information to a json (bool).
+    Returns:
+        True if the file information was successfully written to JSON, False otherwise.
     """
     # get the harvester workdir from the event_status_file
     work_dir = os.path.dirname(event_status_file)
@@ -269,15 +282,17 @@ def publish_stageout_files(job: Any, event_status_file: str) -> bool:
 
 
 def publish_work_report(work_report: dict = None, worker_attributes_file: str = "worker_attributes.json") -> bool:
-    """
-    Publish the work report.
+    """Publish the work report to Harvester.
 
-    The work report dictionary should contain the fields defined in get_initial_work_report().
+    The work report dictionary should contain the fields defined in
+    :func:`get_initial_work_report`.
 
-    :param work_report: work report dictionary (dict)
-    :param worker_attributes_file: file name (str)
-    :raises FileHandlingFailure: in case of IOError
-    :return: True if successfully published, False otherwise (bool).
+    Args:
+        work_report: Work report dictionary.
+        worker_attributes_file: Path to the worker attributes file.
+
+    Returns:
+        True if successfully published, False otherwise.
     """
     if work_report is None:
         work_report = {}
@@ -302,17 +317,19 @@ def publish_work_report(work_report: dict = None, worker_attributes_file: str = 
         return False
 
 
-def publish_job_report(job: Any, args: Any, job_report_file: str = "jobReport.json") -> str:
-    """
-    Publish the job report.
+def publish_job_report(job: Any, args: Any, job_report_file: str = "jobReport.json") -> bool:
+    """Publish the job report to Harvester.
 
-    Copy job report file to make it accessible by Harvester. Shrink job report file.
+    Copies the job report file to the Harvester work directory and shrinks
+    the ``logfileReport`` section to reduce its size.
 
-    :param job: job object (Any)
-    :param args: Pilot arguments object (Any)
-    :param job_report_file: name of job report (str)
-    :raises FileHandlingFailure: in case of IOError
-    :return True if successfully published, False otherwise (bool).
+    Args:
+        job: Job object.
+        args: Pilot arguments object.
+        job_report_file: Name of the job report file.
+
+    Returns:
+        True if successfully published, False otherwise.
     """
     src_file = os.path.join(job.workdir, job_report_file)
     dst_file = os.path.join(args.harvester_workdir, job_report_file)
@@ -337,16 +354,19 @@ def publish_job_report(job: Any, args: Any, job_report_file: str = "jobReport.js
 
 
 def parse_job_definition_file(filename: str) -> list:
-    """
-    Parse the Harvester job definition file and re-package the job definition dictionaries.
+    """Parse the Harvester job definition file and re-package the job dictionaries.
 
-    The format of the Harvester job definition dictionary is:
-    dict = { job_id: { key: value, .. }, .. }
-    The function returns a list of these dictionaries each re-packaged as
-    dict = { key: value } (where the job_id is now one of the key-value pairs: 'jobid': job_id)
+    The Harvester job definition format is::
 
-    :param filename: file name (str)
-    :return: list of job definition dictionaries (list).
+        {job_id: {key: value, ...}, ...}
+
+    Each entry is re-packaged as ``{key: value, 'jobid': job_id}``.
+
+    Args:
+        filename: Path to the job definition JSON file.
+
+    Returns:
+        List of re-packaged job definition dictionaries.
     """
     job_definitions_list = []
 

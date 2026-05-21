@@ -161,6 +161,20 @@ class FileSpec(BaseData):
     def is_directaccess(self, ensure_replica: bool = True, allowed_replica_schemas: list = None) -> bool:
         """Check if given (input) file can be used for direct access mode by job transformation script.
 
+        Library tarballs (``.tar.gz``, ``.lib.tgz``) are always excluded from
+        direct access because the payload does not read them directly.
+
+        For all other files the ``'.raw.'`` exclusion is conditional: it only
+        applies when ``accessmode`` is not ``'direct'``.  ``accessmode`` is set
+        to ``'direct'`` in :meth:`~pilot.info.jobdata.JobData.prepare_infiles`
+        when the file's ``prodDBlockToken`` (``storage_token``) is not
+        ``'local'``.  PanDA/JEDI set ``prodDBlockToken=local`` to enforce
+        copy-to-scratch for RAW files by default; when the user submits with
+        ``--forceDirectIO``, JEDI omits the ``'local'`` token for those files,
+        which causes ``accessmode='direct'`` to be assigned here, bypassing the
+        RAW exclusion.  Lib tarballs remain excluded unconditionally regardless
+        of the token value.
+
         Args:
             ensure_replica: If True then check by allowed schemas of file replica turl will be considered as well.
             allowed_replica_schemas: List of allowed replica schemas.
@@ -168,18 +182,23 @@ class FileSpec(BaseData):
         Returns:
             bool: True if file can be used for direct access mode.
         """
-        # check by filename pattern
         filename = self.lfn.lower()
+        force_direct = self.accessmode == 'direct'
 
-        is_rootfile = True
-        exclude_pattern = ['.tar.gz', '.lib.tgz', '.raw.']
-        for exclude in exclude_pattern:
-            if exclude in filename or filename.startswith('raw.'):
-                is_rootfile = False
-                break
+        # Library tarballs are ALWAYS excluded — the payload never reads them
+        # directly, so direct I/O makes no sense regardless of storage_token.
+        lib_patterns = ['.tar.gz', '.lib.tgz']
+        for pat in lib_patterns:
+            if pat in filename:
+                return False
 
-        if not is_rootfile:
-            return False
+        # RAW files are excluded by default (copy-to-scratch is the safe
+        # choice), but are permitted when accessmode has been explicitly set to
+        # 'direct' (i.e. storage_token was not 'local', signalling --forceDirectIO).
+        raw_patterns = ['.raw.']
+        for pat in raw_patterns:
+            if (pat in filename or filename.startswith('raw.')) and not force_direct:
+                return False
 
         _is_directaccess = False  ## default value
         if self.accessmode == 'direct':
@@ -222,5 +241,4 @@ class FileSpec(BaseData):
 
     def require_transfer(self) -> bool:
         """Check if File needs to be transferred (in error state or never has been started)."""
-
         return self.status not in ['remote_io', 'transferred', 'no_transfer']

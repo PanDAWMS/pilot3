@@ -21,6 +21,7 @@
 
 """Functions related to proxy handling for darkside user."""
 
+from __future__ import annotations
 import logging
 logger = logging.getLogger(__name__)
 

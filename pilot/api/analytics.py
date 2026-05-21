@@ -21,6 +21,7 @@
 
 """Functions for performing analytics including fitting of data."""
 
+from __future__ import annotations
 import logging
 from typing import Any, Union
 from .services import Services

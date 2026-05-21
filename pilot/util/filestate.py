@@ -39,11 +39,11 @@ class FileState(object):
     _lfns = []
     _state_list = ['NOT_YET_TRANSFERRED', 'TRANSFER_IN_PROGRESS', 'TRANSFERRED', 'TRANSFER_FAILED']
 
-    def __init__(self, file_states: dict = None):
-        """
-        Initialize variables.
+    def __init__(self, file_states: dict = None) -> None:
+        """Initialize variables.
 
-        :param file_states: file states (dict).
+        Args:
+            file_states: File states dictionary.
         """
         if file_states is None:
             file_states = {}
@@ -56,19 +56,19 @@ class FileState(object):
             self._file_states[lfn] = 'NOT_YET_TRANSFERRED'
 
     def get_file_states(self) -> dict:
-        """
-        Return the current file states dictionary.
+        """Return the current file states dictionary.
 
-        :return: file states (dict).
+        Returns:
+            File states dictionary.
         """
         return self._file_states
 
-    def update(self, lfn: str = "", state: str = ""):
-        """
-        Update the state for a given LFN.
+    def update(self, lfn: str = "", state: str = "") -> None:
+        """Update the state for a given LFN.
 
-        :param lfn: file name (str)
-        :param state: file state (str).
+        Args:
+            lfn: File name (LFN).
+            state: File state string.
         """
         if not lfn or not state:
             logger.warning('must set lfn/state')

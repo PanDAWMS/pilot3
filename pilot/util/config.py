@@ -47,11 +47,13 @@ class _ConfigurationSection():
 
 
 def read(config_file: Any) -> Any:
-    """
-    Read the settings from file and return a dot notation object.
+    """Read the settings from file and return a dot notation object.
 
-    :param config_file: file (Any)
-    :return: attribute object (Any).
+    Args:
+        config_file: Configuration file path.
+
+    Returns:
+        Attribute object populated with configuration sections and settings.
     """
     _config = configparser.ConfigParser()
     _config.read(config_file)
