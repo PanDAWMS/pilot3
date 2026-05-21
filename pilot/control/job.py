@@ -4129,6 +4129,15 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                     final_job.piloterrorcodes, final_job.piloterrordiags = errors.add_error_code(
                         errors.REACHEDMAXTIME, msg='Reached maxtime'
                     )
+                    # attempt log transfer before the final update, mirroring the in-loop
+                    # REACHED_MAXTIME path (line ~3984). This covers jobs that were still
+                    # in stage-in when REACHED_MAXTIME fired: the in-loop path is never
+                    # reached for those jobs (they never enter monitored_payloads), so the
+                    # log would otherwise be lost.
+                    log_transfer = get_job_status(final_job, 'LOG_TRANSFER')
+                    if log_transfer == LOG_TRANSFER_NOT_DONE:
+                        logger.info('ordering log transfer in post-loop REACHED_MAXTIME fail-safe')
+                        order_log_transfer(queues, final_job)
                     update_server(final_job, args)
             except Exception as error:
                 logger.warning('(1) exception caught: %s (job id=%s)', error, current_id)
