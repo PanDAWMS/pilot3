@@ -206,6 +206,12 @@ def execute(executable: Any, **kwargs: Any) -> Any:  # noqa: C901
                 process.wait(timeout=60)
                 process.stdout.close()
                 process.stderr.close()
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    f'process (pid={process.pid}) did not exit within 60 s after SIGKILL '
+                    f'- likely stuck in uninterruptible kernel wait (D state); '
+                    f'command was: {executable}'
+                )
             except Exception:
                 pass
 
