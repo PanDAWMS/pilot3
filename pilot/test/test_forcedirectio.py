@@ -19,18 +19,21 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2026
 
-"""Unit tests for ``--forceDirectIO`` / ``prodDBlockToken`` handling.
+"""Unit tests for direct-access / ``prodDBlockToken`` handling in ``prepare_infiles``.
 
-When a user submits with ``--forceDirectIO``, PanDA/JEDI omits the ``'local'``
-``prodDBlockToken`` for RAW input files that would otherwise carry it.  The
-pilot must use ``storage_token`` (the internal name for ``prodDBlockToken``) as
-the per-file copy/direct signal rather than relying on hard-coded filename
-patterns.
+Direct access (remote I/O) in production jobs is only enabled when the job-level
+``transfertype`` is a recognised direct-I/O type ('direct', 'root', 'davs', ...) or
+when an explicit ``--accessmode=direct`` jobparam is set (the ``--forceDirectIO``
+path).  A blank or non-'local' ``prodDBlockToken`` alone does **not** trigger direct
+access for production jobs — it only acts as a veto ('local' forces copy) within
+the two eligible job classes above.
+
+For analysis jobs (``transformation`` URL starting with ``https://`` or ``http://``)
+remote I/O is the default; ``storage_token='local'`` is the only way to force
+copy-to-scratch.
 
 Covers:
-- ``JobData.prepare_infiles`` accessmode assignment for production jobs:
-  ``storage_token='local'`` forces copy; ``storage_token`` not ``'local'``
-  permits direct access for non-lib data files.
+- ``JobData.prepare_infiles`` accessmode assignment for production and analysis jobs.
 - ``FileSpec.is_directaccess``: RAW files honour ``accessmode='direct'`` while
   lib tarballs remain unconditionally excluded.
 """
@@ -142,25 +145,50 @@ class TestPrepareInfilesStorageToken(unittest.TestCase):
         )
         self.assertEqual(mode, 'copy')
 
-    def test_prod_raw_no_token_is_direct(self):
-        """RAW file without 'local' token on a prod job must get accessmode='direct' (--forceDirectIO path)."""
+    def test_prod_raw_no_token_is_copy(self):
+        """RAW file without 'local' token on a prod job must get accessmode='copy'.
+
+        An absent storage_token does NOT mean --forceDirectIO was requested.
+        The --forceDirectIO path for production RAW goes via '--accessmode=direct'
+        in jobparams (picked up by set_accessmode() and the self.accessmode
+        override below the per-file logic).
+        """
         mode = _accessmode_for(
             lfn='data18_13TeV.00359541.physics_Main.daq.RAW._lb0316._SFO-2._0005.data',
-            storage_token='',   # JEDI omitted 'local' token due to --forceDirectIO
+            storage_token='',
             is_analysis=False,
             transfertype='',
         )
+        self.assertEqual(mode, 'copy')
+
+    def test_prod_raw_accessmode_direct_jobparam_is_direct(self):
+        """RAW file on a prod job with '--accessmode=direct' in jobparams must get accessmode='direct'.
+
+        This is the correct --forceDirectIO path: the job-level override wins.
+        """
+        mode = _accessmode_for(
+            lfn='data18_13TeV.00359541.physics_Main.daq.RAW._lb0316._SFO-2._0005.data',
+            storage_token='',
+            is_analysis=False,
+            transfertype='',
+            job_accessmode='direct',
+        )
         self.assertEqual(mode, 'direct')
 
-    def test_prod_raw_real_token_is_direct(self):
-        """RAW file with a real DDM token on a prod job must get accessmode='direct'."""
+    def test_prod_raw_real_token_is_copy(self):
+        """RAW file with a real DDM token on a prod job (no directio transfertype) must get accessmode='copy'.
+
+        A non-'local' RSE token alone does not enable direct access for production
+        jobs; a directio transfertype or an explicit --accessmode=direct jobparam
+        is also required.
+        """
         mode = _accessmode_for(
             lfn='data18_13TeV.00359541.physics_Main.daq.RAW._lb0316._SFO-2._0005.data',
             storage_token='CERN-PROD_DATADISK',
             is_analysis=False,
             transfertype='',
         )
-        self.assertEqual(mode, 'direct')
+        self.assertEqual(mode, 'copy')
 
     # --- lib tarballs must always be copy regardless of token ---
 
@@ -242,15 +270,20 @@ class TestPrepareInfilesStorageToken(unittest.TestCase):
 
     # --- regular root file, no token ---
 
-    def test_prod_root_file_no_token_is_direct(self):
-        """Regular ROOT file on a prod job without 'local' token must get accessmode='direct'."""
+    def test_prod_root_file_no_token_is_copy(self):
+        """Regular ROOT file on a prod job without 'local' token must get accessmode='copy'.
+
+        A blank storage_token on a production job means PanDA did not request
+        direct access; only transfertype or an explicit --accessmode=direct
+        jobparam enables remote I/O for production jobs.
+        """
         mode = _accessmode_for(
             lfn='myfile.pool.root.1',
             storage_token='',
             is_analysis=False,
             transfertype='',
         )
-        self.assertEqual(mode, 'direct')
+        self.assertEqual(mode, 'copy')
 
     def test_prod_root_file_local_token_is_copy(self):
         """Regular ROOT file on a prod job with storage_token='local' must get accessmode='copy'."""
