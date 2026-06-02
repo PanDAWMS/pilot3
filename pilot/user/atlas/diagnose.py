@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Payload stdout/stderr interpretation for the ATLAS experiment plugin."""
 
@@ -224,7 +224,7 @@ def interpret_payload_exit_info(job: JobData):
         return
 
     # did a direct-access (remoteIO) file open fail inside the payload?
-    if job.has_remoteio():
+    if job.has_remoteio() and job.exitcode != 0:
         _diag, _failed_lfns = is_direct_access_error(job)
         if _diag:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True, msg=_diag)

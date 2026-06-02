@@ -134,21 +134,60 @@ def update_job_data(job: object) -> None:
         pass
 
 
+def remove_external_symlinks(workdir: str) -> None:
+    """Remove symlinks whose resolved targets lie outside the work directory.
+
+    The ``tar --dereference`` flag causes tar to open and read the target of
+    every symlink it encounters.  If any target resolves to a path on a stalled
+    remote filesystem (dCache, NFS, CVMFS), tar will enter an uninterruptible
+    kernel wait (D state) and cannot be killed until the mount recovers.  This
+    function removes such symlinks before the log archive is created so that
+    tar never needs to touch a remote filesystem.
+
+    Args:
+        workdir: absolute path to the job work directory.
+    """
+    workdir_real = os.path.realpath(workdir)
+    removed = []
+    for root, _, files in os.walk(workdir):
+        for filename in files:
+            path = os.path.join(root, filename)
+            if not os.path.islink(path):
+                continue
+            target = os.readlink(path)
+            # Resolve relative symlinks relative to the directory containing the link
+            if not os.path.isabs(target):
+                target = os.path.join(os.path.dirname(path), target)
+            target_real = os.path.realpath(target)
+            if not target_real.startswith(workdir_real + os.sep) and target_real != workdir_real:
+                try:
+                    os.remove(path)
+                    removed.append(path)
+                except OSError as exc:
+                    logger.warning(f'failed to remove external symlink {path}: {exc}')
+    if removed:
+        logger.info(f'removed {len(removed)} external symlink(s) prior to log creation: {removed}')
+
+
 def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: list = None, debugmode: bool = False) -> None:
     """Remove redundant files and directories prior to creating the log file.
 
+    Removes symlinks whose targets lie outside the work directory before the
+    log archive is created.  The ``tar --dereference`` flag used during log
+    creation would otherwise cause tar to open those targets, which can trigger
+    an uninterruptible kernel wait if the remote mount is stalled.
+
     Args:
         workdir: working directory.
-        outputfiles: list of output files.
-        piloterrors: list of Pilot assigned error codes.
-        debugmode: True if debug mode has been switched on.
+        outputfiles: list of output files (unused, reserved for future use).
+        piloterrors: list of Pilot assigned error codes (unused, reserved for future use).
+        debugmode: True if debug mode has been switched on (unused, reserved for future use).
     """
-    if workdir or outputfiles or piloterrors or debugmode:  # to bypass pylint score 0
+    if outputfiles or piloterrors or debugmode:  # reserved for future use
         pass
-    #if outputfiles is None:
-    #    outputfiles = []
-    #if piloterrors is None:
-    #    piloterrors = []
+
+    workdir = os.path.abspath(workdir)
+    remove_external_symlinks(workdir)
 
 
 def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict:
