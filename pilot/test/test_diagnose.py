@@ -265,6 +265,83 @@ class TestInterpretPayloadExitInfoDirectAccess(unittest.TestCase):
         codes, _ = self._run(stdout, has_remoteio=True)
         self.assertNotIn(errors.STAGEINFAILED, codes)
 
+    def test_writetobject_error_zero_exit_does_not_set_stageinfailed(self):
+        """A remoteIO job with a WriteTObject ERROR in stdout but zero payload exit must not be classified as STAGEINFAILED.
+
+        This is the regression test for the false-positive reported by Rod: ROOT emits
+        'TNetXNGFile::WriteTObject ERROR  Directory root://... is not writable' as a
+        diagnostic even on successful direct-access jobs.  The pattern matches
+        _DIRECT_ACCESS_ERROR_PATTERNS but the payload exited zero, so no error should
+        be set.
+        """
+        stdout = (
+            'AthenaMP starting\n'
+            'TNetXNGFile::WriteTObject ERROR   Directory '
+            'root://xrootd.data.net2.mghpcc.org//USATLAS/atlasdatadisk/rucio/mc23_13p6TeV/'
+            'ed/95/DAOD_PHYSLITE.46831501._000007.pool.root.1 is not writable\n'
+            'AthenaMP exiting with code 0\n'
+        )
+        # Override exitcode to 0 by running _run then patching exitcode directly.
+        # _run() sets exitcode=1 by default so we need a local variant here.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout_path = os.path.join(tmpdir, 'payload.stdout')
+            with open(stdout_path, 'w', encoding='utf-8') as fh:
+                fh.write(stdout)
+
+            job = MagicMock()
+            job.workdir = tmpdir
+            job.piloterrorcodes = []
+            job.piloterrordiags = []
+            job.transexitcode = 0
+            job.exitcode = 0  # payload succeeded
+            job.has_remoteio.return_value = True
+
+            captured = {}
+
+            def _add_error_code(code, priority=False, msg=''):
+                captured['codes'] = [code]
+                captured['diags'] = [msg or '']
+                return [code], [msg or '']
+
+            with patch('pilot.user.atlas.diagnose.errors') as mock_errors, \
+                 patch('pilot.user.atlas.diagnose.config') as mock_cfg, \
+                 patch('pilot.user.atlas.diagnose.is_out_of_memory', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_cling_jit_error', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_installation_error', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_atlassetup_error', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_out_of_space', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_nfssqlite_locking_problem', return_value=False), \
+                 patch('pilot.user.atlas.diagnose.is_user_code_missing', return_value=False):
+
+                mock_cfg.Payload.payloadstdout = 'payload.stdout'
+                mock_errors.STAGEINFAILED = errors.STAGEINFAILED
+                mock_errors.UNKNOWNPAYLOADFAILURE = errors.UNKNOWNPAYLOADFAILURE
+                mock_errors.add_error_code.side_effect = _add_error_code
+
+                interpret_payload_exit_info(job)
+
+        codes = captured.get('codes', [])
+        self.assertNotIn(errors.STAGEINFAILED, codes,
+                         'WriteTObject ERROR on a zero-exit remoteIO job must not set STAGEINFAILED')
+
+    def test_writetobject_error_nonzero_exit_sets_stageinfailed(self):
+        """A remoteIO job with a WriteTObject ERROR and non-zero exit must still be classified as STAGEINFAILED.
+
+        The zero-exit guard must not suppress error detection when the payload genuinely
+        failed: if exitcode != 0 the stdout scan must still run and the xrootd pattern
+        must still be picked up.
+        """
+        stdout = (
+            'AthenaMP starting\n'
+            'TNetXNGFile::WriteTObject ERROR   Directory '
+            'root://xrootd.data.net2.mghpcc.org//USATLAS/atlasdatadisk/rucio/mc23_13p6TeV/'
+            'ed/95/DAOD_PHYSLITE.46831501._000007.pool.root.1 is not writable\n'
+            'AthenaMP exiting with code 1\n'
+        )
+        codes, _ = self._run(stdout, has_remoteio=True)
+        self.assertIn(errors.STAGEINFAILED, codes,
+                      'WriteTObject ERROR on a non-zero-exit remoteIO job must still set STAGEINFAILED')
+
     def test_diagnostics_contains_matched_line(self):
         """The diagnostics string recorded with STAGEINFAILED must contain the matched text."""
         stdout = 'TNetXNGFile::Open ERROR opening root://xrd.example.com//store/data/mc.pool.root\n'
