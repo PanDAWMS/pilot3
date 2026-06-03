@@ -878,4 +878,8 @@ def get_cpu_arch() -> str:
         cpu_arch = stdout
         logger.info(f'CPU arch script returned: {cpu_arch}')
 
+    if cpu_arch == 'UNKNOWN':
+        logger.info('CVMFS cpu_arch.py returned UNKNOWN, trying internal fallback')
+        cpu_arch = ''
+
     return cpu_arch
