@@ -35,12 +35,13 @@ Typical usage::
     python3 cpu_arch.py --alg x86naive -d
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -94,9 +95,9 @@ def get_osarch() -> str:
     )
     osarch = result.stdout.strip().lower()
 
-    if any(re.match(p, osarch) for p in [r"x86_64.*"]):
+    if any(re.match(p, osarch) for p in (r"x86_64.*",)):
         return "x86-64"
-    if any(re.match(p, osarch) for p in [r"arm.*", r"aarch64.*"]):
+    if any(re.match(p, osarch) for p in (r"arm.*", r"aarch64.*")):
         return "arm"
 
     logging.error("No matching osarch for %s", osarch)
@@ -133,7 +134,7 @@ def check_flags(spec: FlagSpec, flags: list[str]) -> bool:
     return failed
 
 
-def get_flags_x86() -> Optional[dict[str, str]]:
+def get_flags_x86() -> dict[str, str] | None:
     """Read CPU model, core count, and flags from ``/proc/cpuinfo``.
 
     Reads the first complete set of ``model name``, ``cpu cores``, and
@@ -143,9 +144,9 @@ def get_flags_x86() -> Optional[dict[str, str]]:
         A dict with keys ``"cpu"``, ``"cpu_core"``, and ``"flags"``, or
         ``None`` if the required fields are not all present.
     """
-    cpu: Optional[str] = None
-    cpu_core: Optional[str] = None
-    flags: Optional[str] = None
+    cpu: str | None = None
+    cpu_core: str | None = None
+    flags: str | None = None
 
     with open("/proc/cpuinfo", encoding="utf-8") as fh:
         for line in fh:
@@ -161,7 +162,7 @@ def get_flags_x86() -> Optional[dict[str, str]]:
     return None
 
 
-def get_flags_pilotlog(pilotlogname: str) -> Optional[dict[str, str]]:
+def get_flags_pilotlog(pilotlogname: str) -> dict[str, str] | None:
     """Read site, CPU model, core count, and flags from an ATLAS pilot log.
 
     Extracts the first occurrence of ``PANDA_RESOURCE``, ``model name``,
@@ -174,10 +175,10 @@ def get_flags_pilotlog(pilotlogname: str) -> Optional[dict[str, str]]:
         A dict with keys ``"site"``, ``"cpu"``, ``"cpu_core"``, and
         ``"flags"``, or ``None`` if any field is missing.
     """
-    site: Optional[str] = None
-    cpu: Optional[str] = None
-    cpu_core: Optional[str] = None
-    flags: Optional[str] = None
+    site: str | None = None
+    cpu: str | None = None
+    cpu_core: str | None = None
+    flags: str | None = None
 
     with open(pilotlogname, encoding="utf-8") as fh:
         for line in fh:
@@ -289,7 +290,7 @@ def x86_checks(specs: X86FlagSpecs, flag_string: str, name: str) -> str:
     return "x86-64-v1"
 
 
-def get_flags_arm() -> Optional[dict[str, str]]:
+def get_flags_arm() -> dict[str, str] | None:
     """Read CPU architecture and feature flags from ``/proc/cpuinfo``.
 
     Extracts the first ``CPU architecture`` and ``Features`` fields found
@@ -299,8 +300,8 @@ def get_flags_arm() -> Optional[dict[str, str]]:
         A dict with keys ``"cpu_arch"`` and ``"flags"``, or ``None`` if
         either field is absent.
     """
-    cpu_arch: Optional[str] = None
-    flags: Optional[str] = None
+    cpu_arch: str | None = None
+    flags: str | None = None
 
     with open("/proc/cpuinfo", encoding="utf-8") as fh:
         for line in fh:
