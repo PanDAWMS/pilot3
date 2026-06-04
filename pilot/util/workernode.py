@@ -192,15 +192,16 @@ def get_cpu_arch_internal() -> str:
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     script_dir = os.path.join(srcdir, 'pilot/scripts')
 
-    if script_dir not in os.environ['PYTHONPATH']:
-        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + script_dir
+    pythonpath = os.environ.get('PYTHONPATH', '')
+    if script_dir not in pythonpath:
+        os.environ['PYTHONPATH'] = pythonpath + ':' + script_dir if pythonpath else script_dir
 
     # CPU arch script has now been copied, time to execute it
-    ec, stdout, stderr = execute(f'python3 {script_dir}/{script} --alg gcc')
+    ec, stdout, stderr = execute(f'python3 {script_dir}/{script}')
     if ec or stderr:
         logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
-        cpu_arch = stdout
+        cpu_arch = stdout.strip()
         logger.debug(f'CPU arch script returned: {cpu_arch}')
 
     return cpu_arch
@@ -212,6 +213,10 @@ def get_cpu_arch() -> str:
     Delegates to ``pilot.user.<PILOT_USER>.utilities.get_cpu_arch()``. For
     background see https://its.cern.ch/jira/browse/ATLINFR-4844.
 
+    If the plugin returns an empty string, falls back to
+    :func:`get_cpu_arch_internal` which invokes the bundled
+    ``pilot/scripts/cpu_arch.py`` directly.
+
     Returns:
         CPU architecture string, or an empty string when not reported.
     """
@@ -219,8 +224,8 @@ def get_cpu_arch() -> str:
     user = __import__('pilot.user.%s.utilities' % pilot_user, globals(), locals(), [pilot_user], 0)
     cpu_arch = user.get_cpu_arch()
     if not cpu_arch:
-        logger.info('no CPU architecture reporting')
-        # cpu_arch = get_cpu_arch_internal()
+        logger.info('no CPU architecture reported by plugin, trying internal fallback')
+        cpu_arch = get_cpu_arch_internal()
 
     return cpu_arch
 
