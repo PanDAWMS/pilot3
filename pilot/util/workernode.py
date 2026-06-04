@@ -192,15 +192,16 @@ def get_cpu_arch_internal() -> str:
     srcdir = os.path.join(os.environ.get('PILOT_SOURCE_DIR', '.'), 'pilot3')
     script_dir = os.path.join(srcdir, 'pilot/scripts')
 
-    if script_dir not in os.environ['PYTHONPATH']:
-        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + script_dir
+    pythonpath = os.environ.get('PYTHONPATH', '')
+    if script_dir not in pythonpath:
+        os.environ['PYTHONPATH'] = pythonpath + ':' + script_dir if pythonpath else script_dir
 
     # CPU arch script has now been copied, time to execute it
     ec, stdout, stderr = execute(f'python3 {script_dir}/{script}')
     if ec or stderr:
         logger.debug(f'ec={ec}, stdout={stdout}, stderr={stderr}')
     else:
-        cpu_arch = stdout
+        cpu_arch = stdout.strip()
         logger.debug(f'CPU arch script returned: {cpu_arch}')
 
     return cpu_arch
