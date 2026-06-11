@@ -286,7 +286,7 @@ class ErrorCodes:
         PAYLOADSIGSEGV: "SIGSEGV: Invalid memory reference or a segmentation fault",
         NONDETERMINISTICDDM: "Failed to construct SURL for non-deterministic ddm (update CRIC)",
         JSONRETRIEVALTIMEOUT: "JSON retrieval timed out",
-        MISSINGINPUTFILE: "Input file is missing in storage element",
+        MISSINGINPUTFILE: "Input file missing on storage",
         BLACKHOLE: "Black hole detected in file system (consult Pilot log)",
         NOREMOTESPACE: "No space left on device",
         SETUPFATAL: "Setup failed with a fatal exception (consult Payload log)",
