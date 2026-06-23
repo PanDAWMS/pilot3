@@ -254,6 +254,9 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
         ret = get_error_info(ErrorCodes.SERVICENOTAVAILABLE, 'SERVICE_ERROR', output)
     elif "Network is unreachable" in output:
         ret = get_error_info(ErrorCodes.UNREACHABLENETWORK, 'NETWORK_UNREACHABLE', output)
+    elif re.search(r'\[3010\].*(?:FullyRestricted|Restriction.*denied)', output):
+        ret = get_error_info(ErrorCodes.XRDACCESSRESTRICTED, 'XRDCP_ACCESS_RESTRICTED',
+                             f"XRootD access restricted (proxy scope too narrow): {output}")
     elif "Run: [ERROR] Server responded with an error" in output:
         ret = get_error_info(ErrorCodes.XRDCPERROR, 'XRDCP_ERROR', output)
     elif "Unable to locate credentials" in output:

@@ -78,6 +78,15 @@ _DIRECT_ACCESS_ERROR_PATTERNS: list[str] = [
     r'FileReadError.*root://',
 ]
 
+# XRootD error [3010] FullyRestricted: the server denies read access because the
+# proxy certificate does not carry a sufficient VOMS role.  This is a distinct
+# authorisation failure and should be mapped to XRDACCESSRESTRICTED rather than
+# the generic STAGEINFAILED used for other direct-access errors.
+_XRDACCESS_RESTRICTED_PATTERNS: list[str] = [
+    r'\[3010\].*FullyRestricted',
+    r'\[3010\].*Restriction.*denied',
+]
+
 # Cling JIT "Cannot allocate memory" appears in payload stdout/stderr when the worker
 # node exhausts its 64k VMA limit.  Increasing the memory request does not help; the
 # correct retry action is to reduce the number of input files per job (action 5).
@@ -225,9 +234,9 @@ def interpret_payload_exit_info(job: JobData):
 
     # did a direct-access (remoteIO) file open fail inside the payload?
     if job.has_remoteio() and job.exitcode != 0:
-        _diag, _failed_lfns = is_direct_access_error(job)
+        _ecode, _diag, _failed_lfns = is_direct_access_error(job)
         if _diag:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINFAILED, priority=True, msg=_diag)
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(_ecode, priority=True, msg=_diag)
             send_direct_access_failure_traces(job, _failed_lfns)
             return
 
@@ -389,7 +398,7 @@ def send_direct_access_failure_traces(job: JobData, failed_lfns: list[str]) -> N
         logger.warning(f'no remote_io indata matched failed LFNs {failed_lfns} — no traces sent')
 
 
-def is_direct_access_error(job: JobData) -> tuple[str, list[str]]:
+def is_direct_access_error(job: JobData) -> tuple[int, str, list[str]]:
     """Check whether a direct-access (remoteIO) file-open error occurred inside the payload.
 
     Scans the full payload stdout for XRootD and ROOT file-open error patterns that are
@@ -407,27 +416,44 @@ def is_direct_access_error(job: JobData) -> tuple[str, list[str]]:
     remote-IO input files. Trailing punctuation (semicolons, quotes, commas) is stripped
     from each extracted path before the basename is taken.
 
+    XRootD error [3010] (FullyRestricted / Restriction denied) indicates that the server
+    rejected the read because the proxy certificate does not carry a sufficient VOMS role.
+    These lines are mapped to ``XRDACCESSRESTRICTED`` rather than the generic
+    ``STAGEINFAILED`` used for other direct-access failures.
+
     Args:
         job: Job object containing workdir and payload file path configuration.
 
     Returns:
-        tuple: (diagnostics, failed_lfns) where ``diagnostics`` is the best matched line
-        (stripped), or an empty string if no pattern was found, and ``failed_lfns`` is a
-        list of LFN basenames extracted from matched lines (may be empty if no paths were
-        found in the log).
+        tuple: (error_code, diagnostics, failed_lfns) where ``error_code`` is the pilot
+        error code to assign (``XRDACCESSRESTRICTED`` or ``STAGEINFAILED``),
+        ``diagnostics`` is the best matched line (stripped), or an empty string if no
+        pattern was found, and ``failed_lfns`` is a list of LFN basenames extracted from
+        matched lines (may be empty if no paths were found in the log).
     """
     stdout = os.path.join(job.workdir, config.Payload.payloadstdout)
     if not os.path.exists(stdout):
         logger.warning(f'payload stdout does not exist, cannot scan for direct-access errors: {stdout}')
-        return "", []
+        return 0, "", []
 
     matched_lines = grep(_DIRECT_ACCESS_ERROR_PATTERNS, stdout)
     if not matched_lines:
-        return "", []
+        return 0, "", []
 
     logger.warning('detected direct-access (remoteIO) error pattern(s) in payload stdout:')
     for line in matched_lines[:5]:  # cap output to avoid flooding the pilot log
         logger.warning(f'  {line.rstrip()}')
+
+    # Check whether any matched line carries a [3010] FullyRestricted signature.
+    # This takes priority over the generic STAGEINFAILED mapping.
+    is_access_restricted = any(
+        re.search(pat, line)
+        for line in matched_lines
+        for pat in _XRDACCESS_RESTRICTED_PATTERNS
+    )
+    error_code = errors.XRDACCESSRESTRICTED if is_access_restricted else errors.STAGEINFAILED
+    if is_access_restricted:
+        logger.warning('XRootD [3010] FullyRestricted detected: mapping to XRDACCESSRESTRICTED')
 
     # Extract LFN basenames from all matched lines that contain a recognisable path.
     # Trailing punctuation (semicolons, quotes) that may follow the path in the log line
@@ -445,10 +471,10 @@ def is_direct_access_error(job: JobData) -> tuple[str, list[str]]:
                 best_diag = line.strip()
 
     if best_diag:
-        return best_diag, failed_lfns
+        return error_code, best_diag, failed_lfns
 
     # Fallback: no line contained a path — return the first matched line, no LFNs.
-    return matched_lines[0].strip(), []
+    return error_code, matched_lines[0].strip(), []
 
 
 def is_out_of_space(job: JobData) -> bool:

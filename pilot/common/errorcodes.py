@@ -191,6 +191,7 @@ class ErrorCodes:
     NOJOBSINPANDA = 1385  # internally used code
     PANDAQUEUENOTONLINE = 1386
     ALLOCATIONERROR = 1387
+    XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -342,6 +343,7 @@ class ErrorCodes:
         NOJOBSINPANDA: "No jobs in PanDA",
         PANDAQUEUENOTONLINE: "PanDA queue is not online",
         ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
+        XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

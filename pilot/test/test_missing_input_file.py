@@ -136,6 +136,44 @@ class TestResolveCommonTransferErrorsMissingInput(unittest.TestCase):
         ret = resolve_common_transfer_errors('some completely unknown error', is_stagein=True)
         self.assertEqual(ret['rcode'], errors.STAGEINFAILED)
 
+    # -- XRootD [3010] FullyRestricted (access denied / proxy scope) ----------
+
+    def test_xrd3010_fullyrestricted_returns_xrdaccessrestricted(self):
+        """NEW: XRootD [3010] FullyRestricted -> XRDACCESSRESTRICTED (1388)."""
+        output = (
+            '[ERROR] Server responded with an error: [3010] Restriction FullyRestricted '
+            'denied access for [READ_DATA] on /pnfs/uchicago.edu/atlasdatadisk/rucio/'
+            'data17_13TeV/c6/21/DAOD_PHYS.49561597._000010.pool.root.1'
+        )
+        ret = resolve_common_transfer_errors(output, is_stagein=True)
+        self.assertEqual(ret['rcode'], errors.XRDACCESSRESTRICTED)
+
+    def test_xrd3010_restriction_denied_returns_xrdaccessrestricted(self):
+        """NEW: XRootD [3010] Restriction denied variant -> XRDACCESSRESTRICTED (1388)."""
+        output = '[ERROR] Server responded with an error: [3010] Restriction denied access'
+        ret = resolve_common_transfer_errors(output, is_stagein=True)
+        self.assertEqual(ret['rcode'], errors.XRDACCESSRESTRICTED)
+
+    def test_xrd3010_state_is_xrdcp_access_restricted(self):
+        """NEW: state string for [3010] errors must be XRDCP_ACCESS_RESTRICTED."""
+        output = '[ERROR] Server responded with an error: [3010] Restriction FullyRestricted denied access'
+        ret = resolve_common_transfer_errors(output, is_stagein=True)
+        self.assertEqual(ret['state'], 'XRDCP_ACCESS_RESTRICTED')
+
+    def test_xrd3010_not_confused_with_missing_file(self):
+        """NEW: [3010] must NOT be classified as MISSINGINPUTFILE."""
+        output = '[ERROR] Server responded with an error: [3010] Restriction FullyRestricted denied access'
+        ret = resolve_common_transfer_errors(output, is_stagein=True)
+        self.assertNotEqual(ret['rcode'], errors.MISSINGINPUTFILE)
+
+    def test_xrd3010_takes_priority_over_generic_xrdcp_error(self):
+        """NEW: [3010] branch must fire before the generic XRDCPERROR catch."""
+        # The line contains both "Run: [ERROR] Server responded with an error" AND "[3010]"
+        output = 'Run: [ERROR] Server responded with an error: [3010] Restriction FullyRestricted denied access'
+        ret = resolve_common_transfer_errors(output, is_stagein=True)
+        self.assertEqual(ret['rcode'], errors.XRDACCESSRESTRICTED,
+                         'more specific [3010] branch must win over the generic XRDCPERROR catch')
+
 
 # ---------------------------------------------------------------------------
 # Tests for parse_remotefileverification_dictionary()
