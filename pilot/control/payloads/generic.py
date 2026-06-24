@@ -951,8 +951,8 @@ class Executor:
                     _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
                     if error_message:
                         logger.warning(f"found apptainer error in stderr: {error_message}")
-                        if exit_code == 0 and _exit_code != 0:
-                            logger.warning("will overwrite trf exit code 0 due to previous error")
+                    if _exit_code != exit_code:
+                        logger.warning(f"reclassified setup exit code {exit_code} -> {_exit_code}")
                     exit_code = _exit_code
 
                     diagnostics = errors.format_diagnostics(exit_code, diagnostics)

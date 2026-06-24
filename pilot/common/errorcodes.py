@@ -484,6 +484,13 @@ class ErrorCodes:
             "Failed to create user namespace": self.SINGULARITYFAILEDUSERNAMESPACE,
             "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
+            # Apptainer CLI version incompatibility: ALRB probes the binary with
+            # 'apptainer buildcfg' and uses flags (e.g. -B) that are unrecognised
+            # on very old or non-standard builds.  The resulting stderr contains
+            # "unknown shorthand flag" or "unknown flag:" before any container is
+            # started, so this is unambiguously an apptainer installation problem.
+            "unknown shorthand flag": self.SINGULARITYGENERALFAILURE,
+            "unknown flag:": self.SINGULARITYGENERALFAILURE,
             "cannot create directory": self.MKDIR,
             "General payload setup verification error": self.SETUPFAILURE,
             "No such file or directory": self.NOSUCHFILE,
@@ -496,24 +503,15 @@ class ErrorCodes:
                     return k
             return ""
 
-        # Check if stderr contains any known error messages
-        apptainer_codes = {
-            self.SINGULARITYBINDPOINTFAILURE,
-            self.SINGULARITYNOLOOPDEVICES,
-            self.SINGULARITYIMAGEMOUNTFAILURE,
-            self.SINGULARITYIMAGEMOUNTFAILURE,
-            self.SINGULARITYGENERALFAILURE,
-            self.SINGULARITYFAILEDUSERNAMESPACE,
-            self.SINGULARITYNOTINSTALLED,
-            self.APPTAINERNOTINSTALLED
-        }
+        # Check if stderr contains any known error messages.
+        # Return immediately on the first match: the matched pattern is
+        # authoritative regardless of the numeric exit code.  (The previous
+        # guard "only return when exit_code == 0" meant that any non-zero
+        # exit code with a recognisable apptainer pattern fell through to the
+        # generic PAYLOADEXECUTIONFAILURE fallback below.)
         for error_message, error_code in error_map.items():
             if error_message in stderr:
-                # only allow overwriting exit code 0 for specific errors (read: apptainer)
-                if exit_code == 0 and error_code in apptainer_codes:
-                    return error_code, error_message
-                else:
-                    continue
+                return error_code, error_message
 
         # Handle specific exit codes
         key = get_key_by_value(error_map, exit_code)
