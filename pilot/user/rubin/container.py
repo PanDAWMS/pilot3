@@ -39,7 +39,7 @@ def do_use_container(**kwargs: Any) -> bool:
     if kwargs:  # to bypass pylint score 0
         pass
 
-    return True
+    return False
 
 
 def wrapper(executable: str, **kwargs: Any) -> str:
