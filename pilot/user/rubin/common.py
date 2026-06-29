@@ -423,7 +423,7 @@ def get_pilot_id(data: dict) -> str:
     regex = r'PandaJob\_(\d+)+'
     _id = findall(regex, pilotid)
     if _id:
-        jobid = data.get("jobid", "unknown")
+        jobid = data.get("job_id", "unknown")
         pilotid = pilotid.replace(_id[0], str(jobid))
 
     return pilotid
