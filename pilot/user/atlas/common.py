@@ -3096,7 +3096,7 @@ def get_pilot_id(data: dict) -> str:
         str: pilot id.
     """
     base_url = os.environ.get("GTAG", "unknown")
-    jobid = data.get("job_id")
+    jobid = data.get("jobid")
     site_name = data.get("site_name", "unknown")
 
     # If GTAG is not set or not a URL, return as-is
