@@ -174,24 +174,32 @@ def interpret(job: JobData) -> int:
 def interpret_payload_exit_info(job: JobData):
     """Interpret the exit information from the payload and set the appropriate error code.
 
-    Checks for out-of-memory, installation, AtlasSetup, disk-space, NFS/SQLite,
-    missing user code, and direct-access errors in that order. The first matching
-    condition sets the pilot error code with priority and returns. If none match and
-    the payload exited non-zero without a transform error, ``UNKNOWNPAYLOADFAILURE``
-    is set as a catch-all.
+    Checks for cling JIT allocation failure, out-of-memory, installation, AtlasSetup,
+    disk-space, NFS/SQLite, missing user code, and direct-access errors in that order.
+    The first matching condition sets the pilot error code with priority and returns.
+    If none match and the payload exited non-zero without a transform error,
+    ``UNKNOWNPAYLOADFAILURE`` is set as a catch-all.
+
+    The cling JIT check is intentionally placed before the OOM check: VMA exhaustion
+    (64k limit) causes cling to emit ``cling JIT session error: Cannot allocate memory``
+    and then triggers a secondary ``std::bad_alloc`` in the same stdout.  If the OOM
+    scan ran first it would match that ``std::bad_alloc`` and return ``PAYLOADOUTOFMEMORY``
+    (action: raise memory), masking the true cause and defeating the retryModule's
+    action 5 (reduce input count) that the cling JIT error triggers.
 
     Args:
         job: Job object whose error codes and diagnostics will be updated in place.
     """
-    # try to identify out of memory errors in the stderr
-    if is_out_of_memory(job):
-        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, priority=True)
-        return
-
-    # check for cling JIT "Cannot allocate memory" — distinct from a true OOM: caused by
-    # the worker node hitting its 64k VMA limit; retry with fewer input files (action 5)
+    # check for cling JIT "Cannot allocate memory" BEFORE the generic OOM scan —
+    # VMA exhaustion produces a secondary std::bad_alloc in payload.stdout that would
+    # otherwise cause is_out_of_memory() to fire first and set PAYLOADOUTOFMEMORY
     if is_cling_jit_error(job):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.ALLOCATIONERROR, priority=True)
+        return
+
+    # try to identify out of memory errors in the stderr/stdout
+    if is_out_of_memory(job):
+        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, priority=True)
         return
 
     # look for specific errors in the stdout (tail)
