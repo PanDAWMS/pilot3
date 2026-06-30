@@ -109,6 +109,7 @@ from pilot.util.constants import (
     SERVER_UPDATE_NOT_DONE
 )
 from pilot.util.container import execute
+from pilot.util.features import MachineFeatures
 from pilot.util.filehandling import (
     copy,
     create_symlink,
@@ -181,6 +182,12 @@ ReadJsonFn = Callable[[str], Optional[Mapping[str, Any]]]
 errors = ErrorCodes()
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
+
+# Minimum time (s) that must remain before the MachineFeatures shutdowntime for the pilot to
+# fetch a new job. Chosen to comfortably exceed the monitor's own shutdowntime grace window
+# (10 * 60 = 600s, see pilot.control.monitor.run_shutdowntime_minute_check()) plus typical
+# job setup/stage-in/stage-out overhead, so a freshly-started job is not immediately killed.
+MIN_TIME_FOR_NEW_JOB = 1800
 
 
 def control(queues: namedtuple, traces: Any, args: object) -> None:
@@ -1794,8 +1801,51 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     return data
 
 
+def _time_until_shutdown(args: Any) -> Optional[int]:
+    """Return the number of seconds until the MachineFeatures shutdowntime, if known.
+
+    This mirrors the shutdowntime lookup performed by
+    pilot.control.monitor.run_shutdowntime_minute_check(), but is used here to decide
+    whether it is worth fetching a new job at all -- not to abort an already running one.
+
+    Args:
+        args: pilot arguments (used to determine time since pilot start, for the same
+            staleness check applied in run_shutdowntime_minute_check()).
+
+    Returns:
+        Optional[int]: seconds remaining until shutdowntime, or None if shutdowntime is not
+            set, not parseable, or refers to a time before the pilot started (stale value).
+    """
+    machinefeatures = MachineFeatures().get()
+    if not machinefeatures:
+        return None
+
+    _shutdowntime = machinefeatures.get('shutdowntime', None)
+    if not _shutdowntime:
+        return None
+
+    try:
+        shutdowntime = int(_shutdowntime)
+    except (TypeError, ValueError) as exc:
+        logger.warning(f'failed to convert shutdowntime: {exc}')
+        return None
+
+    now = int(time.time())
+    time_since_start = get_time_since_start(args)
+
+    # ignore shutdowntime if it predates pilot start (stale value) -- same convention as
+    # pilot.control.monitor.run_shutdowntime_minute_check()
+    if shutdowntime < (now - time_since_start):
+        logger.debug(f'shutdowntime ({shutdowntime}) was set before pilot started - ignoring it '
+                     f'(now - time since start = {now - time_since_start})')
+        return None
+
+    return shutdowntime - now
+
+
 def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_requests: int, max_getjob_requests: int,  # noqa: C901
-                        should_update_server: bool, submitmode: str, harvester: bool, verify_proxy: bool, traces: Any) -> bool:  # noqa: C901
+                        should_update_server: bool, submitmode: str, harvester: bool, verify_proxy: bool, traces: Any,  # noqa: C901
+                        args: Any = None) -> bool:
     """Check if we can proceed with getJob.
 
     We may not proceed if we have run out of time (timefloor limit), if the proxy is too short, if disk space is too
@@ -1812,6 +1862,8 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         harvester: True if Harvester is used, False otherwise. Affects the max number of getjob reads from file.
         verify_proxy: True if the proxy should be verified. False otherwise.
         traces: traces object (to be able to propagate a proxy error all the way back to the wrapper).
+        args: pilot arguments, used to check the MachineFeatures shutdowntime before fetching a
+            new job (optional; the shutdowntime check is skipped if not provided).
 
     Returns:
         bool: True if pilot should proceed with getJob.
@@ -1873,6 +1925,16 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
     # timefloor not relevant for the first job
     if jobnumber > 0:
         logger.info(f'since timefloor={timefloor} s and only {currenttime - starttime} s has passed since launch, pilot can run another job')
+
+    # do not fetch a new job if the node is about to be reclaimed (MachineFeatures shutdowntime) --
+    # not relevant for the first job, which is handled separately by the batch system / wrapper
+    if jobnumber > 0 and args is not None:
+        remaining = _time_until_shutdown(args)
+        if remaining is not None and remaining < MIN_TIME_FOR_NEW_JOB:
+            return wrap_up_quickly(
+                f'insufficient time remaining before node shutdown ({remaining}s < '
+                f'{MIN_TIME_FOR_NEW_JOB}s minimum) - will not fetch another job'
+            )
 
     if harvester and jobnumber > 0:
         # unless it's the first job (which is preplaced in the init dir), instruct Harvester to place another job
@@ -2720,6 +2782,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
                 args.harvester,
                 args.verify_proxy,
                 traces,
+                args,
             )
         except Exception as exc:
             logger.warning(f"proceed_with_getjob() raised exception: {exc}")
