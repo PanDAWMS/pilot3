@@ -186,8 +186,9 @@ def remove_redundant_files(workdir: str, outputfiles: list = None, piloterrors: 
     if outputfiles or piloterrors or debugmode:  # reserved for future use
         pass
 
-    workdir = os.path.abspath(workdir)
-    remove_external_symlinks(workdir)
+    # warning: removing the external symlinks leads to problems with logs (the GTAG won't get updated in the gs copytool)
+    # workdir = os.path.abspath(workdir)
+    # remove_external_symlinks(workdir)
 
 
 def get_utility_commands(order: int = None, job: JobData = None, base_urls: list = None) -> dict:
