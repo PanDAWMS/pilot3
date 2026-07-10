@@ -767,7 +767,13 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
 
     # Backchannel only makes sense on accepted responses
     if result.response is not None:
-        handle_backchannel_command(result.response, job, args, test_tobekilled=test_tobekilled)
+        # note: the api/v1 endpoint nests backchannel fields (command, pilotSecrets) inside
+        # response['data'], e.g. {'success': True, 'data': {'command': 'tobekilled', ..}}.
+        # Normalize the response before dispatching so that handle_backchannel_command() can
+        # find these fields regardless of whether the enveloped or legacy flat shape was returned
+        # (fixes: tobekilled/debug/softkill/nocleanup/pilotSecrets silently ignored for api/v1 responses).
+        backchannel_data = extract_backchannel_data(result.response)
+        handle_backchannel_command(backchannel_data, job, args, test_tobekilled=test_tobekilled)
 
     if final:
         os.environ["SERVER_UPDATE"] = SERVER_UPDATE_FINAL
@@ -818,11 +824,45 @@ def get_debug_command(cmd: str) -> tuple[bool, str]:
     return debug_mode, debug_command
 
 
+def extract_backchannel_data(res: dict) -> dict:
+    """Normalize a PanDA server update response into a flat backchannel dict.
+
+    The current REST API (``api/v1/pilot/update_job``) nests backchannel fields such as
+    ``command`` and ``pilotSecrets`` inside ``res['data']``, e.g.
+    ``{'success': True, 'message': '', 'data': {'StatusCode': 0, 'command': 'tobekilled'}}``.
+    Older/legacy server responses returned these fields directly at the top level. This
+    function merges both layers into a single flat dict so that
+    :func:`handle_backchannel_command` can look fields up in one place regardless of which
+    response shape was actually received.
+
+    Nested ``data`` fields take precedence over top-level fields on key collisions, since
+    ``data`` reflects the current API format.
+
+    Args:
+        res: raw server response (either the enveloped api/v1 shape or a legacy flat dict).
+
+    Returns:
+        dict: flattened dict containing both top-level and formerly-nested-under-'data' keys,
+            ready for backchannel command lookups.
+    """
+    if not isinstance(res, dict):
+        return {}
+
+    merged = dict(res)
+    data = res.get('data')
+    if isinstance(data, dict):
+        merged.update(data)
+
+    return merged
+
+
 def handle_backchannel_command(res: dict, job: Any, args: Any, test_tobekilled: bool = False) -> None:
     """Check if the server update contain any backchannel information. If so, update the job object.
 
     Args:
-        res: server response.
+        res: normalized server response (see extract_backchannel_data()) - a flat dict in which
+            'command' and 'pilotSecrets', if present, are looked up at the top level regardless
+            of whether the original server response nested them under 'data'.
         job: job object.
         args: pilot args object.
         test_tobekilled: emulate a tobekilled command.
