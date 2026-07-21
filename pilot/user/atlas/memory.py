@@ -158,13 +158,13 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
 
         if "VHIMEM" not in resource_type:
             scaled_maxrss = memory_limit_panda * job_corecount
-            logger.debug(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
+            logger.info(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
         elif resource_type in score_resource_types:
             scaled_maxrss = (maxrss / pq_corecount) * job_corecount
-            logger.debug(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
+            logger.info(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
         elif resource_type in mcore_resource_types:
             scaled_maxrss = maxrss
-            logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
+            logger.info(f"MCORE logic: full maxrss = {scaled_maxrss}")
         else:
             scaled_maxrss = None  # trigger fallback
     except (ValueError, TypeError) as exc:
@@ -173,8 +173,8 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
 
     if scaled_maxrss:
         memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
-        logger.debug(f"memory limit using maxrss-based calculation: pilot_rss_grace * scaled_maxrss * 1024 = "
-                     f"{pilot_rss_grace} * {scaled_maxrss} * 1024 = {memory_limit_kb} kB")
+        logger.info(f"memory limit using maxrss-based calculation: pilot_rss_grace * scaled_maxrss * 1024 = "
+                    f"{pilot_rss_grace} * {scaled_maxrss} * 1024 = {memory_limit_kb} kB")
         return int(memory_limit_kb)
 
     # fallback to job.minramcount
@@ -184,10 +184,10 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
         if not is_push_queue:
             minram = int(math.ceil(minram / 1000.0)) * 1000  # Round up for pull PQs
         memory_limit_kb = pilot_rss_grace * minram * 1024
-        logger.debug(f"fallback using job.minramcount ({minram} MB): {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
-                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
-        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
+        logger.info(f"fallback using job.minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.info(f"(pilot_rss_grace * minramcount * 1024 = "
+                    f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
+        logger.info(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
 
         return int(memory_limit_kb)
 
