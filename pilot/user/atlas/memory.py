@@ -321,3 +321,5 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
         logger.warning("could not determine memory limit - memory check skipped")
     elif maxpss_int == -1:
         logger.warning("maxPSS not found in memory monitor output")
+
+    return exit_code, diagnostics
