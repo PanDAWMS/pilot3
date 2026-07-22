@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """CPU related functionality."""
 
@@ -81,9 +81,11 @@ def set_core_counts(**kwargs: Any) -> None:
         else:
             logger.debug(f'set number of actual cores to: {job.actualcorecount}')
 
-            # overwrite the original core count and add it to the list
-            job.corecount = job.actualcorecount
-            job.corecounts = add_core_count(job.actualcorecount)
+            # note: job.corecount (the number of cores requested for/allocated to the job) is
+            # intentionally not overwritten here - only the actual measurement is recorded, since
+            # downstream code (e.g. the work directory size check) relies on job.corecount continuing
+            # to reflect the requested/allocated value, not a live, possibly transient, snapshot
+            job.corecounts = add_core_count(job.actualcorecount, job.corecounts)
             logger.debug(f'current core counts list: {job.corecounts}')
 
     else:
