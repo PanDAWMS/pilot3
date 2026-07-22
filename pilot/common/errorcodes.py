@@ -484,16 +484,30 @@ class ErrorCodes:
             "Failed to create user namespace": self.SINGULARITYFAILEDUSERNAMESPACE,
             "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
-            # Apptainer CLI version incompatibility: ALRB probes the binary with
-            # 'apptainer buildcfg' and uses flags (e.g. -B) that are unrecognised
-            # on very old or non-standard builds.  The resulting stderr contains
-            # "unknown shorthand flag" or "unknown flag:" before any container is
-            # started, so this is unambiguously an apptainer installation problem.
-            "unknown shorthand flag": self.SINGULARITYGENERALFAILURE,
-            "unknown flag:": self.SINGULARITYGENERALFAILURE,
             "cannot create directory": self.MKDIR,
             "General payload setup verification error": self.SETUPFAILURE,
             "No such file or directory": self.NOSUCHFILE,
+        }
+
+        # Apptainer CLI version-incompatibility patterns: ALRB's
+        # apptainerFunctions.sh probes the binary at job start with
+        # 'apptainer buildcfg ...' purely to detect CLI capabilities, using
+        # flags (e.g. -B) that some apptainer builds' 'buildcfg' subcommand
+        # does not accept. This is a *different* subcommand from the one
+        # that actually launches the payload container ('apptainer exec'),
+        # which commonly does accept those same flags. Confirmed in
+        # production: this probe failed with "unknown shorthand flag" while
+        # the job's container started normally afterwards and the payload
+        # completed with trf exit code 0. So, unlike the patterns above,
+        # these two do not reliably indicate that the container failed to
+        # start, and must not override an already-successful (exit_code=0)
+        # result. They are only trusted as a genuine failure signal when the
+        # transform itself already reported a non-zero exit code, in which
+        # case they still provide a more specific diagnostic than the
+        # generic PAYLOADEXECUTIONFAILURE fallback.
+        ambiguous_apptainer_patterns = {
+            "unknown shorthand flag": self.SINGULARITYGENERALFAILURE,
+            "unknown flag:": self.SINGULARITYGENERALFAILURE,
         }
 
         def get_key_by_value(d: dict, value: str) -> str:
@@ -513,8 +527,15 @@ class ErrorCodes:
             if error_message in stderr:
                 return error_code, error_message
 
+        # These patterns are only authoritative when the transform already
+        # failed (see comment above) - do not let them override exit_code=0.
+        if exit_code != 0:
+            for error_message, error_code in ambiguous_apptainer_patterns.items():
+                if error_message in stderr:
+                    return error_code, error_message
+
         # Handle specific exit codes
-        key = get_key_by_value(error_map, exit_code)
+        key = get_key_by_value({**error_map, **ambiguous_apptainer_patterns}, exit_code)
         if exit_code == 2:
             return self.LSETUPTIMEDOUT, key
         if exit_code == 3:

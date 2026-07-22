@@ -22,11 +22,18 @@
 """Unit tests for ErrorCodes.resolve_transform_error().
 
 Covers:
-- Pre-existing apptainer/singularity pattern matching.
-- New apptainer CLI version-incompatibility patterns
-  (unknown shorthand flag, unknown flag:).
-- The loop-guard fix: matched patterns are returned for *any* exit code,
-  not only when exit_code == 0.
+- Pre-existing apptainer/singularity pattern matching (authoritative
+  regardless of exit_code, since these indicate the container itself
+  failed to mount/start).
+- Apptainer CLI version-incompatibility patterns (unknown shorthand flag,
+  unknown flag:), which are ambiguous (see class docstring) and are only
+  authoritative when exit_code != 0.
+- Regression: these ambiguous patterns must NOT override an already
+  successful (exit_code=0) transform result - the production false-positive
+  reported 2026-07-22, where an ALRB apptainer buildcfg version-probe failed
+  but the job's actual container and payload succeeded.
+- The loop-guard fix: non-ambiguous patterns are returned for *any* exit
+  code, not only when exit_code == 0.
 - Numeric exit-code fallbacks (2, 3, 251, -1, COMMANDTIMEDOUT).
 - Regression: no-match path still returns PAYLOADEXECUTIONFAILURE for
   unrecognised non-zero exit codes.
@@ -99,12 +106,18 @@ class TestResolveTransformErrorExistingPatterns(unittest.TestCase):
 
 
 class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
-    """New patterns for apptainer CLI version-incompatibility failures.
+    """Patterns for apptainer CLI version-incompatibility failures.
 
     These arise when ALRB's apptainerFunctions.sh probes the apptainer binary
     with 'apptainer buildcfg' and the binary does not recognise a CLI flag
-    (e.g. -B).  The error occurs before any container is started and is
-    unambiguously an installation/version problem at the site.
+    (e.g. -B). This probe is a *different* apptainer subcommand from the one
+    that actually launches the payload container ('apptainer exec'), which
+    commonly accepts flags that 'buildcfg' rejects. Confirmed in production
+    (ATLASPANDA report, 2026-07-22): the buildcfg probe failed with this
+    exact message while the job's container started normally and the payload
+    completed with trf exit code 0. Because of this, these two patterns are
+    only trusted as a failure signal when exit_code is already non-zero; they
+    must not override an already-successful (exit_code=0) result.
     """
 
     # --- unknown shorthand flag ---
@@ -122,15 +135,35 @@ class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
         self.assertIn("unknown shorthand flag", msg)
 
     def test_unknown_shorthand_flag_minimal(self):
-        """Minimal 'unknown shorthand flag' string maps to SINGULARITYGENERALFAILURE."""
+        """Minimal 'unknown shorthand flag' string with exit_code=1 maps to SINGULARITYGENERALFAILURE."""
         ec, msg = errors.resolve_transform_error(1, "unknown shorthand flag: 'B' in -B")
         self.assertEqual(ec, errors.SINGULARITYGENERALFAILURE)
 
     def test_unknown_shorthand_flag_not_partial_match(self):
-        """'unknown shorthand' without 'flag' does not trigger the new pattern."""
+        """'unknown shorthand' without 'flag' does not trigger the pattern."""
         # Should fall through to numeric fallback (exit_code=1 → PAYLOADEXECUTIONFAILURE)
         ec, _ = errors.resolve_transform_error(1, "unknown shorthand option specified")
         self.assertEqual(ec, errors.PAYLOADEXECUTIONFAILURE)
+
+    def test_unknown_shorthand_flag_exit0_does_not_override_success(self):
+        """Regression: buildcfg-probe noise must not override a successful (exit_code=0) transform.
+
+        This reproduces the production false-positive: the ALRB buildcfg
+        version-probe fails with this exact message, but the job's actual
+        container invocation succeeded and the transform reported exit
+        code 0 (output file validated, event count passed). The pilot must
+        not reclassify this as SINGULARITYGENERALFAILURE.
+        """
+        stderr = (
+            'alrb_contVerN=Error: syntax error in expression (error token is ":")\n'
+            "Error for command \"buildcfg\": unknown shorthand flag: 'B' in -B\n"
+            "Options for buildcfg command:\n"
+            "  -h, --help   help for\n"
+            "Run 'singularity --help' for more detailed usage information.\n"
+        )
+        ec, msg = errors.resolve_transform_error(0, stderr)
+        self.assertEqual(ec, 0, "exit_code=0 must be preserved despite the buildcfg probe noise")
+        self.assertEqual(msg, "")
 
     # --- unknown flag: ---
 
@@ -141,7 +174,7 @@ class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
         self.assertIn("unknown flag:", msg)
 
     def test_unknown_flag_minimal(self):
-        """Minimal 'unknown flag:' string maps to SINGULARITYGENERALFAILURE."""
+        """Minimal 'unknown flag:' string with exit_code=1 maps to SINGULARITYGENERALFAILURE."""
         ec, msg = errors.resolve_transform_error(1, "unknown flag: --some-option")
         self.assertEqual(ec, errors.SINGULARITYGENERALFAILURE)
 
@@ -149,6 +182,12 @@ class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
         """'unknown flag' without trailing colon does not trigger the pattern."""
         ec, _ = errors.resolve_transform_error(1, "unknown flag passed to function")
         self.assertEqual(ec, errors.PAYLOADEXECUTIONFAILURE)
+
+    def test_unknown_flag_exit0_does_not_override_success(self):
+        """Regression: 'unknown flag:' noise must not override a successful (exit_code=0) transform."""
+        ec, msg = errors.resolve_transform_error(0, "Error: unknown flag: --bind")
+        self.assertEqual(ec, 0)
+        self.assertEqual(msg, "")
 
 
 class TestResolveTransformErrorLoopGuardFix(unittest.TestCase):
