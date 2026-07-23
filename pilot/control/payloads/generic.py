@@ -28,6 +28,7 @@
 from __future__ import annotations
 import logging
 import os
+import re
 import signal
 import time
 import traceback
@@ -881,6 +882,101 @@ class Executor:
 
         return user.should_verify_setup(self.__job)
 
+    @staticmethod
+    def resolve_payload_exit_code(exit_code: int, stdout: str, stderr: str) -> int:
+        """Resolve the final payload process exit code.
+
+        ``exit_code`` here is the raw OS-level exit status of the whole
+        apptainer-wrapped payload process (from ``wait_graceful()`` /
+        ``proc.poll()``), not the transform's own internal result. ALRB
+        separately probes the apptainer binary at job start with
+        ``apptainer buildcfg ...``, a *different* subcommand from the one
+        that actually launches the payload container. On some apptainer
+        builds that unrelated probe is rejected ("unknown shorthand flag" /
+        "unknown flag:"), and that failure can leak through as a non-zero
+        exit code for the whole wrapped process - even though the transform
+        itself completed successfully. ATLAS transforms (Gen_tf.py etc.)
+        always report their own definitive result via a
+        "... stopped at ..., trf exit code N" trailer in stdout. If that
+        trailer reports 0 while the wrapper's own exit code is non-zero, and
+        the only issue found in stderr is this known-benign buildcfg probe
+        (i.e. no other apptainer/singularity pattern takes precedence), the
+        transform's own report is trusted instead of the wrapper's exit code.
+
+        Args:
+            exit_code: raw exit code of the wrapped payload process.
+            stdout: full payload stdout.
+            stderr: full payload stderr.
+
+        Returns:
+            int: the (possibly corrected) exit code.
+        """
+        if exit_code <= 0 or not stdout:
+            # nothing to correct: already success, or a signal/negative code
+            # (killed process) that should not be second-guessed from stdout
+            return exit_code
+
+        _, error_message = errors.resolve_transform_error(exit_code, stderr)
+        if error_message not in ("unknown shorthand flag", "unknown flag:"):
+            return exit_code
+
+        matches = re.findall(r"trf exit code (-?\d+)", stdout)
+        if matches and int(matches[-1]) == 0:
+            logger.warning(
+                f"wrapper reported exit_code={exit_code} but the transform's own "
+                "trailer reports 'trf exit code 0', and the only stderr issue is "
+                "the known-benign apptainer buildcfg probe - trusting the "
+                "transform's own result"
+            )
+            return 0
+
+        return exit_code
+
+    @staticmethod
+    def resolve_setup_verification_result(exit_code: int, stdout: str, diagnostics: str) -> tuple[int, str]:
+        """Resolve the final exit code/diagnostics for a setup verification run.
+
+        The setup verification command (see ``run()``) always appends
+        ``echo "Done."`` as its final statement. ALRB separately probes the
+        apptainer binary at job start with ``apptainer buildcfg ...``, a
+        *different* subcommand from the one that actually runs this
+        verification container. On some apptainer builds that unrelated
+        probe is rejected ("unknown shorthand flag" / "unknown flag:"), and
+        that failure can leak through as a non-zero exit code for the whole
+        wrapper - even though the setup script itself ran to completion
+        inside the container. If the "Done." marker reached stdout, the
+        container definitely started and the shell ran to the end, so that
+        reclassified error is noise from the unrelated probe, not a real
+        setup failure, and must not fail the job.
+
+        Args:
+            exit_code: raw exit code from the setup verification command.
+            stdout: captured stdout from the setup verification command.
+            diagnostics: combined diagnostic text (typically stdout + stderr).
+
+        Returns:
+            tuple[int, str]: (exit_code, diagnostics), overridden to (0, "")
+            when the failure is determined to be the benign buildcfg-probe
+            artifact; otherwise the (possibly reclassified) exit code and
+            formatted diagnostics.
+        """
+        _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
+        if error_message:
+            logger.warning(f"found apptainer error in stderr: {error_message}")
+
+        done_marker_seen = bool(stdout) and any(line.strip() == "Done." for line in stdout.splitlines())
+        if error_message in ("unknown shorthand flag", "unknown flag:") and done_marker_seen:
+            logger.warning(
+                "ignoring apptainer buildcfg probe error in setup verification - "
+                "the setup script reached its final 'Done.' marker, so the "
+                "container and setup actually completed successfully"
+            )
+            return 0, ""
+
+        if _exit_code != exit_code:
+            logger.warning(f"reclassified setup exit code {exit_code} -> {_exit_code}")
+        return _exit_code, errors.format_diagnostics(_exit_code, diagnostics)
+
     def run(self) -> tuple[int, str]:  # noqa: C901
         """
         Run all payload processes including pre/post-processes and utilities.
@@ -947,16 +1043,9 @@ class Executor:
                         if stdout and stderr
                         else "General payload setup verification error (check setup logs)"
                     )
-                    # check for special errors in the output
-                    _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
-                    if error_message:
-                        logger.warning(f"found apptainer error in stderr: {error_message}")
-                    if _exit_code != exit_code:
-                        logger.warning(f"reclassified setup exit code {exit_code} -> {_exit_code}")
-                    exit_code = _exit_code
-
-                    diagnostics = errors.format_diagnostics(exit_code, diagnostics)
-                    return exit_code, diagnostics
+                    exit_code, diagnostics = self.resolve_setup_verification_result(exit_code, stdout, diagnostics)
+                    if exit_code:
+                        return exit_code, diagnostics
                 if out:
                     out.close()
                     logger.debug(f"closed {stdout_filename}")
@@ -1043,6 +1132,10 @@ class Executor:
 
                 logger.info("will wait for graceful exit")
                 exit_code = self.wait_graceful(self.__args, proc)
+                if exit_code:
+                    stdout_content = read_file(os.path.join(self.__job.workdir, config.Payload.payloadstdout))
+                    stderr_content = read_file(os.path.join(self.__job.workdir, config.Payload.payloadstderr))
+                    exit_code = self.resolve_payload_exit_code(exit_code, stdout_content, stderr_content)
                 # reset error if Raythena decided to kill payload (no error)
                 if errors.KILLPAYLOAD in self.__job.piloterrorcodes:
                     logger.debug("ignoring KILLPAYLOAD error")
