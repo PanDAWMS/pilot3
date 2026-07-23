@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-26
 
 """CPU related functionality."""
 
@@ -26,7 +26,9 @@ import logging
 from typing import Any
 
 from pilot.info import JobData
-from pilot.util.container import execute
+from pilot.util.math import float_to_rounded_string
+
+from .utilities import get_memory_values
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +68,49 @@ def add_core_count(corecount: int, core_counts: list = None) -> list:
 def set_core_counts(**kwargs: Any) -> None:
     """Set the number of used cores.
 
+    Relies on the memory monitor (prmon) to estimate the number of actual cores used by the payload,
+    (utime+stime)/walltime, the same technique used by the ATLAS plugin. This is a cumulative,
+    time-averaged estimate rather than an instantaneous process snapshot, so it is not skewed by a
+    payload that has not yet ramped up to its full parallelism (e.g. right after start-up) - the
+    condition that triggered ATLASPANDA's usdf/Rubin work-dir-size incident (a 10-core job briefly
+    measured as 1 core, corrupting job.corecount for the queue's dynamic-corecount work dir check).
+
+    Note: job.corecount (the number of cores requested for/allocated to the job) is never modified
+    here - only job.actualcorecount and job.corecounts are updated. Downstream code (e.g. the work
+    directory size check) relies on job.corecount continuing to reflect the requested/allocated value.
+
     Args:
-        **kwargs: keyword arguments including 'job' (job object).
+        **kwargs: keyword arguments including job and walltime.
     """
     job = kwargs.get('job', None)
-    if job and job.pgrp:
-        cmd = f"ps axo pgid,psr | sort | grep {job.pgrp} | uniq | awk '{{print $1}}' | grep -x {job.pgrp} | wc -l"
-        _, stdout, _ = execute(cmd, mute=True)
-        logger.debug(f'{cmd}: {stdout}')
+    walltime = kwargs.get('walltime', None)
+
+    if job and walltime:
         try:
-            job.actualcorecount = int(stdout)
+            summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
         except ValueError as exc:
-            logger.warning(f'failed to convert number of actual cores to int: {exc}')
+            logger.warning(f'failed to parse memory monitor output: {exc}')
+            summary_dictionary = None
+
+        if summary_dictionary:
+            time_dictionary = summary_dictionary.get('Time', None)
+            if time_dictionary:
+                stime = time_dictionary.get('stime', None)
+                utime = time_dictionary.get('utime', None)
+                if stime and utime:
+                    logger.debug(f'stime={stime}')
+                    logger.debug(f'utime={utime}')
+                    logger.debug(f'walltime={walltime}')
+                    cores = float(stime + utime) / float(walltime)
+                    logger.debug(f'number of cores={cores}')
+                    job.actualcorecount = float_to_rounded_string(cores, precision=2)
+                    job.corecounts = add_core_count(job.actualcorecount, job.corecounts)
+                    logger.debug(f'current core counts list: {job.corecounts}')
+                else:
+                    logger.debug('no stime/utime')
+            else:
+                logger.debug('no time dictionary')
         else:
-            logger.debug(f'set number of actual cores to: {job.actualcorecount}')
-
-            # overwrite the original core count and add it to the list
-            job.corecount = job.actualcorecount
-            job.corecounts = add_core_count(job.actualcorecount)
-            logger.debug(f'current core counts list: {job.corecounts}')
-
+            logger.debug('no summary dictionary')
     else:
-        logger.debug('payload process group not set - cannot check number of cores used by payload')
+        logger.debug(f'failed to calculate number of cores (walltime={walltime})')

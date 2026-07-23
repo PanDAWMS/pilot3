@@ -700,6 +700,48 @@ def detect_architecture(model_name: str) -> str:
     return "Unknown"
 
 
+# Known nvidia-smi header formats for the CUDA version field, tried in order.
+# nvidia-smi occasionally changes its plain-text header layout across driver
+# releases, e.g.:
+#   legacy:  "... Driver Version: 535.129.03   CUDA Version: 12.2 ..."
+#   >=610.x: "... KMD Version: 610.43.02   CUDA UMD Version: 13.3 ..."
+# Add new *exact* patterns here as future formats are encountered, ahead of
+# the generic fallback below - an exact match documents the format we've
+# actually seen in the wild, whereas the fallback is a safety net for formats
+# we haven't (e.g. a hypothetical "CUDA Driver Version:" relabeling).
+CUDA_VERSION_PATTERNS = (
+    r'CUDA Version:\s+([\d.]+)',        # legacy nvidia-smi header
+    r'CUDA UMD Version:\s+([\d.]+)',    # nvidia-smi >= 610.x header (KMD/UMD split)
+    r'CUDA[A-Za-z\s]*Version:\s+([\d.]+)',  # generic fallback: any "CUDA ... Version:" label
+)
+
+
+def _extract_cuda_version(full_output: str) -> Optional[str]:
+    """
+    Extract the CUDA version from plain-text nvidia-smi output.
+
+    Tries each pattern in :data:`CUDA_VERSION_PATTERNS` in turn, so that a
+    driver/nvidia-smi update which renames or moves the field does not by
+    itself break CUDA version reporting - the previous pattern is kept as a
+    fallback and a new one can be added alongside it. The last pattern in
+    the list is a generic "CUDA ... Version:" fallback that catches label
+    variants not yet seen (and not worth a dedicated exact pattern for).
+
+    Args:
+        full_output (str): Full stdout from a plain ``nvidia-smi`` invocation.
+
+    Returns:
+        Optional[str]: The matched CUDA version string, or None if no known
+            pattern matched.
+    """
+    for pattern in CUDA_VERSION_PATTERNS:
+        cuda_match = re.search(pattern, full_output)
+        if cuda_match:
+            return cuda_match.group(1)
+
+    return None
+
+
 def get_gpu_info(site: str) -> dict:
     """
     Get GPU information using nvidia-smi command.
@@ -722,8 +764,18 @@ def get_gpu_info(site: str) -> dict:
             universal_newlines=True
         ).stdout
 
-        cuda_match = re.search(r'CUDA Version:\s+([\d.]+)', full_output)
-        cuda_version = cuda_match.group(1) if cuda_match else "Unknown"
+        cuda_version = _extract_cuda_version(full_output)
+        if cuda_version is None:
+            # None of the known patterns matched - nvidia-smi's output format has
+            # likely changed again. Log the full output (rather than just "Unknown")
+            # so the new format is captured in the pilot log and a new pattern can
+            # be added to CUDA_VERSION_PATTERNS without having to reproduce the issue.
+            logger.warning(
+                'failed to extract CUDA version from nvidia-smi output using known patterns '
+                '- nvidia-smi format may have changed; full output follows for diagnosis:\n'
+                f'{full_output}'
+            )
+            cuda_version = "Unknown"
 
         # Query key GPU parameters
         result = subprocess.run(

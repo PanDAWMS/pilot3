@@ -402,6 +402,28 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
         exitcode = errors.REMOTEFILECOULDNOTBEOPENED
         diagnostics = f"Remote file(s) could not be opened: {not_opened}"
 
+        # Attempt to distinguish a genuinely absent file from other open failures
+        # (network issues, auth problems, etc.) by scanning the remote file open log
+        # for XRootD / ROOT "No such file" error text.  The log is written by
+        # open_remote_file.py into the same workdir.  If the log is absent or
+        # contains no matching pattern we leave the code as REMOTEFILECOULDNOTBEOPENED,
+        # so there is no regression for non-missing-file failures.
+        _no_such_file_patterns = ("No such file or directory", "No such file (source)")
+        log_path = os.path.join(workdir, config.Pilot.remotefileverification_log)
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, encoding='utf-8', errors='replace') as _fh:
+                    log_text = _fh.read()
+                if any(pat in log_text for pat in _no_such_file_patterns):
+                    logger.info('remote file open log indicates file(s) absent from storage; '
+                                'promoting error code to MISSINGINPUTFILE (1331)')
+                    exitcode = errors.MISSINGINPUTFILE
+            except OSError as _exc:
+                logger.warning(f'could not read remote file open log {log_path}: {_exc}')
+        else:
+            logger.debug(f'remote file open log not found at {log_path}; '
+                         f'keeping REMOTEFILECOULDNOTBEOPENED (1361)')
+
     return exitcode, diagnostics, not_opened
 
 

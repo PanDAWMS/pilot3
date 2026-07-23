@@ -83,7 +83,7 @@ class TestIsDirectAccessError(unittest.TestCase):
         job.workdir = '/nonexistent/path'
         with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
             mock_cfg.Payload.payloadstdout = 'payload.stdout'
-            diag, _lfns = is_direct_access_error(job)
+            _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertEqual(diag, '')
 
     def test_returns_empty_when_no_pattern_matches(self):
@@ -96,7 +96,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertEqual(diag, '')
 
     def test_detects_tnetxngfile_error(self):
@@ -109,7 +109,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertNotEqual(diag, '')
         self.assertIn('TNetXNGFile', diag)
 
@@ -123,7 +123,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertNotEqual(diag, '')
         self.assertIn('root://', diag)
 
@@ -137,7 +137,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertNotEqual(diag, '')
 
     def test_detects_no_servers_available(self):
@@ -150,7 +150,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertNotEqual(diag, '')
 
     def test_prefers_line_with_file_path(self):
@@ -165,7 +165,7 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertIn('root://', diag, 'line with file URL should be preferred as diagnostics')
 
     def test_fallback_to_first_matched_line_when_no_path(self):
@@ -179,8 +179,58 @@ class TestIsDirectAccessError(unittest.TestCase):
             job.workdir = tmpdir
             with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
-                diag, _lfns = is_direct_access_error(job)
+                _ecode, diag, _lfns = is_direct_access_error(job)
         self.assertIn('Operation expired', diag)
+
+    def test_xrd3010_fullyrestricted_returns_xrdaccessrestricted_code(self):
+        """XRootD [3010] FullyRestricted must return XRDACCESSRESTRICTED, not STAGEINFAILED."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout = os.path.join(tmpdir, 'payload.stdout')
+            with open(stdout, 'w') as f:
+                f.write(
+                    'TNetXNGFile::Open ERROR [ERROR] Server responded with an error: '
+                    '[3010] Restriction FullyRestricted denied access for [READ_DATA] on '
+                    '/pnfs/uchicago.edu/atlasdatadisk/rucio/data17_13TeV/c6/21/'
+                    'DAOD_PHYS.49561597._000010.pool.root.1\n'
+                )
+            job = MagicMock()
+            job.workdir = tmpdir
+            with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
+                mock_cfg.Payload.payloadstdout = 'payload.stdout'
+                ecode, diag, _lfns = is_direct_access_error(job)
+        self.assertEqual(ecode, errors.XRDACCESSRESTRICTED,
+                         f'[3010] FullyRestricted must return XRDACCESSRESTRICTED (1388), got {ecode}')
+        self.assertNotEqual(diag, '')
+
+    def test_xrd3010_restriction_denied_returns_xrdaccessrestricted_code(self):
+        """XRootD [3010] Restriction denied variant must return XRDACCESSRESTRICTED."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout = os.path.join(tmpdir, 'payload.stdout')
+            with open(stdout, 'w') as f:
+                f.write(
+                    '[ERROR] Server responded with an error: [3010] Restriction denied access\n'
+                )
+            job = MagicMock()
+            job.workdir = tmpdir
+            with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
+                mock_cfg.Payload.payloadstdout = 'payload.stdout'
+                ecode, diag, _lfns = is_direct_access_error(job)
+        self.assertEqual(ecode, errors.XRDACCESSRESTRICTED)
+        self.assertNotEqual(diag, '')
+
+    def test_generic_xrootd_error_still_returns_stageinfailed_code(self):
+        """Generic XRootD errors (no [3010]) must still return STAGEINFAILED, not XRDACCESSRESTRICTED."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stdout = os.path.join(tmpdir, 'payload.stdout')
+            with open(stdout, 'w') as f:
+                f.write('[ERROR] No servers are available to serve your request\n')
+            job = MagicMock()
+            job.workdir = tmpdir
+            with patch('pilot.user.atlas.diagnose.config') as mock_cfg:
+                mock_cfg.Payload.payloadstdout = 'payload.stdout'
+                ecode, diag, _lfns = is_direct_access_error(job)
+        self.assertEqual(ecode, errors.STAGEINFAILED,
+                         f'generic error must return STAGEINFAILED (1099), got {ecode}')
 
 
 class TestInterpretPayloadExitInfoDirectAccess(unittest.TestCase):
@@ -228,6 +278,7 @@ class TestInterpretPayloadExitInfoDirectAccess(unittest.TestCase):
 
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
                 mock_errors.STAGEINFAILED = errors.STAGEINFAILED
+                mock_errors.XRDACCESSRESTRICTED = errors.XRDACCESSRESTRICTED
                 mock_errors.UNKNOWNPAYLOADFAILURE = errors.UNKNOWNPAYLOADFAILURE
                 mock_errors.add_error_code.side_effect = _add_error_code
 
@@ -315,6 +366,7 @@ class TestInterpretPayloadExitInfoDirectAccess(unittest.TestCase):
 
                 mock_cfg.Payload.payloadstdout = 'payload.stdout'
                 mock_errors.STAGEINFAILED = errors.STAGEINFAILED
+                mock_errors.XRDACCESSRESTRICTED = errors.XRDACCESSRESTRICTED
                 mock_errors.UNKNOWNPAYLOADFAILURE = errors.UNKNOWNPAYLOADFAILURE
                 mock_errors.add_error_code.side_effect = _add_error_code
 

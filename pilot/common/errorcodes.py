@@ -191,6 +191,7 @@ class ErrorCodes:
     NOJOBSINPANDA = 1385  # internally used code
     PANDAQUEUENOTONLINE = 1386
     ALLOCATIONERROR = 1387
+    XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -286,7 +287,7 @@ class ErrorCodes:
         PAYLOADSIGSEGV: "SIGSEGV: Invalid memory reference or a segmentation fault",
         NONDETERMINISTICDDM: "Failed to construct SURL for non-deterministic ddm (update CRIC)",
         JSONRETRIEVALTIMEOUT: "JSON retrieval timed out",
-        MISSINGINPUTFILE: "Input file is missing in storage element",
+        MISSINGINPUTFILE: "Input file missing on storage",
         BLACKHOLE: "Black hole detected in file system (consult Pilot log)",
         NOREMOTESPACE: "No space left on device",
         SETUPFATAL: "Setup failed with a fatal exception (consult Payload log)",
@@ -342,6 +343,7 @@ class ErrorCodes:
         NOJOBSINPANDA: "No jobs in PanDA",
         PANDAQUEUENOTONLINE: "PanDA queue is not online",
         ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
+        XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -487,6 +489,27 @@ class ErrorCodes:
             "No such file or directory": self.NOSUCHFILE,
         }
 
+        # Apptainer CLI version-incompatibility patterns: ALRB's
+        # apptainerFunctions.sh probes the binary at job start with
+        # 'apptainer buildcfg ...' purely to detect CLI capabilities, using
+        # flags (e.g. -B) that some apptainer builds' 'buildcfg' subcommand
+        # does not accept. This is a *different* subcommand from the one
+        # that actually launches the payload container ('apptainer exec'),
+        # which commonly does accept those same flags. Confirmed in
+        # production: this probe failed with "unknown shorthand flag" while
+        # the job's container started normally afterwards and the payload
+        # completed with trf exit code 0. So, unlike the patterns above,
+        # these two do not reliably indicate that the container failed to
+        # start, and must not override an already-successful (exit_code=0)
+        # result. They are only trusted as a genuine failure signal when the
+        # transform itself already reported a non-zero exit code, in which
+        # case they still provide a more specific diagnostic than the
+        # generic PAYLOADEXECUTIONFAILURE fallback.
+        ambiguous_apptainer_patterns = {
+            "unknown shorthand flag": self.SINGULARITYGENERALFAILURE,
+            "unknown flag:": self.SINGULARITYGENERALFAILURE,
+        }
+
         def get_key_by_value(d: dict, value: str) -> str:
             """Return the key corresponding to a given value."""
             for k, v in d.items():
@@ -494,27 +517,25 @@ class ErrorCodes:
                     return k
             return ""
 
-        # Check if stderr contains any known error messages
-        apptainer_codes = {
-            self.SINGULARITYBINDPOINTFAILURE,
-            self.SINGULARITYNOLOOPDEVICES,
-            self.SINGULARITYIMAGEMOUNTFAILURE,
-            self.SINGULARITYIMAGEMOUNTFAILURE,
-            self.SINGULARITYGENERALFAILURE,
-            self.SINGULARITYFAILEDUSERNAMESPACE,
-            self.SINGULARITYNOTINSTALLED,
-            self.APPTAINERNOTINSTALLED
-        }
+        # Check if stderr contains any known error messages.
+        # Return immediately on the first match: the matched pattern is
+        # authoritative regardless of the numeric exit code.  (The previous
+        # guard "only return when exit_code == 0" meant that any non-zero
+        # exit code with a recognisable apptainer pattern fell through to the
+        # generic PAYLOADEXECUTIONFAILURE fallback below.)
         for error_message, error_code in error_map.items():
             if error_message in stderr:
-                # only allow overwriting exit code 0 for specific errors (read: apptainer)
-                if exit_code == 0 and error_code in apptainer_codes:
+                return error_code, error_message
+
+        # These patterns are only authoritative when the transform already
+        # failed (see comment above) - do not let them override exit_code=0.
+        if exit_code != 0:
+            for error_message, error_code in ambiguous_apptainer_patterns.items():
+                if error_message in stderr:
                     return error_code, error_message
-                else:
-                    continue
 
         # Handle specific exit codes
-        key = get_key_by_value(error_map, exit_code)
+        key = get_key_by_value({**error_map, **ambiguous_apptainer_patterns}, exit_code)
         if exit_code == 2:
             return self.LSETUPTIMEDOUT, key
         if exit_code == 3:

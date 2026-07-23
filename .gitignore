@@ -13,3 +13,6 @@ build
 rucio_upload.json
 tools
 doc/_build/
+__pycache__/
+.coverage
+

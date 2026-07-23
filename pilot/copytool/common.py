@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Mario Lassnig, mario.lassnig@cern.ch, 2020
 
 """Commnon functions for copytools."""
@@ -238,7 +238,7 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
     elif "File exists" in output or 'SRM_FILE_BUSY' in output or 'file already exists' in output:
         ret = get_error_info(ErrorCodes.FILEEXISTS, 'FILE_EXISTS',
                              f"File already exists in the destination: {output}")
-    elif "No such file or directory" in output and is_stagein:
+    elif ("No such file or directory" in output or "No such file (source)" in output) and is_stagein:
         ret = get_error_info(ErrorCodes.MISSINGINPUTFILE, 'MISSING_INPUT', output)
     elif "query chksum is not supported" in output or "Unable to checksum" in output:
         ret = get_error_info(ErrorCodes.CHKSUMNOTSUP, 'CHKSUM_NOTSUP', output)
@@ -254,6 +254,9 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
         ret = get_error_info(ErrorCodes.SERVICENOTAVAILABLE, 'SERVICE_ERROR', output)
     elif "Network is unreachable" in output:
         ret = get_error_info(ErrorCodes.UNREACHABLENETWORK, 'NETWORK_UNREACHABLE', output)
+    elif re.search(r'\[3010\].*(?:FullyRestricted|Restriction.*denied)', output):
+        ret = get_error_info(ErrorCodes.XRDACCESSRESTRICTED, 'XRDCP_ACCESS_RESTRICTED',
+                             f"XRootD access restricted (proxy scope too narrow): {output}")
     elif "Run: [ERROR] Server responded with an error" in output:
         ret = get_error_info(ErrorCodes.XRDCPERROR, 'XRDCP_ERROR', output)
     elif "Unable to locate credentials" in output:

@@ -70,7 +70,7 @@ def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
         ec, stdout, stderr = execute(cmd)
         if ec:
             logger.warning(f'failed to set attribute PandaID={pandaid} for job ClassAd')
-            logger.warning('the job submit JDL must include "want_io_proxy = true” to allow runtime ClassAd updates')
+            logger.warning('the job submit JDL must include "want_io_proxy = true" to allow runtime ClassAd updates')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
@@ -79,7 +79,7 @@ def update_condor_classad(pandaid: int = 0, pilotid: str = '') -> bool:
         ec, stdout, stderr = execute(cmd)
         if ec:
             logger.warning(f'failed to set attribute PandaPilotId={pilotid} for job ClassAd')
-            logger.warning('the job submit JDL must include "want_io_proxy = true” to allow runtime ClassAd updates')
+            logger.warning('the job submit JDL must include "want_io_proxy = true" to allow runtime ClassAd updates')
             logger.debug(stdout)
             logger.debug(stderr)
             return False
