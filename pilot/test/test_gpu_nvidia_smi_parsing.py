@@ -201,8 +201,14 @@ class TestGetGpuInfo(unittest.TestCase):
             self._completed(NEW_FORMAT_OUTPUT),
             self._completed('Tesla T4, 15360, 610.43.02\n'),
         ]
-        with self.assertNoLogs('pilot.util.workernode', level='WARNING'):
-            get_gpu_info(site='TEST_SITE')
+        # unittest.TestCase.assertNoLogs() was only added in Python 3.10; this
+        # codebase's floor is 3.9 (see vermin config), so use the documented
+        # assertLogs() behaviour instead: it raises AssertionError if no
+        # matching record was logged inside the with-block, which is exactly
+        # the condition we want to assert here.
+        with self.assertRaises(AssertionError):
+            with self.assertLogs('pilot.util.workernode', level='WARNING'):
+                get_gpu_info(site='TEST_SITE')
 
     @patch('pilot.util.workernode.subprocess.run')
     def test_called_process_error_returns_empty_dict(self, mock_run):
