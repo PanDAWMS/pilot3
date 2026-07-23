@@ -60,9 +60,22 @@ import logging
 import sys
 import unittest
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+
+# The two mixins below are never run standalone - they only ever provide test
+# methods to a concrete subclass that also inherits unittest.TestCase (see
+# each Test*SetCoreCounts class). At runtime they inherit from plain `object`
+# so they are not themselves collected and run as (broken) test cases, but
+# under TYPE_CHECKING (as seen by pylint/mypy) they present as TestCase
+# subclasses so static analysis can resolve self.assertEqual() etc. and does
+# not flag every assertion as a false-positive no-member error.
+if TYPE_CHECKING:
+    _CoreCountTestsBase = unittest.TestCase
+else:
+    _CoreCountTestsBase = object
 
 
 def _make_job(corecount=10, actualcorecount=0, pgrp=4242, workdir='/tmp/wd', memorymonitor='prmon'):
@@ -77,7 +90,7 @@ def _make_job(corecount=10, actualcorecount=0, pgrp=4242, workdir='/tmp/wd', mem
     )
 
 
-class _PsBasedPluginTestsMixin:
+class _PsBasedPluginTestsMixin(_CoreCountTestsBase):
     """Shared tests for the three plugins that still use a ps-based process-group snapshot."""
 
     module = None  # set by subclasses, e.g. pilot.user.ska.cpu
@@ -131,7 +144,7 @@ class TestSkaSetCoreCounts(_PsBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.ska.cpu as module
+        import pilot.user.ska.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 
@@ -141,7 +154,7 @@ class TestDarksideSetCoreCounts(_PsBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.darkside.cpu as module
+        import pilot.user.darkside.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 
@@ -151,11 +164,11 @@ class TestGenericSetCoreCounts(_PsBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.generic.cpu as module
+        import pilot.user.generic.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 
-class _PrmonBasedPluginTestsMixin:
+class _PrmonBasedPluginTestsMixin(_CoreCountTestsBase):
     """Shared tests for the three plugins now using ATLAS's prmon CPU-time estimate."""
 
     module = None  # set by subclasses, e.g. pilot.user.rubin.cpu
@@ -233,7 +246,7 @@ class TestSphenixSetCoreCounts(_PrmonBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.sphenix.cpu as module
+        import pilot.user.sphenix.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 
@@ -243,7 +256,7 @@ class TestEpicSetCoreCounts(_PrmonBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.epic.cpu as module
+        import pilot.user.epic.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 
@@ -253,7 +266,7 @@ class TestRubinSetCoreCounts(_PrmonBasedPluginTestsMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Import the plugin module once for the whole test class."""
-        import pilot.user.rubin.cpu as module
+        import pilot.user.rubin.cpu as module  # pylint: disable=import-outside-toplevel
         cls.module = module
 
 

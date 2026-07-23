@@ -99,7 +99,7 @@ class TestMemoryUsageAlwaysReturnsTuple(unittest.TestCase):
     @patch('pilot.user.atlas.memory.calculate_memory_limit_kb', return_value=4096000)
     @patch('pilot.user.atlas.memory.get_memory_limit', return_value=2000)
     @patch('pilot.user.atlas.memory.get_memory_values', return_value=WITHIN_LIMIT_SUMMARY)
-    def test_within_limit_returns_tuple(self, mock_values, mock_limit, mock_calc):
+    def test_within_limit_returns_tuple(self, _mock_values, _mock_limit, _mock_calc):
         """Test the exact live scenario from the bug report: usage within limit."""
         result = atlas_memory.memory_usage(FakeJob(), 'SCORE')
         self.assertIsNotNone(result, "memory_usage() returned None instead of a tuple")
@@ -114,7 +114,7 @@ class TestMemoryUsageAlwaysReturnsTuple(unittest.TestCase):
     @patch('pilot.user.atlas.memory.get_memory_limit', return_value=2000)
     @patch('pilot.user.atlas.memory.get_memory_values', return_value=WITHIN_LIMIT_SUMMARY)
     def test_exceeds_limit_returns_tuple_and_kills(
-        self, mock_values, mock_limit, mock_calc, mock_set_state, mock_kill
+        self, _mock_values, _mock_limit, _mock_calc, mock_set_state, mock_kill
     ):
         """Test that exceeding the memory limit still returns a tuple and kills the payload."""
         job = FakeJob()
@@ -128,26 +128,26 @@ class TestMemoryUsageAlwaysReturnsTuple(unittest.TestCase):
     @patch('pilot.user.atlas.memory.calculate_memory_limit_kb', return_value=None)
     @patch('pilot.user.atlas.memory.get_memory_limit', return_value=2000)
     @patch('pilot.user.atlas.memory.get_memory_values', return_value=WITHIN_LIMIT_SUMMARY)
-    def test_limit_undetermined_returns_tuple(self, mock_values, mock_limit, mock_calc):
+    def test_limit_undetermined_returns_tuple(self, _mock_values, _mock_limit, _mock_calc):
         """Test that an undetermined memory limit still returns a tuple, not None."""
         result = atlas_memory.memory_usage(FakeJob(), 'SCORE')
         self.assertIsInstance(result, tuple)
-        exit_code, diagnostics = result
+        exit_code, _ = result
         self.assertEqual(exit_code, 0)
 
     @patch('pilot.user.atlas.memory.calculate_memory_limit_kb', return_value=4096000)
     @patch('pilot.user.atlas.memory.get_memory_limit', return_value=2000)
     @patch('pilot.user.atlas.memory.get_memory_values',
            return_value={'Max': {}, 'Avg': {}, 'Other': {}, 'Time': {}})
-    def test_maxpss_not_found_returns_tuple(self, mock_values, mock_limit, mock_calc):
+    def test_maxpss_not_found_returns_tuple(self, _mock_values, _mock_limit, _mock_calc):
         """Test that a summary missing 'maxPSS' still returns a tuple, not None."""
         result = atlas_memory.memory_usage(FakeJob(), 'SCORE')
         self.assertIsInstance(result, tuple)
-        exit_code, diagnostics = result
+        exit_code, _ = result
         self.assertEqual(exit_code, 0)
 
     @patch('pilot.user.atlas.memory.get_memory_values', return_value=None)
-    def test_unreadable_monitor_output_returns_error_tuple(self, mock_values):
+    def test_unreadable_monitor_output_returns_error_tuple(self, _mock_values):
         """Test the pre-existing early-return path still works unchanged."""
         exit_code, diagnostics = atlas_memory.memory_usage(FakeJob(), 'SCORE')
         self.assertEqual(exit_code, errors.BADMEMORYMONITORJSON)
@@ -175,14 +175,16 @@ class TestVerifyMemoryUsageIntegration(unittest.TestCase):
     @patch('pilot.user.atlas.memory.calculate_memory_limit_kb', return_value=4096000)
     @patch('pilot.user.atlas.memory.get_memory_limit', return_value=2000)
     @patch('pilot.user.atlas.memory.get_memory_values', return_value=WITHIN_LIMIT_SUMMARY)
-    def test_no_spurious_exception_logged(self, mock_values, mock_limit, mock_calc):
+    def test_no_spurious_exception_logged(self, _mock_values, _mock_limit, _mock_calc):
         """Test that verify_memory_usage() no longer logs the unpacking TypeError.
 
         Reproduces the reported log sequence end to end: a healthy,
         within-limit job should never produce a "caught exception" or
         "ignoring failure to parse memory monitor output" warning.
         """
-        from pilot.util import monitoring  # local import: picks up PILOT_USER=atlas
+        # local import: must happen after PILOT_USER=atlas is set (in setUp())
+        # so pilot.util.monitoring resolves the atlas plugin, not a module-load-time default
+        from pilot.util import monitoring  # pylint: disable=import-outside-toplevel
 
         job = FakeJob()
         mt = MonitoringTime()
