@@ -336,8 +336,8 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
         if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis and queue_type != 'unified':
             voms_role = get_voms_role(role='user')
             exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
-            if exit_code != 0:  # do not return non-zero exit code if only download fails
-                logger.warning('payload proxy verification failed')
+            if exit_code != 0:
+                logger.warning('payload proxy download or verification failed')
 
         # add X509_USER_PROXY setting to the container setup command
         setup_cmd = f"export X509_USER_PROXY={x509};" + setup_cmd

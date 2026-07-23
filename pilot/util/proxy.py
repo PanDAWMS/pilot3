@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import traceback
+from time import sleep
 from typing import Any, Dict
 
 from pilot.common.exception import FileHandlingFailure
@@ -176,32 +177,61 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
             result: True on success, False on failure.
             proxy_path: Path to the written proxy file (or the original path on failure).
     """
-    try:
-        # It assumes that https_setup() was done already
-        url = os.environ.get("PANDA_SERVER_URL", config.Pilot.pandaserver)
+    _max_attempts = 3
+    _retry_sleep = 30  # seconds between attempts for transient network failures
+    proxy_contents = None
 
-        pilot_user = os.environ.get("PILOT_USER", "generic").lower()
-        user = __import__(f"pilot.user.{pilot_user}.proxy", globals(), locals(), [pilot_user], 0)
-        data: Dict[str, Any] = user.getproxy_dictionary(voms_role)
+    for attempt in range(1, _max_attempts + 1):
+        try:
+            # It assumes that https_setup() was done already
+            url = os.environ.get("PANDA_SERVER_URL", config.Pilot.pandaserver)
 
-        # New API endpoint
-        res = https.request2(f"{url}/api/v1/creds/get_proxy", params=data)
+            pilot_user = os.environ.get("PILOT_USER", "generic").lower()
+            user = __import__(f"pilot.user.{pilot_user}.proxy", globals(), locals(), [pilot_user], 0)
+            data: Dict[str, Any] = user.getproxy_dictionary(voms_role)
 
-        if res is None:
-            logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
-            # Fallback to old endpoint via curl-based helper (if still available)
-            res = https.request(f"{url}/server/panda/getProxy", data=data)
+            # New API endpoint
+            res = https.request2(f"{url}/api/v1/creds/get_proxy", params=data)
+
             if res is None:
-                logger.error(
-                    f"unable to get proxy with role '{voms_role}' from panda server using curl method"
+                logger.error(f"unable to get proxy with role '{voms_role}' from panda server using urllib method")
+                # Fallback to old endpoint via curl-based helper (if still available)
+                res = https.request(f"{url}/server/panda/getProxy", data=data)
+                if res is None:
+                    logger.error(
+                        f"unable to get proxy with role '{voms_role}' from panda server using curl method"
+                    )
+                    return False, proxy_outfile_name
+
+            # Extract proxy from either new-style or old-style response.
+            # _extract_proxy_from_response raises ValueError for string responses
+            # (which request2 returns on network errors) and for server-side failures.
+            proxy_contents = _extract_proxy_from_response(res, voms_role)
+            break  # success
+
+        except ValueError as exc:
+            exc_str = str(exc)
+            # Distinguish transient network errors from definitive server-side failures.
+            # request2() returns a string like "failed to send request: <urlopen error …>"
+            # which _extract_proxy_from_response wraps in a ValueError.  Server-side
+            # failures (StatusCode != 0, success=False) are definitive and should not
+            # be retried.
+            is_transient = "failed to send request:" in exc_str
+            if is_transient and attempt < _max_attempts:
+                logger.warning(
+                    f"transient error downloading proxy for role='{voms_role}' "
+                    f"(attempt {attempt}/{_max_attempts}): {exc_str} — retrying in {_retry_sleep}s"
                 )
-                return False, proxy_outfile_name
+                sleep(_retry_sleep)
+                continue
+            logger.error(f"Get proxy from panda server failed: {exc_str}, {traceback.format_exc()}")
+            return False, proxy_outfile_name
 
-        # Extract proxy from either new-style or old-style response
-        proxy_contents = _extract_proxy_from_response(res, voms_role)
+        except Exception as exc:
+            logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
+            return False, proxy_outfile_name
 
-    except Exception as exc:
-        logger.error(f"Get proxy from panda server failed: {exc}, {traceback.format_exc()}")
+    if proxy_contents is None:
         return False, proxy_outfile_name
 
     def create_file(filename: str, contents: str) -> bool:

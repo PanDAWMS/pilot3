@@ -1027,8 +1027,15 @@ def get_max_allowed_work_dir_size(resource_type: str, corecount: int, pq_corecou
     logger.debug(f"getting max allowed work dir size for resource_type={resource_type}, corecount={corecount}")
     # PQ.maxwdir is defined for MCORE jobs, so adjust for single core jobs
     logger.debug(f"pilot_maxwdir_grace={pilot_maxwdir_grace}")
-    if not pq_corecount:
-        logger.warning("PQ.corecount is None, setting to 1")
+    if pq_corecount is None or pq_corecount == 0:
+        logger.warning("PQ.corecount is not set (None/0), setting to 1")
+        pq_corecount = 1
+    elif pq_corecount < 0:
+        # PQ.corecount can be negative in CRIC (e.g. -1 marks a PQ that accepts jobs with a dynamic
+        # number of cores) - this is a valid, meaningful CRIC value, but it is not a valid single-core
+        # divisor, so fall back to 1 here rather than risk a nonsensical (negative) work dir size limit
+        logger.warning(f"PQ.corecount is negative ({pq_corecount}), indicating a PQ with a dynamic "
+                       f"number of cores - cannot use it as a divisor, setting to 1")
         pq_corecount = 1
 
     divider = pq_corecount if corecount == 1 else 1

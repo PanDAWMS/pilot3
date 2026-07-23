@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-26
 
 
 """
@@ -214,6 +214,78 @@ class QueueData(BaseData):
             logger.warning(f"failed to set pilot_maxwdir_grace: {e}")
             self.pilot_maxwdir_grace = 1.0
 
+    def use_per_core_attr(self) -> bool:
+        """Check if this PQ declares maxrss/maxwdir as per-core values via the catchall field.
+
+        CRIC delivers the ``per_core_attr`` flag as a bare token (equivalent to ``True``) or as
+        ``per_core_attr=<value>`` in the comma-separated ``catchall`` field, e.g.
+        ``catchall="per_core_attr,other=1"`` or ``catchall="per_core_attr=false"``.
+
+        Note: JEDI/panda-server's equivalent check (`SiteSpec.use_per_core_attr()` ->
+        `hasValueInCatchall()`, see ATLASPANDA-1609) only checks for the *presence* of the key
+        and does not parse the value - it would treat ``per_core_attr=False`` as enabled. The
+        pilot intentionally parses the value as a proper boolean instead (using the same
+        true/false vocabulary as `BaseData.clean_boolean()`), so that an explicit
+        ``per_core_attr=False`` correctly disables per-core scaling, and any unrecognized value
+        does not silently enable it.
+
+        Returns:
+            bool: True if per_core_attr is set (and not explicitly disabled) for this PQ.
+        """
+        if not self.catchall:
+            return False
+
+        true_values = {'true', 'yes', '1'}
+        false_values = {'false', 'no', '0'}
+
+        for item in self.catchall.split(','):
+            item = item.strip()
+            if item == 'per_core_attr':
+                return True
+            if item.startswith('per_core_attr='):
+                value = item.split('=', 1)[1].strip().lower()
+                if value in true_values:
+                    return True
+                if value in false_values:
+                    return False
+                logger.warning(f"unrecognized value for per_core_attr in catchall: '{value}' - treating as disabled")
+                return False
+
+        return False
+
+    def apply_per_core_scaling(self) -> None:
+        """Scale maxrss and maxwdir from per-core to PQ-scale values, if per_core_attr is set.
+
+        When ``per_core_attr`` is declared for this PQ, CRIC provides ``maxrss`` and ``maxwdir``
+        as per-core values instead of the traditional PQ-scale (i.e. full ``corecount``) values.
+        This method performs the same one-time conversion that JEDI/panda-server applies
+        (`entity_module.py`, ATLASPANDA-1609), multiplying by ``corecount`` so that the rest of
+        the pilot - which expects PQ-scale values - needs no further changes. Note that unlike
+        JEDI, `use_per_core_attr()` properly parses ``per_core_attr=False`` as disabled rather
+        than treating any ``per_core_attr=...`` suffix as enabled.
+
+        ``maxinputsize`` is intentionally left untouched: it is not scaled by JEDI either, and it
+        is not actually used as a numeric limit anywhere in the pilot (the pilot's own input size
+        checks are derived from ``maxwdir``, not from the ``maxinputsize`` PQ attribute).
+
+        ``minrss`` is also intentionally not handled here: it is a JEDI/brokerage-only PQ
+        attribute used for site selection and is never consumed by the pilot.
+        """
+        if not self.use_per_core_attr():
+            return
+
+        if not self.corecount or self.corecount <= 0:
+            logger.warning(f"per_core_attr is set but corecount={self.corecount} is invalid - skipping per-core scaling")
+            return
+
+        if self.maxrss:
+            self.maxrss = self.maxrss * self.corecount
+        if self.maxwdir:
+            self.maxwdir = self.maxwdir * self.corecount
+
+        logger.info(f"per_core_attr is set for this PQ: scaled maxrss and maxwdir by corecount={self.corecount} "
+                    f"(maxrss={self.maxrss}, maxwdir={self.maxwdir})")
+
     def clean(self) -> None:
         """Validate and finally clean up required data values (required object properties) if needed."""
         # validate es_stageout_gap value
@@ -247,6 +319,9 @@ class QueueData(BaseData):
         self.set_pilot_walltime_grace()
         self.set_pilot_rss_grace()
         self.set_pilot_maxwdir_grace()
+
+        # scale maxrss/maxwdir from per-core to PQ-scale values, if per_core_attr is set (ATLASPANDA-1609)
+        self.apply_per_core_scaling()
 
     ## custom function pattern to apply extra validation to the key values
     ##def clean__keyname(self, raw, value):

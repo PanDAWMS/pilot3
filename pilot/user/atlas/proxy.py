@@ -99,7 +99,9 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
             # is commented: no user proxy should be in the command the container will execute
             x509 = x509_payload
     else:
-        logger.warning(f"failed to get proxy for role=\'{voms_role}\'")
+        logger.warning(f"failed to download proxy from server for role='{voms_role}'")
+        exit_code = errors.NOPROXY
+        diagnostics = f"failed to download proxy from server for role='{voms_role}'"
 
     return exit_code, diagnostics, x509
 

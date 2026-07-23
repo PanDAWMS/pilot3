@@ -54,41 +54,6 @@ def allow_memory_usage_verifications() -> bool:
     return True
 
 
-def get_ucore_scale_factor(job: JobData) -> int:
-    """Get the correction/scale factor for SCORE/4CORE/nCORE jobs on UCORE queues.
-
-    Args:
-        job: job object.
-
-    Returns:
-        int: scale factor.
-    """
-    try:
-        job_corecount = float(job.corecount)
-    except (ValueError, TypeError) as exc:
-        logger.warning(f'exception caught: {exc} (job.corecount={job.corecount})')
-        job_corecount = None
-
-    try:
-        schedconfig_corecount = float(job.infosys.queuedata.corecount)
-    except (ValueError, TypeError) as exc:
-        logger.warning(f'exception caught: {exc} (job.infosys.queuedata.corecount={job.infosys.queuedata.corecount})')
-        schedconfig_corecount = None
-
-    if job_corecount and schedconfig_corecount:
-        try:
-            scale = job_corecount / schedconfig_corecount
-            logger.debug(f'scale: job_corecount / schedconfig_corecount={scale}')
-        except (ZeroDivisionError, TypeError) as exc:
-            logger.warning(f'exception caught: {exc} (using scale factor 1)')
-            scale = 1
-    else:
-        logger.debug('will use scale factor 1')
-        scale = 1
-
-    return scale
-
-
 def get_memkillgrace(memkillgrace: int) -> float:
     """Return a proper memkillgrace value.
 
@@ -193,13 +158,13 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
 
         if "VHIMEM" not in resource_type:
             scaled_maxrss = memory_limit_panda * job_corecount
-            logger.debug(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
+            logger.info(f"logic: scaled_maxrss = {memory_limit_panda} * {job_corecount} = {scaled_maxrss}")
         elif resource_type in score_resource_types:
             scaled_maxrss = (maxrss / pq_corecount) * job_corecount
-            logger.debug(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
+            logger.info(f"SCORE VHIMEM logic: scaled_maxrss = ({maxrss} / {pq_corecount}) * {job_corecount} = {scaled_maxrss}")
         elif resource_type in mcore_resource_types:
             scaled_maxrss = maxrss
-            logger.debug(f"MCORE logic: full maxrss = {scaled_maxrss}")
+            logger.info(f"MCORE logic: full maxrss = {scaled_maxrss}")
         else:
             scaled_maxrss = None  # trigger fallback
     except (ValueError, TypeError) as exc:
@@ -208,8 +173,8 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
 
     if scaled_maxrss:
         memory_limit_kb = pilot_rss_grace * scaled_maxrss * 1024
-        logger.debug(f"memory limit using maxrss-based calculation: pilot_rss_grace * scaled_maxrss * 1024 = "
-                     f"{pilot_rss_grace} * {scaled_maxrss} * 1024 = {memory_limit_kb} kB")
+        logger.info(f"memory limit using maxrss-based calculation: pilot_rss_grace * scaled_maxrss * 1024 = "
+                    f"{pilot_rss_grace} * {scaled_maxrss} * 1024 = {memory_limit_kb} kB")
         return int(memory_limit_kb)
 
     # fallback to job.minramcount
@@ -219,10 +184,10 @@ def calculate_memory_limit_kb(job: JobData, resource_type: str, memory_limit_pan
         if not is_push_queue:
             minram = int(math.ceil(minram / 1000.0)) * 1000  # Round up for pull PQs
         memory_limit_kb = pilot_rss_grace * minram * 1024
-        logger.debug(f"fallback using job.minramcount ({minram} MB): {memory_limit_kb} kB")
-        logger.debug(f"(pilot_rss_grace * minramcount * 1024 = "
-                     f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
-        logger.debug(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
+        logger.info(f"fallback using job.minramcount ({minram} MB): {memory_limit_kb} kB")
+        logger.info(f"(pilot_rss_grace * minramcount * 1024 = "
+                    f"{pilot_rss_grace} * {minram} * 1024) = {memory_limit_kb} kB)")
+        logger.info(f"(where minramcount = int(math.ceil({job.minramcount} / 1000.0)) * 1000)")
 
         return int(memory_limit_kb)
 
@@ -356,72 +321,5 @@ def memory_usage(job: object, resource_type: str) -> tuple[int, str]:
         logger.warning("could not determine memory limit - memory check skipped")
     elif maxpss_int == -1:
         logger.warning("maxPSS not found in memory monitor output")
-
-    return exit_code, diagnostics
-
-
-def memory_usage_old(job: object, resource_type: str) -> tuple[int, str]:
-    """Perform memory usage verification.
-
-    Args:
-        job: job object.
-        resource_type: resource type.
-
-    Returns:
-        tuple[int, str]: exit code, diagnostics.
-    """
-    exit_code = 0
-    diagnostics = ""
-
-    # Get the maxPSS value from the memory monitor
-    summary_dictionary = get_memory_values(job.workdir, name=job.memorymonitor)
-
-    if not summary_dictionary:
-        exit_code = errors.BADMEMORYMONITORJSON
-        diagnostics = "Memory monitor output could not be read"
-        return exit_code, diagnostics
-
-    maxdict = summary_dictionary.get('Max', {})
-    maxpss_int = maxdict.get('maxPSS', -1)
-
-    memory_limit = get_memory_limit(resource_type)
-    logger.debug(f'memory_limit for {resource_type}: {memory_limit} MB')
-
-    # Only proceed if values are set
-    if maxpss_int != -1:
-        maxrss = job.infosys.queuedata.maxrss
-        pilot_rss_grace = job.infosys.queuedata.pilot_rss_grace
-        memkillgrace = get_memkillgrace(job.infosys.queuedata.memkillgrace)
-        logger.debug(f'memkillgrace: {memkillgrace} pilot_rss_grace: {pilot_rss_grace}')
-        if maxrss:
-            # correction for SCORE/4CORE/nCORE jobs on UCORE queues
-            scale = get_ucore_scale_factor(job)
-            try:
-                maxrss_int = pilot_rss_grace * int(maxrss * scale) * 1024  # Convert to int and kB
-            except (ValueError, TypeError) as exc:
-                logger.warning(f"unexpected value for maxRSS: {exc}")
-            else:
-                # Compare the maxRSS with the maxPSS from memory monitor
-                if maxrss_int > 0 and maxpss_int > 0:
-                    if maxpss_int > maxrss_int:
-                        diagnostics = f"job has exceeded the memory limit {maxpss_int} kB > {maxrss_int} kB " \
-                                      f"({pilot_rss_grace}(queuedata.pilot_rss_grace) * {maxrss} (queuedata.maxrss) * {scale} (scale))"
-                        logger.warning(diagnostics)
-
-                        # Create a lockfile to let RunJob know that it should not restart the memory monitor after it has been killed
-                        #pUtil.createLockFile(False, self.__env['jobDic'][k][1].workdir, lockfile="MEMORYEXCEEDED")
-
-                        # Kill the job
-                        set_pilot_state(job=job, state="failed")
-                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXCEEDMAXMEM)
-                        kill_processes(job.pid)
-                    else:
-                        logger.info(f"max memory (maxPSS) used by the payload is within the allowed limit: "
-                                    f"{maxpss_int} B ({pilot_rss_grace} (queuedata.pilot_rss_grace) * {maxrss} "
-                                    f"(queuedata.maxrss) * {scale} (scale) = {maxrss_int} B, memkillgrace = {job.infosys.queuedata.memkillgrace}%)")
-        elif maxrss in {0, "0"}:
-            logger.info("queuedata.maxrss set to 0 (no memory checks will be done)")
-        else:
-            logger.warning("queuedata.maxrss is not set")
 
     return exit_code, diagnostics

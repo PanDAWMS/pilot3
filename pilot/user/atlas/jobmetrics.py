@@ -22,6 +22,7 @@
 """Functions for building job metrics."""
 
 from __future__ import annotations
+import json
 import logging
 import os
 import platform
@@ -152,6 +153,11 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
     # extract event number from file and add to job metrics if it exists
     job_metrics = add_event_number(job_metrics, job.workdir)
 
+    # report HEPscore benchmark for gangarobot-hepscore jobs (only meaningful once the payload has finished)
+    if job.state == "finished" and job.processingtype == "gangarobot-hepscore":
+        hepscore = get_hepscore(os.path.join(job.workdir, config.Payload.payloadstdout))
+        job_metrics += get_job_metrics_entry("hepscore", hepscore)
+
     # add DASK IPs if set
     if job.dask_scheduler_ip and job.jupyter_session_ip:
         job_metrics += get_job_metrics_entry("schedulerIP", job.dask_scheduler_ip)
@@ -188,6 +194,72 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
         job_metrics += get_job_metrics_entry("pythonVersion", _python_version)
 
     return job_metrics
+
+
+def get_hepscore(payload_stdout_path: str) -> str:
+    """Extract the HEPscore benchmark score from a payload stdout file.
+
+    Searches for lines containing the string ``CPU_Model`` (the marker written
+    by the HEPscore benchmark runner) and decodes the first valid JSON object
+    found on each such line using ``JSONDecoder.raw_decode()``.  This handles
+    lines where a second JSON blob or a filesystem path is appended immediately
+    after the closing brace with no newline separator.
+
+    If multiple matching lines are found, duplicates are collapsed and the
+    first unique value is returned.  A warning is logged when more than one
+    distinct score is present.
+
+    Args:
+        payload_stdout_path: absolute path to the payload stdout file.
+
+    Returns:
+        str: the score as a plain string (e.g. ``'97.1161'``), or
+        ``'UNKNOWN'`` when the file is absent, no matching line is found,
+        the JSON cannot be parsed, the score key is missing or null, or the
+        value is not numeric.
+    """
+    try:
+        with open(payload_stdout_path, encoding='utf-8') as fh:
+            lines = fh.readlines()
+    except OSError as exc:
+        logger.warning(f'get_hepscore: cannot open {payload_stdout_path}: {exc}')
+        return 'UNKNOWN'
+
+    decoder = json.JSONDecoder()
+    scores = []
+    for line in lines:
+        if 'CPU_Model' not in line:
+            continue
+        # Find the first '{' on the line and attempt to decode from there.
+        # raw_decode() stops at the end of the first complete JSON object,
+        # ignoring any trailing content (a second JSON blob, a filesystem path,
+        # etc.) that the benchmark runner may have written without a separator.
+        start = line.find('{')
+        if start == -1:
+            continue
+        try:
+            data, _ = decoder.raw_decode(line, start)
+        except json.JSONDecodeError as exc:
+            logger.warning(f'get_hepscore: JSON parse error: {exc}')
+            continue
+        score = data.get('profiles', {}).get('hepscore', {}).get('score')
+        if score is None:
+            logger.debug('get_hepscore: score key absent or null in JSON')
+            continue
+        try:
+            scores.append(str(float(score)))
+        except (TypeError, ValueError):
+            logger.warning(f'get_hepscore: score value is not numeric: {score!r}')
+            continue
+
+    unique_scores = list(dict.fromkeys(scores))  # deduplicate, preserving order
+    if not unique_scores:
+        logger.warning(f'get_hepscore: no valid score found in {payload_stdout_path}')
+        return 'UNKNOWN'
+    if len(unique_scores) > 1:
+        logger.warning(f'get_hepscore: multiple distinct scores found {unique_scores}, using first')
+    logger.info(f'get_hepscore: score={unique_scores[0]}')
+    return unique_scores[0]
 
 
 def get_trace_exit_code(workdir: str) -> str:
