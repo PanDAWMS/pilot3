@@ -19,15 +19,21 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2026
 
-"""Unit tests for the MachineFeatures shutdowntime check in proceed_with_getjob().
+"""Unit tests for the remaining-time check in proceed_with_getjob().
+
+The pilot refuses to fetch a new job when too little time remains to run it. The limit can
+come from the proxy lifetime, the site time limit (PQ.maxtime) or the MachineFeatures
+shutdowntime, whichever is most constraining.
 
 Covers:
-- _time_until_shutdown(): missing/empty MachineFeatures, missing/unparsable
-  shutdowntime, stale (pre-pilot-start) shutdowntime, and the normal case.
-- proceed_with_getjob(): refusal to fetch a new job when shutdowntime is
-  imminent (regression test for ATLASPANDA-MAXTIME premature-abort bug),
-  acceptance when enough time remains, the first-job exemption (jobnumber=0),
-  and backward compatibility when args is not supplied.
+- _time_until_shutdown(): missing/empty MachineFeatures, missing/unparsable shutdowntime,
+  stale (pre-pilot-start) shutdowntime, and the normal case.
+- proceed_with_getjob(): refusal when the remaining time is below MIN_TIME_FOR_NEW_JOB,
+  acceptance when enough time remains or when no source is available, the combined
+  MIN_TIME_FOR_NEW_JOB threshold across several sources, and backward compatibility when
+  args is not supplied.
+- The error code reported on refusal: set only when the pilot ends without having run any
+  job (jobnumber == 0), and chosen according to the binding source.
 """
 
 import logging
@@ -35,12 +41,16 @@ import os
 import sys
 import time
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from pilot.common.errorcodes import ErrorCodes
 from pilot.control import job as job_module
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+
+errors = ErrorCodes()
 
 
 def _make_args(pilot_start_time: float) -> SimpleNamespace:
@@ -54,6 +64,32 @@ def _make_args(pilot_start_time: float) -> SimpleNamespace:
             pilot args.timing structure.
     """
     return SimpleNamespace(timing={'0': {'PILOT_START_TIME': pilot_start_time}})
+
+
+@contextmanager
+def remaining_time_sources(proxy_validity_end: int = 0, queuedata: object = None,
+                           shutdown: object = None):
+    """Control all three remaining-time sources for the duration of a test.
+
+    Anything not passed is left unavailable, which is the common real-world case: most
+    queues have no MachineFeatures installed, PQ.maxtime is frequently unset, and queues
+    using OIDC tokens rather than VOMS proxies never cache a proxy validity.
+
+    Args:
+        proxy_validity_end: absolute epoch time (s) at which the proxy expires, or 0 for
+            "no proxy information cached".
+        queuedata: object exposing a `maxtime` attribute, or None to simulate infosys not
+            having been initialised.
+        shutdown: value for _time_until_shutdown() -- seconds until shutdown, or None for
+            "no MachineFeatures shutdowntime available".
+
+    Yields:
+        None: the patches are active inside the with-block.
+    """
+    with patch.object(job_module.pilot_cache, 'proxy_validity_end', proxy_validity_end), \
+            patch.object(job_module.infosys, 'queuedata', queuedata), \
+            patch('pilot.control.job._time_until_shutdown', return_value=shutdown):
+        yield
 
 
 class TestTimeUntilShutdown(unittest.TestCase):
@@ -124,18 +160,22 @@ class TestTimeUntilShutdownNoMachineFeatures(unittest.TestCase):
     env var, or it points to a path that doesn't exist). These tests exercise
     pilot.util.features.MachineFeatures directly -- not a mock -- to guarantee
     that _time_until_shutdown() degrades to None on such queues, and that
-    proceed_with_getjob() therefore behaves exactly as it did before this fix
-    was introduced.
+    proceed_with_getjob() therefore behaves exactly as it did before the
+    remaining-time check was introduced.
     """
 
     def setUp(self):
         """Save and clear MACHINEFEATURES so each test starts from a known state."""
         self._saved_env = os.environ.pop('MACHINEFEATURES', None)
+        self._saved_wrap_up = os.environ.pop('PILOT_WRAP_UP', None)
 
     def tearDown(self):
-        """Restore the original MACHINEFEATURES environment, if any."""
+        """Restore the original environment, if any."""
+        os.environ.pop('PILOT_WRAP_UP', None)
         if self._saved_env is not None:
             os.environ['MACHINEFEATURES'] = self._saved_env
+        if self._saved_wrap_up is not None:
+            os.environ['PILOT_WRAP_UP'] = self._saved_wrap_up
 
     def test_no_env_var_set(self):
         """The common case: MACHINEFEATURES is simply not set in the environment."""
@@ -149,46 +189,62 @@ class TestTimeUntilShutdownNoMachineFeatures(unittest.TestCase):
         self.assertIsNone(job_module._time_until_shutdown(args))
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    def test_proceed_with_getjob_unaffected_when_no_machinefeatures(self, mock_space):
-        """proceed_with_getjob() must behave exactly as before this fix when
-        MachineFeatures is unavailable -- i.e. it must still accept jobs based
-        purely on the pre-existing timefloor/proxy/disk-space checks.
+    def test_proceed_with_getjob_unaffected_when_no_source_available(self, mock_space):
+        """proceed_with_getjob() must accept jobs when no remaining-time source exists.
+
+        With no MachineFeatures, no cached proxy validity and no queuedata, the pilot must
+        fall back on the pre-existing timefloor/proxy/disk-space checks alone. The queuedata
+        being None also exercises the guard against infosys not having been initialised --
+        without it this raises AttributeError, which the caller of proceed_with_getjob()
+        silently turns into "stop fetching jobs".
         """
         args = _make_args(time.time() - 3600)
-        proceed = job_module.proceed_with_getjob(
-            timefloor=86400,
-            starttime=time.time(),
-            jobnumber=5,
-            getjob_requests=1,
-            max_getjob_requests=150,
-            should_update_server=True,
-            submitmode='PULL',
-            harvester=False,
-            verify_proxy=False,
-            traces=MagicMock(pilot={'error_code': 0}),
-            args=args,
-        )
+        with remaining_time_sources(proxy_validity_end=0, queuedata=None, shutdown=None):
+            proceed = job_module.proceed_with_getjob(
+                timefloor=86400,
+                starttime=time.time(),
+                jobnumber=5,
+                getjob_requests=1,
+                max_getjob_requests=150,
+                should_update_server=True,
+                submitmode='PULL',
+                harvester=False,
+                verify_proxy=False,
+                traces=MagicMock(pilot={'error_code': 0}),
+                args=args,
+            )
         self.assertTrue(proceed)
 
 
-class TestProceedWithGetjobShutdowntime(unittest.TestCase):
-    """Tests for the shutdowntime guard inside proceed_with_getjob().
+class TestProceedWithGetjobRemainingTime(unittest.TestCase):
+    """Tests for the remaining-time gate inside proceed_with_getjob().
 
     These tests stub out the unrelated checks in proceed_with_getjob() (proxy
     verification is skipped via verify_proxy=False, and local disk space via
-    patching check_local_space) so that only the shutdowntime logic under test
+    patching check_local_space) so that only the remaining-time logic under test
     determines the outcome.
     """
 
-    def _common_kwargs(self, args):
+    def setUp(self):
+        """Start each test without a leaked PILOT_WRAP_UP from an earlier refusal."""
+        self._saved_wrap_up = os.environ.pop('PILOT_WRAP_UP', None)
+
+    def tearDown(self):
+        """Restore PILOT_WRAP_UP so refusals do not leak into other tests."""
+        os.environ.pop('PILOT_WRAP_UP', None)
+        if self._saved_wrap_up is not None:
+            os.environ['PILOT_WRAP_UP'] = self._saved_wrap_up
+
+    def _common_kwargs(self, args, traces=None):
         """Build the common kwargs shared across proceed_with_getjob() calls in this test class.
 
         Args:
             args: the args-like object to pass through to proceed_with_getjob().
+            traces: optional traces object; a fresh one with no error code is used by default.
 
         Returns:
             dict: kwargs for proceed_with_getjob(), with proxy verification disabled
-                and a generous timefloor so only the shutdowntime check is exercised.
+                and a generous timefloor so only the remaining-time check is exercised.
         """
         return {
             'timefloor': 86400,
@@ -199,72 +255,199 @@ class TestProceedWithGetjobShutdowntime(unittest.TestCase):
             'submitmode': 'PULL',
             'harvester': False,
             'verify_proxy': False,
-            'traces': MagicMock(pilot={'error_code': 0}),
+            'traces': traces if traces is not None else MagicMock(pilot={'error_code': 0}),
             'args': args,
         }
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    @patch('pilot.control.job._time_until_shutdown', return_value=500)
-    def test_refuses_job_when_shutdown_imminent(self, mock_remaining, mock_space):
+    def test_refuses_job_when_shutdown_imminent(self, mock_space):
         """proceed_with_getjob() must refuse a new job when shutdown is too close.
 
-        Regression test for the bug where the pilot accepted job
-        7193562359 with only ~1107s left before MachineFeatures shutdowntime,
-        leading to an avoidable REACHED_MAXTIME abort 564s later.
+        Regression test for the bug where the pilot accepted job 7193562359 with only
+        ~1107s left before MachineFeatures shutdowntime, leading to an avoidable
+        REACHED_MAXTIME abort 564s later.
         """
         args = _make_args(time.time() - 6 * 3600)
         kwargs = self._common_kwargs(args)
-        kwargs['jobnumber'] = 1  # not the first job -- shutdowntime check applies
-        proceed = job_module.proceed_with_getjob(**kwargs)
+        kwargs['jobnumber'] = 1  # not the first job
+        with remaining_time_sources(shutdown=500):
+            proceed = job_module.proceed_with_getjob(**kwargs)
         self.assertFalse(proceed)
-        mock_remaining.assert_called_once()
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    @patch('pilot.control.job._time_until_shutdown', return_value=7200)
-    def test_accepts_job_when_shutdown_not_imminent(self, mock_remaining, mock_space):
+    def test_accepts_job_when_shutdown_not_imminent(self, mock_space):
         """proceed_with_getjob() must proceed normally when ample time remains."""
         args = _make_args(time.time() - 3600)
         kwargs = self._common_kwargs(args)
         kwargs['jobnumber'] = 1
-        proceed = job_module.proceed_with_getjob(**kwargs)
+        with remaining_time_sources(shutdown=7200):
+            proceed = job_module.proceed_with_getjob(**kwargs)
         self.assertTrue(proceed)
-        mock_remaining.assert_called_once()
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    @patch('pilot.control.job._time_until_shutdown', return_value=None)
-    def test_accepts_job_when_shutdowntime_unknown(self, mock_remaining, mock_space):
-        """proceed_with_getjob() must proceed when shutdowntime is not known (None)."""
+    def test_accepts_job_when_no_source_available(self, mock_space):
+        """proceed_with_getjob() must proceed when no source of remaining time exists."""
         args = _make_args(time.time() - 3600)
         kwargs = self._common_kwargs(args)
         kwargs['jobnumber'] = 1
-        proceed = job_module.proceed_with_getjob(**kwargs)
+        with remaining_time_sources():
+            proceed = job_module.proceed_with_getjob(**kwargs)
         self.assertTrue(proceed)
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    @patch('pilot.control.job._time_until_shutdown', return_value=10)
-    def test_first_job_exempt_from_shutdowntime_check(self, mock_remaining, mock_space):
-        """The shutdowntime check must not apply to the first job (jobnumber=0).
+    def test_refuses_first_job_when_time_already_gone(self, mock_space):
+        """The gate now applies to the first job too (jobnumber == 0).
 
-        The first job is special-cased throughout proceed_with_getjob() (e.g. the
-        timefloor checks), since it is typically preplaced by the batch system /
-        wrapper rather than actively fetched by a long-running pilot.
+        Previously the first job was exempt, on the grounds that it is the batch system's
+        or wrapper's responsibility. An already-passed shutdowntime is just as wasteful to
+        request against on the first job as on the fifth.
         """
         args = _make_args(time.time() - 3600)
         kwargs = self._common_kwargs(args)
         kwargs['jobnumber'] = 0
-        proceed = job_module.proceed_with_getjob(**kwargs)
-        self.assertTrue(proceed)
-        mock_remaining.assert_not_called()
+        with remaining_time_sources(shutdown=10):
+            proceed = job_module.proceed_with_getjob(**kwargs)
+        self.assertFalse(proceed)
 
     @patch('pilot.control.job.check_local_space', return_value=(0, ''))
-    @patch('pilot.control.job._time_until_shutdown')
-    def test_no_args_skips_shutdowntime_check(self, mock_remaining, mock_space):
-        """Backward compatibility: omitting args must skip the shutdowntime check entirely."""
+    def test_no_args_skips_remaining_time_check(self, mock_space):
+        """Backward compatibility: omitting args must skip the remaining-time check entirely."""
         kwargs = self._common_kwargs(args=None)
         kwargs['jobnumber'] = 1
-        proceed = job_module.proceed_with_getjob(**kwargs)
+        with patch('pilot.control.job._compute_remaining_time') as mock_compute:
+            proceed = job_module.proceed_with_getjob(**kwargs)
         self.assertTrue(proceed)
-        mock_remaining.assert_not_called()
+        mock_compute.assert_not_called()
+
+    @patch('pilot.control.job.check_local_space', return_value=(0, ''))
+    def test_threshold_applies_to_combined_value_not_single_source(self, mock_space):
+        """MIN_TIME_FOR_NEW_JOB must be compared against the most constraining source.
+
+        Each source on its own leaves plenty of time; only the shutdowntime is below the
+        threshold, and that is enough to refuse.
+        """
+        now = int(time.time())
+        args = _make_args(now - 3600)
+        kwargs = self._common_kwargs(args)
+        kwargs['jobnumber'] = 1
+        with remaining_time_sources(proxy_validity_end=now + 72 * 3600,
+                                    queuedata=SimpleNamespace(maxtime=90000),
+                                    shutdown=600):
+            proceed = job_module.proceed_with_getjob(**kwargs)
+        self.assertFalse(proceed)
+
+    @patch('pilot.control.job.check_local_space', return_value=(0, ''))
+    def test_accepts_when_every_source_is_above_threshold(self, mock_space):
+        """All three sources available and all comfortably above the threshold."""
+        now = int(time.time())
+        args = _make_args(now - 3600)
+        kwargs = self._common_kwargs(args)
+        kwargs['jobnumber'] = 1
+        with remaining_time_sources(proxy_validity_end=now + 72 * 3600,
+                                    queuedata=SimpleNamespace(maxtime=90000),
+                                    shutdown=7200):
+            proceed = job_module.proceed_with_getjob(**kwargs)
+        self.assertTrue(proceed)
+
+
+class TestProceedWithGetjobErrorCode(unittest.TestCase):
+    """Tests for the error code reported when the remaining-time gate refuses a job.
+
+    An error code is only set when the pilot ends without having run a single job. A
+    multijob pilot that declines a further job has ended normally and must not report an
+    error, matching the existing convention elsewhere in proceed_with_getjob() that having
+    run out of time is not an error worth propagating to the wrapper and Harvester.
+    """
+
+    def setUp(self):
+        """Start each test without a leaked PILOT_WRAP_UP from an earlier refusal."""
+        self._saved_wrap_up = os.environ.pop('PILOT_WRAP_UP', None)
+
+    def tearDown(self):
+        """Restore PILOT_WRAP_UP so refusals do not leak into other tests."""
+        os.environ.pop('PILOT_WRAP_UP', None)
+        if self._saved_wrap_up is not None:
+            os.environ['PILOT_WRAP_UP'] = self._saved_wrap_up
+
+    def _refuse(self, jobnumber, initial_error_code=0, **sources):
+        """Drive proceed_with_getjob() to a refusal and return the resulting traces.
+
+        Args:
+            jobnumber: number of jobs already downloaded.
+            initial_error_code: error code already present in traces before the call.
+            **sources: keyword arguments forwarded to remaining_time_sources().
+
+        Returns:
+            tuple: (proceed, traces) from the proceed_with_getjob() call.
+        """
+        traces = MagicMock(pilot={'error_code': initial_error_code})
+        args = _make_args(time.time() - 3600)
+        with remaining_time_sources(**sources):
+            with patch('pilot.control.job.check_local_space', return_value=(0, '')):
+                proceed = job_module.proceed_with_getjob(
+                    timefloor=86400,
+                    starttime=time.time(),
+                    jobnumber=jobnumber,
+                    getjob_requests=1,
+                    max_getjob_requests=150,
+                    should_update_server=True,
+                    submitmode='PULL',
+                    harvester=False,
+                    verify_proxy=False,
+                    traces=traces,
+                    args=args,
+                )
+        return proceed, traces
+
+    def test_error_code_set_when_no_job_was_ever_run(self):
+        """jobnumber == 0: the pilot did nothing, so the wrapper must be told why."""
+        proceed, traces = self._refuse(jobnumber=0, shutdown=10)
+        self.assertFalse(proceed)
+        self.assertEqual(traces.pilot['error_code'], errors.NOTIMELEFTFORNEWJOB)
+
+    def test_no_error_code_when_a_job_has_already_run(self):
+        """jobnumber > 0: a multijob pilot declining a further job has ended normally."""
+        proceed, traces = self._refuse(jobnumber=3, shutdown=10)
+        self.assertFalse(proceed)
+        self.assertEqual(traces.pilot['error_code'], 0)
+
+    def test_proxy_bound_refusal_reports_proxy_too_short(self):
+        """A refusal bound by the proxy must report the dedicated proxy error code."""
+        now = int(time.time())
+        proceed, traces = self._refuse(
+            jobnumber=0,
+            proxy_validity_end=now + 60,  # proxy expires in a minute
+            queuedata=SimpleNamespace(maxtime=90000),
+            shutdown=7200,
+        )
+        self.assertFalse(proceed)
+        self.assertEqual(traces.pilot['error_code'], errors.PROXYTOOSHORT)
+
+    def test_maxtime_bound_refusal_reports_no_time_left(self):
+        """A refusal bound by PQ.maxtime must report the general no-time-left code."""
+        now = int(time.time())
+        proceed, traces = self._refuse(
+            jobnumber=0,
+            proxy_validity_end=now + 72 * 3600,
+            queuedata=SimpleNamespace(maxtime=3700),  # pilot started 3600s ago -> 100s left
+            shutdown=7200,
+        )
+        self.assertFalse(proceed)
+        self.assertEqual(traces.pilot['error_code'], errors.NOTIMELEFTFORNEWJOB)
+
+    def test_existing_error_code_is_not_overwritten(self):
+        """An error code set earlier in the pilot must survive the refusal."""
+        proceed, traces = self._refuse(
+            jobnumber=0, initial_error_code=errors.NOLOCALSPACE, shutdown=10
+        )
+        self.assertFalse(proceed)
+        self.assertEqual(traces.pilot['error_code'], errors.NOLOCALSPACE)
+
+    def test_no_error_code_when_the_job_is_accepted(self):
+        """No error code may be set when the gate lets the job through."""
+        proceed, traces = self._refuse(jobnumber=0, shutdown=7200)
+        self.assertTrue(proceed)
+        self.assertEqual(traces.pilot['error_code'], 0)
 
 
 if __name__ == '__main__':

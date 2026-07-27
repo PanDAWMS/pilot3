@@ -183,10 +183,11 @@ errors = ErrorCodes()
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
 
-# Minimum time (s) that must remain before the MachineFeatures shutdowntime for the pilot to
-# fetch a new job. Chosen to comfortably exceed the monitor's own shutdowntime grace window
-# (10 * 60 = 600s, see pilot.control.monitor.run_shutdowntime_minute_check()) plus typical
-# job setup/stage-in/stage-out overhead, so a freshly-started job is not immediately killed.
+# Minimum time (s) that must remain -- whether limited by the proxy lifetime, the site time limit
+# (PQ.maxtime) or the MachineFeatures shutdowntime -- for the pilot to fetch a new job. Chosen to
+# comfortably exceed the monitor's own shutdowntime grace window (10 * 60 = 600s, see
+# pilot.control.monitor.run_shutdowntime_minute_check()) plus typical job setup/stage-in/stage-out
+# overhead, so a freshly-started job is not immediately killed.
 MIN_TIME_FOR_NEW_JOB = 1800
 
 
@@ -1734,37 +1735,103 @@ def get_job_label(args: Any) -> str:
     return job_label
 
 
-def get_remaining_time(args: Any) -> int:
-    """
-    Return the remaining time for the pilot.
+def _get_remaining_time_candidates(args: Any) -> dict[str, int]:
+    """Collect the available remaining-time candidates, keyed by source name.
 
-    The remaining time is taken as the minimum of the remaining proxy lifetime and the remaining time
-    before the time limit set by the site kills the job.
+    Three independent sources can limit how much time the pilot has left: the lifetime of
+    the proxy, the maximum lifetime the site allows the pilot (PQ.maxtime), and the
+    MachineFeatures shutdowntime. Each is optional -- a proxy lifetime is only cached when
+    proxy verification has run (queues using OIDC tokens never populate it), PQ.maxtime is
+    zero unless the site sets it, and MachineFeatures is an optional site installation that
+    most queues do not provide. A source that is unavailable simply does not appear in the
+    returned dictionary rather than contributing a misleading value.
+
+    Insertion order is proxy, PQ.maxtime, shutdowntime; on an exact tie between two sources
+    this determines which one min() reports as binding (see _compute_remaining_time()).
 
     Args:
-        args (Any): Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc)
+        args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc).
 
     Returns:
-        int: remaining time in seconds.
+        dict[str, int]: remaining time in seconds per available source. Values may be zero or
+            negative, meaning the corresponding limit has already been reached or passed.
     """
-    # get the remaining time from the proxy
-    remaining_time = pilot_cache.proxy_lifetime
-    logger.info(f"remaining proxy life time = {pilot_cache.proxy_lifetime} s")
-    if not remaining_time:
-        logger.warning('failed to get remaining time from proxy')
-        return 0
+    candidates: dict[str, int] = {}
 
-    # get the remaining time from the site
-    # e.g. maxtime = 345600, i.e. pilot is allowed to run for a maximum of 345600 s
-    # the remaining time is therefore 345600 - time since pilot started
-    site_remaining_time = infosys.queuedata.maxtime - get_time_since_start(args)
-    logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining_time} s")
-    if not site_remaining_time:
-        logger.warning('failed to get remaining time from site')
-        return 0
+    # the cached value is the absolute epoch time at which the proxy expires, so the remaining
+    # lifetime has to be derived here -- proxy verification is cached per proxy id and normally
+    # only runs once per pilot (see pilot.user.atlas.proxy.extract_time_left())
+    if pilot_cache.proxy_validity_end:
+        proxy_remaining = pilot_cache.proxy_validity_end - int(time.time())
+        candidates['proxy'] = proxy_remaining
+        logger.info(f"remaining proxy lifetime = {proxy_remaining} s")
+    else:
+        logger.debug("proxy lifetime not available - excluding it from remaining_time")
 
-    # return the minimum of the two
-    return min(remaining_time, site_remaining_time)
+    # e.g. maxtime = 345600, i.e. the pilot is allowed to run for a maximum of 345600 s, so the
+    # remaining time is 345600 - time since the pilot started
+    # (queuedata is None until infosys has been initialised, which has not necessarily happened
+    # yet on every code path leading here)
+    if infosys.queuedata and infosys.queuedata.maxtime:
+        site_remaining = infosys.queuedata.maxtime - get_time_since_start(args)
+        candidates['pq_maxtime'] = site_remaining
+        logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining} s")
+    else:
+        logger.debug("queuedata.maxtime not available - excluding it from remaining_time")
+
+    shutdown_remaining = _time_until_shutdown(args)
+    if shutdown_remaining is not None:
+        candidates['shutdowntime'] = shutdown_remaining
+        logger.info(f"remaining time until MachineFeatures shutdowntime = {shutdown_remaining} s")
+    else:
+        logger.debug("MachineFeatures shutdowntime not available - excluding it from remaining_time")
+
+    return candidates
+
+
+def _compute_remaining_time(args: Any) -> Optional[tuple[int, str]]:
+    """Return the remaining time for the pilot together with the source that constrains it.
+
+    The most constraining of the available sources wins. Reporting which source that was makes
+    it possible to tell at a glance, from the log of a pilot that declined a job, whether it was
+    the proxy, the site time limit or an imminent node shutdown that was responsible.
+
+    Args:
+        args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc).
+
+    Returns:
+        Optional[tuple[int, str]]: remaining time in seconds and the name of the binding source
+            ('proxy', 'pq_maxtime' or 'shutdowntime'), or None if no source is available. The
+            value may be zero or negative if a limit has already been reached or passed.
+    """
+    candidates = _get_remaining_time_candidates(args)
+    if not candidates:
+        return None
+
+    source = min(candidates, key=candidates.get)
+
+    return candidates[source], source
+
+
+def get_remaining_time(args: Any) -> Optional[int]:
+    """Return the remaining time for the pilot, or None if it cannot be determined.
+
+    Args:
+        args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc).
+
+    Returns:
+        Optional[int]: remaining time in seconds, or None if no source of remaining time is
+            available. The value may be zero or negative if a limit has already been passed.
+    """
+    result = _compute_remaining_time(args)
+    if result is None:
+        logger.warning("could not determine the remaining time from any source")
+        return None
+
+    remaining_time, source = result
+    logger.info(f"computed remaining_time = {remaining_time} s (bound by {source})")
+
+    return remaining_time
 
 
 def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
@@ -1838,6 +1905,16 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         except (ValueError, TypeError) as error:
             logger.warning(f'failed to get HARVESTER_WORKER_ID: {error}')
 
+    # let the server filter out jobs that cannot fit in the time the pilot has left. Zero and
+    # negative values are not sent: the key is simply omitted, which matches the server's own
+    # default of "no information" rather than risking a literal 0 being read as a real limit
+    remaining_time = get_remaining_time(args)
+    if remaining_time is not None and remaining_time > 0:
+        data['remaining_time'] = remaining_time
+        logger.info(f"sending remaining_time={remaining_time} s in acquire_jobs payload")
+    else:
+        logger.info(f"not sending remaining_time in acquire_jobs payload (value={remaining_time})")
+
     return data
 
 
@@ -1902,8 +1979,8 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
         harvester: True if Harvester is used, False otherwise. Affects the max number of getjob reads from file.
         verify_proxy: True if the proxy should be verified. False otherwise.
         traces: traces object (to be able to propagate a proxy error all the way back to the wrapper).
-        args: pilot arguments, used to check the MachineFeatures shutdowntime before fetching a
-            new job (optional; the shutdowntime check is skipped if not provided).
+        args: pilot arguments, used to work out how much time the pilot has left before fetching a
+            new job (optional; the remaining-time check is skipped if not provided).
 
     Returns:
         bool: True if pilot should proceed with getJob.
@@ -1966,15 +2043,23 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
     if jobnumber > 0:
         logger.info(f'since timefloor={timefloor} s and only {currenttime - starttime} s has passed since launch, pilot can run another job')
 
-    # do not fetch a new job if the node is about to be reclaimed (MachineFeatures shutdowntime) --
-    # not relevant for the first job, which is handled separately by the batch system / wrapper
-    if jobnumber > 0 and args is not None:
-        remaining = _time_until_shutdown(args)
-        if remaining is not None and remaining < MIN_TIME_FOR_NEW_JOB:
-            return wrap_up_quickly(
-                f'insufficient time remaining before node shutdown ({remaining}s < '
-                f'{MIN_TIME_FOR_NEW_JOB}s minimum) - will not fetch another job'
-            )
+    # do not fetch a new job if too little time remains to run it -- whether that is because the
+    # proxy is about to expire, because the site time limit (PQ.maxtime) is about to be reached,
+    # or because the node is about to be reclaimed (MachineFeatures shutdowntime)
+    if args is not None:
+        result = _compute_remaining_time(args)
+        if result is not None:
+            remaining_time, source = result
+            if remaining_time < MIN_TIME_FOR_NEW_JOB:
+                if jobnumber == 0:
+                    # the pilot is about to end without having run anything, so the wrapper and
+                    # Harvester need to be told why. A pilot that has already run jobs and simply
+                    # declines a further one has ended normally and must not report an error.
+                    _set_no_time_error_code(traces, source)
+                return wrap_up_quickly(
+                    f'insufficient remaining time ({remaining_time}s < {MIN_TIME_FOR_NEW_JOB}s '
+                    f'minimum, bound by {source}) - will not fetch another job'
+                )
 
     if harvester and jobnumber > 0:
         # unless it's the first job (which is preplaced in the init dir), instruct Harvester to place another job
@@ -1990,6 +2075,32 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
 
     os.environ['SERVER_UPDATE'] = SERVER_UPDATE_NOT_DONE
     return True
+
+
+def _set_no_time_error_code(traces: Any, source: str) -> None:
+    """Report why the pilot is ending without having run a single job.
+
+    Only called for the first job: at that point the pilot exits having done no work at all, so
+    the wrapper and Harvester need a reason. A multijob pilot that declines a further job has
+    ended normally and deliberately reports nothing, matching the existing convention that having
+    run out of time is not an error worth propagating.
+
+    Args:
+        traces: traces object (to be able to propagate the error all the way back to the wrapper).
+        source: name of the binding remaining-time source ('proxy', 'pq_maxtime' or 'shutdowntime').
+    """
+    if traces.pilot['error_code'] != 0:  # careful so we don't overwrite another error code
+        logger.debug('not setting an error code since one has already been set')
+        return
+
+    # a too-short proxy already has a dedicated code with exactly this meaning; the site time limit
+    # and an imminent node shutdown share a general one. REACHEDMAXTIME is deliberately not reused,
+    # so that a pilot correctly declining a job stays distinguishable in monitoring from a job that
+    # was actually aborted for exceeding the time limit.
+    error_code = errors.PROXYTOOSHORT if source == 'proxy' else errors.NOTIMELEFTFORNEWJOB
+    traces.pilot['error_code'] = error_code
+    logger.warning(f'setting error code {error_code} ({errors.get_error_message(error_code)}) - '
+                   f'the pilot will end without having run a job (bound by {source})')
 
 
 def wrap_up_quickly(message: str) -> bool:

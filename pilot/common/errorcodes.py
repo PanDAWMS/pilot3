@@ -192,6 +192,7 @@ class ErrorCodes:
     PANDAQUEUENOTONLINE = 1386
     ALLOCATIONERROR = 1387
     XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
+    NOTIMELEFTFORNEWJOB = 1389  # set when the pilot ends without running a job since too little time remained
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -344,6 +345,7 @@ class ErrorCodes:
         PANDAQUEUENOTONLINE: "PanDA queue is not online",
         ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
         XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
+        NOTIMELEFTFORNEWJOB: "Insufficient time remaining to start a new job",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

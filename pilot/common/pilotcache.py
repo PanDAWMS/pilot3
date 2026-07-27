@@ -35,7 +35,7 @@ def get_pilot_cache():
             self.cgroups = {}  # for process management
             self.set_memory_limits = []  # cgroup paths for which a memory limit has been set
             self.set_memory_limits_values = {}  # cgroup path -> limit in kB
-            self.proxy_lifetime = 0
+            self.proxy_validity_end = 0  # absolute epoch time (s) when the proxy validity ends
             self.stageout_attempts = None
             self.queuedata = None
             self.pilot_version = None

@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 # - Alexander Bogdanchikov, alexander.bogdanchikov@cern.ch, 2020
 
 """Functions related to proxy handling for ATLAS."""
@@ -454,7 +454,12 @@ def extract_time_left(stdout: str) -> tuple[Optional[int], Optional[int], str]:
         logger.info(f"validity_end_cert = {validity_end_cert}")
     if validity_end:
         logger.info(f"validity_end = {validity_end}")
-        pilot_cache.proxy_lifetime = validity_end - int(time())  # remaining time in seconds
+        # store the absolute epoch time, not a relative lifetime: verify_arcproxy() caches its
+        # result per proxy_id, so this code path is normally only reached once per pilot. A
+        # relative value would therefore be frozen at its start-up reading and never decrease,
+        # while an absolute one can be converted to a live remaining time at any later point
+        # (see pilot.control.job.get_remaining_time()).
+        pilot_cache.proxy_validity_end = validity_end
 
     return validity_end_cert, validity_end, stdout
 
