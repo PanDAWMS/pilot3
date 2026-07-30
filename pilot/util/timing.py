@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Timing module for the pilot."""
 
@@ -318,6 +318,34 @@ def get_time_since_start(args: object) -> int:
         Time in seconds.
     """
     return get_time_since('0', PILOT_START_TIME, args)
+
+
+def get_time_since_start_or_none(args: object) -> Optional[int]:
+    """Return the time passed since the pilot was launched, or None if it cannot be determined.
+
+    get_time_since_start() returns 0 both when the pilot has only just started and when the
+    PILOT_START_TIME measurement is missing altogether. Callers that would draw a different
+    conclusion from those two cases -- notably anything subtracting the result from a ceiling
+    such as PQ.maxtime, where a missing measurement would silently yield the full ceiling --
+    should use this function instead.
+
+    Args:
+        args: Pilot arguments.
+
+    Returns:
+        Time in seconds since the pilot was launched, or None if no PILOT_START_TIME
+            measurement is available.
+    """
+    time_measurement_dictionary = args.timing.get('0', None) if getattr(args, 'timing', None) else None
+    if not time_measurement_dictionary:
+        logger.warning('failed to extract time measurement dictionary for job id 0')
+        return None
+
+    time_measurement = get_time_measurement(PILOT_START_TIME, time_measurement_dictionary, args.timing)
+    if not time_measurement:
+        return None
+
+    return int(time.time() - time_measurement)
 
 
 def get_time_since_multijob_start(args: object) -> int:
