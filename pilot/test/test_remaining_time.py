@@ -45,6 +45,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from pilot.control import job as job_module
+from pilot.util.timing import get_time_since_start_or_none
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
@@ -157,6 +158,45 @@ class TestGetRemainingTimeCandidates(unittest.TestCase):
         with remaining_time_sources(proxy_validity_end=now - 600):
             candidates = job_module._get_remaining_time_candidates(args)
         self.assertLess(candidates['proxy'], 0)
+
+    def test_maxtime_excluded_when_elapsed_time_unknown(self):
+        """PQ.maxtime must be dropped, not reported raw, when the elapsed time is unknown.
+
+        Subtracting an unavailable elapsed time would leave the full PQ.maxtime ceiling as the
+        apparent remaining time -- the over-reporting this calculation exists to prevent.
+        """
+        args = SimpleNamespace(timing={})  # no PILOT_START_TIME measurement recorded
+        with remaining_time_sources(queuedata=SimpleNamespace(maxtime=345600), shutdown=4200):
+            candidates = job_module._get_remaining_time_candidates(args)
+        self.assertNotIn('pq_maxtime', candidates)
+        self.assertEqual(candidates, {'shutdowntime': 4200})
+
+
+class TestGetTimeSinceStartOrNone(unittest.TestCase):
+    """Tests for timing.get_time_since_start_or_none()."""
+
+    def test_returns_elapsed_time_when_measurement_present(self):
+        """The normal case: PILOT_START_TIME is recorded at pilot start-up."""
+        elapsed = get_time_since_start_or_none(_make_args(time.time() - 3600))
+        self.assertIsNotNone(elapsed)
+        self.assertTrue(3595 <= elapsed <= 3605)
+
+    def test_returns_none_when_timing_dictionary_empty(self):
+        """None rather than 0, so callers can tell "unknown" from "just started"."""
+        self.assertIsNone(get_time_since_start_or_none(SimpleNamespace(timing={})))
+
+    def test_returns_none_when_job_id_missing(self):
+        """The pilot-level measurements live under job id '0'."""
+        self.assertIsNone(get_time_since_start_or_none(SimpleNamespace(timing={'1': {}})))
+
+    def test_returns_none_when_measurement_key_missing(self):
+        """A populated dictionary without PILOT_START_TIME is still unusable."""
+        args = SimpleNamespace(timing={'0': {'PILOT_END_TIME': time.time()}})
+        self.assertIsNone(get_time_since_start_or_none(args))
+
+    def test_returns_none_when_args_has_no_timing(self):
+        """Defensive: args without a timing attribute must not raise."""
+        self.assertIsNone(get_time_since_start_or_none(SimpleNamespace()))
 
 
 class TestComputeRemainingTime(unittest.TestCase):

@@ -163,6 +163,7 @@ from pilot.util.timing import (
     get_postgetjob_time,
     get_time_since,
     get_time_since_start,
+    get_time_since_start_or_none,
     time_stamp,
     timing_report,
 )
@@ -1773,9 +1774,18 @@ def _get_remaining_time_candidates(args: Any) -> dict[str, int]:
     # (queuedata is None until infosys has been initialised, which has not necessarily happened
     # yet on every code path leading here)
     if infosys.queuedata and infosys.queuedata.maxtime:
-        site_remaining = infosys.queuedata.maxtime - get_time_since_start(args)
-        candidates['pq_maxtime'] = site_remaining
-        logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining} s")
+        # deliberately not get_time_since_start(), which returns 0 both for "the pilot has only
+        # just started" and for "no timing measurement available" - the latter would silently
+        # turn into "the full PQ.maxtime is still available", i.e. exactly the over-reporting
+        # this whole calculation exists to prevent
+        time_since_start = get_time_since_start_or_none(args)
+        if time_since_start is None:
+            logger.debug("time since pilot start not available - excluding queuedata.maxtime "
+                         "from remaining_time")
+        else:
+            site_remaining = infosys.queuedata.maxtime - time_since_start
+            candidates['pq_maxtime'] = site_remaining
+            logger.info(f"remaining time (PQ.maxtime - time since start) = {site_remaining} s")
     else:
         logger.debug("queuedata.maxtime not available - excluding it from remaining_time")
 

@@ -195,6 +195,22 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
             exit_code, diagnostics, validity_end_cert, validity_end = interpret_proxy_info(_exit_code, stdout, stderr, limit)
             # validity_end = int(time()) + 71 * 3600  # 71 hours test
 
+            if proxy_id == 'pilot' and validity_end:
+                # Record when the pilot's own proxy expires, so that the rest of the pilot can work
+                # out how much proxy time is left (see pilot.control.job.get_remaining_time()).
+                #
+                # This has to happen here rather than deeper down in extract_time_left(), which has
+                # no way of telling which proxy it was given: get_and_verify_proxy() verifies the
+                # *payload* proxy with proxy_id=None, and would otherwise overwrite the pilot's
+                # validity with the payload proxy's.
+                #
+                # An absolute epoch time is stored rather than a relative lifetime, since the branch
+                # above serves subsequent calls from verify_arcproxy.cache and this code is normally
+                # only reached once per pilot -- a relative value would be frozen at its start-up
+                # reading and never decrease. It is stored regardless of exit_code, as the validity
+                # is a parsed property of the proxy independent of whether it passed the limit check.
+                pilot_cache.proxy_validity_end = validity_end
+
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
                     logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
@@ -454,12 +470,6 @@ def extract_time_left(stdout: str) -> tuple[Optional[int], Optional[int], str]:
         logger.info(f"validity_end_cert = {validity_end_cert}")
     if validity_end:
         logger.info(f"validity_end = {validity_end}")
-        # store the absolute epoch time, not a relative lifetime: verify_arcproxy() caches its
-        # result per proxy_id, so this code path is normally only reached once per pilot. A
-        # relative value would therefore be frozen at its start-up reading and never decrease,
-        # while an absolute one can be converted to a live remaining time at any later point
-        # (see pilot.control.job.get_remaining_time()).
-        pilot_cache.proxy_validity_end = validity_end
 
     return validity_end_cert, validity_end, stdout
 
