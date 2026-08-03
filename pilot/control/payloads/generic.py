@@ -43,7 +43,10 @@ from pilot.util.auxiliary import (
     set_pilot_state,  # , show_memory_usage
     list_items
 )
-from pilot.util.cgroups import move_process_and_descendants_to_cgroup
+from pilot.util.cgroups import (
+    move_process_and_descendants_to_cgroup,
+    store_oom_baseline
+)
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
@@ -665,6 +668,11 @@ class Executor:
                         f"moving process (pid={job.pid}) to cgroup: {cgroup_path}"
                     )
                     _ = move_process_and_descendants_to_cgroup(cgroup_path, job.pid)
+
+                    # snapshot the cumulative memory.events OOM counters so that the
+                    # post-payload check can work on deltas belonging to this payload
+                    # only (the subprocesses cgroup is shared for the pilot lifetime)
+                    _ = store_oom_baseline(cgroup_path)
                 else:
                     logger.warning("cannot move process to cgroup - no cgroup path found")
         except Exception as e:

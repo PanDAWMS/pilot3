@@ -47,7 +47,11 @@ from pilot.util.auxiliary import (
     check_for_final_server_update,
     set_pilot_state
 )
-from pilot.util.cgroups import monitor_cgroup
+from pilot.util.cgroups import (
+    format_oom_diagnostics,
+    get_oom_deltas,
+    monitor_cgroup
+)
 from pilot.util.common import is_pilot_check
 from pilot.util.config import config
 from pilot.util.constants import MAX_KILL_WAIT_TIME
@@ -76,11 +80,20 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 
     Runs in its own thread.  Every 60 seconds it reads the controller and
     subprocesses cgroup metrics.  If the kernel OOM-killed the subprocess
-    cgroup (``oom_kill`` or ``oom_group_kill`` > 0 in ``memory.events``)
-    and prmon has not already set a job error, this function sets error
-    code ``PAYLOADOOMKILL`` and marks the pilot state as ``"failed"`` so
-    the job is reported correctly to PanDA rather than appearing as a
-    generic failure.
+    cgroup (``oom_kill`` or ``oom_group_kill`` increased in ``memory.events``
+    since the payload started) and prmon has not already set a job error,
+    this function sets error code ``PAYLOADOUTOFMEMORY`` (so the server-side
+    retryModule can raise the memory requirement) plus ``PAYLOADOOMKILL`` as
+    a secondary code identifying the kernel cgroup OOM killer as the source,
+    and marks the pilot state as ``"failed"`` so the job is reported
+    correctly to PanDA rather than appearing as a generic failure.
+
+    The counters are compared against the baseline stored in the pilot cache
+    at payload start rather than against a thread-local value, so that a kill
+    belonging to an earlier job of a multi-job pilot is not attributed to the
+    current payload.  Note that this in-flight check is a best-effort early
+    warning: the authoritative check runs synchronously after the payload has
+    finished, in ``perform_initial_payload_error_analysis()``.
 
     Args:
         queues: internal queues for job handling (namedtuple)
@@ -88,13 +101,10 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         args: Pilot arguments (e.g. containing queue name, queuedata
             dictionary, etc) (object)
     """
-    if queues or traces:  # suppress pylint unused-argument warning
+    if traces:  # suppress pylint unused-argument warning
         pass
 
-    # Cumulative OOM counts seen in the previous poll — we only act on a
-    # rising edge (i.e. the count increased since last check).
-    prev_oom_kill = 0
-    prev_oom_group_kill = 0
+    reported = False  # only report the OOM kill once per payload
 
     while not args.graceful_stop.is_set():
         pilot_cgroup_path = pilot_cache.get_cgroup(str(os.getpid()))
@@ -105,12 +115,16 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
         subprocesses_cgroup_path = pilot_cache.get_cgroup('subprocesses')
         if subprocesses_cgroup_path:
             logger.debug(f"monitoring subprocesses cgroup at path: {subprocesses_cgroup_path}")
-            oom_counts = monitor_cgroup(subprocesses_cgroup_path)
+            events = monitor_cgroup(subprocesses_cgroup_path)
+            deltas = get_oom_deltas(subprocesses_cgroup_path, events) if events else {}
 
-            oom_kill = oom_counts.get('oom_kill', 0)
-            oom_group_kill = oom_counts.get('oom_group_kill', 0)
+            oom_kill = deltas.get('oom_kill', 0)
+            oom_group_kill = deltas.get('oom_group_kill', 0)
 
-            if oom_kill > prev_oom_kill or oom_group_kill > prev_oom_group_kill:
+            if oom_kill <= 0 and oom_group_kill <= 0:
+                # a new payload has started (baseline reset) - allow reporting again
+                reported = False
+            elif not reported:
                 logger.warning(
                     f"cgroup OOM kill detected for {subprocesses_cgroup_path} "
                     f"(oom_kill={oom_kill}, oom_group_kill={oom_group_kill})"
@@ -122,20 +136,26 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
                     # Only set the OOM error if prmon has not already flagged
                     # a PAYLOADEXCEEDMAXMEM — prmon gets priority (graceful path).
                     if not job.piloterrorcodes or errors.PAYLOADEXCEEDMAXMEM not in job.piloterrorcodes:
+                        diagnostics = format_oom_diagnostics(subprocesses_cgroup_path, deltas)
                         set_pilot_state(job=job, state="failed")
-                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOOMKILL)
-                        logger.warning(
-                            f"set error code PAYLOADOOMKILL ({errors.PAYLOADOOMKILL}) for job {job.jobid}"
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+                            errors.PAYLOADOUTOFMEMORY, priority=True, msg=diagnostics
                         )
+                        job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+                            errors.PAYLOADOOMKILL, msg=diagnostics
+                        )
+                        logger.warning(
+                            f"set error code PAYLOADOUTOFMEMORY ({errors.PAYLOADOUTOFMEMORY}) with secondary code "
+                            f"PAYLOADOOMKILL ({errors.PAYLOADOOMKILL}) for job {job.jobid}"
+                        )
+                        reported = True
                     else:
                         logger.info(
-                            "prmon already set PAYLOADEXCEEDMAXMEM - not overwriting with PAYLOADOOMKILL"
+                            "prmon already set PAYLOADEXCEEDMAXMEM - not overwriting with the cgroup OOM error"
                         )
+                        reported = True
                 else:
                     logger.warning("cgroup OOM kill detected but no running job found in queues")
-
-                prev_oom_kill = oom_kill
-                prev_oom_group_kill = oom_group_kill
 
         time.sleep(60)
 
@@ -145,9 +165,9 @@ def cgroup_control(queues: namedtuple, traces: Any, args: object):  # noqa: C901
 def _get_current_job(queues: namedtuple) -> Any:
     """Return the currently running job object from the job queues, or None.
 
-    Performs a non-blocking peek at the ``finished_jobs`` and
-    ``running_jobs`` queues to find the active job.  Does not consume the
-    queue entry.
+    Performs a non-blocking peek at the ``monitored_payloads`` queue, which is
+    where the payload control thread places a job once its payload is running.
+    Does not consume the queue entry.
 
     Args:
         queues: Internal pilot queues namedtuple.
@@ -156,13 +176,13 @@ def _get_current_job(queues: namedtuple) -> Any:
         The current job object, or None if not found.
     """
     try:
-        # running_jobs is a list maintained by the job control thread
-        if hasattr(queues, 'running_jobs'):
-            running = list(queues.running_jobs.queue) if hasattr(queues.running_jobs, 'queue') else []
-            if running:
-                return running[0]
+        if hasattr(queues, 'monitored_payloads'):
+            jobs = list(queues.monitored_payloads.queue)
+            if jobs:
+                return jobs[0]
     except Exception as exc:
         logger.debug(f"could not retrieve current job from queues: {exc}")
+
     return None
 
 

@@ -20,7 +20,7 @@
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
 # - Wen Guan, wen.guan@cern.ch, 2017-2018
 
 """Functions for handling the payload."""
@@ -56,6 +56,7 @@ from pilot.control.payloads import (
 from pilot.control.job import send_state
 from pilot.info import JobData
 from pilot.util.auxiliary import set_pilot_state
+from pilot.util.cgroups import check_for_cgroup_oom_kill
 from pilot.util.container import execute
 from pilot.util.config import config
 from pilot.util.filehandling import (
@@ -764,8 +765,11 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int) -> None
         stderr = ''
         logger.info(f'file does not exist: {path}')
 
-    # check for memory errors first
-    if exit_code != 0 and job.subprocesses:
+    # check for memory errors first; the cgroup memory.events counters are the
+    # authoritative source, so they are consulted before the dmesg scan
+    found_oom = set_error_from_cgroup_oom_kill(job, exit_code)
+
+    if not found_oom and exit_code != 0 and job.subprocesses:
         # scan for memory errors in dmesg messages
         msg = scan_for_memory_errors(job.subprocesses)
         if msg:
@@ -797,6 +801,63 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int) -> None
             # COREDUMP error will only be set if the core dump belongs to the payload (ie 'core.<payload pid>')
             logger.warning('setting COREDUMP error')
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
+
+
+def set_error_from_cgroup_oom_kill(job: JobData, exit_code: int) -> bool:
+    """Set the out-of-memory error code if the cgroup OOM killer hit the payload.
+
+    The check is performed unconditionally so that the ``memory.events``
+    counters always appear in the log, but an error code is only set when the
+    payload also exited non-zero (see :func:`check_for_cgroup_oom_kill`).
+
+    Two error codes are recorded on a confirmed kill:
+
+    - ``PAYLOADOUTOFMEMORY`` (1212) with priority, so that it is the code
+      reported to the server and the retryModule can act on it by raising the
+      memory requirement;
+    - ``PAYLOADOOMKILL`` (1237) appended as a secondary code, so that the
+      distinction between a kernel cgroup OOM kill and the other paths leading
+      to 1212 (dmesg scan, payload stdout/stderr patterns) remains visible in
+      the pilot log and in the full error code list.
+
+    If prmon already flagged ``PAYLOADEXCEEDMAXMEM`` then prmon won the race and
+    produced the cleaner diagnosis, so nothing is changed.
+
+    Args:
+        job: job object.
+        exit_code: exit code from payload execution.
+
+    Returns:
+        True if an error code was set, False otherwise.
+    """
+    try:
+        error_code, diagnostics, _ = check_for_cgroup_oom_kill(exit_code)
+    except Exception as exc:  # never let a diagnostics helper fail the analysis
+        logger.warning(f"exception caught while checking memory.events for OOM kills: {exc}")
+        return False
+
+    if not error_code:
+        return False
+
+    if job.piloterrorcodes and errors.PAYLOADEXCEEDMAXMEM in job.piloterrorcodes:
+        logger.info(
+            "prmon already set PAYLOADEXCEEDMAXMEM - not overwriting it with the cgroup OOM error"
+        )
+        return False
+
+    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+        error_code, priority=True, msg=diagnostics
+    )
+    # secondary code identifying the kernel cgroup OOM killer as the source
+    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(
+        errors.PAYLOADOOMKILL, msg=diagnostics
+    )
+    logger.warning(
+        f"set error code {error_code} (PAYLOADOUTOFMEMORY) with secondary code "
+        f"{errors.PAYLOADOOMKILL} (PAYLOADOOMKILL) from cgroup memory.events"
+    )
+
+    return True
 
 
 def get_critical_error_from_stdout(workdir: str) -> str:

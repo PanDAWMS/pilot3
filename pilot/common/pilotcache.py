@@ -35,6 +35,7 @@ def get_pilot_cache():
             self.cgroups = {}  # for process management
             self.set_memory_limits = []  # cgroup paths for which a memory limit has been set
             self.set_memory_limits_values = {}  # cgroup path -> limit in kB
+            self.oom_baselines = {}  # cgroup path -> memory.events dict, snapshotted at payload start
             self.proxy_validity_end = 0  # absolute epoch time (s) when the proxy validity ends
             self.stageout_attempts = None
             self.queuedata = None
@@ -84,5 +85,32 @@ def get_pilot_cache():
                 Optional[str]: The value associated with the key, or default if the key doesn't exist.
             """
             return self.cgroups.get(key, default)
+
+        def set_oom_baseline(self, key: str, events: dict) -> None:
+            """Store a memory.events snapshot to be used as an OOM baseline.
+
+            The cgroup OOM counters in ``memory.events`` are cumulative for the
+            lifetime of the cgroup. Since the "subprocesses" cgroup is created
+            once per pilot and shared by all payloads and all subprocesses
+            launched via ``execute()``, an absolute counter value cannot be
+            attributed to the current payload. A snapshot taken at payload start
+            allows the post-payload check to work on deltas instead.
+
+            Args:
+                key: Key for the baseline entry, normally the cgroup path.
+                events: Parsed ``memory.events`` contents (str -> int).
+            """
+            self.oom_baselines[key] = dict(events) if events else {}
+
+        def get_oom_baseline(self, key: str) -> dict:
+            """Get a previously stored memory.events baseline.
+
+            Args:
+                key: Key for the baseline entry, normally the cgroup path.
+
+            Returns:
+                dict: The stored snapshot, or an empty dict if none was stored.
+            """
+            return self.oom_baselines.get(key, {})
 
     return PilotCache()
