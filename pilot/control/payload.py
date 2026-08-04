@@ -71,7 +71,10 @@ from pilot.util.processes import (
     get_cpu_consumption_time,
     threads_aborted
 )
-from pilot.util.queuehandling import put_in_queue
+from pilot.util.queuehandling import (
+    get_signal_name,
+    put_in_queue
+)
 from pilot.util.realtimelogger import get_realtime_logger
 
 logger = logging.getLogger(__name__)
@@ -736,15 +739,26 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int) -> None
     # check if the transform has produced an error report
     path = os.path.join(job.workdir, config.Payload.error_report)
     if os.path.exists(path):
-        error_report = read_json(path)
+        # read_json() returns None on a JSONDecodeError, which is a realistic outcome for this
+        # file since memory.oom.group=1 can take the transform down in the middle of writing it
+        error_report = read_json(path) or {}
         error_code = error_report.get('error_code')
         error_diag = error_report.get('error_diag')
         if error_code:
             logger.warning(f'{config.Payload.error_report} contained error code: {error_code}')
             logger.warning(f'{config.Payload.error_report} contained error diag: {error_diag}')
             job.exeerrorcode = error_code
-            job.exeerrordiag = error_report.get('error_diag')
+            job.exeerrordiag = error_diag
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADEXECUTIONFAILURE, msg=error_diag)
+
+            # The transform reports *that* the payload failed, not *why* it died. runGen writes
+            # this file for a SIGKILLed payload as well (exit code 137 -> "payload execution
+            # failed with 137"), and a SIGKILL with no further explanation is most often the
+            # kernel OOM killer. Continue with the memory checks instead of returning here, so
+            # that a memory-specific error code reaches the server rather than the generic
+            # PAYLOADEXECUTIONFAILURE. Both checks are high-specificity, so a genuine transform
+            # error is unaffected.
+            perform_memory_error_checks(job, get_effective_exit_code(exit_code, error_report))
             return
         logger.info(f'{config.Payload.error_report} exists but did not contain any non-zero error code')
     else:
@@ -767,13 +781,8 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int) -> None
 
     # check for memory errors first; the cgroup memory.events counters are the
     # authoritative source, so they are consulted before the dmesg scan
-    found_oom = set_error_from_cgroup_oom_kill(job, exit_code)
+    perform_memory_error_checks(job, exit_code)
 
-    if not found_oom and exit_code != 0 and job.subprocesses:
-        # scan for memory errors in dmesg messages
-        msg = scan_for_memory_errors(job.subprocesses)
-        if msg:
-            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
     if exit_code != 0:
         msg = get_critical_error_from_stdout(job.workdir)  # if any
 
@@ -801,6 +810,78 @@ def perform_initial_payload_error_analysis(job: JobData, exit_code: int) -> None
             # COREDUMP error will only be set if the core dump belongs to the payload (ie 'core.<payload pid>')
             logger.warning('setting COREDUMP error')
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.COREDUMP)
+
+
+def get_effective_exit_code(exit_code: int, error_report: dict) -> int:
+    """Derive the exit code to use for the memory checks when the transform reported an error.
+
+    The memory checks treat a zero exit code as "the payload survived", and only warn in
+    that case (see :func:`~pilot.util.cgroups.check_for_cgroup_oom_kill`). A transform error
+    report holding a non-zero ``error_code`` means the payload did *not* survive, so a
+    non-zero value must be produced even when the pilot itself observed exit code 0.
+
+    The real payload exit code is recovered from the transform's free-text diagnostics
+    (e.g. "payload execution failed with 137") since that is more informative than the
+    transform's own error code; the latter is used as a fallback.
+
+    Args:
+        exit_code: exit code from payload execution, as observed by the pilot.
+        error_report: parsed contents of the transform error report.
+
+    Returns:
+        A non-zero exit code where one could be determined, 0 otherwise.
+    """
+    if exit_code != 0:
+        return exit_code
+
+    # recover the payload exit code from the transform's diagnostics, e.g. "... failed with 137"
+    match = search(r'failed with (\d+)', error_report.get('error_diag') or '')
+    if match:
+        _exit_code = int(match.group(1))
+        if _exit_code:
+            if _exit_code >= 128:
+                signal_name = get_signal_name(_exit_code - 128)
+                if signal_name:
+                    logger.warning(f'payload exit code {_exit_code} recovered from '
+                                   f'{config.Payload.error_report} corresponds to {signal_name}')
+            return _exit_code
+
+    # fall back to the error code reported by the transform
+    try:
+        return int(error_report.get('error_code'))
+    except (TypeError, ValueError):
+        return 0
+
+
+def perform_memory_error_checks(job: JobData, exit_code: int) -> bool:
+    """Run the post-mortem memory error checks on a finished payload.
+
+    The cgroup ``memory.events`` counters are the authoritative source since they survive
+    the death of every process in the cgroup, so they are consulted before the ``dmesg``
+    scan. The latter remains the only detector on sites where the pilot does not create
+    cgroups, where the ``memory.events`` check is a silent no-op.
+
+    Both checks are high-specificity - they require an ``oom_kill``/``oom_group_kill`` delta
+    against the payload-start baseline, or a ``dmesg`` OOM line naming a known payload PID -
+    so they can safely be run whenever the payload failed.
+
+    Args:
+        job: job object.
+        exit_code: effective exit code from payload execution.
+
+    Returns:
+        True if a memory error code was set, False otherwise.
+    """
+    found_oom = set_error_from_cgroup_oom_kill(job, exit_code)
+
+    if not found_oom and exit_code != 0 and job.subprocesses:
+        # scan for memory errors in dmesg messages
+        msg = scan_for_memory_errors(job.subprocesses)
+        if msg:
+            job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
+            found_oom = True
+
+    return found_oom
 
 
 def set_error_from_cgroup_oom_kill(job: JobData, exit_code: int) -> bool:
