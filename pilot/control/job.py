@@ -971,6 +971,44 @@ def add_data_structure_ids(data: dict, version_tag: str, job: Any) -> dict:
     return data
 
 
+def get_mean_core_count(core_counts: list) -> Optional[int]:
+    """Return the truncated mean of the recorded actual core count measurements.
+
+    The measurements are produced by the VO specific ``cpu.set_core_counts()``
+    implementations, which differ in the value type they record (an ``int`` from a
+    ``ps`` based snapshot, or a ``float`` from the prmon based
+    ``(utime+stime)/walltime`` estimate). Values are therefore coerced to ``float``
+    here and any entry that cannot be interpreted numerically is skipped, so that a
+    single malformed measurement can never propagate an exception into the heartbeat
+    path. Such an exception is caught in job_monitor() around
+    send_heartbeat_if_time(), but the handler leaves update_time unadvanced, so every
+    subsequent monitoring cycle re-attempts the heartbeat and re-raises - no heartbeat
+    is ever delivered again for that job.
+
+    Args:
+        core_counts: list of recorded actual core count measurements.
+
+    Returns:
+        Optional[int]: truncated mean of the usable measurements, or None if there are none.
+    """
+    values = []
+    for entry in core_counts:
+        try:
+            values.append(float(entry))
+        except (TypeError, ValueError):
+            logger.warning(f'ignoring non-numeric core count measurement: {entry} (type={type(entry)})')
+
+    if not values:
+        logger.warning('no usable core count measurements - mean_core_count will not be reported')
+        return None
+
+    _mean = mean(values)
+    _mean_int = int(_mean)
+    logger.info(f'mean job.corecounts={_mean} int(mean)={_mean_int}')
+
+    return _mean_int
+
+
 def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata: str = "") -> dict:  # noqa: C901
     """Build the data structure needed for update_job.
 
@@ -1010,10 +1048,9 @@ def get_data_structure(job: Any, state: str, args: Any, xml: str = "", metadata:
     if job.corecount and job.corecount != 'null' and job.corecount != 'NULL':
         data['core_count'] = job.corecount
     if job.corecounts:
-        _mean = mean(job.corecounts)
-        _mean_int = int(_mean)
-        logger.info(f'mean job.corecounts={_mean} int(mean)={_mean_int}')
-        data['mean_core_count'] = _mean_int
+        _mean_int = get_mean_core_count(job.corecounts)
+        if _mean_int is not None:
+            data['mean_core_count'] = _mean_int
 
     # get the number of events, should report in heartbeat in case of preempted.
     if job.nevents != 0:

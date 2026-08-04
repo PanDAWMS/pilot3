@@ -185,7 +185,11 @@ class _PrmonBasedPluginTestsMixin(_CoreCountTestsBase):
 
         self.assertEqual(job.corecount, 10, 'job.corecount (requested/allocated) must be untouched')
         self.assertEqual(job.actualcorecount, '1.00')
-        self.assertEqual(job.corecounts, ['1.00'])
+        # job.corecounts must hold the numeric value, not the rounded display string, since
+        # control/job.py::get_data_structure() averages the list to produce mean_core_count
+        self.assertEqual(job.corecounts, [1.0])
+        for entry in job.corecounts:
+            self.assertIsInstance(entry, float)
 
     def test_actualcorecount_reflects_multicore_usage(self):
         """Cumulative CPU time close to corecount*walltime should read as close to full parallelism."""
@@ -196,7 +200,9 @@ class _PrmonBasedPluginTestsMixin(_CoreCountTestsBase):
 
         self.assertEqual(job.corecount, 10)
         self.assertEqual(job.actualcorecount, '9.50')
-        self.assertEqual(job.corecounts, ['9.50'])
+        self.assertEqual(job.corecounts, [9.5])
+        for entry in job.corecounts:
+            self.assertIsInstance(entry, float)
 
     def test_corecounts_accumulates_across_calls(self):
         """job.corecounts must grow across repeated measurements, not reset each call."""
@@ -207,7 +213,9 @@ class _PrmonBasedPluginTestsMixin(_CoreCountTestsBase):
             self.module.set_core_counts(job=job, walltime=10)
 
         self.assertEqual(job.corecount, 10)
-        self.assertEqual(job.corecounts, ['1.00', '9.50'])
+        self.assertEqual(job.corecounts, [1.0, 9.5])
+        for entry in job.corecounts:
+            self.assertIsInstance(entry, float)
 
     def test_missing_time_dictionary_leaves_state_untouched(self):
         """No 'Time' entry in the summary dictionary - nothing should be recorded."""
