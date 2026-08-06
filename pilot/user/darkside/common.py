@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
-"""DarkSide user specific functionality."""
+"""User specific functionality for Darkside."""
 
 import logging
 import os
@@ -541,5 +541,18 @@ def allow_send_workernode_map() -> bool:
 
     Returns:
         bool: False unless requested.
+    """
+    return False
+
+
+def allow_send_remaining_time() -> bool:
+    """Return True if the remaining time should be sent to the server in the acquire_jobs payload.
+
+    The remaining_time field lets the dispatcher filter out jobs that cannot finish in the time
+    the pilot has left. It is currently only supported by the ATLAS server side, so it is not
+    sent here.
+
+    Returns:
+        bool: False unless the server side adds support for the field.
     """
     return False

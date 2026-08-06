@@ -1881,6 +1881,42 @@ def get_remaining_time(args: Any) -> Optional[int]:
     return remaining_time
 
 
+def allow_send_remaining_time() -> bool:
+    """Ask the experiment plugin whether remaining_time may be sent in the acquire_jobs payload.
+
+    Only the ATLAS server side currently understands the field, so every other plugin opts out.
+    The lookup is deliberately tolerant: an out-of-tree or older plugin that predates this
+    function must not break job acquisition, and neither must a plugin that cannot be imported.
+    Both cases fall back to not sending the field, which is the safe direction -- omitting it
+    simply leaves the dispatcher with no remaining-time information, exactly as before the
+    feature existed.
+
+    Returns:
+        bool: True if the plugin declares support for the field, False otherwise (including when
+            the plugin, or the function itself, is missing).
+    """
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    try:
+        common = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(f"failed to import the {pilot_user} common module ({exc}) - "
+                       f"will not send remaining_time")
+        return False
+
+    allow = getattr(common, 'allow_send_remaining_time', None)
+    if allow is None:
+        logger.warning(f"the {pilot_user} plugin does not implement allow_send_remaining_time() - "
+                       f"will not send remaining_time")
+        return False
+
+    try:
+        return bool(allow())
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(f"{pilot_user}.allow_send_remaining_time() raised {exc} - "
+                       f"will not send remaining_time")
+        return False
+
+
 def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     """Return a dictionary with required fields for the dispatcher getJob operation.
 
@@ -1952,17 +1988,38 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
         except (ValueError, TypeError) as error:
             logger.warning(f'failed to get HARVESTER_WORKER_ID: {error}')
 
-    # let the server filter out jobs that cannot fit in the time the pilot has left. Zero and
-    # negative values are not sent: the key is simply omitted, which matches the server's own
-    # default of "no information" rather than risking a literal 0 being read as a real limit
+    _add_remaining_time(data, args)
+
+    return data
+
+
+def _add_remaining_time(data: dict, args: Any) -> None:
+    """Add the remaining time to the dispatcher dictionary, if it can and should be sent.
+
+    Letting the server know how much time the pilot has left allows it to filter out jobs that
+    cannot finish. Zero and negative values are not sent: the key is simply omitted, which
+    matches the server's own default of "no information" rather than risking a literal 0 being
+    read as a real limit.
+
+    The field is only understood by the ATLAS server side, so the experiment plugin decides
+    whether it is sent at all. That check comes first so that unsupported experiments neither
+    pay for the calculation nor emit log lines about a value that will never leave the pilot.
+
+    Args:
+        data: dispatcher dictionary, updated in place.
+        args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc).
+    """
+    if not allow_send_remaining_time():
+        logger.info("remaining_time is not supported by this experiment - "
+                    "will not be sent in the acquire_jobs payload")
+        return
+
     remaining_time = get_remaining_time(args)
     if remaining_time is not None and remaining_time > 0:
         data['remaining_time'] = remaining_time
         logger.info(f"sending remaining_time={remaining_time} s in acquire_jobs payload")
     else:
         logger.info(f"not sending remaining_time in acquire_jobs payload (value={remaining_time})")
-
-    return data
 
 
 def _time_until_shutdown(args: Any) -> Optional[int]:

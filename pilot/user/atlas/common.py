@@ -3174,3 +3174,16 @@ def allow_send_workernode_map() -> bool:
         bool: always True for ATLAS.
     """
     return True
+
+
+def allow_send_remaining_time() -> bool:
+    """Return True if the remaining time should be sent to the server in the acquire_jobs payload.
+
+    The remaining_time field lets the dispatcher filter out jobs that cannot finish in the time
+    the pilot has left. Not every PanDA server deployment understands the field, so it is only
+    sent for experiments whose server side supports it.
+
+    Returns:
+        bool: always True for ATLAS.
+    """
+    return True
