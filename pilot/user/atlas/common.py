@@ -71,6 +71,7 @@ from pilot.util.filehandling import (
     get_disk_usage,
     get_guid,
     get_local_file_size,
+    looks_like_root_file,
     remove,
     remove_dir_tree,
     remove_core_dumps,
@@ -269,7 +270,8 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
             return exitcode, diagnostics, not_opened, lsetup_time
 
         logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
-        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir)
+        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir,
+                                     rawfirst_turls=extract_rawfirst_turls(indata))
         if not _cmd:
             diagnostics = (f'cannot perform file open test - failed to create file open command from path '
                            f'{final_paths["open_remote_file.py"]}')
@@ -349,15 +351,18 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
 def get_timeout_for_remoteio(indata: list) -> int:
     """Calculate a proper timeout to be used for remote i/o files.
 
+    Note: open_remote_file.py attempts up to two open modes per file (ROOT format and raw),
+    each with an internal 30 s time-out, hence 60 s is budgeted per remote i/o file.
+
     Args:
         indata: list of FileSpec objects.
 
     Returns:
         int: timeout in seconds.
     """
-    remote_io = [fspec.status == 'remote_io' for fspec in indata]
+    remote_io = [fspec for fspec in indata if fspec.status == 'remote_io']
 
-    return len(remote_io) * 30 + 900
+    return len(remote_io) * 60 + 900
 
 
 def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, list]:
@@ -429,12 +434,13 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
 
 def get_file_open_command(script_path: str, turls: str, nthreads: int,
                           stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr',
-                          workdir: str = '') -> str:
+                          workdir: str = '', rawfirst_turls: str = '') -> str:
     """Return the command for opening remote files.
 
     When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
     a plain-text file (one TURL per line) inside ``workdir``, and --turl-file is
-    passed instead of --turls, preventing 'Argument list too long' errors.
+    passed instead of --turls, preventing 'Argument list too long' errors. The
+    raw-first TURL list is handled the same way, via --rawfirst / --rawfirst-file.
 
     ``script_path`` may be a container-relative path such as ``./open_remote_file.py``
     whose ``dirname`` is ``'.'``.  The ``workdir`` parameter provides the real on-disk
@@ -451,12 +457,12 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
         stderr: stderr file name.
         workdir: real on-disk working directory used as the write destination for
             ``turls.txt``; falls back to ``os.path.dirname(script_path)`` when empty.
+        rawfirst_turls: comma-separated turls of input known not to be in ROOT format,
+            to be opened in raw mode first (empty when there are none).
 
     Returns:
         str: command string.
     """
-    turl_list = turls.split(',')
-
     # Determine the directory that is reachable from the pilot process for writing
     # turls.txt.  script_path may have been adjusted to a container-relative form
     # (e.g. './open_remote_file.py') whose dirname resolves to '.' in the pilot's
@@ -464,26 +470,51 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
     # lands in the bind-mounted directory that the container script can read.
     write_dir = workdir if workdir else os.path.dirname(script_path)
 
-    if len(turl_list) > _TURL_CMDLINE_LIMIT:
-        turl_file = os.path.join(write_dir, 'turls.txt')
-        try:
-            write_file(turl_file, '\n'.join(turl_list))
-        except FileHandlingFailure as exc:
-            logger.warning(f'failed to write turl file {turl_file!r}: {exc} - falling back to --turls')
-            turls_arg = f"--turls='{turls}'"
-        else:
-            logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using --turl-file')
-            # Use a relative path in the command so it resolves correctly inside
-            # the container regardless of how the bind-mount is labelled.
-            turls_arg = "--turl-file='./turls.txt'"
-    else:
-        turls_arg = f"--turls='{turls}'"
+    turls_arg = get_turl_list_argument(turls, write_dir, 'turls.txt', '--turls', '--turl-file')
 
     cmd = f"{script_path} {turls_arg} -w {os.path.dirname(script_path)} -t {nthreads}"
+    if rawfirst_turls:
+        cmd += ' ' + get_turl_list_argument(rawfirst_turls, write_dir, 'rawfirst.txt',
+                                            '--rawfirst', '--rawfirst-file')
     if stdout and stderr:
         cmd += f' 1>{stdout} 2>{stderr}'
 
     return cmd
+
+
+def get_turl_list_argument(turls: str, write_dir: str, filename: str,
+                           inline_option: str, file_option: str) -> str:
+    """Return the command-line argument carrying a turl list.
+
+    Lists longer than _TURL_CMDLINE_LIMIT entries are written to ``filename`` in
+    ``write_dir`` and passed by reference, to keep the command line well below ARG_MAX.
+    On write failure the inline form is used as a fallback.
+
+    Args:
+        turls: comma-separated turls.
+        write_dir: directory to write the turl file to.
+        filename: name of the turl file (e.g. ``turls.txt``).
+        inline_option: option name for the inline form (e.g. ``--turls``).
+        file_option: option name for the by-reference form (e.g. ``--turl-file``).
+
+    Returns:
+        str: the command-line argument, including the option name.
+    """
+    turl_list = turls.split(',')
+
+    if len(turl_list) > _TURL_CMDLINE_LIMIT:
+        turl_file = os.path.join(write_dir, filename)
+        try:
+            write_file(turl_file, '\n'.join(turl_list))
+        except FileHandlingFailure as exc:
+            logger.warning(f'failed to write turl file {turl_file!r}: {exc} - falling back to {inline_option}')
+        else:
+            logger.debug(f'wrote {len(turl_list)} TURLs to {turl_file!r}, using {file_option}')
+            # Use a relative path in the command so it resolves correctly inside
+            # the container regardless of how the bind-mount is labelled.
+            return f"{file_option}='./{filename}'"
+
+    return f"{inline_option}='{turls}'"
 
 
 def extract_turls(indata: list) -> str:
@@ -503,6 +534,27 @@ def extract_turls(indata: list) -> str:
 
     return ",".join(
         fspec.turl for fspec in indata if fspec.status == 'remote_io'
+    )
+
+
+def extract_rawfirst_turls(indata: list) -> str:
+    """Extract TURLs of direct i/o input that is known not to be in ROOT format.
+
+    The decision is taken on ``fspec.lfn``, which is the authoritative file name known to
+    the pilot. It is deliberately not taken on the turl: the trailing path component of a
+    replica PFN is the LFN only for deterministically named replicas, so a turl is not a
+    reliable source for this. The resulting turls are passed to the file open verification
+    script, which opens them in raw mode first (see ``try_open_file()`` there).
+
+    Args:
+        indata: list of FileSpec objects.
+
+    Returns:
+        str: comma-separated list of turls, empty if all input may be in ROOT format.
+    """
+    return ",".join(
+        fspec.turl for fspec in indata
+        if fspec.status == 'remote_io' and not looks_like_root_file(fspec.lfn)
     )
 
 

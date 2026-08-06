@@ -407,6 +407,14 @@ class TestIsDirectaccessDavsTurl(unittest.TestCase):
             "root:// turl must remain accepted after adding davs to the schema list"
         )
 
+    def test_davs_turl_accepted_by_default_schemas(self):
+        """davs:// must also be accepted when no explicit schema list is passed."""
+        fspec = self._make_fspec('davs://dcache-atlas-webdav-job.desy.de:2880/path/to/file.data')
+        self.assertTrue(
+            fspec.is_directaccess(ensure_replica=True),
+            "the default allowed_replica_schemas in is_directaccess() must include 'davs'"
+        )
+
     def test_davs_turl_rejected_when_accessmode_copy(self):
         """davs:// turl must be rejected when accessmode is 'copy'."""
         from pilot.api.data import StagingClient
