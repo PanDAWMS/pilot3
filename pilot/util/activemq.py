@@ -256,7 +256,6 @@ class ActiveMQ:
             self.logger.info(f'executing server command: {cmd}')
             res = https.request(cmd, data=data)
 
-        # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
         if res and res[0]:
             try:
                 self.username = res[1]['MB_USERNAME']
