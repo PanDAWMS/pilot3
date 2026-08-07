@@ -2529,7 +2529,13 @@ def get_message(args: Any, message_queue: Any) -> None:
     queues.mbmessages = queue.Queue()
     kwargs = get_kwargs_for_mb(queues, args.url, args.port, args.allow_same_user, args.debug)
     # start connections
-    amq = ActiveMQ(**kwargs)
+    # note: this runs in a spawned subprocess, so an uncaught exception here would kill the
+    # subprocess without any trace in the log - catch it so that the reason is visible
+    try:
+        amq = ActiveMQ(**kwargs)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to set up ActiveMQ: {exc}')
+        return
     args.amq = amq
 
     # wait for messages
