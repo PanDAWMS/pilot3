@@ -66,6 +66,7 @@ from pilot.util.constants import (
     PILOT_START_TIME,
     SERVER_UPDATE_NOT_DONE,
 )
+# from pilot.util.credsprobe import run_probe  # TEMPORARY: remove with pilot/util/credsprobe.py
 from pilot.util.cvmfs import (
     cvmfs_diagnostics,
     get_last_update,
@@ -140,6 +141,14 @@ def main() -> int:  # noqa: C901
     if args.use_https:
         https_setup(args, get_pilot_version())
     args.amq = None
+
+    # TEMPORARY: probe the new PanDA credentials API, then continue as normal.
+    # Remove this call and its import together with pilot/util/credsprobe.py.
+    # Placed here so that the HTTPS context is configured but nothing else has run yet:
+    # the probe only needs args.url/args.port and the token supplied by the wrapper.
+    # It runs once per pilot process, logs a PASS/FAIL matrix to pilotlog.txt, and
+    # cannot fail the pilot (every exception is swallowed inside run_probe()).
+    # run_probe(args)
 
     # let the server know that the worker has started
     if args.update_server and args.workerpilotstatusupdate:
