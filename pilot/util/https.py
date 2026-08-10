@@ -2536,7 +2536,7 @@ def update_local_oidc_token_info(url: str, port: int) -> None:
     Reads the current token info via :func:`get_local_oidc_token_info` and,
     when both token and origin are available, calls :func:`refresh_oidc_token`
     to download a fresh token from the PanDA server.  On success the new
-    token's owner, identity claims and validity window are logged via
+    token's subject, claims and validity window are logged via
     :func:`decode_jwt_payload`.
 
     Args:
@@ -2562,15 +2562,21 @@ def update_local_oidc_token_info(url: str, port: int) -> None:
         logger.debug('no OIDC token info to update')
 
 
-# Claims inspected to establish the token's owner, in the order in which they are tried.
-# PanDA logs the message broker secrets lookup as 'owner=Robot Pilot', which is the value
-# of the 'name' claim, so that claim is tried first.
-TOKEN_OWNER_CLAIMS = ("name", "preferred_username", "client_id", "sub")
+# Claims inspected to establish the token's subject, in the order in which they are tried.
+# The pilot's token is a client-credentials token: 'sub' and 'client_id' both carry the
+# client UUID and there is no user identity claim at all, so 'sub' comes first. The
+# remaining two are fallbacks for user tokens, which the pilot is not expected to see.
+#
+# Note that the subject is not the owner name that PanDA reports for a secrets lookup.
+# The observed 'owner=Robot Pilot' appears nowhere in the token, so the server resolves
+# that name from the subject on its own side; the pilot cannot derive it.
+TOKEN_SUBJECT_CLAIMS = ("sub", "client_id", "preferred_username")
 
-# Identity claims logged verbatim, in this order. Deliberately a fixed list rather than
-# the whole payload: the pilot log is uploaded, so nothing is logged that has not been
-# looked at. 'jti' is included because it is what server-side logs can be matched on.
-TOKEN_IDENTITY_CLAIMS = (
+# Claims logged verbatim, in this order. Deliberately a fixed list rather than the whole
+# payload: the pilot log is uploaded, so nothing is logged that has not been looked at.
+# Absent claims are skipped, so this covers both client-credentials and user tokens.
+# 'jti' is included because it is what server-side logs can be matched on.
+TOKEN_LOGGED_CLAIMS = (
     "sub", "name", "preferred_username", "email", "client_id", "iss", "aud",
     "scope", "wlcg.groups", "groups", "jti",
 )
@@ -2615,76 +2621,96 @@ def _format_epoch(value: Any) -> str:
     return f"{stamp.strftime('%Y-%m-%d %H:%M:%S')} UTC"
 
 
-def get_token_owner(payload: dict) -> str:
-    """Return the owner name that the PanDA server will resolve the token to.
+def get_token_subject(payload: dict) -> tuple[str, str]:
+    """Return the subject the token identifies its bearer by.
 
-    The server returns user secrets registered to the caller and logs the caller as
-    ``owner=...``; for a token that name comes from the token's identity claims rather
-    than from the X.509 proxy, so the two authentication paths can resolve to different
-    owners for the same pilot.
+    This is the token's own notion of identity, not the owner name that PanDA reports for
+    a user-secrets lookup. Those are different things: the pilot's token carries only a
+    client UUID, while the server logs a human-readable owner that appears in no claim, so
+    the server must be resolving that name from the subject on its own side. The subject
+    is nevertheless the useful value to log, since it is what any server-side mapping is
+    keyed on.
 
     Args:
         payload: Decoded JWT payload.
 
     Returns:
-        The first non-empty claim from :data:`TOKEN_OWNER_CLAIMS`, or an empty string
-        when the payload carries none of them.
+        A two-element tuple ``(subject, claim)`` naming the subject and the claim it was
+        taken from, or ``('', '')`` when the payload carries none of the claims.
     """
     if not isinstance(payload, dict):
-        return ""
+        return "", ""
 
-    for claim in TOKEN_OWNER_CLAIMS:
+    for claim in TOKEN_SUBJECT_CLAIMS:
         value = payload.get(claim)
         if value:
-            return str(value)
+            return str(value), claim
 
-    return ""
+    return "", ""
 
 
-def log_token_info(payload: dict) -> None:
-    """Log the identity and the validity window of a decoded OIDC token.
-
-    Logs the resolved owner first, since that is what determines which user secrets the
-    PanDA server will hand out, then the identity claims from
-    :data:`TOKEN_IDENTITY_CLAIMS` that are present, then the ``iat``/``nbf``/``exp``
-    times with the remaining lifetime. The token string itself is never logged.
+def _log_token_validity(payload: dict) -> None:
+    """Log the validity window of a decoded token and its remaining lifetime.
 
     Args:
         payload: Decoded JWT payload.
     """
-    owner = get_token_owner(payload)
-    logger.info(f"token owner: {owner if owner else 'unknown (no identity claim in token)'}")
-
-    for claim in TOKEN_IDENTITY_CLAIMS:
-        if claim in payload:
-            logger.info(f"token {claim}: {_format_claim_value(payload[claim])}")
-
     for claim, description in (("iat", "issued at"), ("nbf", "not valid before"), ("exp", "expires at")):
         if claim in payload:
             logger.info(f"token {description} ({claim}): {_format_epoch(payload[claim])}")
         elif claim != "nbf":  # nbf is frequently absent and its absence is not notable
             logger.info(f"no '{claim}' field found in token")
 
-    if "exp" in payload:
-        try:
-            remaining = int(float(payload["exp"]) - time())
-        except (TypeError, ValueError):
-            return
-        if remaining > 0:
-            logger.info(f"token remaining lifetime: {remaining} s ({remaining / 3600:.1f} h)")
-        else:
-            logger.warning(f"token expired {-remaining} s ago")
+    if "exp" not in payload:
+        return
+
+    try:
+        remaining = int(float(payload["exp"]) - time())
+    except (TypeError, ValueError):
+        return
+
+    if remaining > 0:
+        logger.info(f"token remaining lifetime: {remaining} s ({remaining / 3600:.1f} h)")
+    else:
+        logger.warning(f"token expired {-remaining} s ago")
 
 
-def get_local_token_owner() -> str:
-    """Return the owner that the local OIDC token resolves to, if one can be read.
+def log_token_info(payload: dict) -> None:
+    """Log the identity and the validity window of a decoded OIDC token.
+
+    Logs the subject first, since that is what any server-side identity mapping is keyed
+    on, then the claims from :data:`TOKEN_LOGGED_CLAIMS` that are present, then the
+    ``iat``/``nbf``/``exp`` times with the remaining lifetime. The token string itself is
+    never logged.
+
+    Args:
+        payload: Decoded JWT payload.
+    """
+    subject, claim = get_token_subject(payload)
+    if subject:
+        logger.info(f"token subject: {subject} (from the '{claim}' claim)")
+        logger.info("note: the PanDA owner name used for user-secrets lookups is not a token "
+                    "claim - the server resolves it from the subject above, so a lookup that "
+                    "returns nothing has to be matched on the subject rather than on a name")
+    else:
+        logger.info("token subject: unknown (no subject claim in token)")
+
+    for claim in TOKEN_LOGGED_CLAIMS:
+        if claim in payload:
+            logger.info(f"token {claim}: {_format_claim_value(payload[claim])}")
+
+    _log_token_validity(payload)
+
+
+def get_local_token_subject() -> str:
+    """Return the subject of the local OIDC token, if one can be read.
 
     Convenience wrapper for diagnostics: locates the local token, decodes it and returns
-    its owner. Never raises and never logs the token; an unreadable or absent token
+    its subject. Never raises and never logs the token; an unreadable or absent token
     simply yields an empty string.
 
     Returns:
-        The token owner name, or an empty string when no token could be read.
+        The token subject, or an empty string when no token could be read.
     """
     auth_token, _ = get_local_oidc_token_info()
     if not auth_token:
@@ -2700,20 +2726,20 @@ def get_local_token_owner() -> str:
         logger.debug(f"could not decode local OIDC token: {exc}")
         return ""
 
-    return get_token_owner(payload)
+    return get_token_subject(payload)[0]
 
 
 def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
     """Decode and return the payload section of a JWT (OIDC token).
 
     Accepts either a raw JWT string or a filesystem path to a file containing
-    one.  Optionally logs the token's owner, identity claims and validity
-    window via :func:`log_token_info`.
+    one.  Optionally logs the token's subject, claims and validity window via
+    :func:`log_token_info`.
 
     Args:
         token_or_path: JWT string (``header.payload.signature``) or path to a
             file containing the token.
-        return_times: If ``True``, log the token's owner, identity claims and
+        return_times: If ``True``, log the token's subject, claims and
             ``iat``/``nbf``/``exp`` times.
 
     Returns:

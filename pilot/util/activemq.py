@@ -442,12 +442,14 @@ class ActiveMQ:
         except ValueError as exc:
             # never log res itself: it carries the password
             self.logger.warning(f'failed to get ActiveMQ credentials: {exc}')
-            # the usual cause is an owner mismatch, so report which owner the local token
-            # would resolve to - it saves having to correlate with the server-side log
-            owner = https.get_local_token_owner()
-            if owner:
-                self.logger.warning(f"for reference, the local OIDC token resolves to owner '{owner}' "
-                                    f"(the message broker secrets are registered to the proxy owner)")
+            # the usual cause is an owner mismatch. The pilot cannot resolve the owner name
+            # the server uses, but it can report the token subject that name is derived
+            # from, which is what a server-side log line has to be matched on
+            subject = https.get_local_token_subject()
+            if subject:
+                self.logger.warning(f'for reference, the local OIDC token has subject {subject}; '
+                                    f'the message broker secrets are registered to the proxy owner, '
+                                    f'not to whatever owner the server resolves this subject to')
             return
 
         self.logger.info(f'got ActiveMQ credentials for {self.username} '

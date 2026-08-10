@@ -23,17 +23,24 @@
 
 The pilot's token identity resolves to a different PanDA owner than its X.509 proxy does,
 which is why a get_user_secrets call authenticated with the token returns no secrets. The
-owner is therefore worth logging whenever a token is decoded, so that it does not have to
-be recovered from the server-side log.
+token is therefore worth logging whenever it is decoded, so that a lookup returning
+nothing does not have to be diagnosed from the server-side log.
+
+The pilot's real token, observed on 2026-08-10, is a client-credentials token: it carries
+a client UUID in both 'sub' and 'client_id' and no user identity claim whatsoever. The
+owner the server reported for the same identity, 'Robot Pilot', appears in none of its
+claims, so the owner name is resolved server-side and cannot be derived by the pilot -
+which is why these helpers report the subject and say so explicitly.
 
 Covers:
-- get_token_owner(): claim precedence, absent claims, non-dict input.
-- log_token_info(): the owner line, the identity claims, the validity window, expired
-  tokens, list-valued and over-long claims, and the guarantee that the token itself is
-  never logged.
+- get_token_subject(): the real client-credentials token, claim precedence, absent claims,
+  non-dict input.
+- log_token_info(): the subject line, the caveat about the owner name, the logged claims,
+  the validity window, expired tokens, list-valued and over-long claims, and the guarantee
+  that the token itself is never logged.
 - decode_jwt_payload(): decoding from a string and from a file, malformed input, and the
   return_times switch.
-- get_local_token_owner(): the happy path and every way it can come up empty.
+- get_local_token_subject(): the happy path and every way it can come up empty.
 """
 
 import base64
@@ -48,18 +55,22 @@ from time import time
 from unittest.mock import patch
 
 from pilot.util.https import (
-    TOKEN_OWNER_CLAIMS,
+    TOKEN_SUBJECT_CLAIMS,
     decode_jwt_payload,
-    get_local_token_owner,
-    get_token_owner,
+    get_local_token_subject,
+    get_token_subject,
     log_token_info,
 )
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 # The owner observed in the PanDA server log for the token-authenticated call, alongside
-# 'atlpilo1' for the proxy-authenticated one.
-TOKEN_OWNER = 'Robot Pilot'
+# 'atlpilo1' for the proxy-authenticated one. It is not a claim of the token: no part of
+# the pilot's real token contains it, which is what these tests pin down.
+SERVER_REPORTED_OWNER = 'Robot Pilot'
+
+# The client UUID carried by the pilot's real token, in both 'sub' and 'client_id'.
+CLIENT_UUID = '2d1fa96c-5e70-4e67-b57d-0d28257b2795'
 
 # A signature-like segment that must never reach the log.
 FAKE_SIGNATURE = 'do-not-log-this-signature'
@@ -84,18 +95,49 @@ def make_jwt(payload: dict) -> str:
 
 
 def make_payload(**overrides) -> dict:
-    """Build a realistic token payload.
+    """Build a payload matching the pilot's real token, observed on 2026-08-10.
+
+    A client-credentials token: the client UUID appears in both 'sub' and 'client_id',
+    and there is no 'name', 'preferred_username' or 'email' claim at all.
 
     Args:
         **overrides: Claims to add to or replace in the default payload.
 
     Returns:
-        A payload dict shaped like an IAM-issued robot token.
+        A payload dict shaped like the token the pilot actually receives.
+    """
+    payload = {
+        'sub': CLIENT_UUID,
+        'client_id': CLIENT_UUID,
+        'iss': 'https://atlas-auth.cern.ch/',
+        'aud': 'https://wlcg.cern.ch/jwt/v1/any',
+        'scope': 'wlcg wlcg.groups',
+        'jti': '6f596ef0-1dc2-466a-951c-a5632ddce3dd',
+        'iat': int(time()) - 27,
+        'nbf': int(time()) - 87,
+        'exp': int(time()) + 341972,
+    }
+    payload.update(overrides)
+
+    return payload
+
+
+def make_user_payload(**overrides) -> dict:
+    """Build a user-style token payload carrying human-readable identity claims.
+
+    The pilot is not expected to see one of these, but the helpers must handle it.
+
+    Args:
+        **overrides: Claims to add to or replace in the default payload.
+
+    Returns:
+        A payload dict with 'name', 'preferred_username' and list-valued claims.
     """
     payload = {
         'sub': '1a2b3c4d-0000-0000-0000-abcdefabcdef',
-        'name': TOKEN_OWNER,
+        'name': SERVER_REPORTED_OWNER,
         'preferred_username': 'atlpilo1',
+        'email': 'pilot@cern.ch',
         'client_id': 'pilot_server',
         'iss': 'https://atlas-auth.cern.ch/',
         'aud': ['https://pandaserver.cern.ch', 'panda_dev'],
@@ -110,35 +152,47 @@ def make_payload(**overrides) -> dict:
     return payload
 
 
-class TestGetTokenOwner(unittest.TestCase):
-    """Tests for get_token_owner()."""
+class TestGetTokenSubject(unittest.TestCase):
+    """Tests for get_token_subject()."""
 
-    def test_name_claim_wins(self):
-        """'name' is tried first, because that is what the server logs as the owner."""
-        self.assertEqual(get_token_owner(make_payload()), TOKEN_OWNER)
+    def test_real_token_yields_the_client_uuid_from_sub(self):
+        """The pilot's real token has no identity claim beyond the client UUID."""
+        self.assertEqual(get_token_subject(make_payload()), (CLIENT_UUID, 'sub'))
+
+    def test_real_token_carries_no_owner_name(self):
+        """The owner the server reports appears in no claim of the real token.
+
+        This is the finding the helpers are built around: were the owner name present,
+        the pilot could report it directly instead of reporting the subject.
+        """
+        self.assertNotIn(SERVER_REPORTED_OWNER, json.dumps(make_payload()))
+
+    def test_sub_is_preferred_over_a_human_readable_claim(self):
+        """A user token still reports 'sub': the subject is the stable identifier."""
+        self.assertEqual(get_token_subject(make_user_payload())[1], 'sub')
 
     def test_falls_back_through_the_claim_order(self):
         """Each claim in turn takes over as the earlier ones are removed."""
-        payload = make_payload()
-        for claim in TOKEN_OWNER_CLAIMS:
+        payload = make_user_payload()
+        for claim in TOKEN_SUBJECT_CLAIMS:
             with self.subTest(claim=claim):
-                self.assertEqual(get_token_owner(payload), str(payload[claim]))
+                self.assertEqual(get_token_subject(payload), (str(payload[claim]), claim))
             del payload[claim]
-        self.assertEqual(get_token_owner(payload), '')
+        self.assertEqual(get_token_subject(payload), ('', ''))
 
     def test_empty_claims_are_skipped(self):
-        """An empty claim value does not count as an owner."""
-        payload = make_payload(name='', preferred_username='')
-        self.assertEqual(get_token_owner(payload), 'pilot_server')
+        """An empty claim value does not count as a subject."""
+        payload = make_payload(sub='')
+        self.assertEqual(get_token_subject(payload), (CLIENT_UUID, 'client_id'))
 
-    def test_no_identity_claims_yields_empty(self):
-        """A payload with no identity claims at all yields an empty string."""
-        self.assertEqual(get_token_owner({'iat': 0, 'exp': 1}), '')
+    def test_no_subject_claims_yields_empty(self):
+        """A payload with no subject claim at all yields an empty string."""
+        self.assertEqual(get_token_subject({'iat': 0, 'exp': 1}), ('', ''))
 
     def test_non_dict_input_yields_empty(self):
         """A non-dict payload does not raise."""
-        self.assertEqual(get_token_owner(None), '')
-        self.assertEqual(get_token_owner('not a payload'), '')
+        self.assertEqual(get_token_subject(None), ('', ''))
+        self.assertEqual(get_token_subject('not a payload'), ('', ''))
 
 
 class TestLogTokenInfo(unittest.TestCase):
@@ -158,23 +212,44 @@ class TestLogTokenInfo(unittest.TestCase):
 
         return '\n'.join(captured.output)
 
-    def test_owner_is_logged(self):
-        """The owner is reported explicitly, not left to be inferred from the claims."""
-        self.assertIn(f'token owner: {TOKEN_OWNER}', self._log(make_payload()))
+    def test_subject_is_logged(self):
+        """The subject is reported explicitly, not left to be read off the claim list."""
+        self.assertIn(f'token subject: {CLIENT_UUID}', self._log(make_payload()))
 
-    def test_unknown_owner_is_stated(self):
-        """A token with no identity claim says so rather than logging an empty owner."""
+    def test_subject_line_names_the_claim_it_came_from(self):
+        """The claim is named, so the value can be traced back to its source."""
+        self.assertIn("from the 'sub' claim", self._log(make_payload()))
+
+    def test_subject_line_names_a_fallback_claim(self):
+        """The named claim follows the fallback rather than being hardcoded."""
+        self.assertIn("from the 'client_id' claim", self._log(make_payload(sub='')))
+
+    def test_owner_name_is_not_claimed_to_be_known(self):
+        """The log states that the owner name is resolved server-side, not by the pilot."""
+        output = self._log(make_payload())
+        self.assertIn('not a token claim', output)
+        self.assertNotIn(SERVER_REPORTED_OWNER, output)
+
+    def test_unknown_subject_is_stated(self):
+        """A token with no subject claim says so rather than logging an empty value."""
         self.assertIn('unknown', self._log({'iat': int(time())}))
 
-    def test_identity_claims_are_logged(self):
-        """The curated identity claims are all reported when present."""
+    def test_claims_of_the_real_token_are_logged(self):
+        """Every claim the real token carries is reported."""
         output = self._log(make_payload())
-        for expected in ('token sub:', 'token client_id:', 'token iss:', 'token jti:'):
+        for expected in ('token sub:', 'token client_id:', 'token iss:', 'token aud:',
+                         'token scope:', 'token jti:'):
             self.assertIn(expected, output)
+
+    def test_absent_claims_are_skipped_silently(self):
+        """The real token has no name or email claim; neither is mentioned."""
+        output = self._log(make_payload())
+        self.assertNotIn('token name:', output)
+        self.assertNotIn('token email:', output)
 
     def test_list_claims_are_joined(self):
         """List-valued claims such as aud and wlcg.groups are rendered readably."""
-        output = self._log(make_payload())
+        output = self._log(make_user_payload())
         self.assertIn('/atlas/production, /atlas', output)
 
     def test_long_claim_is_truncated(self):
@@ -198,7 +273,7 @@ class TestLogTokenInfo(unittest.TestCase):
 
     def test_missing_times_are_reported(self):
         """Absent iat and exp are noted; absent nbf is not, being routinely absent."""
-        output = self._log({'name': TOKEN_OWNER})
+        output = self._log({'sub': CLIENT_UUID})
         self.assertIn("no 'iat' field found", output)
         self.assertIn("no 'exp' field found", output)
         self.assertNotIn("no 'nbf' field found", output)
@@ -208,8 +283,8 @@ class TestLogTokenInfo(unittest.TestCase):
         self.assertIn('not a valid timestamp', self._log(make_payload(exp='never')))
 
     def test_nbf_is_logged_when_present(self):
-        """nbf is reported when the issuer includes it."""
-        self.assertIn('not valid before (nbf)', self._log(make_payload(nbf=int(time()) - 60)))
+        """nbf is reported; the real token carries one."""
+        self.assertIn('not valid before (nbf)', self._log(make_payload()))
 
     def test_timestamp_is_utc(self):
         """The rendered timestamp matches the claim, in UTC."""
@@ -218,7 +293,11 @@ class TestLogTokenInfo(unittest.TestCase):
 
     def test_email_claim_is_logged_when_present(self):
         """The email claim is included in the curated list."""
-        self.assertIn('token email: pilot@cern.ch', self._log(make_payload(email='pilot@cern.ch')))
+        self.assertIn('token email: pilot@cern.ch', self._log(make_user_payload()))
+
+    def test_long_lifetime_is_reported_in_hours(self):
+        """The real token has a four-day lifetime, which is reported in hours."""
+        self.assertIn('h)', self._log(make_payload()))
 
 
 class TestDecodeJwtPayload(unittest.TestCase):
@@ -240,14 +319,14 @@ class TestDecodeJwtPayload(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_logs_the_owner_when_times_requested(self):
-        """The default logging path reports the owner."""
+    def test_logs_the_subject_when_times_requested(self):
+        """The default logging path reports the subject."""
         with self.assertLogs('pilot.util.https', level=logging.DEBUG) as captured:
             decode_jwt_payload(make_jwt(make_payload()), return_times=True)
-        self.assertIn(f'token owner: {TOKEN_OWNER}', '\n'.join(captured.output))
+        self.assertIn(f'token subject: {CLIENT_UUID}', '\n'.join(captured.output))
 
     def test_logs_nothing_when_times_not_requested(self):
-        """return_times=False stays silent, as get_local_token_owner() relies on."""
+        """return_times=False stays silent, as get_local_token_subject() relies on."""
         with self.assertRaises(AssertionError):
             with self.assertLogs('pilot.util.https', level=logging.DEBUG):
                 decode_jwt_payload(make_jwt(make_payload()), return_times=False)
@@ -272,11 +351,11 @@ class TestDecodeJwtPayload(unittest.TestCase):
             decode_jwt_payload('aaa.bbb.ccc', return_times=False)
 
 
-class TestGetLocalTokenOwner(unittest.TestCase):
-    """Tests for get_local_token_owner()."""
+class TestGetLocalTokenSubject(unittest.TestCase):
+    """Tests for get_local_token_subject()."""
 
-    def test_returns_the_owner_of_the_local_token(self):
-        """The local token is located, decoded and its owner returned."""
+    def test_returns_the_subject_of_the_local_token(self):
+        """The local token is located, decoded and its subject returned."""
         payload = make_payload()
         with tempfile.NamedTemporaryFile('w', suffix='.token', delete=False) as handle:
             handle.write(make_jwt(payload))
@@ -284,20 +363,20 @@ class TestGetLocalTokenOwner(unittest.TestCase):
         try:
             with patch('pilot.util.https.get_local_oidc_token_info', return_value=(path, 'atlas.pilot')), \
                     patch('pilot.util.https.locate_token', return_value=path):
-                self.assertEqual(get_local_token_owner(), TOKEN_OWNER)
+                self.assertEqual(get_local_token_subject(), CLIENT_UUID)
         finally:
             os.unlink(path)
 
     def test_no_token_configured_yields_empty(self):
         """No token in the environment yields an empty string rather than raising."""
         with patch('pilot.util.https.get_local_oidc_token_info', return_value=(None, None)):
-            self.assertEqual(get_local_token_owner(), '')
+            self.assertEqual(get_local_token_subject(), '')
 
     def test_unlocatable_token_yields_empty(self):
         """A configured token that cannot be found yields an empty string."""
         with patch('pilot.util.https.get_local_oidc_token_info', return_value=('token', 'atlas.pilot')), \
                 patch('pilot.util.https.locate_token', return_value=''):
-            self.assertEqual(get_local_token_owner(), '')
+            self.assertEqual(get_local_token_subject(), '')
 
     def test_undecodable_token_yields_empty(self):
         """A token that will not decode yields an empty string rather than raising."""
@@ -307,7 +386,7 @@ class TestGetLocalTokenOwner(unittest.TestCase):
         try:
             with patch('pilot.util.https.get_local_oidc_token_info', return_value=(path, 'atlas.pilot')), \
                     patch('pilot.util.https.locate_token', return_value=path):
-                self.assertEqual(get_local_token_owner(), '')
+                self.assertEqual(get_local_token_subject(), '')
         finally:
             os.unlink(path)
 
