@@ -2536,7 +2536,8 @@ def update_local_oidc_token_info(url: str, port: int) -> None:
     Reads the current token info via :func:`get_local_oidc_token_info` and,
     when both token and origin are available, calls :func:`refresh_oidc_token`
     to download a fresh token from the PanDA server.  On success the new
-    token's ``iat`` / ``exp`` fields are logged via :func:`decode_jwt_payload`.
+    token's owner, identity claims and validity window are logged via
+    :func:`decode_jwt_payload`.
 
     Args:
         url: PanDA server base URL.
@@ -2561,18 +2562,159 @@ def update_local_oidc_token_info(url: str, port: int) -> None:
         logger.debug('no OIDC token info to update')
 
 
+# Claims inspected to establish the token's owner, in the order in which they are tried.
+# PanDA logs the message broker secrets lookup as 'owner=Robot Pilot', which is the value
+# of the 'name' claim, so that claim is tried first.
+TOKEN_OWNER_CLAIMS = ("name", "preferred_username", "client_id", "sub")
+
+# Identity claims logged verbatim, in this order. Deliberately a fixed list rather than
+# the whole payload: the pilot log is uploaded, so nothing is logged that has not been
+# looked at. 'jti' is included because it is what server-side logs can be matched on.
+TOKEN_IDENTITY_CLAIMS = (
+    "sub", "name", "preferred_username", "email", "client_id", "iss", "aud",
+    "scope", "wlcg.groups", "groups", "jti",
+)
+
+# Maximum number of characters logged for a single claim value, since 'scope' can be long.
+CLAIM_VALUE_LENGTH = 300
+
+
+def _format_claim_value(value: Any) -> str:
+    """Render a claim value as a single truncated log-safe line.
+
+    Args:
+        value: Claim value, which may be a scalar or a list (``aud`` and
+            ``wlcg.groups`` are commonly lists).
+
+    Returns:
+        The value as a string, comma-joined if it is a list, truncated to
+        :data:`CLAIM_VALUE_LENGTH` characters.
+    """
+    text = ", ".join(str(item) for item in value) if isinstance(value, (list, tuple)) else str(value)
+    if len(text) > CLAIM_VALUE_LENGTH:
+        text = f"{text[:CLAIM_VALUE_LENGTH]}... (truncated)"
+
+    return text
+
+
+def _format_epoch(value: Any) -> str:
+    """Render a JWT epoch-seconds claim as a UTC timestamp.
+
+    Args:
+        value: Claim value, expected to be epoch seconds.
+
+    Returns:
+        The timestamp as ``YYYY-MM-DD HH:MM:SS UTC``, or a description of the
+        raw value when it cannot be interpreted as a time.
+    """
+    try:
+        stamp = datetime.datetime.fromtimestamp(float(value), datetime.timezone.utc)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return f"{value} (not a valid timestamp)"
+
+    return f"{stamp.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+
+
+def get_token_owner(payload: dict) -> str:
+    """Return the owner name that the PanDA server will resolve the token to.
+
+    The server returns user secrets registered to the caller and logs the caller as
+    ``owner=...``; for a token that name comes from the token's identity claims rather
+    than from the X.509 proxy, so the two authentication paths can resolve to different
+    owners for the same pilot.
+
+    Args:
+        payload: Decoded JWT payload.
+
+    Returns:
+        The first non-empty claim from :data:`TOKEN_OWNER_CLAIMS`, or an empty string
+        when the payload carries none of them.
+    """
+    if not isinstance(payload, dict):
+        return ""
+
+    for claim in TOKEN_OWNER_CLAIMS:
+        value = payload.get(claim)
+        if value:
+            return str(value)
+
+    return ""
+
+
+def log_token_info(payload: dict) -> None:
+    """Log the identity and the validity window of a decoded OIDC token.
+
+    Logs the resolved owner first, since that is what determines which user secrets the
+    PanDA server will hand out, then the identity claims from
+    :data:`TOKEN_IDENTITY_CLAIMS` that are present, then the ``iat``/``nbf``/``exp``
+    times with the remaining lifetime. The token string itself is never logged.
+
+    Args:
+        payload: Decoded JWT payload.
+    """
+    owner = get_token_owner(payload)
+    logger.info(f"token owner: {owner if owner else 'unknown (no identity claim in token)'}")
+
+    for claim in TOKEN_IDENTITY_CLAIMS:
+        if claim in payload:
+            logger.info(f"token {claim}: {_format_claim_value(payload[claim])}")
+
+    for claim, description in (("iat", "issued at"), ("nbf", "not valid before"), ("exp", "expires at")):
+        if claim in payload:
+            logger.info(f"token {description} ({claim}): {_format_epoch(payload[claim])}")
+        elif claim != "nbf":  # nbf is frequently absent and its absence is not notable
+            logger.info(f"no '{claim}' field found in token")
+
+    if "exp" in payload:
+        try:
+            remaining = int(float(payload["exp"]) - time())
+        except (TypeError, ValueError):
+            return
+        if remaining > 0:
+            logger.info(f"token remaining lifetime: {remaining} s ({remaining / 3600:.1f} h)")
+        else:
+            logger.warning(f"token expired {-remaining} s ago")
+
+
+def get_local_token_owner() -> str:
+    """Return the owner that the local OIDC token resolves to, if one can be read.
+
+    Convenience wrapper for diagnostics: locates the local token, decodes it and returns
+    its owner. Never raises and never logs the token; an unreadable or absent token
+    simply yields an empty string.
+
+    Returns:
+        The token owner name, or an empty string when no token could be read.
+    """
+    auth_token, _ = get_local_oidc_token_info()
+    if not auth_token:
+        return ""
+
+    path = locate_token(auth_token)
+    if not path:
+        return ""
+
+    try:
+        payload = decode_jwt_payload(path, return_times=False)
+    except ValueError as exc:
+        logger.debug(f"could not decode local OIDC token: {exc}")
+        return ""
+
+    return get_token_owner(payload)
+
+
 def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
     """Decode and return the payload section of a JWT (OIDC token).
 
     Accepts either a raw JWT string or a filesystem path to a file containing
-    one.  Optionally logs the ``iat`` (issued-at) and ``exp`` (expiry) times
-    in UTC.
+    one.  Optionally logs the token's owner, identity claims and validity
+    window via :func:`log_token_info`.
 
     Args:
         token_or_path: JWT string (``header.payload.signature``) or path to a
             file containing the token.
-        return_times: If ``True``, log the ``iat`` and ``exp`` timestamps from
-            the payload.
+        return_times: If ``True``, log the token's owner, identity claims and
+            ``iat``/``nbf``/``exp`` times.
 
     Returns:
         Decoded payload as a Python dict.
@@ -2610,19 +2752,9 @@ def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
     except Exception as e:
         raise ValueError(f"failed to decode JWT payload: {e}") from e
 
-    # Optionally print iat and exp
+    # Optionally log the identity and validity of the token
     if return_times:
-        if 'iat' in payload:
-            iat = datetime.datetime.utcfromtimestamp(payload['iat'])
-            logger.info(f"Token was issued at (iat):   {iat} UTC")
-        else:
-            logger.info("no 'iat' field found in token")
-
-        if 'exp' in payload:
-            exp = datetime.datetime.utcfromtimestamp(payload['exp'])
-            logger.info(f"Token expires at (exp):  {exp} UTC")
-        else:
-            logger.info("No 'exp' field found in token")
+        log_token_info(payload)
 
     return payload
 
