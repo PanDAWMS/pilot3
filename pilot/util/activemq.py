@@ -168,10 +168,11 @@ def extract_credentials(res: Any, keys: Sequence[str] = MB_CREDENTIAL_KEYS) -> t
         {"success": true, "message": "", "data": "{\"MB_USERNAME\": \"...\", ...}"}
 
     i.e. ``data`` is a JSON-encoded *string*, not a nested object. Note that
-    ``success: true`` does not by itself mean that the secrets are present: the server
-    answers ``success=true`` with ``data="{}"`` when the caller's identity has no
-    secrets bound to it, which must be treated as a failure rather than as valid but
-    empty credentials.
+    ``success: true`` does not by itself mean that the secrets are present: the endpoint
+    returns only the secrets registered to the caller, and answers ``success=true`` with
+    ``data="{}"`` when the resolved owner has none. That is what the pilot's OIDC token
+    identity gets, so an empty mapping must be treated as a failure rather than as valid
+    but empty credentials.
 
     No part of the response is included in the raised messages beyond the server's own
     ``message`` field and the available key names, since the response carries the
@@ -203,7 +204,9 @@ def extract_credentials(res: Any, keys: Sequence[str] = MB_CREDENTIAL_KEYS) -> t
 
     secrets = _coerce_mapping(data)
     if not secrets:
-        raise ValueError('no secrets in response (server reported success but returned no data)')
+        raise ValueError('server reported success but returned no secrets - the secrets are '
+                         'registered per caller identity, so verify that the call was '
+                         'authenticated with the X.509 proxy and not with the OIDC token')
 
     try:
         username = str(secrets[names[0]])
@@ -426,8 +429,12 @@ class ActiveMQ:
             return
 
         self.logger.info(f'executing server command: {cmd}')
-        # note: no OIDC token - the secrets are bound to the proxy identity, so panda=False
-        # (the default) is required; with panda=True the call succeeds but returns data="{}"
+        # note: no OIDC token - get_user_secrets only returns secrets registered to the
+        # caller, and the message broker secrets are registered to owner 'atlpilo1', which
+        # is what the X.509 proxy resolves to. The pilot's OIDC token resolves to a
+        # different owner ('Robot Pilot') that has no secrets registered, so with
+        # panda=True the call still succeeds but returns data="{}". panda is therefore
+        # left at its default (False), which makes request2() load the client certificate.
         res = https.request2(cmd, params={'keys': list(MB_CREDENTIAL_KEYS)}, method='GET')
 
         try:

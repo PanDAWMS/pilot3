@@ -26,8 +26,10 @@ was established empirically on the grid on 2026-08-07 and is fixed by these test
 
     GET api/v1/creds/get_user_secrets?keys=MB_USERNAME&keys=MB_PASSWORD
 
-with no OIDC token, since the secrets are bound to the X.509 proxy identity rather than
-to the pilot's token identity.
+with no OIDC token: the endpoint returns only the secrets registered to the resolved
+owner, the message broker secrets are registered to 'atlpilo1', and the X.509 proxy is
+what resolves to that owner. The pilot's OIDC token resolves to a different owner with
+no secrets registered, which the server reports as success with empty data.
 
 Covers:
 - extract_credentials(): the response shape actually observed on the grid (``data`` as a
@@ -116,8 +118,10 @@ class TestExtractCredentials(unittest.TestCase):
     def test_success_true_with_empty_data_raises(self):
         """The server's false-positive success must not become empty credentials.
 
-        This is the shape returned when the call is authenticated with the OIDC token
-        instead of the X.509 proxy: success=true, but data is an empty JSON object.
+        get_user_secrets returns only the secrets registered to the resolved owner. The
+        X.509 proxy resolves to 'atlpilo1', which owns them; the pilot's OIDC token
+        resolves to a different owner that does not, and the endpoint reports that as
+        success=true with data="{}" rather than as a failure.
         """
         payload = {'success': True, 'message': '', 'data': '{}'}
         with self.assertRaises(ValueError):
