@@ -60,9 +60,14 @@ monitored; and a raw ``nvidia-smi pmon`` sample shows whether the utilisation
 percentages that end up as ``gpusmpct``/``gpumempct`` are reported by
 ``nvidia-smi`` in the first place.
 
-This is a temporary, opt-in diagnostic intended to be removed once the root
-cause is established. It is inert unless ``PILOT_GPU_DEBUG`` is set to a
-truthy value and ``nvidia-smi`` is present.
+This is a temporary diagnostic intended to be removed once the root cause is
+established. It activates by itself on GPU queues (any queue name containing
+``GPU``) so that no configuration or pilot argument change is needed to collect
+data, and is inert everywhere else unless ``PILOT_GPU_DEBUG`` is set - which
+covers a GPU queue whose name does not carry the marker. Either way
+``nvidia-smi`` must be present. The gating decision itself is logged once per
+job, so a disabled diagnostic can be told apart from one that was never
+reached.
 """
 
 from __future__ import annotations
@@ -83,8 +88,14 @@ from pilot.util.psutils import (
 
 logger = logging.getLogger(__name__)
 
-# Environment variable used to opt in to the diagnostic (per queue/job).
+# Environment variable used to force the diagnostic on, for a GPU queue whose
+# name does not contain GPU_QUEUE_MARKER (e.g. CERN-PROD).
 GPU_DEBUG_ENV_VAR = "PILOT_GPU_DEBUG"
+
+# Substring in the PanDA queue name that activates the diagnostic. Matched
+# case-insensitively against the queue name, so SLAC_GPU, CERN-GPU,
+# UKI-LT2-QMUL_GPU etc. all activate it without any configuration change.
+GPU_QUEUE_MARKER = "GPU"
 
 # Prefix on every log line so the diagnostic can be grepped out of a pilot log.
 LOG_PREFIX = "gpu-debug"
@@ -92,10 +103,16 @@ LOG_PREFIX = "gpu-debug"
 # Values accepted as "enabled" for GPU_DEBUG_ENV_VAR.
 TRUTHY_VALUES = ("1", "true", "yes", "on")
 
+# Reason fragment marking the one disabled case that deserves a warning: the
+# diagnostic was activated but the node cannot support it.
+GPU_DEBUG_UNUSABLE = "nvidia-smi was not found"
+
 # Elapsed times (in seconds, relative to the first snapshot) at which snapshots
-# are taken. The GPU-touching process may be forked well after prmon starts, so
-# a single snapshot at payload start would risk a false negative.
-SNAPSHOT_OFFSETS = (0, 300, 900)
+# are taken. The GPU-touching process may be forked some way into the payload,
+# so a single snapshot at payload start would risk a false negative; the
+# offsets are kept short because the GPU jobs used for this investigation only
+# run for a few minutes.
+SNAPSHOT_OFFSETS = (0, 30, 90, 180)
 
 # Timeout for any single nvidia-smi invocation, in seconds. 'pmon -c 1' samples
 # for about a second, the others return immediately.
@@ -105,39 +122,124 @@ NVIDIA_SMI_TIMEOUT = 60
 # but outside the monitored tree (guards against a pathological /proc).
 MAX_ANCESTORS = 25
 
-# Snapshot bookkeeping: time of the first snapshot and the number taken so far.
-_snapshot_state = {"first_snapshot_time": None, "snapshots_taken": 0}
+# Absolute paths tried when nvidia-smi is not on PATH (the pilot's PATH is set
+# by the wrapper and does not always include it, even on GPU worker nodes).
+NVIDIA_SMI_FALLBACK_PATHS = (
+    "/usr/bin/nvidia-smi",
+    "/bin/nvidia-smi",
+    "/usr/local/nvidia/bin/nvidia-smi",
+)
+
+# Snapshot bookkeeping. The schedule is per job: the diagnostic is called from
+# the job monitoring loop, which has no per-job object to hang state on, and a
+# multijob pilot must not have its second and later jobs silently skipped
+# because the first job used up the snapshot budget.
+_snapshot_state = {"jobid": None, "first_snapshot_time": None, "snapshots_taken": 0}
+
+# Whether the one-time announcement of the gating decision has been logged for
+# the current job.
+_announced_state = {"jobid": None}
 
 
 def reset_gpu_diagnostics_state() -> None:
-    """Reset the snapshot bookkeeping.
+    """Reset the snapshot bookkeeping and the announcement flag.
 
-    The snapshot schedule is module-level state (the diagnostic is called from
-    the job monitoring loop and has no object of its own to live on), so it
-    must be reset between tests.
+    Called automatically when a new job is seen, and by the tests.
     """
+    _snapshot_state["jobid"] = None
     _snapshot_state["first_snapshot_time"] = None
     _snapshot_state["snapshots_taken"] = 0
+    _announced_state["jobid"] = None
 
 
-def is_gpu_diagnostics_enabled() -> bool:
-    """Return True if the GPU diagnostic should run.
+def announce_once(jobid: str, enabled: bool, reason: str, announce: bool) -> None:
+    """Log the gating decision once per job.
 
-    The diagnostic is opt-in via the ``PILOT_GPU_DEBUG`` environment variable
-    and additionally requires ``nvidia-smi`` to be present, which makes it a
-    cheap no-op on non-GPU queues even if the variable is set globally.
+    Without this, a disabled diagnostic is completely silent and cannot be
+    told apart from one that was never reached - which is exactly the
+    ambiguity seen when ``PILOT_GPU_DEBUG`` does not make it into the pilot's
+    own environment. One line per job is negligible in a pilot log, but the
+    line is suppressed altogether on nodes without a GPU, where it would be
+    pure noise on every job at every queue.
+
+    Args:
+        jobid: PanDA job id (used to announce once per job).
+        enabled: Whether the diagnostic is enabled.
+        reason: Short explanation of the decision.
+        announce: Whether the decision is worth logging at all.
+    """
+    if not announce or _announced_state["jobid"] == jobid:
+        return
+
+    _announced_state["jobid"] = jobid
+    if enabled:
+        logger.info(f"{LOG_PREFIX}: diagnostic enabled ({reason})")
+    elif GPU_DEBUG_UNUSABLE in reason:
+        # the diagnostic was activated but the node cannot support it - worth a warning
+        logger.warning(f"{LOG_PREFIX}: diagnostic disabled ({reason})")
+    else:
+        logger.info(f"{LOG_PREFIX}: diagnostic disabled ({reason})")
+
+
+def find_nvidia_smi() -> str:
+    """Locate the nvidia-smi executable.
+
+    Falls back to a small list of well-known absolute paths when nvidia-smi is
+    not on PATH, since the pilot's PATH is set by the wrapper and does not
+    always include it.
 
     Returns:
-        True if the diagnostic is enabled and usable on this worker node.
+        Path to nvidia-smi, or an empty string if it could not be found.
     """
-    if os.environ.get(GPU_DEBUG_ENV_VAR, "").strip().lower() not in TRUTHY_VALUES:
-        return False
+    path = which("nvidia-smi")
+    if path:
+        return path
 
-    if not which("nvidia-smi"):
-        logger.debug(f"{LOG_PREFIX}: {GPU_DEBUG_ENV_VAR} is set but nvidia-smi was not found - skipping")
-        return False
+    for candidate in NVIDIA_SMI_FALLBACK_PATHS:
+        if os.path.exists(candidate):
+            return candidate
 
-    return True
+    return ""
+
+
+def is_gpu_diagnostics_enabled(queue: str) -> tuple:
+    """Return whether the GPU diagnostic should run, why, and whether to say so.
+
+    The diagnostic activates by itself on GPU queues - any queue whose name
+    contains :data:`GPU_QUEUE_MARKER` - so that no configuration or pilot
+    argument change is needed to collect data. ``PILOT_GPU_DEBUG`` remains
+    available to force it on for a GPU queue whose name does not carry the
+    marker. Either way ``nvidia-smi`` is required, which makes the diagnostic a
+    cheap no-op if a non-GPU node is ever picked up by a GPU queue.
+
+    Args:
+        queue: PanDA queue name.
+
+    Returns:
+        Tuple of (enabled, reason, announce), where reason is a short
+        explanation suitable for logging and announce is False for the
+        uninteresting case of a non-GPU queue on a node without a GPU.
+    """
+    forced = os.environ.get(GPU_DEBUG_ENV_VAR, "").strip().lower() in TRUTHY_VALUES
+    is_gpu_queue = GPU_QUEUE_MARKER in (queue or "").upper()
+    has_nvidia_smi = bool(find_nvidia_smi())
+
+    if not is_gpu_queue and not forced:
+        # only worth mentioning on a node that could have run the diagnostic, which
+        # is also the interesting case of a GPU node behind a queue not named *GPU*
+        return (
+            False,
+            f"queue name '{queue}' does not contain '{GPU_QUEUE_MARKER}' and "
+            f"{GPU_DEBUG_ENV_VAR} is not set",
+            has_nvidia_smi,
+        )
+
+    trigger = f"{GPU_DEBUG_ENV_VAR} is set" if forced and not is_gpu_queue else f"GPU queue '{queue}'"
+    if not has_nvidia_smi:
+        return False, f"{trigger} but {GPU_DEBUG_UNUSABLE} on this node", True
+
+    offsets = ", ".join(str(offset) for offset in SNAPSHOT_OFFSETS)
+    return True, f"{trigger}, snapshots at {offsets} s after the first monitoring iteration", True
 
 
 def run_nvidia_smi(options: list) -> str:
@@ -149,9 +251,13 @@ def run_nvidia_smi(options: list) -> str:
     Returns:
         Stripped stdout, or an empty string if the command failed or timed out.
     """
+    executable = find_nvidia_smi()
+    if not executable:
+        return ""
+
     try:
         result = subprocess.run(
-            ["nvidia-smi"] + options,
+            [executable] + options,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -463,15 +569,17 @@ def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
         logger.info(f"{LOG_PREFIX}: monitored process tree:\n{tree}")
 
 
-def is_snapshot_due(now: int | None = None) -> bool:
+def is_snapshot_due(jobid: str, now: int | None = None) -> bool:
     """Return True if a snapshot is due, updating the snapshot bookkeeping.
 
-    The first call schedules and claims snapshot one; later calls claim the
-    next snapshot once the corresponding offset in :data:`SNAPSHOT_OFFSETS`
-    has elapsed. Once all snapshots have been taken, this always returns
-    False.
+    The schedule is per job: seeing a new job id resets it, so that every job
+    in a multijob pilot gets its own set of snapshots. The first call for a job
+    schedules and claims snapshot one; later calls claim the next snapshot once
+    the corresponding offset in :data:`SNAPSHOT_OFFSETS` has elapsed. Once all
+    snapshots have been taken for that job, this always returns False.
 
     Args:
+        jobid: PanDA job id.
         now: Current time in seconds since the epoch (defaults to now).
 
     Returns:
@@ -479,6 +587,11 @@ def is_snapshot_due(now: int | None = None) -> bool:
     """
     if now is None:
         now = int(time.time())
+
+    if _snapshot_state["jobid"] != jobid:
+        _snapshot_state["jobid"] = jobid
+        _snapshot_state["first_snapshot_time"] = None
+        _snapshot_state["snapshots_taken"] = 0
 
     taken = _snapshot_state["snapshots_taken"]
     if taken >= len(SNAPSHOT_OFFSETS):
@@ -494,18 +607,23 @@ def is_snapshot_due(now: int | None = None) -> bool:
     return True
 
 
-def report_gpu_pid_visibility(job: object) -> None:
+def report_gpu_pid_visibility(job: object, queue: str) -> None:
     """Log a GPU/PID visibility snapshot if the diagnostic is enabled and due.
 
-    This is the only entry point used by the pilot. It is a no-op unless
-    ``PILOT_GPU_DEBUG`` is set and ``nvidia-smi`` is available, and it never
-    raises - a diagnostic must not be able to disturb the job monitoring loop.
+    This is the only entry point used by the pilot. It is a no-op unless the
+    queue is a GPU queue (or ``PILOT_GPU_DEBUG`` is set) and ``nvidia-smi`` is
+    available, and it never raises - a diagnostic must not be able to disturb
+    the job monitoring loop.
 
     Args:
         job: Job object.
+        queue: PanDA queue name.
     """
     try:
-        if not is_gpu_diagnostics_enabled() or not is_snapshot_due():
+        jobid = str(getattr(job, "jobid", "") or "")
+        enabled, reason, announce = is_gpu_diagnostics_enabled(queue)
+        announce_once(jobid, enabled, reason, announce)
+        if not enabled or not is_snapshot_due(jobid):
             return
 
         log_gpu_pid_snapshot(job, _snapshot_state["snapshots_taken"])
