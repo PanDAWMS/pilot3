@@ -48,6 +48,7 @@ from pilot.util.filehandling import (
     remove_files,
     zip_files
 )
+from pilot.util.gpudiagnostics import report_gpu_pid_visibility
 from pilot.util.loopingjob import looping_job
 from pilot.util.math import (
     convert_mb_to_b,
@@ -130,6 +131,10 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
 
         # keep track of the subprocesses running (store payload subprocess PIDs)
         store_subprocess_pids(job)
+
+        # optional diagnostic for zero GPU statistics in the memory monitor output
+        # (no-op unless PILOT_GPU_DEBUG is set and nvidia-smi is available)
+        report_gpu_pid_visibility(job)
 
         # check how many cores the payload is using
         time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime
