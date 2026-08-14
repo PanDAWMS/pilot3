@@ -949,7 +949,7 @@ def _get_disk_usage_with_timeout(path: str, timeout: int = 120) -> int:
     t.start()
     t.join(timeout)
     if t.is_alive():
-        logger.warning(f'get_disk_usage({path!r}) timed out after {timeout} s — skipping workdir size check')
+        logger.warning(f'get_disk_usage({path!r}) timed out after {timeout} s - skipping workdir size check')
     return result[0]
 
 

@@ -576,13 +576,13 @@ def update_turls_with_filetype_raw(job: JobData) -> None:
     """
     dictionary_path = os.path.join(job.workdir, config.Pilot.remotefileverification_dictionary)
     if not os.path.exists(dictionary_path):
-        logger.debug(f'remotefileverification dictionary not found at {dictionary_path} — skipping ?filetype=raw turl update')
+        logger.debug(f'remotefileverification dictionary not found at {dictionary_path} - skipping ?filetype=raw turl update')
         return
 
     try:
         file_dictionary = read_json(dictionary_path)
     except PilotException as exc:
-        logger.warning(f'failed to read remotefileverification dictionary: {exc} — skipping ?filetype=raw turl update')
+        logger.warning(f'failed to read remotefileverification dictionary: {exc} - skipping ?filetype=raw turl update')
         return
 
     if not file_dictionary:
@@ -3169,19 +3169,6 @@ def get_pilot_id(data: dict) -> str:
 
 def allow_send_workernode_map() -> bool:
     """Return True if the workernode map should be sent to the server.
-
-    Returns:
-        bool: always True for ATLAS.
-    """
-    return True
-
-
-def allow_send_remaining_time() -> bool:
-    """Return True if the remaining time should be sent to the server in the acquire_jobs payload.
-
-    The remaining_time field lets the dispatcher filter out jobs that cannot finish in the time
-    the pilot has left. Not every PanDA server deployment understands the field, so it is only
-    sent for experiments whose server side supports it.
 
     Returns:
         bool: always True for ATLAS.

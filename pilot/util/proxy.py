@@ -220,7 +220,7 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
             if is_transient and attempt < _max_attempts:
                 logger.warning(
                     f"transient error downloading proxy for role='{voms_role}' "
-                    f"(attempt {attempt}/{_max_attempts}): {exc_str} — retrying in {_retry_sleep}s"
+                    f"(attempt {attempt}/{_max_attempts}): {exc_str} - retrying in {_retry_sleep}s"
                 )
                 sleep(_retry_sleep)
                 continue

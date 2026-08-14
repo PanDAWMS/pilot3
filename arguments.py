@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Argument parser for the pilot command line interface."""
 
@@ -210,6 +210,22 @@ def add_job_args(parser: argparse.ArgumentParser) -> None:
         dest="jobtype",
         default="",
         help="Job type (managed, user)"
+    )
+    parser.add_argument(
+        "--send-remaining-time",
+        dest="send_remaining_time",
+        action="store_true",
+        default=False,
+        help=(
+            "Send the pilot's remaining time (s) in the acquire_jobs payload so that the "
+            "server can filter out jobs that cannot finish. Off by default: the server "
+            "compares the value against the estimated job duration, which for many tasks "
+            "defaults to the full site time limit, so an already running pilot can be "
+            "denied jobs it would in fact have had time to run. Enable it per queue, where "
+            "the remaining time is genuinely the limiting factor, e.g. long-lived pilots "
+            "on HPC allocations such as Perlmutter. Available to every experiment; the "
+            "field is simply ignored by server deployments that do not read it."
+        ),
     )
 
 

@@ -2,7 +2,7 @@
 
 # PanDA Pilot 3
 
-**Version:** 3.12.1.79
+**Version:** 3.14.1
 **License:** Apache License 2.0
 **Python:** 3.9, 3.11, 3.12
 
@@ -168,7 +168,7 @@ All CLI arguments are defined in `arguments.py` using Python's `argparse`. Argum
 |---|---|
 | `add_main_args` | `--pilot-user`, `-a` workdir, `--cleanup`, `-i` version tag, `-z` disable server updates |
 | `add_logging_args` | `--no-pilot-log`, `-d` debug, `--redirect-stdout` |
-| `add_job_args` | `-j` job label, `-v` getjob requests, `-x` getjob failures, `--job-type` |
+| `add_job_args` | `-j` job label, `-v` getjob requests, `-x` getjob failures, `--job-type`, `--send-remaining-time` |
 | `add_workflow_args` | `-w` workflow (`generic`, `analysis`, `production`, `*_hpc`, `stager`, ...) |
 | `add_lifetime_args` | `-l` lifetime (default 324000 s), `-L` leasetime |
 | `add_queue_args` | `-q` queue (required), `--resource-type` (`MCORE`, `SCORE`, ...), `-b` nocvmfs |

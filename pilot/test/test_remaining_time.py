@@ -21,10 +21,10 @@
 
 """Unit tests for the pilot's remaining-time calculation and its use in acquire_jobs.
 
-The pilot reports how much time it has left in the acquire_jobs payload so that the server
-can avoid handing out jobs that cannot finish. The value is the most constraining of three
-optional sources: the proxy lifetime, the site time limit (PQ.maxtime) and the
-MachineFeatures shutdowntime.
+On queues that ask for it, the pilot reports how much time it has left in the acquire_jobs
+payload so that the server can avoid handing out jobs that cannot finish. The value is the
+most constraining of three optional sources: the proxy lifetime, the site time limit
+(PQ.maxtime) and the MachineFeatures shutdowntime.
 
 Covers:
 - _get_remaining_time_candidates(): each source in isolation, all three together, none at
@@ -33,19 +33,17 @@ Covers:
   tie-breaking, and None when nothing is available.
 - get_remaining_time(): the public value-only contract, including None.
 - get_dispatcher_dictionary(): remaining_time present in the payload when positive, and
-  absent when unavailable, zero, negative, or unsupported by the experiment.
-- allow_send_remaining_time(): the experiment plugin gate, including its tolerance of
-  missing, unimportable and misbehaving plugins.
-- the in-tree plugins themselves: every one declares the field's support explicitly.
+  absent when unavailable, zero or negative.
+- --send-remaining-time: the per-queue opt-in, its default, and that nothing is computed
+  or sent for a queue that has not enabled it.
 """
 
 import logging
-import os
 import sys
 import time
 import unittest
 from contextlib import contextmanager
-from importlib import import_module
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -290,18 +288,15 @@ class TestGetRemainingTime(unittest.TestCase):
 class TestDispatcherDictionaryRemainingTime(unittest.TestCase):
     """Tests for the remaining_time key in the acquire_jobs payload."""
 
-    def _build(self, remaining_time, allow=True):
+    def _build(self, remaining_time, send=True):
         """Build the dispatcher dictionary with get_remaining_time() stubbed.
 
-        Everything unrelated to remaining_time is stubbed out so the test does not depend
-        on the worker node it happens to run on. The experiment plugin gate is stubbed too,
-        rather than left to whatever PILOT_USER happens to be exported in the shell running
-        the suite -- with the gate defaulting to False for every experiment but ATLAS, an
-        inherited PILOT_USER would otherwise silently decide the outcome of these tests.
+        Everything unrelated to remaining_time is stubbed out so the test does not depend on
+        the worker node it happens to run on.
 
         Args:
             remaining_time (object): value that get_remaining_time() should return.
-            allow (bool): value that allow_send_remaining_time() should return.
+            send (bool): value of the --send-remaining-time queue opt-in.
 
         Returns:
             dict: the dispatcher dictionary prepared for the acquire_jobs operation.
@@ -312,6 +307,7 @@ class TestDispatcherDictionaryRemainingTime(unittest.TestCase):
             job_label='ptest',
             resource_type='',
             allow_same_user=False,
+            send_remaining_time=send,
         )
         with patch('pilot.control.job.get_disk_space', return_value=100000), \
                 patch('pilot.control.job.collect_workernode_info', return_value=(8000.0, 0, 0)), \
@@ -319,7 +315,6 @@ class TestDispatcherDictionaryRemainingTime(unittest.TestCase):
                 patch('pilot.control.job.get_job_label', return_value='ptest'), \
                 patch('pilot.control.job.get_task_id', return_value=''), \
                 patch.object(job_module.infosys, 'queuedata', SimpleNamespace(resource='TEST')), \
-                patch('pilot.control.job.allow_send_remaining_time', return_value=allow), \
                 patch('pilot.control.job.get_remaining_time', return_value=remaining_time):
             return job_module.get_dispatcher_dictionary(args)
 
@@ -347,129 +342,132 @@ class TestDispatcherDictionaryRemainingTime(unittest.TestCase):
         self.assertEqual(data['computing_element'], 'TEST_QUEUE')
         self.assertEqual(data['node'], 'testnode')
 
-    def test_omitted_when_experiment_does_not_support_it(self):
-        """An experiment whose server side cannot read the field never receives it."""
-        self.assertNotIn('remaining_time', self._build(12345, allow=False))
 
-    def test_rest_of_payload_survives_an_unsupported_experiment(self):
-        """Opting out of remaining_time must not cost the payload anything else."""
-        data = self._build(12345, allow=False)
-        self.assertEqual(data['site_name'], 'TEST')
-        self.assertEqual(data['computing_element'], 'TEST_QUEUE')
-        self.assertEqual(data['node'], 'testnode')
+class TestSendRemainingTimeOptIn(unittest.TestCase):
+    """Tests for the --send-remaining-time queue opt-in.
 
-    def test_calculation_is_skipped_when_unsupported(self):
-        """The remaining time is not computed at all for an unsupported experiment."""
-        args = SimpleNamespace(
-            queue='TEST_QUEUE',
-            jobtype='',
-            job_label='ptest',
-            resource_type='',
-            allow_same_user=False,
-        )
-        with patch('pilot.control.job.get_disk_space', return_value=100000), \
-                patch('pilot.control.job.collect_workernode_info', return_value=(8000.0, 0, 0)), \
+    Mirrors the CERN-GPU case that motivated the option: a pilot a few seconds into a
+    288000 s site limit reported 287995 s remaining and was answered with "No jobs in
+    PanDA" even though jobs were queued, because tasks without a duration estimate carry
+    a maxwalltime equal to the full site limit and therefore never fit. With the option
+    off the field is not sent at all and the dispatcher falls back to its previous
+    behaviour.
+    """
+
+    def _build(self, args):
+        """Build the dispatcher dictionary for the given args object.
+
+        Args:
+            args (SimpleNamespace): args-like object passed to get_dispatcher_dictionary().
+
+        Returns:
+            dict: the dispatcher dictionary prepared for the acquire_jobs operation.
+        """
+        with patch('pilot.control.job.get_disk_space', return_value=160000), \
+                patch('pilot.control.job.collect_workernode_info', return_value=(471616.0, 0, 0)), \
                 patch('pilot.control.job.get_node_name', return_value='testnode'), \
-                patch('pilot.control.job.get_job_label', return_value='ptest'), \
+                patch('pilot.control.job.get_job_label', return_value='unified'), \
                 patch('pilot.control.job.get_task_id', return_value=''), \
-                patch.object(job_module.infosys, 'queuedata', SimpleNamespace(resource='TEST')), \
-                patch('pilot.control.job.allow_send_remaining_time', return_value=False), \
-                patch('pilot.control.job.get_remaining_time') as mocked:
+                patch.object(job_module.infosys, 'queuedata', SimpleNamespace(resource='CERN-GPU')), \
+                patch('pilot.control.job.get_remaining_time', return_value=287995):
+            return job_module.get_dispatcher_dictionary(args)
+
+    @staticmethod
+    def _args(**kwargs):
+        """Build a minimal args-like object for get_dispatcher_dictionary().
+
+        Args:
+            **kwargs: attributes to add or override, e.g. send_remaining_time.
+
+        Returns:
+            SimpleNamespace: args-like object.
+        """
+        attributes = {
+            'queue': 'CERN-GPU',
+            'jobtype': 'unified',
+            'job_label': 'unified',
+            'resource_type': 'SCORE',
+            'allow_same_user': False,
+        }
+        attributes.update(kwargs)
+
+        return SimpleNamespace(**attributes)
+
+    def test_not_sent_when_the_queue_has_not_opted_in(self):
+        """The default is off, so an ordinary queue keeps the pre-feature behaviour."""
+        data = self._build(self._args(send_remaining_time=False))
+        self.assertNotIn('remaining_time', data)
+
+    def test_sent_when_the_queue_has_opted_in(self):
+        """A queue that asks for the filtering gets it."""
+        data = self._build(self._args(send_remaining_time=True))
+        self.assertEqual(data['remaining_time'], 287995)
+
+    def test_not_sent_when_the_option_is_missing_altogether(self):
+        """An args object that predates the option must not send the field either."""
+        data = self._build(self._args())
+        self.assertNotIn('remaining_time', data)
+
+    def test_rest_of_payload_survives_the_opt_out(self):
+        """Declining the field must not cost the payload anything else."""
+        data = self._build(self._args(send_remaining_time=False))
+        self.assertEqual(data['site_name'], 'CERN-GPU')
+        self.assertEqual(data['computing_element'], 'CERN-GPU')
+        self.assertEqual(data['resource_type'], 'SCORE')
+
+    def test_calculation_is_skipped_when_not_opted_in(self):
+        """Nothing is computed for a queue that has not asked for the field."""
+        args = self._args(send_remaining_time=False)
+        with patch('pilot.control.job.get_disk_space', return_value=160000), \
+                patch('pilot.control.job.collect_workernode_info', return_value=(471616.0, 0, 0)), \
+                patch('pilot.control.job.get_node_name', return_value='testnode'), \
+                patch('pilot.control.job.get_job_label', return_value='unified'), \
+                patch('pilot.control.job.get_task_id', return_value=''), \
+                patch.object(job_module.infosys, 'queuedata', SimpleNamespace(resource='CERN-GPU')), \
+                patch('pilot.control.job.get_remaining_time') as compute:
             job_module.get_dispatcher_dictionary(args)
 
-        mocked.assert_not_called()
+        compute.assert_not_called()
 
 
-class TestPluginsDeclareRemainingTimeSupport(unittest.TestCase):
-    """Every in-tree experiment plugin must declare whether it supports remaining_time.
+class TestSendRemainingTimeArgument(unittest.TestCase):
+    """The option has to exist on the command line and default to off.
 
-    A plugin added later that forgets the function would silently inherit the tolerant
-    fallback and never send the field. That is the safe direction, but it should be a
-    deliberate choice rather than an oversight, so the whole set is checked here.
+    arguments.py sits at the repository root and is imported by pilot.py as a top-level
+    module, which is not necessarily importable from wherever the test suite is run, so it
+    is loaded by path here.
     """
 
-    #: only the ATLAS server side currently understands the remaining_time field
-    EXPECTED = {
-        'atlas': True,
-        'darkside': False,
-        'epic': False,
-        'generic': False,
-        'rubin': False,
-        'ska': False,
-        'sphenix': False,
-    }
+    #: minimal command line accepted by the parser (--pilot-user and -q are required)
+    BASE_ARGV = ['pilot.py', '--pilot-user', 'ATLAS', '-q', 'CERN-GPU']
 
-    def test_all_plugins_implement_it_with_the_expected_answer(self):
-        """Each plugin implements the function and returns the agreed value."""
-        for plugin, expected in self.EXPECTED.items():
-            with self.subTest(plugin=plugin):
-                common = import_module(f'pilot.user.{plugin}.common')
-                self.assertTrue(hasattr(common, 'allow_send_remaining_time'),
-                                f'{plugin} does not implement allow_send_remaining_time()')
-                self.assertIs(common.allow_send_remaining_time(), expected)
+    @staticmethod
+    def _parse(argv):
+        """Parse a pilot command line with the real argument parser.
 
-    def test_the_set_of_plugins_is_complete(self):
-        """A newly added plugin has to be considered here rather than slip through."""
-        plugin_dir = Path(job_module.__file__).resolve().parents[1] / 'user'
-        found = {
-            path.name for path in plugin_dir.iterdir()
-            if path.is_dir() and (path / 'common.py').exists()
-        }
-        self.assertEqual(found, set(self.EXPECTED))
+        Args:
+            argv (list): full argv, including the program name at position 0.
 
+        Returns:
+            argparse.Namespace: the parsed arguments.
+        """
+        path = Path(job_module.__file__).resolve().parents[2] / 'arguments.py'
+        spec = spec_from_file_location('pilot_arguments_under_test', path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
 
-class TestAllowSendRemainingTimeTolerance(unittest.TestCase):
-    """Tests for the tolerant plugin lookup in job.allow_send_remaining_time().
+        with patch.object(sys, 'argv', argv):
+            return module.get_args()
 
-    Job acquisition must never fail because of an optional reporting field, so every way the
-    lookup can go wrong resolves to "do not send" rather than to an exception.
-    """
+    def test_default_is_off(self):
+        """Every queue that does not ask for it keeps the previous behaviour."""
+        args = self._parse(self.BASE_ARGV)
+        self.assertFalse(args.send_remaining_time)
 
-    def test_reads_the_plugin_for_the_current_pilot_user(self):
-        """The answer comes from the plugin named by PILOT_USER."""
-        with patch.dict(os.environ, {'PILOT_USER': 'atlas'}):
-            self.assertTrue(job_module.allow_send_remaining_time())
-
-        with patch.dict(os.environ, {'PILOT_USER': 'epic'}):
-            self.assertFalse(job_module.allow_send_remaining_time())
-
-    def test_pilot_user_is_case_insensitive(self):
-        """PILOT_USER is conventionally upper case in the wrapper environment."""
-        with patch.dict(os.environ, {'PILOT_USER': 'ATLAS'}):
-            self.assertTrue(job_module.allow_send_remaining_time())
-
-    def test_defaults_to_generic_when_pilot_user_is_unset(self):
-        """No PILOT_USER means the generic plugin, which does not support the field."""
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(job_module.allow_send_remaining_time())
-
-    def test_unknown_plugin_does_not_raise(self):
-        """An unimportable plugin falls back to not sending the field."""
-        with patch.dict(os.environ, {'PILOT_USER': 'nosuchexperiment'}):
-            self.assertFalse(job_module.allow_send_remaining_time())
-
-    def test_plugin_without_the_function_does_not_raise(self):
-        """An out-of-tree plugin predating this function falls back to not sending it."""
-        with patch.dict(os.environ, {'PILOT_USER': 'atlas'}), \
-                patch('pilot.control.job.__import__', create=True,
-                      return_value=SimpleNamespace()):
-            self.assertFalse(job_module.allow_send_remaining_time())
-
-    def test_raising_plugin_does_not_propagate(self):
-        """A plugin whose implementation throws must not abort job acquisition."""
-        broken = SimpleNamespace(
-            allow_send_remaining_time=lambda: (_ for _ in ()).throw(RuntimeError('boom'))
-        )
-        with patch.dict(os.environ, {'PILOT_USER': 'atlas'}), \
-                patch('pilot.control.job.__import__', create=True, return_value=broken):
-            self.assertFalse(job_module.allow_send_remaining_time())
-
-    def test_non_boolean_return_value_is_coerced(self):
-        """A plugin returning a truthy non-bool still yields a real boolean."""
-        with patch.dict(os.environ, {'PILOT_USER': 'atlas'}), \
-                patch('pilot.control.job.__import__', create=True,
-                      return_value=SimpleNamespace(allow_send_remaining_time=lambda: 1)):
-            self.assertIs(job_module.allow_send_remaining_time(), True)
+    def test_can_be_switched_on(self):
+        """A queue opts in by adding the flag to the pilot command."""
+        args = self._parse(self.BASE_ARGV + ['--send-remaining-time'])
+        self.assertTrue(args.send_remaining_time)
 
 
 if __name__ == '__main__':

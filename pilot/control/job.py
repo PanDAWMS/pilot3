@@ -1881,42 +1881,6 @@ def get_remaining_time(args: Any) -> Optional[int]:
     return remaining_time
 
 
-def allow_send_remaining_time() -> bool:
-    """Ask the experiment plugin whether remaining_time may be sent in the acquire_jobs payload.
-
-    Only the ATLAS server side currently understands the field, so every other plugin opts out.
-    The lookup is deliberately tolerant: an out-of-tree or older plugin that predates this
-    function must not break job acquisition, and neither must a plugin that cannot be imported.
-    Both cases fall back to not sending the field, which is the safe direction -- omitting it
-    simply leaves the dispatcher with no remaining-time information, exactly as before the
-    feature existed.
-
-    Returns:
-        bool: True if the plugin declares support for the field, False otherwise (including when
-            the plugin, or the function itself, is missing).
-    """
-    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
-    try:
-        common = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning(f"failed to import the {pilot_user} common module ({exc}) - "
-                       f"will not send remaining_time")
-        return False
-
-    allow = getattr(common, 'allow_send_remaining_time', None)
-    if allow is None:
-        logger.warning(f"the {pilot_user} plugin does not implement allow_send_remaining_time() - "
-                       f"will not send remaining_time")
-        return False
-
-    try:
-        return bool(allow())
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning(f"{pilot_user}.allow_send_remaining_time() raised {exc} - "
-                       f"will not send remaining_time")
-        return False
-
-
 def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
     """Return a dictionary with required fields for the dispatcher getJob operation.
 
@@ -2001,16 +1965,29 @@ def _add_remaining_time(data: dict, args: Any) -> None:
     matches the server's own default of "no information" rather than risking a literal 0 being
     read as a real limit.
 
-    The field is only understood by the ATLAS server side, so the experiment plugin decides
-    whether it is sent at all. That check comes first so that unsupported experiments neither
-    pay for the calculation nor emit log lines about a value that will never leave the pilot.
+    Sending the value is opt-in per queue via --send-remaining-time, because the server compares
+    it against the estimated job duration, and a task with no duration estimate is assigned the
+    full site time limit. A pilot that has been up for even a few seconds therefore has less time
+    left than such a job nominally needs and is refused work it would in fact have completed.
+    Only queues where the remaining time is the real constraint (long-lived pilots on HPC
+    allocations, for instance) should turn it on. The check comes before the calculation so that
+    a queue which has not opted in neither pays for it nor emits log lines about a value that
+    will never leave the pilot.
+
+    The single command-line switch is deliberately the only gate: any experiment can enable the
+    field on a queue it wants to test it on, rather than having the possibility removed from it
+    by a plugin-level veto.
+
+    The attribute is read defensively: callers constructing their own args object (out-of-tree
+    workflows, tests) must not break job acquisition by not knowing about the option, and the
+    safe direction is not to send the field.
 
     Args:
         data: dispatcher dictionary, updated in place.
         args: Pilot arguments object (e.g. containing queue name, queuedata dictionary, etc).
     """
-    if not allow_send_remaining_time():
-        logger.info("remaining_time is not supported by this experiment - "
+    if not getattr(args, 'send_remaining_time', False):
+        logger.info("remaining_time is not enabled for this queue (--send-remaining-time) - "
                     "will not be sent in the acquire_jobs payload")
         return
 
@@ -3009,7 +2986,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
                     f"(polling every {poll_interval} s)")
         while time.time() < deadline:
             if args.graceful_stop.is_set() or args.abort_job.is_set():
-                logger.info("graceful_stop/abort_job set while waiting for Harvester job definition — aborting wait")
+                logger.info("graceful_stop/abort_job set while waiting for Harvester job definition - aborting wait")
                 return False
             path = locate_job_definition(args)
             if path:
@@ -3021,7 +2998,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
 
     while not args.graceful_stop.is_set():
         if args.abort_job.is_set():
-            logger.info("Abort requested — stopping retrieve loop")
+            logger.info("Abort requested - stopping retrieve loop")
             break
 
         # be polite to the CPU
@@ -3052,7 +3029,7 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
         if not proceed:
             # ensure final server update is processed before exit (legacy behavior)
             check_for_final_server_update(args.update_server)
-            logger.warning("proceed_with_getjob() returned False — stopping retrieve loop (pilot will end)")
+            logger.warning("proceed_with_getjob() returned False - stopping retrieve loop (pilot will end)")
             args.graceful_stop.set()
             args.abort_job.set()
             break
@@ -3072,11 +3049,11 @@ def retrieve(queues: Any, traces: Any, args: Any) -> None:  # noqa: C901
                 # same as any other empty response: increment the failure counter and
                 # let the existing retry/give-up logic below handle it, rather than
                 # immediately triggering a fatal abort.
-                logger.warning("no job definition received from Harvester within timeout — treating as empty response")
+                logger.warning("no job definition received from Harvester within timeout - treating as empty response")
                 getjob_failures += 1
                 max_failures = get_nr_getjob_failures(args.getjob_failures, args.harvester_submitmode)
                 if getjob_failures >= max_failures:
-                    logger.warning(f"did not get a job -- max number of job request failures reached: {getjob_failures}")
+                    logger.warning(f"did not get a job - max number of job request failures reached: {getjob_failures}")
                     args.graceful_stop.set()
                     break
                 _sleep_with_checks(get_job_retrieval_delay(args.harvester))

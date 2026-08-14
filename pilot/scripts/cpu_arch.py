@@ -419,7 +419,7 @@ def main() -> None:
         print(x86_checks(x86_specs, x86info["flags"], x86info["cpu"]))
 
     else:
-        logging.error("Neither x86-64 nor ARM — osarch=%s", osarch)
+        logging.error("Neither x86-64 nor ARM - osarch=%s", osarch)
         print("UNKNOWN")
 
 
