@@ -59,10 +59,13 @@ from pilot.util import loopingdumps
 from pilot.util.loopingdumps import (
     CORE_INFO_MARKER,
     CORE_INFO_SUFFIX,
+    INVENTORY_MARKER,
     SNAPSHOT_FILENAME,
     format_snapshot,
     get_core_analysis_info,
+    get_process_name,
     is_denylisted,
+    log_process_inventory,
     rank_candidate,
     reset_looping_dump_state,
     select_dump_candidates,
@@ -121,16 +124,32 @@ class TestDenylist(unittest.TestCase):
         """A prmon invoked through a wrapper is rejected on the full command line."""
         self.assertTrue(is_denylisted("/usr/bin/python3 /cvmfs/sw/prmon/prmon_wrapper.py --pid 1002"))
 
-    def test_wrappers_and_helpers_are_rejected(self):
-        """Shell, container, setup and transfer helpers are all rejected."""
+    def test_attested_helpers_are_rejected(self):
+        """Only what the pilot demonstrably puts in the payload tree is dropped."""
         for cmdline in (
             "/bin/bash -c asetup Athena,24.0.41; Generate_tf.py",
             "/usr/bin/apptainer exec -B /cvmfs /srv/image.sif /srv/containerScript.sh",
+            "/usr/bin/singularity exec /srv/image.sif /srv/containerScript.sh",
+            "asetup Athena,24.0.41",
+            "lsetup prmon",
+        ):
+            self.assertTrue(is_denylisted(cmdline), msg=cmdline)
+
+    def test_unattested_processes_are_not_dropped_on_suspicion(self):
+        """A process wrongly dropped vanishes silently; one wrongly kept is visible.
+
+        These all looked like obvious helpers, but none of them is known to appear
+        inside the payload tree, so the denylist must not remove them - the logged
+        inventory is what should settle whether they belong there.
+        """
+        for cmdline in (
             "xrdcp root://eos.cern.ch//eos/atlas/file.root .",
             "nvidia-smi --query-compute-apps=pid --format=csv",
             "ps axo pid,ppid,args",
+            "tar czf payload.tgz outputs/",
+            "find /srv/workdir -mmin -120",
         ):
-            self.assertTrue(is_denylisted(cmdline), msg=cmdline)
+            self.assertFalse(is_denylisted(cmdline), msg=cmdline)
 
     def test_empty_cmdline_is_rejected(self):
         """A process with no readable command line is a kernel thread or gone."""
@@ -173,7 +192,9 @@ class TestCandidateSelection(unittest.TestCase):
         with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=["athena.py", "_tf.py"]), \
              patch.object(loopingdumps, "get_cpu_time", side_effect=self._cpu_time), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob())
 
         self.assertTrue(candidates)
@@ -187,7 +208,9 @@ class TestCandidateSelection(unittest.TestCase):
         with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=["athena.py", "_tf.py"]), \
              patch.object(loopingdumps, "get_cpu_time", side_effect=self._cpu_time), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob())
 
         self.assertNotEqual(candidates[0][0], ATLAS_TREE[-1][0])
@@ -206,7 +229,9 @@ class TestCandidateSelection(unittest.TestCase):
         with patch.object(loopingdumps, "get_descendants", return_value=tree), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=["athena.py", "_tf.py"]), \
              patch.object(loopingdumps, "get_cpu_time", side_effect=self._cpu_time), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob())
 
         self.assertEqual(candidates[0][0], 1003)
@@ -221,7 +246,9 @@ class TestCandidateSelection(unittest.TestCase):
         with patch.object(loopingdumps, "get_descendants", return_value=tree), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=["athena.py"]), \
              patch.object(loopingdumps, "get_cpu_time", side_effect=lambda pid: 9999.0 if pid == 2001 else 1.0), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob())
 
         self.assertEqual(candidates[0][0], 2002)
@@ -235,7 +262,9 @@ class TestCandidateSelection(unittest.TestCase):
         with patch.object(loopingdumps, "get_descendants", return_value=tree), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=[]), \
              patch.object(loopingdumps, "get_cpu_time", side_effect=lambda pid: 500.0 if pid == 3002 else 1.0), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob())
 
         self.assertEqual(candidates[0][0], 3002)
@@ -248,7 +277,11 @@ class TestCandidateSelection(unittest.TestCase):
         ]
         with patch.object(loopingdumps, "get_descendants", return_value=tree), \
              patch.object(loopingdumps, "get_payload_process_names", return_value=[]), \
-             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"):
+             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_cpu_time", return_value=0.0), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             candidates = select_dump_candidates(FakeJob(pid=4000))
 
         self.assertEqual([pid for pid, _ in candidates], [4000])
@@ -260,7 +293,9 @@ class TestCandidateSelection(unittest.TestCase):
     def test_rank_is_ordered_by_name_then_cpu(self):
         """The sort key orders on the name match first and the CPU time second."""
         with patch.object(loopingdumps, "get_cpu_time", return_value=10.0), \
-             patch.object(loopingdumps, "get_rss", return_value=0):
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"):
             matched = rank_candidate("python athena.py", 1, ["athena.py"])
             unmatched = rank_candidate("python other.py", 2, ["athena.py"])
 
@@ -441,6 +476,123 @@ class TestSnapshotSummary(unittest.TestCase):
         for fragment in ("snapshot #1", "pid=5001", "cpu_time=100.0s", "rss=2MB",
                          "syscall: running", "frame0", "frame1"):
             self.assertIn(fragment, text)
+
+
+class TestProcessInventory(unittest.TestCase):
+    """The inventory is what a payload name list should later be derived from."""
+
+    _PPID = {1001: 1000, 1002: 1001, 1003: 1002, 1004: 1002, 1005: 1001, 1006: 1003}
+
+    def test_inventory_includes_the_dropped_processes(self):
+        """Nothing is filtered out - the denylist itself has to be checkable."""
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             patch.object(loopingdumps, "get_ppid", side_effect=lambda pid: self._PPID.get(pid, 0)), \
+             patch.object(loopingdumps, "get_cpu_time", return_value=1.0), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="S"), \
+             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            returned = log_process_inventory(FakeJob(), label="at kill time")
+
+        text = "\n".join(captured.output)
+        self.assertEqual(text.count(INVENTORY_MARKER), 2)  # opens and closes the block
+        self.assertIn("at kill time", text)
+        for pid, _ in ATLAS_TREE:
+            self.assertIn(str(pid), text)
+        self.assertIn("prmon", text)  # present, and flagged as dropped
+        self.assertEqual(returned, ATLAS_TREE)
+
+    def test_inventory_records_names_depth_and_drop_status(self):
+        """The columns a name list is built from are all present."""
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             patch.object(loopingdumps, "get_ppid", side_effect=lambda pid: self._PPID.get(pid, 0)), \
+             patch.object(loopingdumps, "get_cpu_time", return_value=900.0), \
+             patch.object(loopingdumps, "get_rss", return_value=3800 * 1024 * 1024), \
+             patch.object(loopingdumps, "get_process_state", return_value="R"), \
+             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            log_process_inventory(FakeJob())
+
+        text = "\n".join(captured.output)
+        for fragment in ("depth", "ppid", "name", "cpu_s", "rss_MB", "drop",
+                         "athena.py", "Generate_tf.py", "3800"):
+            self.assertIn(fragment, text)
+
+    def test_empty_tree_is_reported_not_hidden(self):
+        """An empty tree is itself a finding and must be visible in the log."""
+        with patch.object(loopingdumps, "get_descendants", return_value=[]), \
+             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            log_process_inventory(FakeJob())
+
+        self.assertIn("no descendants found", "\n".join(captured.output))
+
+
+class TestProcessName(unittest.TestCase):
+    """Name extraction feeds the inventory column a name list is harvested from."""
+
+    def test_interpreted_payload_reports_the_script(self):
+        """The interpreter is not the interesting name for an ATLAS payload."""
+        self.assertEqual(
+            get_process_name("python /cvmfs/sw/24.0/AthGeneration/Generate_tf.py --outputEVNTFile=x"),
+            "Generate_tf.py"
+        )
+        self.assertEqual(
+            get_process_name("/usr/bin/python3 /cvmfs/sw/bin/athena.py runargs.Generate.py"),
+            "athena.py"
+        )
+
+    def test_shells_are_not_unwrapped(self):
+        """The first word of a 'bash -c' string is setup noise, not the payload."""
+        self.assertEqual(
+            get_process_name("/bin/bash -c export PandaID=1; asetup Athena; Generate_tf.py"),
+            "bash"
+        )
+
+    def test_plain_binary_reports_its_basename(self):
+        """A non-interpreted process reports argv[0]."""
+        self.assertEqual(get_process_name("prmon --pid 1002 --filename prmon.txt"), "prmon")
+        self.assertEqual(get_process_name("xrdcp root://eos//f.root ."), "xrdcp")
+
+    def test_unreadable_cmdline(self):
+        """An unreadable command line yields no name rather than raising."""
+        self.assertEqual(get_process_name(""), "")
+
+
+class TestNameMatchingIsInert(unittest.TestCase):
+    """No experiment declares payload names yet - that is deliberate."""
+
+    def test_no_plugin_declares_names(self):
+        """A guessed name would promote the wrong process; an empty list cannot."""
+        for experiment in ("atlas", "generic", "epic", "sphenix", "darkside", "rubin", "ska"):
+            with patch.dict(os.environ, {"PILOT_USER": experiment}):
+                self.assertEqual(loopingdumps.get_payload_process_names(), [],
+                                 msg=f"{experiment} declares payload names")
+
+    def test_every_plugin_defines_the_hook(self):
+        """The hook is part of the plugin interface, not an optional extra."""
+        for experiment in ("atlas", "generic", "epic", "sphenix", "darkside", "rubin", "ska"):
+            module = __import__(f"pilot.user.{experiment}.loopingjob_definitions",
+                                globals(), locals(), [experiment], 0)
+            self.assertTrue(callable(getattr(module, "get_payload_process_names", None)),
+                            msg=f"{experiment} does not define get_payload_process_names()")
+
+    def test_ranking_falls_back_to_cpu_time(self):
+        """With no names declared, the spinning process wins on CPU time alone."""
+        tree = [
+            (7001, "/cvmfs/sw/bin/workerA"),
+            (7002, "/cvmfs/sw/bin/workerB"),
+        ]
+        with patch.dict(os.environ, {"PILOT_USER": "atlas"}), \
+             patch.object(loopingdumps, "get_descendants", return_value=tree), \
+             patch.object(loopingdumps, "get_ppid", return_value=0), \
+             patch.object(loopingdumps, "get_process_state", return_value="R"), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_cpu_time",
+                          side_effect=lambda pid: 800.0 if pid == 7002 else 2.0):
+            candidates = select_dump_candidates(FakeJob())
+
+        self.assertEqual(candidates[0][0], 7002)
 
 
 class TestCoreAnalysisInfo(unittest.TestCase):

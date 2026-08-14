@@ -36,15 +36,25 @@ so a multi-GB payload cannot finish inside the window while a few-MB helper
 always can - the one candidate guaranteed to produce a usable core file was
 the uninteresting one.
 
-This module replaces that with two things.
+This module replaces that with three things.
 
-**A ranked candidate list** (:func:`select_dump_candidates`). Known-uninteresting
-processes are removed by command line (prmon, nvidia-smi, shell and container
-wrappers, ALRB setup scripts, xrootd clients, ...), and what survives is ranked
-by how likely it is to be the looping payload: processes whose names the
-experiment plugin declares interesting come first, then the process burning the
-most CPU time - a *looping* payload normally spins, which is exactly what
-separates a loop from a hang - then the largest resident set, then tree depth.
+**An unfiltered inventory** (:func:`log_process_inventory`). What an ATLAS payload
+tree actually contains during a loop has not been established, so the complete
+tree is logged - depth, pid, ppid, process name, state, CPU time, resident set,
+drop status and full command line for every descendant, including the ones that
+were dropped - bracketed by :data:`INVENTORY_MARKER` so the inventories of
+several looping jobs can be grepped out and compared. Any refinement of the
+selection should come from those, not from assumptions made here.
+
+**A minimal denylist and a ranked candidate list**
+(:func:`select_dump_candidates`). Only processes the pilot demonstrably puts into
+the payload tree are rejected: prmon, shells, the container runtimes and the ALRB
+setup calls. What survives is ranked by accumulated CPU time - a *looping*
+payload normally spins, which is exactly what separates a loop from a hang - then
+by resident set. A per-experiment hook for payload process names exists and is
+consulted first, but is empty for every experiment: a name that matched the wrong
+process would promote it above the real payload, which is worse than declaring
+nothing, so the hook is left for the inventories to fill in.
 
 **A series of cheap snapshots** (:func:`take_looping_snapshot`). A core file is
 one instant, whereas a loop is characterised by what changes and what does not
@@ -53,7 +63,9 @@ looping limit the pilot starts recording, at every looping verification, the
 accumulated CPU time, process state, ``wchan``, current syscall, resident set
 and a truncated backtrace of every candidate. That is kilobytes per snapshot
 against gigabytes for a core file, and the deltas between consecutive snapshots
-are summarised at kill time (:func:`summarise_snapshots`).
+are summarised at kill time (:func:`summarise_snapshots`). Because the snapshots
+cover the top :data:`MAX_CANDIDATES` processes rather than only the winner, a
+mis-ranked first choice still leaves the real payload sampled.
 
 At kill time at most one core file is still produced
 (:func:`create_core_dump`), but with the experiment's own gdb (the system one
@@ -107,64 +119,57 @@ CORE_INFO_MARKER = "CORE FILE ANALYSIS INFO"
 # travel together in the log tarball.
 CORE_INFO_SUFFIX = ".analysis.txt"
 
+# Marker bracketing the unfiltered inventory of the payload process tree. The
+# selection heuristics rest on assumptions about what that tree contains during a
+# loop, so the inventory is logged in full - including the processes that were
+# dropped - to let a payload name list be derived from real jobs rather than
+# guessed at. Grep this out of the logs of several looping jobs to build it.
+INVENTORY_MARKER = "PAYLOAD PROCESS INVENTORY"
+
 # Name of the file in the job work directory holding the snapshot series.
 SNAPSHOT_FILENAME = "looping_snapshots.log"
 
-# Command line fragments identifying processes that are never the looping
-# payload. Matched case-insensitively against the basename of argv[0] and, for
-# the entries in DENYLISTED_ARGS, against the full command line.
+# Command line fragments identifying processes that are known not to be the
+# looping payload. Matched case-insensitively against the basename of argv[0]
+# and, for DENYLISTED_ARGS, against the full command line.
+#
+# Deliberately minimal. Every entry here is one the pilot itself demonstrably
+# puts inside the payload tree:
+#
+# * prmon - the memory monitor, and the process the core dump was in fact being
+#   taken from; 'memorymonitor' is the pilot's own internal name for it
+#   (config.Pilot.utility_after_payload_started);
+# * sh/bash - execute() runs every command as '/bin/bash -c <...>', so job.pid
+#   is itself a shell and the transform's own wrappers are shells too;
+# * apptainer/singularity - the container runtimes used by the container plugin;
+# * asetup/lsetup/atlasLocalSetup.sh/setupATLAS - the ALRB setup calls embedded
+#   in the payload command string.
+#
+# Nothing is added on suspicion. An over-broad denylist fails the same way a
+# guessed payload name list does, only more quietly: dropping the real payload
+# leaves the ranking to pick something worse, and the log would show the entry
+# as filtered rather than as chosen wrongly. Anything else that turns out to
+# live in the tree should be added on the evidence of the logged inventories
+# (see INVENTORY_MARKER), not in advance.
 DENYLISTED_NAMES = (
     "prmon",
     "memorymonitor",
-    "nvidia-smi",
-    "ps",
-    "du",
-    "df",
-    "find",
-    "tail",
-    "ls",
     "sh",
     "bash",
-    "dash",
-    "csh",
-    "tcsh",
-    "zsh",
     "apptainer",
     "singularity",
-    "runc",
-    "crun",
-    "conmon",
     "asetup",
     "lsetup",
     "atlaslocalsetup.sh",
     "setupatlas",
-    "xrootd",
-    "xrdcp",
-    "xrdcopy",
-    "curl",
-    "wget",
-    "gfal-copy",
-    "rucio",
-    "gdb",
-    "eu-stack",
-    "pstack",
-    "sleep",
-    "cat",
-    "grep",
-    "awk",
-    "sed",
-    "tar",
-    "gzip",
-    "zstd",
 )
 
 # Full-command-line fragments that disqualify a process regardless of argv[0],
-# for helpers invoked through an interpreter (e.g. 'python .../prmon_wrapper').
-# Kept deliberately short: a fragment that can occur inside a legitimate payload
-# command line would silently drop the very process we are looking for.
+# for a helper invoked through an interpreter (e.g. a prmon wrapper script).
+# Kept to prmon alone: a fragment that can occur inside a legitimate payload
+# command line would silently drop the very process being looked for.
 DENYLISTED_ARGS = (
     "prmon",
-    "nvidia-smi",
 )
 
 # Maximum number of candidates carried through to snapshotting. Bounds both the
@@ -371,13 +376,19 @@ def get_current_syscall(pid: int) -> str:
 
 
 def is_denylisted(cmdline: str) -> bool:
-    """Return True if the given command line belongs to a non-payload helper.
+    """Return True if the given command line belongs to a known non-payload helper.
+
+    Only processes the pilot demonstrably puts into the payload tree are
+    rejected (see :data:`DENYLISTED_NAMES`). Everything else is kept, on the
+    principle that a process wrongly dropped here disappears from the ranking
+    silently, whereas a process wrongly kept is at worst outranked - and is
+    visible either way in the logged inventory.
 
     Args:
         cmdline: Full command line of the process.
 
     Returns:
-        True if the process should never be considered as a dump target.
+        True if the process should not be considered as a dump target.
     """
     if not cmdline:
         # a process with an unreadable command line is a kernel thread or has
@@ -445,6 +456,141 @@ def get_descendants(pid: int) -> list:
     return normalised
 
 
+def get_ppid(pid: int) -> int:
+    """Return the parent process id from ``/proc/<pid>/stat``.
+
+    Args:
+        pid: Process id.
+
+    Returns:
+        Parent process id, or 0 if it could not be determined.
+    """
+    stat = read_proc_file(pid, "stat")
+    if not stat:
+        return 0
+
+    try:
+        return int(stat[stat.rindex(")") + 1:].split()[1])
+    except (ValueError, IndexError):
+        return 0
+
+
+def get_process_name(cmdline: str) -> str:
+    """Return the process name that a payload name list would be made of.
+
+    For an interpreted payload the interpreter is not the interesting name, so
+    the first argument that looks like a script is preferred over ``argv[0]``
+    (``python .../Generate_tf.py`` gives ``Generate_tf.py``, not ``python3``).
+    Shells are deliberately not unwrapped: the first word of a ``bash -c``
+    string is usually a variable assignment or a setup call rather than the
+    payload, and the inventory carries the full command line anyway.
+
+    Args:
+        cmdline: Full command line of the process.
+
+    Returns:
+        Process name, or an empty string when the command line is unreadable.
+    """
+    if not cmdline:
+        return ""
+
+    parts = cmdline.split()
+    argv0 = os.path.basename(parts[0])
+    if argv0.startswith("python") or argv0.startswith("perl"):
+        for part in parts[1:]:
+            if part.startswith("-") or "=" in part:
+                continue
+            candidate = os.path.basename(part)
+            if candidate:
+                return candidate
+
+    return argv0
+
+
+def get_tree_depth(pid: int, root_pid: int, ppids: dict, maximum: int = 25) -> int:
+    """Return the depth of a process below the payload process.
+
+    Args:
+        pid: Process id.
+        root_pid: Payload process id, i.e. the root of the tree.
+        ppids: Mapping of pid to parent pid for the known descendants.
+        maximum: Guard against a cycle in a pathological ``/proc``.
+
+    Returns:
+        Depth below *root_pid* (1 for a direct child), or 0 if it could not be
+        established.
+    """
+    depth = 0
+    current = pid
+    while current and current != root_pid and depth < maximum:
+        current = ppids.get(current) or get_ppid(current)
+        depth += 1
+
+    return depth if current == root_pid else 0
+
+
+def log_process_inventory(job: Any, label: str = "") -> list:
+    """Log every process in the payload tree, whether or not it is a candidate.
+
+    This is the observational half of the diagnostics and is deliberately
+    unfiltered: the denylist and the ranking are both built on assumptions about
+    what an ATLAS payload tree actually contains during a loop, and nobody has
+    yet looked at one. Logging the complete inventory - names, depth, state, CPU
+    time and resident set for every descendant, including the ones that were
+    dropped - makes it possible to derive a payload name list from real jobs
+    instead of guessing at one, and to check the denylist against reality.
+
+    The block is bracketed by :data:`INVENTORY_MARKER` so that the inventories
+    from many jobs can be grepped out of their logs and compared.
+
+    Args:
+        job: Job object; ``job.pid`` must be set.
+        label: Optional context added to the header, e.g. a snapshot number.
+
+    Returns:
+        List of ``(pid, cmdline)`` tuples for the whole tree, as collected.
+    """
+    descendants = get_descendants(job.pid)
+    ppids = {pid: get_ppid(pid) for pid, _ in descendants}
+
+    header = f"{INVENTORY_MARKER}"
+    if label:
+        header += f" ({label})"
+    lines = [
+        header,
+        f"payload process: pid={job.pid} name={get_process_name(get_cmdline(job.pid))!r}",
+        f"descendants: {len(descendants)}",
+        "",
+        f"{'depth':>5}  {'pid':>7}  {'ppid':>7}  {'name':<28}  {'st':<2}  "
+        f"{'cpu_s':>9}  {'rss_MB':>7}  {'drop':<4}  cmdline",
+    ]
+    rows = []
+    for pid, cmdline in descendants:
+        rows.append((
+            get_tree_depth(pid, job.pid, ppids),
+            pid,
+            ppids.get(pid, 0),
+            get_process_name(cmdline),
+            get_process_state(pid),
+            get_cpu_time(pid),
+            get_rss(pid),
+            is_denylisted(cmdline),
+            cmdline,
+        ))
+    for depth, pid, ppid, name, state, cpu, rss, dropped, cmdline in sorted(rows):
+        lines.append(
+            f"{depth:>5}  {pid:>7}  {ppid:>7}  {name[:28]:<28}  {state:<2}  "
+            f"{cpu:>9.1f}  {rss // (1024 * 1024):>7}  {'yes' if dropped else 'no':<4}  {cmdline}"
+        )
+    if not descendants:
+        lines.append("  (no descendants found)")
+    lines.append(INVENTORY_MARKER)
+
+    logger.info("\n".join(lines))
+
+    return descendants
+
+
 def rank_candidate(cmdline: str, pid: int, payload_names: list) -> tuple:
     """Return the sort key ranking a candidate process as a dump target.
 
@@ -467,15 +613,22 @@ def rank_candidate(cmdline: str, pid: int, payload_names: list) -> tuple:
     return name_match, get_cpu_time(pid), get_rss(pid)
 
 
-def select_dump_candidates(job: Any) -> list:
+def select_dump_candidates(job: Any, label: str = "") -> list:
     """Return the payload processes ranked by how likely they are to be looping.
 
-    The full descendant tree of ``job.pid`` is logged together with the reason
-    each entry was kept or dropped, so that a wrong choice can be diagnosed
-    from the log afterwards rather than guessed at.
+    The complete tree is logged first by :func:`log_process_inventory`, including
+    the processes that are dropped, so that a wrong choice can be diagnosed from
+    the log afterwards rather than guessed at.
+
+    Note that positive name matching is currently inert: no plugin except a
+    deliberately configured one declares any payload names, so in practice the
+    ranking is decided by accumulated CPU time and then resident set. That is on
+    purpose - the name list is meant to be derived from the logged inventories of
+    real looping jobs, not assumed in advance.
 
     Args:
         job: Job object; ``job.pid`` must be set.
+        label: Optional context passed through to the inventory header.
 
     Returns:
         List of ``(pid, cmdline)`` tuples, best candidate first, truncated to
@@ -487,19 +640,9 @@ def select_dump_candidates(job: Any) -> list:
         return []
 
     payload_names = get_payload_process_names()
-    descendants = get_descendants(job.pid)
+    descendants = log_process_inventory(job, label=label)
 
-    lines = [f"{LOG_PREFIX}: descendants of the payload process (pid={job.pid}):"]
-    kept = []
-    for pid, cmdline in descendants:
-        if is_denylisted(cmdline):
-            lines.append(f"  pid={pid} DROPPED (non-payload helper): {cmdline}")
-            continue
-        kept.append((pid, cmdline))
-        lines.append(f"  pid={pid} kept: {cmdline}")
-    if not descendants:
-        lines.append("  (none)")
-    logger.info("\n".join(lines))
+    kept = [(pid, cmdline) for pid, cmdline in descendants if not is_denylisted(cmdline)]
 
     if not kept:
         cmdline = get_cmdline(job.pid)
@@ -518,6 +661,11 @@ def select_dump_candidates(job: Any) -> list:
         lines.append(
             f"  pid={pid} name_match={name_match} cpu_time={cpu_time:.1f}s "
             f"rss={rss // (1024 * 1024)}MB: {cmdline}"
+        )
+    if not payload_names:
+        lines.append(
+            "  (no payload names declared for this experiment - ranked on CPU time and "
+            "resident set only; see the inventory above to derive a name list)"
         )
     logger.info("\n".join(lines))
 
@@ -714,12 +862,12 @@ def take_looping_snapshot(job: Any, since_touch: int, looping_limit: int) -> Non
             _snapshot_state["jobid"] = jobid
             _snapshot_state["snapshots"] = []
 
-        candidates = select_dump_candidates(job)
+        index = len(_snapshot_state["snapshots"]) + 1
+        candidates = select_dump_candidates(job, label=f"snapshot #{index}")
         if not candidates:
             return
 
         tool = get_stack_tool()
-        index = len(_snapshot_state["snapshots"]) + 1
         snapshot = {
             "index": index,
             "time": int(time.time()),
@@ -1106,7 +1254,7 @@ def create_core_dump(job: Any) -> None:
 
     logger.info(summarise_snapshots())
 
-    candidates = select_dump_candidates(job)
+    candidates = select_dump_candidates(job, label="at kill time")
     if not candidates:
         logger.warning(f"{LOG_PREFIX}: no dump candidate could be identified")
         return

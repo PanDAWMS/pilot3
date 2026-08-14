@@ -175,7 +175,7 @@ def _dump_payload_stack_traces(job: Any):
         job: Job object.
     """
     try:
-        for pid, cmdline in select_dump_candidates(job):
+        for pid, cmdline in select_dump_candidates(job, label="before kill"):
             logger.info(f'stack trace for pid={pid} ({cmdline}):')
             dump_stack_trace(pid)
     except Exception as exc:  # pylint: disable=broad-exception-caught
