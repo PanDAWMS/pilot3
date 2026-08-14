@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Auxiliary functions."""
 
@@ -634,9 +634,9 @@ def locate_core_file(cmd: str = '', pid: int = 0) -> str:
         path = os.path.join(os.environ.get('PILOT_HOME', '.'), filename)
         if os.path.exists(path):
             logger.debug(f'found core file at: {path}')
-
         else:
             logger.debug(f'did not find {filename} in {path}')
+            path = None  # do not return a path that does not exist
     else:
         logger.warning('cannot locate core file since pid could not be extracted from command')
 

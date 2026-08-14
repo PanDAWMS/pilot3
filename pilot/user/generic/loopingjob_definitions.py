@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Support functions for the looping job detection algorithm."""
 
@@ -56,3 +56,21 @@ def remove_unwanted_files(workdir: str, files: list) -> list:
             _files.append(_file)
 
     return _files
+
+
+def get_payload_process_names() -> list:
+    """Return the process names that identify the actual payload.
+
+    Used by the looping job diagnostics to pick which process to snapshot and
+    dump when a job is found to be looping. No names are declared here, which is
+    not a limitation: the diagnostics then rank the payload's surviving
+    descendants on accumulated CPU time and resident set instead, after removing
+    the known monitoring, container and transfer helpers. Populate this only
+    with process names that are known to be correct - a name that matches the
+    wrong process would promote it above the real payload, which is worse than
+    declaring nothing at all.
+
+    Returns:
+        list: empty list.
+    """
+    return []

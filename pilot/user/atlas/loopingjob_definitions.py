@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Looping-job detection settings for the ATLAS experiment plugin."""
 
@@ -71,3 +71,32 @@ def remove_unwanted_files(workdir: str, files: list[str]) -> list[str]:
             _files.append(_file)
 
     return _files
+
+
+def get_payload_process_names() -> list:
+    """Return the process names that identify the actual payload.
+
+    Used by the looping job diagnostics to pick which process to snapshot and
+    dump, in preference to an arbitrary descendant of the payload process (the
+    descendant tree also holds the transform's own prmon instance, ALRB setup
+    scripts, container and shell wrappers, and xrootd helpers, none of which can
+    explain a loop). Matched case-insensitively as substrings against the full
+    command line.
+
+    Only names that are already relied on elsewhere in the pilot are listed:
+    'athena.py' is what process_debug_command() looks for when the server sends
+    a gdb command with '--pid %', and 'runathena'/'rungen' and the '_tf.py'
+    transformation suffix appear in the redundant-file handling. A name that
+    does not match costs nothing (the diagnostics fall back to ranking on CPU
+    time), but a name that matches the wrong process would promote it above the
+    real payload, so this list is kept to what is known rather than guessed.
+
+    Returns:
+        list: process name fragments, most specific first.
+    """
+    return [
+        'athena.py',
+        '_tf.py',
+        'runathena',
+        'rungen',
+    ]
