@@ -48,7 +48,7 @@ import os
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
 from pilot.util import gpudiagnostics
 from pilot.util.gpudiagnostics import (
@@ -318,11 +318,22 @@ class TestClassificationAndVerdict(unittest.TestCase):
         with patch("pilot.util.gpudiagnostics.os.path.exists", return_value=False):
             self.assertEqual(classify_gpu_pid(4242, {1111}), "invisible")
 
-    def test_verdict_no_gpu_processes_is_inconclusive(self):
-        """Verify the absence of GPU processes is not reported as a problem."""
-        verdict, is_problem = get_verdict({}, [])
+    def test_verdict_no_gpu_processes_on_idle_gpu_is_inconclusive(self):
+        """Verify an idle GPU with no processes is not reported as a problem."""
+        verdict, is_problem = get_verdict({}, [], gpu_busy=False)
         self.assertFalse(is_problem)
         self.assertIn("inconclusive", verdict)
+
+    def test_verdict_busy_gpu_with_no_processes_is_conclusive(self):
+        """Verify a busy GPU with no listed processes is a conclusive failure.
+
+        This is the CERN-GPU shape: device-level counters read fine from
+        inside the pilot's PID namespace, but per-process enumeration returns
+        nothing, so prmon reports ngpus=0 whatever tree it is given.
+        """
+        verdict, is_problem = get_verdict({}, [], gpu_busy=True)
+        self.assertTrue(is_problem)
+        self.assertIn("per-process enumeration is unavailable", verdict)
 
     def test_verdict_descendant_points_away_from_pid_visibility(self):
         """Verify an in-tree GPU process clears the PID visibility theory."""
@@ -409,6 +420,95 @@ class TestSnapshotSchedule(unittest.TestCase):
         self.assertLessEqual(max(SNAPSHOT_OFFSETS), 240)
 
 
+class TestGpuUtilization(unittest.TestCase):
+    """Tests for the device-level utilisation control query."""
+
+    def test_busy_gpu_detected(self):
+        """Verify non-zero utilisation is recognised."""
+        self.assertTrue(gpudiagnostics.is_gpu_busy("0, 99 %, 64 %, 14254 MiB"))
+
+    def test_idle_gpu_detected(self):
+        """Verify an idle device is recognised."""
+        self.assertFalse(gpudiagnostics.is_gpu_busy("0, 0 %, 0 %, 0 MiB"))
+
+    def test_index_is_not_mistaken_for_utilisation(self):
+        """Verify a non-zero device index does not read as activity."""
+        self.assertFalse(gpudiagnostics.is_gpu_busy("3, 0 %, 0 %, 0 MiB"))
+
+    def test_memory_only_activity_detected(self):
+        """Verify allocated memory alone counts as activity."""
+        self.assertTrue(gpudiagnostics.is_gpu_busy("0, 0 %, 0 %, 512 MiB"))
+
+    def test_empty_output(self):
+        """Verify missing output is treated as idle rather than raising."""
+        self.assertFalse(gpudiagnostics.is_gpu_busy(""))
+
+
+class TestPidNamespaceReporting(unittest.TestCase):
+    """Tests for the interpretation of the pilot's PID namespace."""
+
+    def test_initial_namespace_described(self):
+        """Verify the host namespace is reported as matchable."""
+        with patch(
+            "pilot.util.gpudiagnostics.get_pid_namespace",
+            return_value=gpudiagnostics.INITIAL_PID_NAMESPACE,
+        ):
+            self.assertIn("initial/host namespace", gpudiagnostics.describe_pid_namespace(1))
+
+    def test_non_initial_namespace_described(self):
+        """Verify a container namespace is called out explicitly.
+
+        A bare inode is easy to misread; this is the decisive datum
+        separating the working and failing GPU queues.
+        """
+        with patch(
+            "pilot.util.gpudiagnostics.get_pid_namespace", return_value="pid:[4026541988]"
+        ):
+            description = gpudiagnostics.describe_pid_namespace(1)
+        self.assertIn("NOT the initial/host namespace", description)
+        self.assertIn("4026541988", description)
+
+    def test_unreadable_namespace_does_not_raise(self):
+        """Verify an unreadable namespace is reported rather than raising."""
+        with patch(
+            "pilot.util.gpudiagnostics.get_pid_namespace", return_value="(unavailable: denied)"
+        ):
+            self.assertIn("could not be determined", gpudiagnostics.describe_pid_namespace(1))
+
+
+class TestNspidReporting(unittest.TestCase):
+    """Tests for the NSpid host-pid translation report."""
+
+    def test_nested_nspid_reported(self):
+        """Verify nesting is detected and the outer/host pid identified.
+
+        The leftmost NSpid value is the pid the NVIDIA driver reports, i.e.
+        the translation prmon would need to match from inside a namespace.
+        """
+        status = "Name:\tpython\nNSpid:\t28148\t4999\n"
+        with patch("builtins.open", mock_open(read_data=status)):
+            result = gpudiagnostics.get_nspid(4999)
+        self.assertIn("nested", result)
+        self.assertIn("outer/host pid 28148", result)
+        self.assertIn("innermost 4999", result)
+
+    def test_single_level_nspid_reported(self):
+        """Verify a single NSpid value is reported as one level."""
+        status = "Name:\tpython\nNSpid:\t4999\n"
+        with patch("builtins.open", mock_open(read_data=status)):
+            self.assertIn("single level", gpudiagnostics.get_nspid(4999))
+
+    def test_missing_nspid_field(self):
+        """Verify a kernel without NSpid is handled."""
+        with patch("builtins.open", mock_open(read_data="Name:\tpython\n")):
+            self.assertIn("not reported", gpudiagnostics.get_nspid(4999))
+
+    def test_unreadable_status_does_not_raise(self):
+        """Verify an unreadable status file is reported rather than raising."""
+        with patch("builtins.open", side_effect=OSError("no such process")):
+            self.assertIn("unavailable", gpudiagnostics.get_nspid(4999))
+
+
 class TestSnapshotOutput(unittest.TestCase):
     """End-to-end tests for the logged snapshot."""
 
@@ -431,6 +531,7 @@ class TestSnapshotOutput(unittest.TestCase):
             utilities={"MemoryMonitor": ["proc", 1, f"lsetup prmon;prmon --pid {os.getpid()}"]},
         )
         with patch.object(gpudiagnostics, "get_gpu_device_info", return_value="0, A100, 610.43.02, Disabled, Disabled, Enabled"), \
+                patch.object(gpudiagnostics, "get_gpu_utilization", return_value="0, 99 %, 64 %, 14254 MiB"), \
                 patch.object(gpudiagnostics, "get_gpu_compute_apps", return_value=compute_apps), \
                 patch.object(gpudiagnostics, "get_gpu_pmon_sample", return_value="# gpu pid type sm mem command"):
             with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
@@ -453,10 +554,11 @@ class TestSnapshotOutput(unittest.TestCase):
         output = self._run_snapshot(f"{os.getpid()}, python, 512 MiB")
         self.assertIn("IN the monitored process tree", output)
 
-    def test_snapshot_survives_no_gpu_processes(self):
-        """Verify an empty compute-apps list is reported as inconclusive."""
+    def test_snapshot_reports_busy_gpu_with_no_listed_processes(self):
+        """Verify the CERN-GPU shape is reported as a conclusive failure."""
         output = self._run_snapshot("")
-        self.assertIn("no GPU-active compute processes", output)
+        self.assertIn("busy at device level", output)
+        self.assertIn("per-process enumeration is unavailable", output)
 
 
 class TestFailureIsolation(unittest.TestCase):

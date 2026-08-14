@@ -118,6 +118,11 @@ SNAPSHOT_OFFSETS = (0, 30, 90, 180)
 # for about a second, the others return immediately.
 NVIDIA_SMI_TIMEOUT = 60
 
+# Conventional inode of the initial (host) PID namespace on Linux. A pilot in
+# any other PID namespace cannot match the host PIDs that the NVIDIA driver
+# reports, which is the failure mode this diagnostic exists to detect.
+INITIAL_PID_NAMESPACE = "pid:[4026531836]"
+
 # Maximum number of ancestors reported for a GPU-active process that is visible
 # but outside the monitored tree (guards against a pathological /proc).
 MAX_ANCESTORS = 25
@@ -292,6 +297,44 @@ def get_gpu_device_info() -> str:
     )
 
 
+def get_gpu_utilization() -> str:
+    """Return device-level GPU utilisation.
+
+    This is the control for the per-process query: device-level counters are
+    readable from inside a PID namespace, whereas per-process enumeration is
+    not. A busy device with no compute processes listed therefore means
+    enumeration is unavailable, not that the payload is off the GPU - which is
+    the difference between an inconclusive snapshot and a conclusive one.
+
+    Returns:
+        Raw csv output (one line per device), or an empty string on failure.
+    """
+    return run_nvidia_smi(
+        [
+            "--query-gpu=index,utilization.gpu,utilization.memory,memory.used",
+            "--format=csv,noheader",
+        ]
+    )
+
+
+def is_gpu_busy(output: str) -> bool:
+    """Return True if any device reports non-zero utilisation or used memory.
+
+    Args:
+        output: Raw csv output from :func:`get_gpu_utilization`.
+
+    Returns:
+        True if at least one device is doing something.
+    """
+    for line in output.split("\n"):
+        for field in line.split(",")[1:]:
+            digits = "".join(char for char in field if char.isdigit())
+            if digits and int(digits) > 0:
+                return True
+
+    return False
+
+
 def get_gpu_compute_apps() -> str:
     """Return the list of GPU-active compute processes reported by nvidia-smi.
 
@@ -449,22 +492,32 @@ def classify_gpu_pid(pid: int, monitored_pids: set) -> str:
     return "invisible"
 
 
-def get_verdict(classifications: dict, gpu_pids: list) -> tuple:
+def get_verdict(classifications: dict, gpu_pids: list, gpu_busy: bool = False) -> tuple:
     """Summarise what the classification of the GPU-active PIDs implies.
 
     Args:
         classifications: Mapping of GPU-active PID to classification.
         gpu_pids: The GPU-active PIDs reported by nvidia-smi.
+        gpu_busy: Whether device-level counters show the GPU doing work.
 
     Returns:
         Tuple of (verdict text, is_problem) where is_problem is True when the
         result should be logged as a warning.
     """
+    if not gpu_pids and gpu_busy:
+        return (
+            "the GPU is busy at device level but nvidia-smi reports no compute processes "
+            "at all - per-process enumeration is unavailable in this context, so prmon has "
+            "nothing it can attribute to the monitored tree and reports ngpus=0 no matter "
+            "which process tree it is given (check the pilot PID namespace above)",
+            True,
+        )
+
     if not gpu_pids:
         return (
-            "nvidia-smi reports no GPU-active compute processes at this moment - "
-            "inconclusive (either the payload is not on the GPU yet, or per-process "
-            "accounting is unavailable on this host - see the device info above)",
+            "nvidia-smi reports no GPU-active compute processes and the device is idle - "
+            "inconclusive, the payload is probably not on the GPU yet (see the later "
+            "snapshots)",
             False,
         )
 
@@ -493,6 +546,65 @@ def get_verdict(classifications: dict, gpu_pids: list) -> tuple:
         "nvidia-smi, so no PID-based match can ever succeed",
         True,
     )
+
+
+def get_nspid(pid: int) -> str:
+    """Return the ``NSpid`` field from ``/proc/<pid>/status``.
+
+    ``NSpid`` lists the PID of a process at each PID-namespace level it belongs
+    to, leftmost being the level of whichever namespace mounted this procfs.
+    More than one value therefore proves namespace nesting outright, and the
+    leftmost value is the outer (host) PID - which is what the NVIDIA driver
+    reports, and hence exactly the translation prmon would need in order to
+    match GPU-active processes from inside a namespace.
+
+    Args:
+        pid: Process ID.
+
+    Returns:
+        The NSpid values, or a short notice if unavailable.
+    """
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as status:
+            for line in status:
+                if line.startswith("NSpid:"):
+                    values = line.split()[1:]
+                    if len(values) > 1:
+                        return (
+                            f"{' '.join(values)} (nested: outer/host pid {values[0]}, "
+                            f"innermost {values[-1]})"
+                        )
+                    return f"{' '.join(values)} (single level as seen from this procfs)"
+    except OSError as exc:
+        return f"(unavailable: {exc})"
+
+    return "(not reported by this kernel)"
+
+
+def describe_pid_namespace(pid: int) -> str:
+    """Describe the PID namespace of the given process.
+
+    The bare inode is the single most decisive datum in this diagnostic, so it
+    is reported together with what it means rather than left to be looked up.
+
+    Args:
+        pid: Process ID.
+
+    Returns:
+        The namespace identifier followed by its interpretation.
+    """
+    namespace = get_pid_namespace(pid)
+    if namespace == INITIAL_PID_NAMESPACE:
+        note = "initial/host namespace, host PIDs are directly matchable"
+    elif namespace.startswith("pid:"):
+        note = (
+            "NOT the initial/host namespace - the PIDs reported by the NVIDIA driver are "
+            "host PIDs and cannot be matched from here"
+        )
+    else:
+        note = "could not be determined"
+
+    return f"{namespace} ({note})"
 
 
 def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
@@ -527,11 +639,21 @@ def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
         f"{LOG_PREFIX}: monitored pid={monitored_pid} (from {pid_source}), job.pid="
         f"{getattr(job, 'pid', None)}, pilot pid={os.getpid()}"
     )
-    logger.info(f"{LOG_PREFIX}: pilot PID namespace={get_pid_namespace(os.getpid())}")
+    logger.info(f"{LOG_PREFIX}: pilot PID namespace={describe_pid_namespace(os.getpid())}")
+    logger.info(
+        f"{LOG_PREFIX}: NSpid pilot={get_nspid(os.getpid())}, "
+        f"monitored={get_nspid(monitored_pid)}"
+    )
 
     monitored_pids = get_descendant_pids(monitored_pid)
     logger.info(
         f"{LOG_PREFIX}: monitored tree contains {len(monitored_pids)} pid(s): {sorted(monitored_pids)}"
+    )
+
+    utilization = get_gpu_utilization()
+    logger.info(
+        f"{LOG_PREFIX}: GPU utilisation (index, gpu %, memory %, memory used):"
+        f"\n{utilization or '(no output)'}"
     )
 
     compute_apps = get_gpu_compute_apps()
@@ -556,7 +678,7 @@ def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
                 f"(host pid outside the pilot's PID namespace)"
             )
 
-    verdict, is_problem = get_verdict(classifications, gpu_pids)
+    verdict, is_problem = get_verdict(classifications, gpu_pids, is_gpu_busy(utilization))
     if is_problem:
         logger.warning(f"{LOG_PREFIX}: verdict: {verdict}")
     else:
