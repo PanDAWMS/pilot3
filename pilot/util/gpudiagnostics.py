@@ -60,6 +60,20 @@ monitored; and a raw ``nvidia-smi pmon`` sample shows whether the utilisation
 percentages that end up as ``gpusmpct``/``gpumempct`` are reported by
 ``nvidia-smi`` in the first place.
 
+Sampling is driven by device activity rather than by a fixed clock. A payload
+with a setup phase (installing packages, building a benchmark suite, staging a
+model) can be minutes away from its first kernel launch, so a purely
+time-scheduled burst of snapshots early in the payload is the one strategy that
+can never observe the signature this module exists to catch - a busy device with
+nothing enumerated. Two scheduled snapshots therefore establish the baseline
+(PID namespace, ``NSpid``, process tree) even for a job that never touches the
+GPU, while a cheap device-level utilisation poll on every monitoring iteration
+triggers the remaining snapshots at the moment the device actually becomes
+active. The poll also logs idle/busy transitions and the peak activity seen so
+far, so a job that ends without warning still leaves behind the answer to
+"was this GPU ever used at all" - the absence of any transition line means it
+was not.
+
 This is a temporary diagnostic intended to be removed once the root cause is
 established. It activates by itself on GPU queues (any queue name containing
 ``GPU``) so that no configuration or pilot argument change is needed to collect
@@ -107,12 +121,35 @@ TRUTHY_VALUES = ("1", "true", "yes", "on")
 # diagnostic was activated but the node cannot support it.
 GPU_DEBUG_UNUSABLE = "nvidia-smi was not found"
 
-# Elapsed times (in seconds, relative to the first snapshot) at which snapshots
-# are taken. The GPU-touching process may be forked some way into the payload,
-# so a single snapshot at payload start would risk a false negative; the
-# offsets are kept short because the GPU jobs used for this investigation only
-# run for a few minutes.
-SNAPSHOT_OFFSETS = (0, 30, 90, 180)
+# Elapsed times (in seconds, relative to the first snapshot) at which the
+# baseline snapshots are taken. These exist to record the PID namespace, NSpid
+# and process tree even for a payload that never uses the GPU, so they are kept
+# early and few: the snapshots that can actually observe the failure signature
+# are triggered by device activity instead (see ACTIVITY_SNAPSHOT_BUDGET).
+SNAPSHOT_OFFSETS = (0, 30)
+
+# Maximum number of additional snapshots taken because the device was found to
+# be active. Bounded so that a long GPU job cannot fill its pilot log: the
+# signature is either present in the first few active snapshots or it is not.
+ACTIVITY_SNAPSHOT_BUDGET = 3
+
+# Minimum interval (in seconds) between two activity-triggered snapshots, so
+# that a sustained workload spreads its budget over the run instead of spending
+# it on three consecutive monitoring iterations.
+ACTIVITY_SNAPSHOT_SPACING = 30
+
+# Thresholds above which a device counts as active. A bare non-zero test is not
+# usable as a trigger: with persistence mode or MIG enabled, memory.used is not
+# reliably 0 MiB on an idle device, which would report activity (and spend the
+# whole snapshot budget) before the payload has started. utilization.gpu and
+# utilization.memory are percentages of sample-period occupancy, where any
+# non-zero value is real work; memory.used needs a floor above driver overhead.
+BUSY_UTILIZATION_PERCENT = 1
+BUSY_MEMORY_MIB = 64
+
+# Labels distinguishing why a snapshot was taken, used in its header line.
+SCHEDULED_LABEL = "scheduled"
+ACTIVITY_LABEL = "activity-triggered"
 
 # Timeout for any single nvidia-smi invocation, in seconds. 'pmon -c 1' samples
 # for about a second, the others return immediately.
@@ -139,22 +176,53 @@ NVIDIA_SMI_FALLBACK_PATHS = (
 # the job monitoring loop, which has no per-job object to hang state on, and a
 # multijob pilot must not have its second and later jobs silently skipped
 # because the first job used up the snapshot budget.
-_snapshot_state = {"jobid": None, "first_snapshot_time": None, "snapshots_taken": 0}
+_snapshot_state = {
+    "jobid": None,
+    "first_snapshot_time": None,
+    "snapshots_taken": 0,
+    "total_snapshots": 0,
+}
+
+# Device activity bookkeeping, also per job for the same reason. 'active' is the
+# last observed state and is None before the first poll, so that the very first
+# observation of an active device registers as a transition rather than being
+# mistaken for the initial condition.
+_activity_state = {
+    "jobid": None,
+    "active": None,
+    "peak_gpu_percent": 0,
+    "peak_memory_mib": 0,
+    "activity_snapshots": 0,
+    "last_activity_time": None,
+}
 
 # Whether the one-time announcement of the gating decision has been logged for
 # the current job.
 _announced_state = {"jobid": None}
 
+# nvidia-smi option signatures already warned about for the current job. The
+# activity poll runs on every monitoring iteration, so an unhealthy nvidia-smi
+# would otherwise emit the same warning for the whole job.
+_warned_commands: set = set()
+
 
 def reset_gpu_diagnostics_state() -> None:
-    """Reset the snapshot bookkeeping and the announcement flag.
+    """Reset the snapshot, activity and announcement bookkeeping.
 
     Called automatically when a new job is seen, and by the tests.
     """
     _snapshot_state["jobid"] = None
     _snapshot_state["first_snapshot_time"] = None
     _snapshot_state["snapshots_taken"] = 0
+    _snapshot_state["total_snapshots"] = 0
+    _activity_state["jobid"] = None
+    _activity_state["active"] = None
+    _activity_state["peak_gpu_percent"] = 0
+    _activity_state["peak_memory_mib"] = 0
+    _activity_state["activity_snapshots"] = 0
+    _activity_state["last_activity_time"] = None
     _announced_state["jobid"] = None
+    _warned_commands.clear()
 
 
 def announce_once(jobid: str, enabled: bool, reason: str, announce: bool) -> None:
@@ -244,7 +312,31 @@ def is_gpu_diagnostics_enabled(queue: str) -> tuple:
         return False, f"{trigger} but {GPU_DEBUG_UNUSABLE} on this node", True
 
     offsets = ", ".join(str(offset) for offset in SNAPSHOT_OFFSETS)
-    return True, f"{trigger}, snapshots at {offsets} s after the first monitoring iteration", True
+    return (
+        True,
+        f"{trigger}, baseline snapshots at {offsets} s after the first monitoring iteration "
+        f"plus up to {ACTIVITY_SNAPSHOT_BUDGET} more, at least {ACTIVITY_SNAPSHOT_SPACING} s "
+        f"apart, while the device is active",
+        True,
+    )
+
+
+def warn_once(key: str, message: str) -> None:
+    """Log a warning the first time it is seen for the current job.
+
+    The activity poll runs on every monitoring iteration, so a persistently
+    failing nvidia-smi would otherwise repeat the same warning for the whole
+    job. One line per distinct failure is enough to diagnose it.
+
+    Args:
+        key: Identifier deduplicating the warning.
+        message: Warning text.
+    """
+    if key in _warned_commands:
+        return
+
+    _warned_commands.add(key)
+    logger.warning(message)
 
 
 def run_nvidia_smi(options: list) -> str:
@@ -270,10 +362,16 @@ def run_nvidia_smi(options: list) -> str:
             universal_newlines=True,
         )
     except subprocess.CalledProcessError as exc:
-        logger.warning(f"{LOG_PREFIX}: nvidia-smi {' '.join(options)} failed: {exc.stderr}")
+        warn_once(
+            f"failed:{options}",
+            f"{LOG_PREFIX}: nvidia-smi {' '.join(options)} failed: {exc.stderr}",
+        )
         return ""
     except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.warning(f"{LOG_PREFIX}: nvidia-smi {' '.join(options)} could not be executed: {exc}")
+        warn_once(
+            f"unexecutable:{options}",
+            f"{LOG_PREFIX}: nvidia-smi {' '.join(options)} could not be executed: {exc}",
+        )
         return ""
 
     return result.stdout.strip()
@@ -317,22 +415,85 @@ def get_gpu_utilization() -> str:
     )
 
 
-def is_gpu_busy(output: str) -> bool:
-    """Return True if any device reports non-zero utilisation or used memory.
+def parse_gpu_utilization(output: str) -> list:
+    """Parse ``--query-gpu`` utilisation csv output into numeric tuples.
+
+    Fields that nvidia-smi reports as unsupported (``[N/A]``) are read as zero:
+    an unreadable counter must not be able to claim the device is active.
 
     Args:
         output: Raw csv output from :func:`get_gpu_utilization`.
 
     Returns:
-        True if at least one device is doing something.
+        List of (index, gpu percent, memory percent, memory MiB) tuples, one per
+        device, skipping any line that does not carry all four fields.
     """
+    devices = []
     for line in output.split("\n"):
-        for field in line.split(",")[1:]:
-            digits = "".join(char for char in field if char.isdigit())
-            if digits and int(digits) > 0:
-                return True
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) < 4:
+            continue
+
+        values = []
+        for field in fields[:4]:
+            match = re.match(r"\d+", field)
+            values.append(int(match.group()) if match else 0)
+        devices.append(tuple(values))
+
+    return devices
+
+
+def is_gpu_busy(output: str) -> bool:
+    """Return True if any device is doing work, by threshold rather than by zero.
+
+    Args:
+        output: Raw csv output from :func:`get_gpu_utilization`.
+
+    Returns:
+        True if at least one device exceeds :data:`BUSY_UTILIZATION_PERCENT` on
+        either utilisation counter, or :data:`BUSY_MEMORY_MIB` of used memory.
+    """
+    for _, gpu_percent, memory_percent, memory_mib in parse_gpu_utilization(output):
+        busy = (
+            gpu_percent >= BUSY_UTILIZATION_PERCENT or
+            memory_percent >= BUSY_UTILIZATION_PERCENT or
+            memory_mib >= BUSY_MEMORY_MIB
+        )
+        if busy:
+            return True
 
     return False
+
+
+def get_peak_activity(output: str) -> tuple:
+    """Return the highest utilisation and used memory across all devices.
+
+    Args:
+        output: Raw csv output from :func:`get_gpu_utilization`.
+
+    Returns:
+        Tuple of (max gpu percent, max memory MiB); (0, 0) for empty output.
+    """
+    devices = parse_gpu_utilization(output)
+    if not devices:
+        return 0, 0
+
+    return (
+        max(device[1] for device in devices),
+        max(device[3] for device in devices),
+    )
+
+
+def describe_activity_peak() -> str:
+    """Describe the highest GPU activity seen so far for the current job.
+
+    Returns:
+        Short human-readable summary of the peak counters.
+    """
+    return (
+        f"gpu {_activity_state['peak_gpu_percent']} %, "
+        f"memory {_activity_state['peak_memory_mib']} MiB"
+    )
 
 
 def get_gpu_compute_apps() -> str:
@@ -516,8 +677,9 @@ def get_verdict(classifications: dict, gpu_pids: list, gpu_busy: bool = False) -
     if not gpu_pids:
         return (
             "nvidia-smi reports no GPU-active compute processes and the device is idle - "
-            "inconclusive, the payload is probably not on the GPU yet (see the later "
-            "snapshots)",
+            "inconclusive, the payload is not on the GPU at this point; a snapshot labelled "
+            f"'{ACTIVITY_LABEL}' follows once it is, and if no 'device activity' line ever "
+            "reports busy then this job never used the GPU at all",
             False,
         )
 
@@ -607,15 +769,24 @@ def describe_pid_namespace(pid: int) -> str:
     return f"{namespace} ({note})"
 
 
-def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
+def log_gpu_pid_snapshot(
+    job: object,
+    snapshot: int,
+    label: str = SCHEDULED_LABEL,
+    utilization: str | None = None,
+) -> None:
     """Collect and log a single GPU/PID visibility snapshot.
 
     Args:
         job: Job object.
-        snapshot: 1-based snapshot number.
+        snapshot: 1-based snapshot number, counted across both snapshot kinds.
+        label: Why this snapshot was taken (:data:`SCHEDULED_LABEL` or
+            :data:`ACTIVITY_LABEL`).
+        utilization: Utilisation sample already taken by the caller, reused so
+            that the activity poll and the snapshot do not query the device
+            twice within the same monitoring iteration. Queried here if absent.
     """
-    total = len(SNAPSHOT_OFFSETS)
-    logger.info(f"{LOG_PREFIX}: ---------- snapshot {snapshot}/{total} ----------")
+    logger.info(f"{LOG_PREFIX}: ---------- snapshot {snapshot} ({label}) ----------")
 
     if snapshot == 1:
         # device mode does not change during a job, so query it only once
@@ -650,11 +821,13 @@ def log_gpu_pid_snapshot(job: object, snapshot: int) -> None:
         f"{LOG_PREFIX}: monitored tree contains {len(monitored_pids)} pid(s): {sorted(monitored_pids)}"
     )
 
-    utilization = get_gpu_utilization()
+    if utilization is None:
+        utilization = get_gpu_utilization()
     logger.info(
         f"{LOG_PREFIX}: GPU utilisation (index, gpu %, memory %, memory used):"
         f"\n{utilization or '(no output)'}"
     )
+    logger.info(f"{LOG_PREFIX}: peak activity so far this job: {describe_activity_peak()}")
 
     compute_apps = get_gpu_compute_apps()
     logger.info(
@@ -714,6 +887,7 @@ def is_snapshot_due(jobid: str, now: int | None = None) -> bool:
         _snapshot_state["jobid"] = jobid
         _snapshot_state["first_snapshot_time"] = None
         _snapshot_state["snapshots_taken"] = 0
+        _snapshot_state["total_snapshots"] = 0
 
     taken = _snapshot_state["snapshots_taken"]
     if taken >= len(SNAPSHOT_OFFSETS):
@@ -725,6 +899,80 @@ def is_snapshot_due(jobid: str, now: int | None = None) -> bool:
         return False
 
     _snapshot_state["snapshots_taken"] = taken + 1
+
+    return True
+
+
+def track_gpu_activity(jobid: str, utilization: str) -> bool:
+    """Record device activity, logging every idle/busy transition.
+
+    This runs on every monitoring iteration and is the diagnostic's only
+    whole-job observation: a job that ends between snapshots still leaves a
+    record of whether its GPU was ever used, and to what extent. Only
+    transitions are logged, so a whole job costs a handful of lines.
+
+    Args:
+        jobid: PanDA job id (a new id resets the tracking).
+        utilization: Raw csv output from :func:`get_gpu_utilization`.
+
+    Returns:
+        True if the device is active in this sample.
+    """
+    if _activity_state["jobid"] != jobid:
+        _activity_state["jobid"] = jobid
+        _activity_state["active"] = None
+        _activity_state["peak_gpu_percent"] = 0
+        _activity_state["peak_memory_mib"] = 0
+        _activity_state["activity_snapshots"] = 0
+        _activity_state["last_activity_time"] = None
+        _warned_commands.clear()
+
+    active = is_gpu_busy(utilization)
+    gpu_percent, memory_mib = get_peak_activity(utilization)
+    _activity_state["peak_gpu_percent"] = max(_activity_state["peak_gpu_percent"], gpu_percent)
+    _activity_state["peak_memory_mib"] = max(_activity_state["peak_memory_mib"], memory_mib)
+
+    if active != _activity_state["active"]:
+        previous = _activity_state["active"]
+        _activity_state["active"] = active
+        transition = "idle -> busy" if active else "busy -> idle"
+        if previous is None:
+            transition = "busy at first observation" if active else "idle at first observation"
+        logger.info(
+            f"{LOG_PREFIX}: device activity {transition} (now gpu {gpu_percent} %, "
+            f"memory {memory_mib} MiB; peak this job: {describe_activity_peak()})"
+        )
+
+    return active
+
+
+def is_activity_snapshot_due(active: bool, now: int | None = None) -> bool:
+    """Return True if an activity-triggered snapshot is due, updating bookkeeping.
+
+    The trigger is the device *being* active rather than the idle -> busy edge
+    alone: a single edge would yield a single snapshot, whereas the point of the
+    budget is to sample a live workload more than once, in case enumeration only
+    becomes possible (or only fails) after the payload has settled.
+
+    Args:
+        active: Whether the device is active in the current sample.
+        now: Current time in seconds since the epoch (defaults to now).
+
+    Returns:
+        True if the caller should take a snapshot.
+    """
+    if not active or _activity_state["activity_snapshots"] >= ACTIVITY_SNAPSHOT_BUDGET:
+        return False
+
+    if now is None:
+        now = int(time.time())
+
+    last = _activity_state["last_activity_time"]
+    if last is not None and now - last < ACTIVITY_SNAPSHOT_SPACING:
+        return False
+
+    _activity_state["activity_snapshots"] += 1
+    _activity_state["last_activity_time"] = now
 
     return True
 
@@ -745,9 +993,22 @@ def report_gpu_pid_visibility(job: object, queue: str) -> None:
         jobid = str(getattr(job, "jobid", "") or "")
         enabled, reason, announce = is_gpu_diagnostics_enabled(queue)
         announce_once(jobid, enabled, reason, announce)
-        if not enabled or not is_snapshot_due(jobid):
+        if not enabled:
             return
 
-        log_gpu_pid_snapshot(job, _snapshot_state["snapshots_taken"])
+        # the one query made on every monitoring iteration (tens of milliseconds);
+        # its result is reused by any snapshot taken below
+        utilization = get_gpu_utilization()
+        active = track_gpu_activity(jobid, utilization)
+
+        if is_snapshot_due(jobid):
+            label = SCHEDULED_LABEL
+        elif is_activity_snapshot_due(active):
+            label = ACTIVITY_LABEL
+        else:
+            return
+
+        _snapshot_state["total_snapshots"] += 1
+        log_gpu_pid_snapshot(job, _snapshot_state["total_snapshots"], label, utilization)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f"{LOG_PREFIX}: snapshot failed (ignored): {exc}")

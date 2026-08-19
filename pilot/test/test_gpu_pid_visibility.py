@@ -39,6 +39,12 @@ Covers:
   / not visible at all) and the verdict derived from it;
 - the snapshot schedule (bounded number of snapshots, spaced by the configured
   offsets, and reset per job so a multijob pilot samples every job);
+- activity tracking: idle/busy transitions logged once each, peak counters kept
+  for the whole job, and the busy thresholds that keep idle-device driver
+  overhead from reading as activity;
+- activity-triggered snapshots: budgeted, spaced, never taken on an idle device,
+  and taken long after the baseline offsets have expired - the case that job
+  7261969522 (SLAC_GPU, 2026-08-18) proved the old fixed schedule could not see;
 - that a failure anywhere in the diagnostic can never propagate into the job
   monitoring loop.
 """
@@ -52,19 +58,31 @@ from unittest.mock import mock_open, patch
 
 from pilot.util import gpudiagnostics
 from pilot.util.gpudiagnostics import (
+    ACTIVITY_LABEL,
+    ACTIVITY_SNAPSHOT_BUDGET,
+    ACTIVITY_SNAPSHOT_SPACING,
     GPU_DEBUG_ENV_VAR,
     GPU_QUEUE_MARKER,
+    SCHEDULED_LABEL,
     SNAPSHOT_OFFSETS,
     classify_gpu_pid,
     extract_pids_from_compute_apps,
     get_monitored_pid,
+    get_peak_activity,
     get_verdict,
+    is_activity_snapshot_due,
     is_gpu_diagnostics_enabled,
     is_snapshot_due,
     report_gpu_pid_visibility,
     reset_gpu_diagnostics_state,
     run_nvidia_smi,
+    track_gpu_activity,
 )
+
+# Utilisation csv as reported on an idle device, and while a payload is loading
+# it. Both taken from real 'nvidia-smi --query-gpu' output.
+IDLE_UTILIZATION = "0, 0 %, 0 %, 0 MiB"
+BUSY_UTILIZATION = "0, 99 %, 64 %, 14254 MiB"
 
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
@@ -559,6 +577,276 @@ class TestSnapshotOutput(unittest.TestCase):
         output = self._run_snapshot("")
         self.assertIn("busy at device level", output)
         self.assertIn("per-process enumeration is unavailable", output)
+
+
+class TestActivityTracking(unittest.TestCase):
+    """Tests for the per-iteration device activity poll."""
+
+    def setUp(self):
+        """Reset module-level snapshot state before each test."""
+        reset_gpu_diagnostics_state()
+
+    def tearDown(self):
+        """Reset module-level snapshot state after each test."""
+        reset_gpu_diagnostics_state()
+
+    def test_idle_device_reports_inactive(self):
+        """Verify an idle device is not reported as active."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            self.assertFalse(track_gpu_activity("1", IDLE_UTILIZATION))
+
+    def test_busy_device_reports_active(self):
+        """Verify a loaded device is reported as active."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            self.assertTrue(track_gpu_activity("1", BUSY_UTILIZATION))
+
+    def test_transition_to_busy_is_logged_once(self):
+        """Verify the idle -> busy edge is logged and then stays quiet.
+
+        The poll runs on every monitoring iteration, so logging the state
+        rather than the transition would flood the pilot log for a whole job.
+        """
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
+            track_gpu_activity("1", IDLE_UTILIZATION)
+            track_gpu_activity("1", BUSY_UTILIZATION)
+            track_gpu_activity("1", BUSY_UTILIZATION)
+            track_gpu_activity("1", BUSY_UTILIZATION)
+
+        transitions = [line for line in captured.output if "device activity" in line]
+        self.assertEqual(len(transitions), 2)
+        self.assertIn("idle at first observation", transitions[0])
+        self.assertIn("idle -> busy", transitions[1])
+
+    def test_transition_back_to_idle_is_logged(self):
+        """Verify the busy -> idle edge is logged with the peak seen so far."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
+            track_gpu_activity("1", BUSY_UTILIZATION)
+            track_gpu_activity("1", IDLE_UTILIZATION)
+
+        output = "\n".join(captured.output)
+        self.assertIn("busy -> idle", output)
+        self.assertIn("14254 MiB", output)
+
+    def test_peak_is_retained_after_the_device_goes_idle(self):
+        """Verify the peak survives the device returning to idle.
+
+        A job that ends between snapshots must still leave behind evidence that
+        its GPU was used, which is the whole purpose of tracking the peak.
+        """
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
+            track_gpu_activity("1", BUSY_UTILIZATION)
+            track_gpu_activity("1", IDLE_UTILIZATION)
+            track_gpu_activity("1", IDLE_UTILIZATION)
+
+        self.assertIn("gpu 99 %, memory 14254 MiB", "\n".join(captured.output))
+
+    def test_tracking_resets_for_a_new_job(self):
+        """Verify a second job in a multijob pilot starts from a clean peak."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            track_gpu_activity("first", BUSY_UTILIZATION)
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
+            track_gpu_activity("second", IDLE_UTILIZATION)
+
+        self.assertNotIn("14254", "\n".join(captured.output))
+
+    def test_driver_overhead_is_not_activity(self):
+        """Verify a small residual allocation does not read as a busy device.
+
+        With persistence mode or MIG enabled, memory.used on an idle device is
+        not reliably 0 MiB. Treating any non-zero value as activity would spend
+        the whole snapshot budget before the payload had started.
+        """
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            self.assertFalse(track_gpu_activity("1", "0, 0 %, 0 %, 1 MiB"))
+
+    def test_unsupported_counters_are_not_activity(self):
+        """Verify '[N/A]' counters are read as zero rather than as activity."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            self.assertFalse(track_gpu_activity("1", "0, [N/A], [N/A], 0 MiB"))
+
+    def test_peak_taken_across_multiple_devices(self):
+        """Verify the peak is the maximum over all devices, not the first one."""
+        self.assertEqual(
+            get_peak_activity("0, 0 %, 0 %, 0 MiB\n1, 42 %, 7 %, 2048 MiB"),
+            (42, 2048),
+        )
+
+    def test_empty_utilization_output(self):
+        """Verify missing nvidia-smi output is treated as idle, not as an error."""
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            self.assertFalse(track_gpu_activity("1", ""))
+        self.assertEqual(get_peak_activity(""), (0, 0))
+
+
+class TestActivitySnapshotSchedule(unittest.TestCase):
+    """Tests for the budgeted, spaced activity-triggered snapshots."""
+
+    def setUp(self):
+        """Reset module-level snapshot state before each test."""
+        reset_gpu_diagnostics_state()
+
+    def tearDown(self):
+        """Reset module-level snapshot state after each test."""
+        reset_gpu_diagnostics_state()
+
+    def test_idle_device_never_triggers_a_snapshot(self):
+        """Verify an idle device spends none of the budget."""
+        for offset in range(0, 600, 60):
+            self.assertFalse(is_activity_snapshot_due(False, now=1000 + offset))
+
+    def test_first_active_sample_triggers_immediately(self):
+        """Verify no delay is imposed on the first activity-triggered snapshot."""
+        self.assertTrue(is_activity_snapshot_due(True, now=1000))
+
+    def test_consecutive_iterations_do_not_each_trigger(self):
+        """Verify the spacing keeps a live workload from burning its budget."""
+        self.assertTrue(is_activity_snapshot_due(True, now=1000))
+        self.assertFalse(is_activity_snapshot_due(True, now=1010))
+        self.assertFalse(is_activity_snapshot_due(True, now=1000 + ACTIVITY_SNAPSHOT_SPACING - 1))
+        self.assertTrue(is_activity_snapshot_due(True, now=1000 + ACTIVITY_SNAPSHOT_SPACING))
+
+    def test_budget_is_bounded(self):
+        """Verify a long GPU job cannot fill its pilot log with snapshots."""
+        now = 1000
+        taken = 0
+        for _ in range(100):
+            if is_activity_snapshot_due(True, now=now):
+                taken += 1
+            now += ACTIVITY_SNAPSHOT_SPACING * 2
+        self.assertEqual(taken, ACTIVITY_SNAPSHOT_BUDGET)
+
+    def test_budget_resets_for_a_new_job(self):
+        """Verify each job in a multijob pilot gets its own activity budget."""
+        now = 1000
+        for _ in range(ACTIVITY_SNAPSHOT_BUDGET):
+            is_activity_snapshot_due(True, now=now)
+            now += ACTIVITY_SNAPSHOT_SPACING * 2
+        self.assertFalse(is_activity_snapshot_due(True, now=now))
+
+        with self.assertLogs("pilot.util.gpudiagnostics", level="INFO"):
+            track_gpu_activity("second", BUSY_UTILIZATION)
+        self.assertTrue(is_activity_snapshot_due(True, now=now))
+
+
+class TestSnapshotDispatch(unittest.TestCase):
+    """Tests for which snapshot kind the entry point takes, and when."""
+
+    def setUp(self):
+        """Reset module-level snapshot state before each test."""
+        reset_gpu_diagnostics_state()
+
+    def tearDown(self):
+        """Reset module-level snapshot state after each test."""
+        reset_gpu_diagnostics_state()
+
+    def _iterate(self, utilization_samples: list, interval: int = 10) -> list:
+        """Drive the entry point once per utilisation sample on a synthetic clock.
+
+        The clock advances by ``interval`` between iterations and is constant
+        within one, mirroring the job monitoring loop. A snapshot that failed
+        internally would be swallowed by design, so any such warning is turned
+        into a test failure here.
+
+        Args:
+            utilization_samples: One raw csv sample per monitoring iteration.
+            interval: Seconds between monitoring iterations.
+
+        Returns:
+            List of (snapshot number, label) for every snapshot taken.
+        """
+        job = MockJob(pid=4321)
+        taken = []
+        clock = {"now": 1000}
+
+        def record(_job, snapshot, label=SCHEDULED_LABEL, _utilization=None):
+            """Record the snapshot instead of collecting it."""
+            taken.append((snapshot, label))
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch("pilot.util.gpudiagnostics.find_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                patch("pilot.util.gpudiagnostics.time.time", side_effect=lambda: clock["now"]), \
+                patch("pilot.util.gpudiagnostics.log_gpu_pid_snapshot", side_effect=record):
+            with self.assertLogs("pilot.util.gpudiagnostics", level="INFO") as captured:
+                for sample in utilization_samples:
+                    with patch.object(gpudiagnostics, "get_gpu_utilization", return_value=sample):
+                        report_gpu_pid_visibility(job, "SLAC_GPU")
+                    clock["now"] += interval
+
+        self.assertNotIn("snapshot failed", "\n".join(captured.output))
+
+        return taken
+
+    def test_baseline_snapshots_are_taken_on_an_idle_device(self):
+        """Verify a payload that never uses the GPU still yields the baseline.
+
+        This is job 7261969522 (SLAC_GPU, 2026-08-18): three snapshots' worth of
+        monitoring spent in 'pip install', device idle throughout. The namespace
+        and process-tree evidence must still be collected.
+        """
+        taken = self._iterate([IDLE_UTILIZATION] * 60)
+
+        self.assertEqual([label for _, label in taken], [SCHEDULED_LABEL] * len(SNAPSHOT_OFFSETS))
+
+    def test_activity_after_the_baseline_window_still_triggers_snapshots(self):
+        """Verify late GPU activity is sampled, which the fixed schedule could not.
+
+        The regression this whole change exists for: with offsets alone, a
+        payload whose first kernel launch comes after the last offset was never
+        observed while it was on the GPU.
+        """
+        samples = [IDLE_UTILIZATION] * 40 + [BUSY_UTILIZATION] * 40
+        taken = self._iterate(samples)
+
+        labels = [label for _, label in taken]
+        self.assertEqual(labels.count(SCHEDULED_LABEL), len(SNAPSHOT_OFFSETS))
+        self.assertEqual(labels.count(ACTIVITY_LABEL), ACTIVITY_SNAPSHOT_BUDGET)
+        # every activity snapshot must fall after the last baseline offset, which
+        # is the window the fixed schedule could not reach
+        self.assertEqual(labels[: len(SNAPSHOT_OFFSETS)], [SCHEDULED_LABEL] * len(SNAPSHOT_OFFSETS))
+
+    def test_snapshot_numbering_is_continuous_across_both_kinds(self):
+        """Verify the snapshot counter does not restart for activity snapshots."""
+        samples = [IDLE_UTILIZATION] * 40 + [BUSY_UTILIZATION] * 40
+        taken = self._iterate(samples)
+
+        self.assertEqual([number for number, _ in taken], list(range(1, len(taken) + 1)))
+
+    def test_utilization_is_queried_once_per_iteration(self):
+        """Verify the poll and the snapshot share one nvidia-smi invocation."""
+        job = MockJob(pid=4321)
+        utilization = patch.object(
+            gpudiagnostics, "get_gpu_utilization", return_value=BUSY_UTILIZATION
+        )
+        with patch.dict(os.environ, {}, clear=True), \
+                patch("pilot.util.gpudiagnostics.find_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                patch("pilot.util.gpudiagnostics.log_gpu_pid_snapshot"), \
+                utilization as mock_utilization:
+            report_gpu_pid_visibility(job, "SLAC_GPU")
+
+        mock_utilization.assert_called_once()
+
+
+class TestRepeatedWarnings(unittest.TestCase):
+    """Tests that a persistently failing nvidia-smi is reported once, not always."""
+
+    def setUp(self):
+        """Reset module-level snapshot state before each test."""
+        reset_gpu_diagnostics_state()
+
+    def tearDown(self):
+        """Reset module-level snapshot state after each test."""
+        reset_gpu_diagnostics_state()
+
+    def test_identical_failure_warns_once(self):
+        """Verify the per-iteration poll cannot repeat the same warning all job."""
+        error = subprocess.CalledProcessError(1, "nvidia-smi", stderr="boom")
+        with patch("pilot.util.gpudiagnostics.find_nvidia_smi", return_value="/usr/bin/nvidia-smi"):
+            with patch("subprocess.run", side_effect=error):
+                with self.assertLogs("pilot.util.gpudiagnostics", level="WARNING") as captured:
+                    for _ in range(10):
+                        self.assertEqual(run_nvidia_smi(["--query-gpu=index"]), "")
+
+        self.assertEqual(len(captured.output), 1)
 
 
 class TestFailureIsolation(unittest.TestCase):

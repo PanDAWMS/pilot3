@@ -526,6 +526,15 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         alrb_setup = get_asetup(alrb=True, add_if=True)
         alrb_setup = fix_asetup(alrb_setup)
 
+        # Redirect ALRB's container temp files into the per-job workdir via ALRB_CONT_CHOME.
+        # See create_root_container_command for full rationale. This is the payload container
+        # setup path; without it, ALRB_CONT_CHOME was only ever set for the remote-file-open
+        # and stage-in/out containers, and the payload container fell back to sharing
+        # $HOME/.alrb/container/scripts/ with every other pilot on the worker node.
+        # Only set if not already defined, to respect any site-level override.
+        if not os.environ.get('ALRB_CONT_CHOME'):
+            alrb_setup += f'export ALRB_CONT_CHOME={job.workdir};'
+
         # get_asetup(alrb=True)
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;
         # get_asetup(alrb=True, add_if=True)
