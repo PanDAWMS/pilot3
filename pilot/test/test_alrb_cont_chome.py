@@ -19,19 +19,34 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2026
 
-"""Regression test for ALRB_CONT_CHOME not being set for the payload container.
+"""Regression test for ALRB_CONT_CHOME not being set for all container setups.
 
 Background: ALRB_CONT_CHOME redirects ALRB's per-job container temp files
 (startContainer.sh.XXXXXX and the .alrb/container tree) into the job workdir
 instead of $HOME/.alrb/container/scripts/, which is shared by every pilot on a
 worker node and can accumulate hundreds of thousands of files on shared/NFS
-$HOME setups. The export was added to create_root_container_command() (used
+$HOME setups.
+
+The export was originally added to create_root_container_command() (used
 when opening a remote file for direct I/O) and to
-create_middleware_container_command() (used for stage-in/stage-out), but was
-never added to alrb_wrapper(), which builds the actual payload execution
-command for ALRB/apptainer sites. As a result, a site with a shared $HOME saw
-the fix apply to the open-file container but not to the payload container,
-which kept writing into the shared .alrb/container/scripts/ directory.
+create_middleware_container_command() (used for stage-in/stage-out) in
+pilot/user/atlas/container.py, but was missing from alrb_wrapper(), which
+builds the actual payload execution command for ALRB/apptainer sites.
+
+pandaid=7263639579 (SWT2_CPB) showed the gap was wider still: the payload
+setup-verification step (control/payloads/generic.py::run(), which writes
+setup.stdout/setup.stderr) also lacked the redirect. That step calls
+pilot.util.container.execute(..., usecontainer=True, job=job), which goes
+through containerise_executable() -> <experiment>.container.wrapper() ->
+alrb_wrapper() - the *same* function used for the main payload command - so
+fixing alrb_wrapper() once fixes both call sites for a given experiment.
+
+Following the "interface consistency" principle, ska, darkside, epic and
+generic each carry their own near-identical copy of alrb_wrapper() (per
+pilot.util.container.containerise_executable(), which dynamically imports
+pilot.user.<PILOT_USER>.container). All four had the same gap and needed the
+identical fix. sphenix and rubin do not use ALRB (their wrapper() is a
+passthrough) and are unaffected.
 """
 
 import os
@@ -40,7 +55,20 @@ import shutil
 import unittest
 
 from pilot.info.jobdata import JobData
-from pilot.user.atlas.container import alrb_wrapper
+from pilot.user.atlas.container import alrb_wrapper as atlas_alrb_wrapper
+from pilot.user.ska.container import alrb_wrapper as ska_alrb_wrapper
+from pilot.user.darkside.container import alrb_wrapper as darkside_alrb_wrapper
+from pilot.user.epic.container import alrb_wrapper as epic_alrb_wrapper
+from pilot.user.generic.container import alrb_wrapper as generic_alrb_wrapper
+
+# (label, alrb_wrapper implementation) for every ALRB-based experiment plugin.
+ALRB_WRAPPERS = (
+    ('atlas', atlas_alrb_wrapper),
+    ('ska', ska_alrb_wrapper),
+    ('darkside', darkside_alrb_wrapper),
+    ('epic', epic_alrb_wrapper),
+    ('generic', generic_alrb_wrapper),
+)
 
 
 class _FakeQueueData:
@@ -89,7 +117,7 @@ def _make_job(workdir: str) -> JobData:
 
 
 class TestAlrbWrapperContCHome(unittest.TestCase):
-    """Tests that alrb_wrapper() sets ALRB_CONT_CHOME for the payload container."""
+    """Tests that every experiment's alrb_wrapper() sets ALRB_CONT_CHOME."""
 
     def setUp(self):
         """Create a job workdir and ensure no site-level override is in effect."""
@@ -105,20 +133,31 @@ class TestAlrbWrapperContCHome(unittest.TestCase):
         shutil.rmtree(self.workdir, ignore_errors=True)
 
     def test_payload_container_gets_alrb_cont_chome(self):
-        """The payload container command must export ALRB_CONT_CHOME=<job.workdir>."""
-        cmd = alrb_wrapper('/bin/true', self.workdir, job=self.job)
-        self.assertIn(f'export ALRB_CONT_CHOME={self.workdir};', cmd)
+        """Every experiment's payload container command must export ALRB_CONT_CHOME=<job.workdir>.
+
+        Covers both the main payload command and the setup-verification
+        command (control/payloads/generic.py::run()), since both are built
+        by this same alrb_wrapper() function for a given experiment.
+        """
+        for label, wrapper_fn in ALRB_WRAPPERS:
+            with self.subTest(experiment=label):
+                cmd = wrapper_fn('/bin/true', self.workdir, job=self.job)
+                self.assertIn(f'export ALRB_CONT_CHOME={self.workdir};', cmd)
 
     def test_site_level_override_is_respected(self):
-        """If ALRB_CONT_CHOME is already set in the environment, do not override it."""
+        """If ALRB_CONT_CHOME is already set in the environment, no experiment should override it."""
         os.environ['ALRB_CONT_CHOME'] = '/site/defined/chome'
-        cmd = alrb_wrapper('/bin/true', self.workdir, job=self.job)
-        self.assertNotIn('export ALRB_CONT_CHOME=', cmd)
+        for label, wrapper_fn in ALRB_WRAPPERS:
+            with self.subTest(experiment=label):
+                cmd = wrapper_fn('/bin/true', self.workdir, job=self.job)
+                self.assertNotIn('export ALRB_CONT_CHOME=', cmd)
 
     def test_no_job_object_is_unaffected(self):
-        """Without a job object, alrb_wrapper() must bail out early and not raise."""
-        cmd = alrb_wrapper('/bin/true', self.workdir, job=None)
-        self.assertEqual(cmd, '/bin/true')
+        """Without a job object, every alrb_wrapper() must bail out early and not raise."""
+        for label, wrapper_fn in ALRB_WRAPPERS:
+            with self.subTest(experiment=label):
+                cmd = wrapper_fn('/bin/true', self.workdir, job=None)
+                self.assertEqual(cmd, '/bin/true')
 
 
 if __name__ == '__main__':
