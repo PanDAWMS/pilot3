@@ -22,6 +22,7 @@
 """Generic user specific functionality."""
 
 import fnmatch
+import json
 import logging
 import os
 import re
@@ -203,6 +204,49 @@ def update_job_data(job: object) -> None:
         job: job object.
     """
     validate_output_data(job)
+    lift_payload_report(job)
+
+
+def lift_payload_report(job: JobData) -> None:
+    """Lift error information from the payload job report into the job object.
+
+    If the payload wrote a job report (config.Payload.jobreport) in the work directory, parse it and copy its
+    error fields into the job object, so that the payload's own description of a failure is stored with the
+    job record (exeErrorCode/exeErrorDiag) rather than only the pilot's interpretation of the wrapper output.
+    The report is optional: a missing or unparsable file leaves the job object unchanged.
+
+    Expected report fields: exitCode (int), exitMsg (str).
+
+    Args:
+        job: job object.
+    """
+    path = os.path.join(job.workdir, config.Payload.jobreport)
+    if not os.path.exists(path):
+        logger.debug(f'no payload job report at {path}')
+        return
+
+    try:
+        with open(path, 'r', encoding='utf-8') as _fp:
+            report = json.load(_fp)
+    except (OSError, ValueError) as error:
+        logger.warning(f'failed to read payload job report {path}: {error}')
+        return
+
+    if not isinstance(report, dict):
+        logger.warning(f'payload job report {path} does not contain a JSON object - ignoring it')
+        return
+
+    job.metadata = report
+
+    exit_code = report.get('exitCode')
+    exit_msg = report.get('exitMsg')
+    if isinstance(exit_code, int) and exit_code != 0:
+        job.exeerrorcode = exit_code
+        if isinstance(exit_msg, str) and exit_msg:
+            job.exeerrordiag = exit_msg[:500]
+        logger.warning(f'payload job report: exitCode={exit_code} exitMsg={exit_msg}')
+    elif isinstance(exit_code, int):
+        logger.info('payload job report: exitCode=0')
 
 
 def validate_output_data(job: JobData) -> None:
