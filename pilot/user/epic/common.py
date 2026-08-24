@@ -240,7 +240,7 @@ def lift_payload_report(job: JobData) -> None:
 
     exit_code = report.get('exitCode')
     exit_msg = report.get('exitMsg')
-    if isinstance(exit_code, int) and exit_code != 0:
+    if type(exit_code) is int and exit_code != 0:
         job.exeerrorcode = exit_code
         if isinstance(exit_msg, str) and exit_msg:
             job.exeerrordiag = exit_msg[:500]
