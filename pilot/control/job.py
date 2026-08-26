@@ -174,6 +174,7 @@ from pilot.util.workernode import (
     get_cpu_model,
     get_disk_space,
     get_node_name,
+    get_target_architecture,
     update_modelstring
 )
 
@@ -1953,8 +1954,36 @@ def get_dispatcher_dictionary(args: Any, taskid: str = "") -> dict:
             logger.warning(f'failed to get HARVESTER_WORKER_ID: {error}')
 
     _add_remaining_time(data, args)
+    _add_target_architecture(data)
 
     return data
+
+
+def _add_target_architecture(data: dict) -> None:
+    """Add the worker-node target architecture to the dispatcher dictionary, if it is known.
+
+    This lets the server dispatch a job only to a worker node whose hardware satisfies the
+    requirements of the corresponding task. Queue-level brokerage is not sufficient for this:
+    for GPU vendor, model and microarchitecture it is enough that one worker node in the queue
+    matches, so a job could previously be sent to a node with an incompatible GPU and fail.
+
+    The field is only added when the pilot has actual GPU specifications to report, which is
+    the case on GPU worker nodes and nowhere else. No option gates it: the information can
+    only ever prevent a job from being sent to hardware that cannot run it, and tasks without
+    hardware requirements are unaffected. Note that GPU specifications are currently the only
+    contents of the field, but the server API is defined in terms of hardware in general.
+
+    Args:
+        data: dispatcher dictionary, updated in place.
+    """
+    target_architecture = get_target_architecture()
+    if not target_architecture.get('gpus'):
+        logger.info('no GPU information available - target_architecture will not be sent '
+                    'in the acquire_jobs payload')
+        return
+
+    data['target_architecture'] = target_architecture
+    logger.info(f'sending target_architecture={target_architecture} in acquire_jobs payload')
 
 
 def _add_remaining_time(data: dict, args: Any) -> None:
