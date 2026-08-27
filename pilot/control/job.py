@@ -1968,14 +1968,31 @@ def _add_target_architecture(data: dict) -> None:
     matches, so a job could previously be sent to a node with an incompatible GPU and fail.
 
     The field is only added when the pilot has actual GPU specifications to report, which is
-    the case on GPU worker nodes and nowhere else. No option gates it: the information can
-    only ever prevent a job from being sent to hardware that cannot run it, and tasks without
-    hardware requirements are unaffected. Note that GPU specifications are currently the only
-    contents of the field, but the server API is defined in terms of hardware in general.
+    the case on GPU worker nodes and nowhere else. Note that GPU specifications are currently
+    the only contents of the field, but the server API is defined in terms of hardware in
+    general.
+
+    There are two ways for the field to be suppressed on a node that could report it. A server
+    that does not know about it refuses the whole request, and the pilot stops sending it for
+    the rest of its lifetime once that has happened (see _target_architecture_was_rejected()).
+    Independently of that, ``no_target_architecture`` in PQ.catchall turns it off for a queue,
+    which is there to switch the feature off from CRIC, without a pilot release, should the
+    hardware matching turn out to withhold jobs that the worker node could in fact have run.
 
     Args:
         data: dispatcher dictionary, updated in place.
     """
+    if pilot_cache.target_architecture_rejected:
+        logger.info('target_architecture will not be sent in the acquire_jobs payload '
+                    '(previously rejected by the server)')
+        return
+
+    catchall = getattr(infosys.queuedata, 'catchall', '') or ''
+    if 'no_target_architecture' in catchall:
+        logger.info('target_architecture will not be sent in the acquire_jobs payload '
+                    '(disabled with no_target_architecture in PQ.catchall)')
+        return
+
     target_architecture = get_target_architecture()
     if not target_architecture.get('gpus'):
         logger.info('no GPU information available - target_architecture will not be sent '
@@ -2291,26 +2308,81 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> dict:
     Returns:
         dict: job definition.
     """
-    res = {}
-
     # get the job dispatcher dictionary
     data = get_dispatcher_dictionary(args, taskid=taskid)
 
     # get the getJob server command
     cmd = https.get_server_command(args.url, args.port, cmd="api/v1/pilot/acquire_jobs")
-    if cmd != "":
-        logger.info(f'executing server command: {cmd}')
-        if "curlgetjob" in infosys.queuedata.catchall:
-            res = https.request(cmd, data=data)
-        else:
-            res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
+    if cmd == "":
+        return {}
 
-            log_res, pilot_secrets = mask_sensitive_response(res)
-            logger.info(f'server responded with: res = {log_res}')
-            if not res or isinstance(res, str):  # fallback to curl solution
-                res = https.request(cmd, data=data)
+    logger.info(f'executing server command: {cmd}')
+    res = _acquire_jobs(cmd, data)
+
+    # a server that does not know about the target architecture rejects the entire request, so
+    # retry once without the field rather than leaving the queue without jobs
+    if 'target_architecture' in data and _target_architecture_was_rejected(res):
+        logger.warning('the server did not accept the target architecture - will retry without it '
+                       'and stop reporting it for the remainder of this pilot')
+        pilot_cache.target_architecture_rejected = True
+        del data['target_architecture']
+        res = _acquire_jobs(cmd, data)
 
     return res
+
+
+def _acquire_jobs(cmd: str, data: dict) -> Any:
+    """Send a single acquire_jobs request to the server.
+
+    Args:
+        cmd: full acquire_jobs URL.
+        data: dispatcher dictionary to send as the request body.
+
+    Returns:
+        Any: server response, normally a dictionary, but a string if the response could not be
+            parsed as JSON.
+    """
+    if "curlgetjob" in infosys.queuedata.catchall:
+        return https.request(cmd, data=data)
+
+    res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
+
+    log_res, _ = mask_sensitive_response(res)
+    logger.info(f'server responded with: res = {log_res}')
+    if not res or isinstance(res, str):  # fallback to curl solution
+        res = https.request(cmd, data=data)
+
+    return res
+
+
+def _target_architecture_was_rejected(res: Any) -> bool:
+    """Return True if the server refused the request because of the target architecture.
+
+    The API validates the request against the signature of its acquire_jobs implementation, so a
+    server that predates the target architecture support answers any request carrying the field
+    with an argument error instead of a job -- and the pilot cannot tell the difference from an
+    empty queue, since a failed request and "No jobs in PanDA" have the same response shape.
+    The field is also rejected explicitly if it cannot be parsed as a JSON object.
+
+    Only these outcomes justify dropping the field. A response saying that there are no jobs is
+    deliberately not one of them: it is the expected answer when no task matches the hardware of
+    this worker node, and retrying without the field would obtain exactly the job that the field
+    exists to avoid.
+
+    Args:
+        res: server response as returned by _acquire_jobs().
+
+    Returns:
+        bool: True if the request should be retried without the target architecture.
+    """
+    if not isinstance(res, dict) or res.get('success') is not False:
+        return False
+
+    message = str(res.get('message', ''))
+    if not message or 'No jobs in PanDA' in message:
+        return False
+
+    return 'target_architecture' in message or message.startswith(('Argument error', 'Type error'))
 
 
 def locate_job_definition(args: Any) -> str:

@@ -34,6 +34,11 @@ Covers:
 - get_dispatcher_dictionary(): target_architecture present in the payload on a GPU worker
   node and absent otherwise, and the rest of the payload unaffected.
 - The payload shape agreed with the server side (pandaserver pilot_api_tests.py).
+- _target_architecture_was_rejected(): a server that refuses the field is distinguished
+  from a queue that simply has no matching job, which must not trigger a retry.
+- get_job_definition_from_server(): the retry without the field, and that the refusal is
+  remembered for the remainder of the pilot's lifetime.
+- no_target_architecture in PQ.catchall as the per-queue off switch.
 """
 
 import logging
@@ -133,6 +138,14 @@ class TestGetTargetArchitecture(unittest.TestCase):
 class TestDispatcherDictionaryTargetArchitecture(unittest.TestCase):
     """Tests for the target_architecture key in the acquire_jobs payload."""
 
+    def setUp(self):
+        """Start each test with the rejection flag cleared, since it is class-level state."""
+        job_module.pilot_cache.target_architecture_rejected = False
+
+    def tearDown(self):
+        """Leave the flag cleared for the tests that follow."""
+        job_module.pilot_cache.target_architecture_rejected = False
+
     @staticmethod
     def _build(target_architecture):
         """Build the dispatcher dictionary with get_target_architecture() stubbed.
@@ -198,6 +211,165 @@ class TestDispatcherDictionaryTargetArchitecture(unittest.TestCase):
         self.assertEqual(data['computing_element'], 'CERN-PROD_GPU')
         self.assertEqual(data['node'], 'b9pgpun001.cern.ch')
         self.assertEqual(data['resource_type'], 'SCORE')
+
+    def test_omitted_after_the_server_has_rejected_it(self):
+        """Once refused, the field is not sent again for the rest of the pilot's lifetime."""
+        job_module.pilot_cache.target_architecture_rejected = True
+        self.assertNotIn('target_architecture', self._build({'gpus': [GPU_MAP]}))
+
+    def test_omitted_when_disabled_for_the_queue(self):
+        """no_target_architecture in PQ.catchall switches the field off without a release."""
+        args = SimpleNamespace(
+            queue='CERN-PROD_GPU',
+            jobtype='unified',
+            job_label='unified',
+            resource_type='SCORE',
+            allow_same_user=False,
+            send_remaining_time=False,
+        )
+        queuedata = SimpleNamespace(resource='CERN-PROD', catchall='no_target_architecture')
+        with patch('pilot.control.job.get_disk_space', return_value=160000), \
+                patch('pilot.control.job.collect_workernode_info', return_value=(471616.0, 0, 0)), \
+                patch('pilot.control.job.get_node_name', return_value='b9pgpun001.cern.ch'), \
+                patch('pilot.control.job.get_job_label', return_value='unified'), \
+                patch('pilot.control.job.get_task_id', return_value=''), \
+                patch.object(job_module.infosys, 'queuedata', queuedata), \
+                patch('pilot.control.job.get_target_architecture', return_value={'gpus': [GPU_MAP]}):
+            data = job_module.get_dispatcher_dictionary(args)
+        self.assertNotIn('target_architecture', data)
+
+
+class TestTargetArchitectureWasRejected(unittest.TestCase):
+    """Tests for the classification of acquire_jobs responses.
+
+    A failed request and an empty queue have the same response shape, so the pilot has to tell
+    them apart by the message. Retrying without the field on an empty queue would obtain
+    exactly the job that the field exists to avoid.
+    """
+
+    def test_argument_error_from_a_server_without_support(self):
+        """The API validates the request against its own signature before running it."""
+        response = {
+            'success': False,
+            'message': "Argument error: got an unexpected keyword argument 'target_architecture'",
+            'data': None,
+        }
+        self.assertTrue(job_module._target_architecture_was_rejected(response))
+
+    def test_parse_error_reported_by_the_server(self):
+        """acquire_jobs() rejects a target architecture it cannot parse."""
+        response = {'success': False, 'message': 'failed to parse target_architecture with ...'}
+        self.assertTrue(job_module._target_architecture_was_rejected(response))
+
+    def test_type_error_reported_by_the_server(self):
+        """The type check of the API decorator is reported the same way."""
+        response = {'success': False, 'message': "Type error: 'target_architecture' with value ..."}
+        self.assertTrue(job_module._target_architecture_was_rejected(response))
+
+    def test_no_jobs_is_not_a_rejection(self):
+        """An empty queue is the expected answer when no task matches the hardware."""
+        response = {'success': False, 'message': 'No jobs in PanDA'}
+        self.assertFalse(job_module._target_architecture_was_rejected(response))
+
+    def test_unrelated_failure_is_not_a_rejection(self):
+        """A timeout says nothing about the target architecture."""
+        response = {'success': False, 'message': 'Timed out'}
+        self.assertFalse(job_module._target_architecture_was_rejected(response))
+
+    def test_successful_response_is_not_a_rejection(self):
+        """A job was returned, so nothing has to be retried."""
+        response = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{}]}}
+        self.assertFalse(job_module._target_architecture_was_rejected(response))
+
+    def test_non_dictionary_response_is_not_a_rejection(self):
+        """A transport failure is handled by the existing curl fallback, not by this one."""
+        self.assertFalse(job_module._target_architecture_was_rejected('failed to send request: ...'))
+        self.assertFalse(job_module._target_architecture_was_rejected(None))
+
+
+class TestAcquireJobsFallback(unittest.TestCase):
+    """Tests for the retry without the target architecture in get_job_definition_from_server()."""
+
+    def setUp(self):
+        """Start each test with the rejection flag cleared, since it is class-level state."""
+        job_module.pilot_cache.target_architecture_rejected = False
+
+    def tearDown(self):
+        """Leave the flag cleared for the tests that follow."""
+        job_module.pilot_cache.target_architecture_rejected = False
+
+    @staticmethod
+    def _run(responses, payload):
+        """Call get_job_definition_from_server() with a scripted sequence of responses.
+
+        Args:
+            responses (list): responses that _acquire_jobs() should return, in order.
+            payload (dict): dispatcher dictionary that get_dispatcher_dictionary() should return.
+
+        Returns:
+            tuple: (final response, list of payloads that _acquire_jobs() was called with).
+        """
+        sent = []
+
+        def _fake_acquire_jobs(_cmd, data):
+            sent.append(dict(data))
+            return responses[len(sent) - 1]
+
+        args = SimpleNamespace(url='https://pandaserver.cern.ch', port=25443)
+        with patch('pilot.control.job.get_dispatcher_dictionary', return_value=payload), \
+                patch('pilot.control.job.https.get_server_command',
+                      return_value='https://pandaserver.cern.ch:25443/api/v1/pilot/acquire_jobs'), \
+                patch('pilot.control.job._acquire_jobs', side_effect=_fake_acquire_jobs):
+            res = job_module.get_job_definition_from_server(args)
+
+        return res, sent
+
+    def test_retried_without_the_field_when_rejected(self):
+        """The queue must not be left without jobs by a server that refuses the field."""
+        rejection = {
+            'success': False,
+            'message': "Argument error: got an unexpected keyword argument 'target_architecture'",
+        }
+        job = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{'PandaID': 1}]}}
+        res, sent = self._run([rejection, job],
+                              {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        self.assertEqual(res, job)
+        self.assertEqual(len(sent), 2)
+        self.assertIn('target_architecture', sent[0])
+        self.assertNotIn('target_architecture', sent[1])
+        self.assertEqual(sent[1]['site_name'], 'CERN-PROD')
+
+    def test_rejection_is_remembered(self):
+        """The pilot stops reporting the field instead of paying for two requests per job."""
+        rejection = {'success': False, 'message': 'failed to parse target_architecture with ...'}
+        self._run([rejection, {'success': False, 'message': 'No jobs in PanDA'}],
+                  {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        self.assertTrue(job_module.pilot_cache.target_architecture_rejected)
+
+    def test_no_retry_when_there_are_no_jobs(self):
+        """Retrying here would fetch the very job the target architecture excluded."""
+        no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
+        res, sent = self._run([no_jobs],
+                              {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        self.assertEqual(res, no_jobs)
+        self.assertEqual(len(sent), 1)
+        self.assertFalse(job_module.pilot_cache.target_architecture_rejected)
+
+    def test_no_retry_when_the_payload_has_no_target_architecture(self):
+        """Nothing to strip on a worker node that does not report GPUs."""
+        rejection = {'success': False, 'message': 'Argument error: something else'}
+        res, sent = self._run([rejection], {'site_name': 'CERN-PROD'})
+        self.assertEqual(res, rejection)
+        self.assertEqual(len(sent), 1)
+
+    def test_no_request_without_a_server_command(self):
+        """An empty command means no server to ask."""
+        args = SimpleNamespace(url='', port=25443)
+        with patch('pilot.control.job.get_dispatcher_dictionary', return_value={}), \
+                patch('pilot.control.job.https.get_server_command', return_value=''), \
+                patch('pilot.control.job._acquire_jobs') as mock_acquire:
+            self.assertEqual(job_module.get_job_definition_from_server(args), {})
+        mock_acquire.assert_not_called()
 
 
 if __name__ == '__main__':

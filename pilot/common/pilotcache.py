@@ -49,6 +49,9 @@ def get_pilot_cache():
             self.destination_site = None
             self.resource_types = None
             self.harvester_submitmode = None
+            # set if the server refused an acquire_jobs request carrying the target architecture,
+            # in which case the pilot stops reporting it
+            self.target_architecture_rejected = False
 
         def get_pids(self):
             """Get the list of process IDs (PIDs) from the cgroups dictionary.

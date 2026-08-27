@@ -916,7 +916,8 @@ def get_target_architecture() -> dict:
 
     try:
         gpu_map = read_json(path)
-    except PilotException as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # job acquisition must not fail because the gpu map could not be read
         logger.warning(f'failed to read gpu map from {path}: {exc}')
         return {}
 
