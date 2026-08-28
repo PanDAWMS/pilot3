@@ -1972,27 +1972,9 @@ def _add_target_architecture(data: dict) -> None:
     the only contents of the field, but the server API is defined in terms of hardware in
     general.
 
-    There are two ways for the field to be suppressed on a node that could report it. A server
-    that does not know about it refuses the whole request, and the pilot stops sending it for
-    the rest of its lifetime once that has happened (see _target_architecture_was_rejected()).
-    Independently of that, ``no_target_architecture`` in PQ.catchall turns it off for a queue,
-    which is there to switch the feature off from CRIC, without a pilot release, should the
-    hardware matching turn out to withhold jobs that the worker node could in fact have run.
-
     Args:
         data: dispatcher dictionary, updated in place.
     """
-    if pilot_cache.target_architecture_rejected:
-        logger.info('target_architecture will not be sent in the acquire_jobs payload '
-                    '(previously rejected by the server)')
-        return
-
-    catchall = getattr(infosys.queuedata, 'catchall', '') or ''
-    if 'no_target_architecture' in catchall:
-        logger.info('target_architecture will not be sent in the acquire_jobs payload '
-                    '(disabled with no_target_architecture in PQ.catchall)')
-        return
-
     target_architecture = get_target_architecture()
     if not target_architecture.get('gpus'):
         logger.info('no GPU information available - target_architecture will not be sent '
@@ -2308,108 +2290,26 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> dict:
     Returns:
         dict: job definition.
     """
+    res = {}
+
     # get the job dispatcher dictionary
     data = get_dispatcher_dictionary(args, taskid=taskid)
 
     # get the getJob server command
     cmd = https.get_server_command(args.url, args.port, cmd="api/v1/pilot/acquire_jobs")
-    if cmd == "":
-        return {}
+    if cmd != "":
+        logger.info(f'executing server command: {cmd}')
+        if "curlgetjob" in infosys.queuedata.catchall:
+            res = https.request(cmd, data=data)
+        else:
+            res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
 
-    logger.info(f'executing server command: {cmd}')
-    res = _acquire_jobs(cmd, data)
-
-    # any unsuccessful response may be caused by the target architecture: a server that does not
-    # know the field refuses the whole request, and such a refusal is not always distinguishable
-    # from an empty queue, so retry without it rather than leave the queue without jobs
-    if 'target_architecture' in data and _no_job_returned(res):
-        rejected = _target_architecture_was_rejected(res)
-        reason = 'the server refused the target architecture' if rejected else 'no job was returned'
-        logger.warning(f'{reason} - retrying acquire_jobs without the target architecture')
-
-        del data['target_architecture']
-        res_without = _acquire_jobs(cmd, data)
-
-        # an explicit refusal settles it; otherwise only a job that arrives once the field is gone
-        # proves that the field was what withheld it. If there is still no job the queue was simply
-        # empty, and the field is reported again on the next attempt.
-        if rejected or not _no_job_returned(res_without):
-            pilot_cache.target_architecture_rejected = True
-            logger.warning('will stop reporting the target architecture for the remainder of this '
-                           'pilot - jobs are being withheld while it is sent')
-        res = res_without
+            log_res, pilot_secrets = mask_sensitive_response(res)
+            logger.info(f'server responded with: res = {log_res}')
+            if not res or isinstance(res, str):  # fallback to curl solution
+                res = https.request(cmd, data=data)
 
     return res
-
-
-def _no_job_returned(res: Any) -> bool:
-    """Return True if the server did not hand out a job.
-
-    Both a failed request and an empty queue are reported as an unsuccessful response, which is
-    precisely why the two cannot be told apart here.
-
-    Args:
-        res: server response as returned by _acquire_jobs().
-
-    Returns:
-        bool: True if the response carries no job.
-    """
-    # a non-dictionary response is a transport or parsing failure, which the curl fallback in
-    # _acquire_jobs() already deals with and which says nothing about the payload
-    return isinstance(res, dict) and res.get('success') is False
-
-
-def _acquire_jobs(cmd: str, data: dict) -> Any:
-    """Send a single acquire_jobs request to the server.
-
-    Args:
-        cmd: full acquire_jobs URL.
-        data: dispatcher dictionary to send as the request body.
-
-    Returns:
-        Any: server response, normally a dictionary, but a string if the response could not be
-            parsed as JSON.
-    """
-    if "curlgetjob" in infosys.queuedata.catchall:
-        return https.request(cmd, data=data)
-
-    res = https.request2(cmd, json_body=data, panda=True)  # will be a dictionary
-
-    log_res, _ = mask_sensitive_response(res)
-    logger.info(f'server responded with: res = {log_res}')
-    if not res or isinstance(res, str):  # fallback to curl solution
-        res = https.request(cmd, data=data)
-
-    return res
-
-
-def _target_architecture_was_rejected(res: Any) -> bool:
-    """Return True if the server explicitly refused the request because of the target architecture.
-
-    The API validates the request against the signature of its acquire_jobs implementation, so a
-    server that predates the target architecture support answers any request carrying the field
-    with an argument error instead of a job. The field is also refused explicitly if it cannot be
-    parsed as a JSON object.
-
-    This only recognises the refusals that name themselves. A server can also withhold jobs while
-    saying no more than that there are none, so this is not the only reason to retry without the
-    field -- see get_job_definition_from_server(). What it does decide is whether the field can be
-    abandoned immediately, without waiting for a job to prove that it was the cause.
-
-    Args:
-        res: server response as returned by _acquire_jobs().
-
-    Returns:
-        bool: True if the server named the target architecture as the reason for the failure.
-    """
-    if not isinstance(res, dict) or res.get('success') is not False:
-        return False
-
-    message = str(res.get('message', ''))
-    if not message or 'No jobs in PanDA' in message:
-        return False
-
-    return 'target_architecture' in message or message.startswith(('Argument error', 'Type error'))
 
 
 def locate_job_definition(args: Any) -> str:
