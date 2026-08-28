@@ -2319,16 +2319,44 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> dict:
     logger.info(f'executing server command: {cmd}')
     res = _acquire_jobs(cmd, data)
 
-    # a server that does not know about the target architecture rejects the entire request, so
-    # retry once without the field rather than leaving the queue without jobs
-    if 'target_architecture' in data and _target_architecture_was_rejected(res):
-        logger.warning('the server did not accept the target architecture - will retry without it '
-                       'and stop reporting it for the remainder of this pilot')
-        pilot_cache.target_architecture_rejected = True
+    # any unsuccessful response may be caused by the target architecture: a server that does not
+    # know the field refuses the whole request, and such a refusal is not always distinguishable
+    # from an empty queue, so retry without it rather than leave the queue without jobs
+    if 'target_architecture' in data and _no_job_returned(res):
+        rejected = _target_architecture_was_rejected(res)
+        reason = 'the server refused the target architecture' if rejected else 'no job was returned'
+        logger.warning(f'{reason} - retrying acquire_jobs without the target architecture')
+
         del data['target_architecture']
-        res = _acquire_jobs(cmd, data)
+        res_without = _acquire_jobs(cmd, data)
+
+        # an explicit refusal settles it; otherwise only a job that arrives once the field is gone
+        # proves that the field was what withheld it. If there is still no job the queue was simply
+        # empty, and the field is reported again on the next attempt.
+        if rejected or not _no_job_returned(res_without):
+            pilot_cache.target_architecture_rejected = True
+            logger.warning('will stop reporting the target architecture for the remainder of this '
+                           'pilot - jobs are being withheld while it is sent')
+        res = res_without
 
     return res
+
+
+def _no_job_returned(res: Any) -> bool:
+    """Return True if the server did not hand out a job.
+
+    Both a failed request and an empty queue are reported as an unsuccessful response, which is
+    precisely why the two cannot be told apart here.
+
+    Args:
+        res: server response as returned by _acquire_jobs().
+
+    Returns:
+        bool: True if the response carries no job.
+    """
+    # a non-dictionary response is a transport or parsing failure, which the curl fallback in
+    # _acquire_jobs() already deals with and which says nothing about the payload
+    return isinstance(res, dict) and res.get('success') is False
 
 
 def _acquire_jobs(cmd: str, data: dict) -> Any:
@@ -2356,24 +2384,23 @@ def _acquire_jobs(cmd: str, data: dict) -> Any:
 
 
 def _target_architecture_was_rejected(res: Any) -> bool:
-    """Return True if the server refused the request because of the target architecture.
+    """Return True if the server explicitly refused the request because of the target architecture.
 
     The API validates the request against the signature of its acquire_jobs implementation, so a
     server that predates the target architecture support answers any request carrying the field
-    with an argument error instead of a job -- and the pilot cannot tell the difference from an
-    empty queue, since a failed request and "No jobs in PanDA" have the same response shape.
-    The field is also rejected explicitly if it cannot be parsed as a JSON object.
+    with an argument error instead of a job. The field is also refused explicitly if it cannot be
+    parsed as a JSON object.
 
-    Only these outcomes justify dropping the field. A response saying that there are no jobs is
-    deliberately not one of them: it is the expected answer when no task matches the hardware of
-    this worker node, and retrying without the field would obtain exactly the job that the field
-    exists to avoid.
+    This only recognises the refusals that name themselves. A server can also withhold jobs while
+    saying no more than that there are none, so this is not the only reason to retry without the
+    field -- see get_job_definition_from_server(). What it does decide is whether the field can be
+    abandoned immediately, without waiting for a job to prove that it was the cause.
 
     Args:
         res: server response as returned by _acquire_jobs().
 
     Returns:
-        bool: True if the request should be retried without the target architecture.
+        bool: True if the server named the target architecture as the reason for the failure.
     """
     if not isinstance(res, dict) or res.get('success') is not False:
         return False

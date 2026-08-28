@@ -34,10 +34,10 @@ Covers:
 - get_dispatcher_dictionary(): target_architecture present in the payload on a GPU worker
   node and absent otherwise, and the rest of the payload unaffected.
 - The payload shape agreed with the server side (pandaserver pilot_api_tests.py).
-- _target_architecture_was_rejected(): a server that refuses the field is distinguished
-  from a queue that simply has no matching job, which must not trigger a retry.
-- get_job_definition_from_server(): the retry without the field, and that the refusal is
-  remembered for the remainder of the pilot's lifetime.
+- _target_architecture_was_rejected(): the refusals in which the server names the field, as
+  opposed to a plain "no jobs" answer, which is not by itself proof of anything.
+- get_job_definition_from_server(): the retry without the field on any response that carries
+  no job, and when the refusal is remembered for the remainder of the pilot's lifetime.
 - no_target_architecture in PQ.catchall as the per-queue off switch.
 """
 
@@ -266,12 +266,12 @@ class TestTargetArchitectureWasRejected(unittest.TestCase):
         response = {'success': False, 'message': "Type error: 'target_architecture' with value ..."}
         self.assertTrue(job_module._target_architecture_was_rejected(response))
 
-    def test_no_jobs_is_not_a_rejection(self):
-        """An empty queue is the expected answer when no task matches the hardware."""
+    def test_no_jobs_is_not_an_explicit_rejection(self):
+        """The server did not name the field, so a job has to prove that it was the cause."""
         response = {'success': False, 'message': 'No jobs in PanDA'}
         self.assertFalse(job_module._target_architecture_was_rejected(response))
 
-    def test_unrelated_failure_is_not_a_rejection(self):
+    def test_unrelated_failure_is_not_an_explicit_rejection(self):
         """A timeout says nothing about the target architecture."""
         response = {'success': False, 'message': 'Timed out'}
         self.assertFalse(job_module._target_architecture_was_rejected(response))
@@ -324,42 +324,84 @@ class TestAcquireJobsFallback(unittest.TestCase):
 
         return res, sent
 
-    def test_retried_without_the_field_when_rejected(self):
+    @staticmethod
+    def _payload():
+        """Return a dispatcher dictionary carrying a target architecture.
+
+        Returns:
+            dict: minimal payload for a GPU worker node.
+        """
+        return {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}}
+
+    def test_retried_without_the_field_when_explicitly_rejected(self):
         """The queue must not be left without jobs by a server that refuses the field."""
         rejection = {
             'success': False,
             'message': "Argument error: got an unexpected keyword argument 'target_architecture'",
         }
         job = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{'PandaID': 1}]}}
-        res, sent = self._run([rejection, job],
-                              {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        res, sent = self._run([rejection, job], self._payload())
         self.assertEqual(res, job)
         self.assertEqual(len(sent), 2)
         self.assertIn('target_architecture', sent[0])
         self.assertNotIn('target_architecture', sent[1])
         self.assertEqual(sent[1]['site_name'], 'CERN-PROD')
 
-    def test_rejection_is_remembered(self):
-        """The pilot stops reporting the field instead of paying for two requests per job."""
+    def test_retried_without_the_field_when_no_job_is_returned(self):
+        """A server can also withhold jobs while reporting nothing but an empty queue.
+
+        This is the case the GPU queues ran into: the response is indistinguishable from an
+        idle queue, so the pilot has to try without the field to find out.
+        """
+        no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
+        job = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{'PandaID': 1}]}}
+        res, sent = self._run([no_jobs, job], self._payload())
+        self.assertEqual(res, job)
+        self.assertEqual(len(sent), 2)
+        self.assertIn('target_architecture', sent[0])
+        self.assertNotIn('target_architecture', sent[1])
+
+    def test_explicit_rejection_is_remembered(self):
+        """A refusal that names the field settles the matter without further evidence."""
         rejection = {'success': False, 'message': 'failed to parse target_architecture with ...'}
-        self._run([rejection, {'success': False, 'message': 'No jobs in PanDA'}],
-                  {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
+        self._run([rejection, no_jobs], self._payload())
         self.assertTrue(job_module.pilot_cache.target_architecture_rejected)
 
-    def test_no_retry_when_there_are_no_jobs(self):
-        """Retrying here would fetch the very job the target architecture excluded."""
+    def test_field_abandoned_once_a_job_arrives_without_it(self):
+        """A job that appears as soon as the field is dropped proves what withheld it."""
         no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
-        res, sent = self._run([no_jobs],
-                              {'site_name': 'CERN-PROD', 'target_architecture': {'gpus': [GPU_MAP]}})
+        job = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{'PandaID': 1}]}}
+        self._run([no_jobs, job], self._payload())
+        self.assertTrue(job_module.pilot_cache.target_architecture_rejected)
+
+    def test_field_kept_when_the_queue_is_simply_empty(self):
+        """No job either way means nothing was learned, so the field is reported again."""
+        no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
+        res, sent = self._run([no_jobs, no_jobs], self._payload())
         self.assertEqual(res, no_jobs)
-        self.assertEqual(len(sent), 1)
+        self.assertEqual(len(sent), 2)
         self.assertFalse(job_module.pilot_cache.target_architecture_rejected)
 
     def test_no_retry_when_the_payload_has_no_target_architecture(self):
         """Nothing to strip on a worker node that does not report GPUs."""
-        rejection = {'success': False, 'message': 'Argument error: something else'}
-        res, sent = self._run([rejection], {'site_name': 'CERN-PROD'})
-        self.assertEqual(res, rejection)
+        no_jobs = {'success': False, 'message': 'No jobs in PanDA'}
+        res, sent = self._run([no_jobs], {'site_name': 'CERN-PROD'})
+        self.assertEqual(res, no_jobs)
+        self.assertEqual(len(sent), 1)
+
+    def test_no_retry_when_a_job_was_returned(self):
+        """The field did no harm, so it must keep being reported."""
+        job = {'success': True, 'message': '', 'data': {'StatusCode': 0, 'jobs': [{'PandaID': 1}]}}
+        res, sent = self._run([job], self._payload())
+        self.assertEqual(res, job)
+        self.assertEqual(len(sent), 1)
+        self.assertFalse(job_module.pilot_cache.target_architecture_rejected)
+
+    def test_no_retry_on_a_transport_failure(self):
+        """A failure to reach the server says nothing about the payload."""
+        res, sent = self._run(['failed to send request: timeout'], self._payload())
+        self.assertEqual(res, 'failed to send request: timeout')
         self.assertEqual(len(sent), 1)
 
     def test_no_request_without_a_server_command(self):
