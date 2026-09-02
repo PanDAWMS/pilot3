@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """A collection of functions related to file handling."""
 
@@ -1583,3 +1583,57 @@ def find_files_with_pattern(directory: str, pattern: str) -> list:
     except (FileNotFoundError, PermissionError) as exc:
         logger.warning(f"exception caught while finding files: {exc}")
         return []
+
+
+# File name extensions that are certainly NOT ROOT files. Input matching one of these is
+# opened in raw mode first by the remote file open verification (see
+# pilot/scripts/open_remote_file.py).
+# Keep this list conservative: an entry added here disables ROOT format validation for
+# every file matching it, so ambiguous extensions must be left out.
+NON_ROOT_EXTENSIONS = (
+    # ML / numerical data formats
+    '.h5', '.hdf5', '.he5', '.npy', '.npz', '.pt', '.pth', '.ckpt', '.onnx',
+    '.pkl', '.pickle', '.parquet', '.feather',
+    # text and configuration
+    '.txt', '.csv', '.tsv', '.json', '.xml', '.yaml', '.yml', '.log', '.md',
+    '.sh', '.py', '.cfg', '.ini',
+    # archives and compressed streams
+    '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tar.xz', '.zip', '.gz', '.bz2', '.xz', '.7z',
+    # ATLAS RAW bytestream ('.data') is not a ROOT file either, and reaches the remoteIO
+    # check whenever --forceDirectIO is used. Pending confirmation from Rod that adding it
+    # here is wanted, since '.data' is a generic extension:
+    # '.data',
+)
+
+
+def looks_like_root_file(name: str) -> bool:
+    """Return True unless the file name has an extension that is certainly not ROOT.
+
+    Intended to be called with an LFN, which is the authoritative file name known to the
+    pilot. Do not call it with a transfer URL: the trailing path component of a replica
+    PFN is the LFN only for deterministically named replicas, so a TURL is not a reliable
+    source for this decision.
+
+    Rucio version suffixes (``.1``, ``.2``, ...) are ignored, so ``dataset.h5.1`` is
+    correctly recognised as non-ROOT. The check is deliberately conservative: anything
+    unrecognised is reported as a possible ROOT file so that ROOT format validation is
+    retained by default.
+
+    Note: this is a heuristic on the file name, which is exactly what per-file ``is_root``
+    metadata from the server would replace, should it ever be introduced (ATLASPANDA-788).
+
+    Args:
+        name: file name or LFN.
+
+    Returns:
+        bool: True if the file may be a ROOT file, False if it certainly is not.
+    """
+    _name = name.rsplit('/', 1)[-1].lower()
+
+    # strip trailing Rucio version suffixes (e.g. 'EVNT.12345678._000001.pool.root.1')
+    parts = _name.split('.')
+    while len(parts) > 1 and parts[-1].isdigit():
+        parts.pop()
+    _name = '.'.join(parts)
+
+    return not any(_name.endswith(extension) for extension in NON_ROOT_EXTENSIONS)

@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Functions for identifying looping payloads."""
 
@@ -30,25 +30,26 @@ from typing import Any
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.auxiliary import (
     set_pilot_state,
-    cut_output,
-    locate_core_file
+    cut_output
 )
 from pilot.util.config import config
-from pilot.util.container import (
-    execute,
-    execute_command_with_timeout,
-)
+from pilot.util.container import execute
 from pilot.util.filehandling import (
     remove_files,
     find_latest_modified_file,
     verify_file_list,
-    copy,
     list_mod_files
 )
 from pilot.util.heartbeat import time_since_suspension
+from pilot.util.loopingdumps import (
+    create_core_dump,
+    select_dump_candidates,
+    take_looping_snapshot,
+)
 from pilot.util.math import convert_seconds_to_hours_minutes_seconds
 from pilot.util.parameters import convert_to_int
 from pilot.util.processes import (
+    dump_stack_trace,
     kill_process,
     find_zombies,
     handle_zombies,
@@ -56,7 +57,6 @@ from pilot.util.processes import (
 )
 from pilot.util.psutils import (
     get_child_processes,
-    get_subprocesses,
     get_pilot_process_tree,
     get_process_details,
 )
@@ -107,71 +107,51 @@ def looping_job(job: Any, montime: Any) -> tuple[int, str]:
             if not time_last_touched:
                 logger.warning('no time_last_touched measurement found (setting to 0)')
                 return 0, ""
-            else:
-                logger.info(f'looping job killer adjusting for job suspension: {time_since_job_suspension} s (adding to time_last_touched))')
-                time_last_touched += time_since_job_suspension
+
+            logger.info(f'looping job killer adjusting for job suspension: {time_since_job_suspension} s (adding to time_last_touched))')
+            time_last_touched += time_since_job_suspension
 
         # the payload process is considered to be looping if it's files have not been touched within looping_limit time
         if time_last_touched:
             currenttime = int(time.time())
-            hours, minutes, seconds = convert_seconds_to_hours_minutes_seconds(currenttime - time_last_touched)
+            since_touch = currenttime - time_last_touched
+            hours, minutes, seconds = convert_seconds_to_hours_minutes_seconds(since_touch)
             logger.info(f'files were last touched {hours}h {minutes}m {seconds}s ago (current time: {currenttime})')
 
-            if currenttime - time_last_touched > looping_limit:
+            if since_touch > looping_limit:
                 try:
                     # which were the considered files?
                     list_mod_files(recent_files)
-                    # first produce core dump and copy it
-                    create_core_dump(job)
+                    # overrule any other debug command before setting debug mode, so that
+                    # setting job.debug cannot start real-time logging in the payload thread
+                    job.debug_command = 'looping'
                     # set debug mode to prevent core file from being removed before log creation
                     job.debug = True
+                    # produce the core dump (and the analysis information needed to read it)
+                    # while the payload processes are still alive
+                    create_core_dump(job)
                     kill_looping_job(job)
                     exit_code = errors.LOOPINGJOB
                     diagnostics = 'the payload was found to be looping - job will be failed in the next update'
-                except Exception as error:
+                except Exception as error:  # pylint: disable=broad-exception-caught
                     logger.warning(f'exception caught: {error}')
+            else:
+                # not looping (yet) - record a cheap diagnostic snapshot if the job is
+                # already a configurable fraction of the way to the looping limit, so
+                # that the deltas between snapshots are available if it is killed later
+                take_looping_snapshot(job, since_touch, looping_limit)
         else:
             logger.info('no files were touched')
 
     return exit_code, diagnostics
 
 
-def create_core_dump(job: Any):
-    """Create a core dump and copy it to the work directory.
-
-    Identifies the youngest child process of the payload and invokes ``gdb``
-    to generate a core file, then copies it to ``job.workdir``. Any zombie
-    processes discovered during the operation are also handled.
+def _handle_zombies(job: Any):
+    """Collect and handle any zombie processes belonging to this pilot.
 
     Args:
-        job: Job object. Must have ``pid`` and ``workdir`` attributes set.
+        job: Job object.
     """
-    if not job.pid or not job.workdir:
-        logger.warning('cannot create core file since pid or workdir is unknown')
-        return
-
-    # get the pid of the youngest child belonging to the payload
-    pids = get_subprocesses(job.pid, debug=True)
-    if not pids:
-        pid = job.pid
-        logger.info(f'the payload process ({pid}) has no children')
-    else:
-        logger.info(f'the payload process ({job.pid}) has the following children: {pids}')
-        pid = pids[-1]
-    cmd = f'gdb --pid {pid} -ex \'generate-core-file\' -ex quit'
-    exit_code, stdout = execute_command_with_timeout(cmd, timeout=10)
-    if exit_code == 0:
-        path = locate_core_file(pid=pid)
-        if path:
-            try:
-                copy(path, job.workdir)
-            except Exception as error:
-                logger.warning(f'failed to copy core file: {error}')
-            else:
-                logger.debug('copied core dump to workdir')
-    else:
-        logger.warning(f'failed to execute command: {cmd}, exit code={exit_code}, stdout={stdout}')
-
     try:
         zombies = find_zombies(os.getpid())
         if zombies:
@@ -179,8 +159,27 @@ def create_core_dump(job: Any):
             handle_zombies(zombies, job=job)
         else:
             logger.info('found no zombies')
-    except Exception as exp:
+    except Exception as exp:  # pylint: disable=broad-exception-caught
         logger.warning(f'exception caught: {exp}')
+
+
+def _dump_payload_stack_traces(job: Any):
+    """Dump stack traces for the payload processes before they are killed.
+
+    The generic kill path (:func:`pilot.util.processes.kill_processes`) dumps a
+    stack trace for every process it kills, but the looping job path kills the
+    children itself and would otherwise discard that information - which is
+    precisely the information needed to explain the loop.
+
+    Args:
+        job: Job object.
+    """
+    try:
+        for pid, cmdline in select_dump_candidates(job, label="before kill"):
+            logger.info(f'stack trace for pid={pid} ({cmdline}):')
+            dump_stack_trace(pid)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to dump payload stack traces: {exc}')
 
 
 def _log_workdir_listing(workdir: str):
@@ -229,6 +228,10 @@ def kill_looping_job(job: Any):
     logger.fatal(diagnostics)
     job.debug_command = 'looping'  # overrule any other debug command - also prevents real time logging from starting
 
+    # dump stack traces while the payload processes are still alive (the generic kill
+    # path does this, but this path kills the children itself)
+    _dump_payload_stack_traces(job)
+
     # process zombies
     if job.pid not in job.zombies:
         job.zombies.append(job.pid)
@@ -236,6 +239,7 @@ def kill_looping_job(job: Any):
     job.collect_zombies(depth=10)
     logger.debug('pass #2/2: reaping zombies')
     reap_zombies()
+    _handle_zombies(job)
 
     # log diagnostics scoped to this pilot subtree only
     _log_workdir_listing(job.workdir)

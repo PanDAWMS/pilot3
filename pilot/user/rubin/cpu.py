@@ -104,7 +104,10 @@ def set_core_counts(**kwargs: Any) -> None:
                     cores = float(stime + utime) / float(walltime)
                     logger.debug(f'number of cores={cores}')
                     job.actualcorecount = float_to_rounded_string(cores, precision=2)
-                    job.corecounts = add_core_count(job.actualcorecount, job.corecounts)
+                    # note: the numeric value (not the rounded string stored in job.actualcorecount)
+                    # is appended, since job.corecounts is averaged downstream by
+                    # control/job.py::get_data_structure() to produce mean_core_count
+                    job.corecounts = add_core_count(cores, job.corecounts)
                     logger.debug(f'current core counts list: {job.corecounts}')
                 else:
                     logger.debug('no stime/utime')

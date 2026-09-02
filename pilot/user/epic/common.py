@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2026
 
-"""Generic user specific functionality."""
+"""User specific functionality for ePIC."""
 
 import fnmatch
 import json

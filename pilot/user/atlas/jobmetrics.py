@@ -83,7 +83,7 @@ def get_os_and_python_versions() -> tuple[str, str, str]:
                 if os_id and os_version:
                     break
     except OSError as exc:
-        logger.debug(f'/etc/os-release could not be read: {exc} — falling back to platform module')
+        logger.debug(f'/etc/os-release could not be read: {exc} - falling back to platform module')
         os_id = platform.system().lower()
         os_version = platform.release()
 

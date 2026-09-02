@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Auxiliary functions."""
 
@@ -203,6 +203,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.REACHEDMAXTIME: [81, "Reached maximum time limit"],  # added to traces object
         errors.NOJOBSINPANDA: [82, "No jobs in PanDA"],  # added to traces object
         errors.PANDAQUEUENOTONLINE: [83, "Site offline"],
+        errors.NOTIMELEFTFORNEWJOB: [84, "No time left for new job"],
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
@@ -633,9 +634,9 @@ def locate_core_file(cmd: str = '', pid: int = 0) -> str:
         path = os.path.join(os.environ.get('PILOT_HOME', '.'), filename)
         if os.path.exists(path):
             logger.debug(f'found core file at: {path}')
-
         else:
             logger.debug(f'did not find {filename} in {path}')
+            path = None  # do not return a path that does not exist
     else:
         logger.warning('cannot locate core file since pid could not be extracted from command')
 

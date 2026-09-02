@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
-"""SKA user specific functionality."""
+"""User specific functionality for SKA."""
 
 import logging
 import os

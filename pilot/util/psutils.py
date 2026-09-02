@@ -291,6 +291,10 @@ def get_child_processes_legacy(parent_pid: int) -> list:
 def get_subprocesses(pid: int, debug: bool = False) -> list:
     """Return the PIDs of all subprocesses belonging to the given PID.
 
+    Note: the order is that of a depth-first walk of the process tree in
+    ascending PID order, which is neither creation order nor any ordering by
+    relevance. Callers must not treat the last entry as "the youngest child".
+
     Args:
         pid: Main process PID.
         debug: If True, log the child process list at INFO level (used for looping

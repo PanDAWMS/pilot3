@@ -43,7 +43,10 @@ from pilot.util.auxiliary import (
     set_pilot_state,  # , show_memory_usage
     list_items
 )
-from pilot.util.cgroups import move_process_and_descendants_to_cgroup
+from pilot.util.cgroups import (
+    move_process_and_descendants_to_cgroup,
+    store_oom_baseline
+)
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.constants import (
@@ -367,55 +370,6 @@ class Executor:
                 # else:
                 #    logger.info(f'could not extract any pid from ps for cmd={cmd}')
 
-    def utility_after_payload_started_new(self, job: JobData) -> str:
-        """
-        Run utility functions after payload started.
-
-        Note:
-            REFACTOR
-
-        Args:
-            job: Job object.
-
-        Returns:
-            Utility command string, or empty string if none.
-        """
-        cmd = ""
-
-        # get the payload command from the user specific code
-        pilot_user = os.environ.get("PILOT_USER", "generic").lower()
-        user = __import__(
-            f"pilot.user.{pilot_user}.common", globals(), locals(), [pilot_user], 0
-        )
-
-        # convert the base URLs for trf downloads to a list (most likely from an empty string)
-        base_urls = get_base_urls(self.__args.baseurls)
-
-        # should any additional commands be executed after the payload?
-        cmd_dictionary = user.get_utility_commands(
-            order=UTILITY_AFTER_PAYLOAD_STARTED, job=job, base_urls=base_urls
-        )
-        if cmd_dictionary:
-            cmd = f"{cmd_dictionary.get('command')} {cmd_dictionary.get('args')}"
-            logger.info(f"utility command to be executed after the payload: {cmd}")
-
-        return cmd
-
-    #            # how should this command be executed?
-    #            utilitycommand = user.get_utility_command_setup(cmd_dictionary.get('command'), job)
-    #            if not utilitycommand:
-    #                logger.warning('empty utility command - nothing to run')
-    #                return
-    #            try:
-    #                proc = execute(utilitycommand, workdir=job.workdir, returnproc=True, usecontainer=False,
-    #                               stdout=PIPE, stderr=PIPE, cwd=job.workdir, job=job)
-    #            except Exception as error:
-    #                logger.error('could not execute: %s', error)
-    #            else:
-    #                # store process handle in job object, and keep track on how many times the command has been launched
-    #                # also store the full command in case it needs to be restarted later (by the job_monitor() thread)
-    #                job.utilities[cmd_dictionary.get('command')] = [proc, 1, utilitycommand]
-
     def utility_after_payload_finished(self, job: JobData, order: str) -> (str, str, bool):
         """
         Prepare commands/utilities to run after payload has finished.
@@ -665,6 +619,11 @@ class Executor:
                         f"moving process (pid={job.pid}) to cgroup: {cgroup_path}"
                     )
                     _ = move_process_and_descendants_to_cgroup(cgroup_path, job.pid)
+
+                    # snapshot the cumulative memory.events OOM counters so that the
+                    # post-payload check can work on deltas belonging to this payload
+                    # only (the subprocesses cgroup is shared for the pilot lifetime)
+                    _ = store_oom_baseline(cgroup_path)
                 else:
                     logger.warning("cannot move process to cgroup - no cgroup path found")
         except Exception as e:

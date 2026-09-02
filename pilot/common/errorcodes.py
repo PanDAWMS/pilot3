@@ -192,6 +192,7 @@ class ErrorCodes:
     PANDAQUEUENOTONLINE = 1386
     ALLOCATIONERROR = 1387
     XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
+    NOTIMELEFTFORNEWJOB = 1389  # set when the pilot ends without running a job since too little time remained
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -344,6 +345,7 @@ class ErrorCodes:
         PANDAQUEUENOTONLINE: "PanDA queue is not online",
         ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
         XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
+        NOTIMELEFTFORNEWJOB: "Insufficient time remaining to start a new job",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -486,7 +488,6 @@ class ErrorCodes:
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
             "General payload setup verification error": self.SETUPFAILURE,
-            "No such file or directory": self.NOSUCHFILE,
         }
 
         # Apptainer CLI version-incompatibility patterns: ALRB's
@@ -499,15 +500,26 @@ class ErrorCodes:
         # production: this probe failed with "unknown shorthand flag" while
         # the job's container started normally afterwards and the payload
         # completed with trf exit code 0. So, unlike the patterns above,
-        # these two do not reliably indicate that the container failed to
+        # these do not reliably indicate that the container failed to
         # start, and must not override an already-successful (exit_code=0)
         # result. They are only trusted as a genuine failure signal when the
         # transform itself already reported a non-zero exit code, in which
         # case they still provide a more specific diagnostic than the
         # generic PAYLOADEXECUTIONFAILURE fallback.
+        #
+        # "No such file or directory" belongs here for the same reason, and
+        # is even more prone to false positives since it is a generic OS
+        # error message, not something apptainer/singularity-specific.
+        # Confirmed in production (2026-07-30): a batch-system setup script
+        # (asetup) failed a benign 'mktemp' call with this exact message
+        # ("mktemp: failed to create file via template ...: No such file or
+        # directory") while the payload container started fine and the
+        # transform completed with exit code 0. Trusting this string
+        # unconditionally wrongly overwrote the successful exit code.
         ambiguous_apptainer_patterns = {
             "unknown shorthand flag": self.SINGULARITYGENERALFAILURE,
             "unknown flag:": self.SINGULARITYGENERALFAILURE,
+            "No such file or directory": self.NOSUCHFILE,
         }
 
         def get_key_by_value(d: dict, value: str) -> str:

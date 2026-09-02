@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Functions related to containerisation for darkside user."""
 
@@ -592,6 +592,12 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         # get simplified ALRB setup (export)
         alrb_setup = get_asetup(alrb=True, add_if=True)
         alrb_setup = fix_asetup(alrb_setup)
+
+        # Redirect ALRB's container temp files into the per-job workdir via ALRB_CONT_CHOME.
+        # See pilot.user.atlas.container.create_root_container_command for full rationale.
+        # Only set if not already defined, to respect any site-level override.
+        if not os.environ.get('ALRB_CONT_CHOME'):
+            alrb_setup += f'export ALRB_CONT_CHOME={job.workdir};'
 
         # get_asetup(alrb=True)
         # -> export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase;

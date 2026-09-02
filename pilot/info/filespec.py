@@ -208,7 +208,8 @@ class FileSpec(BaseData):
 
         if ensure_replica:
 
-            allowed_replica_schemas = allowed_replica_schemas or ['root', 'dcache', 'dcap', 'file', 'https']
+            # keep in sync with StagingClient.direct_localinput_allowed_schemas (pilot/api/data.py)
+            allowed_replica_schemas = allowed_replica_schemas or ['root', 'davs', 'dcache', 'dcap', 'file', 'https']
             if not self.turl or not any(self.turl.startswith(f'{allowed}://') for allowed in allowed_replica_schemas):
                 _is_directaccess = False
 

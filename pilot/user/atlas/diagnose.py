@@ -356,22 +356,22 @@ def send_direct_access_failure_traces(job: JobData, failed_lfns: list[str]) -> N
             :func:`is_direct_access_error`. If empty, the function returns immediately.
     """
     if not failed_lfns:
-        logger.debug('no failed LFNs extracted from payload stdout — skipping direct-access failure traces')
+        logger.debug('no failed LFNs extracted from payload stdout - skipping direct-access failure traces')
         return
 
     path = os.path.join(job.workdir, config.Pilot.base_trace_report)
     if not os.path.exists(path):
-        logger.warning(f'base trace report not found ({path}) — cannot send direct-access failure traces')
+        logger.warning(f'base trace report not found ({path}) - cannot send direct-access failure traces')
         return
 
     try:
         base_trace_report = read_json(path)
     except PilotException as exc:
-        logger.warning(f'failed to read base trace report: {exc} — cannot send direct-access failure traces')
+        logger.warning(f'failed to read base trace report: {exc} - cannot send direct-access failure traces')
         return
 
     if not base_trace_report:
-        logger.warning('base trace report is empty — cannot send direct-access failure traces')
+        logger.warning('base trace report is empty - cannot send direct-access failure traces')
         return
 
     if 'workdir' not in base_trace_report:
@@ -403,7 +403,7 @@ def send_direct_access_failure_traces(job: JobData, failed_lfns: list[str]) -> N
             logger.warning(f'failed to create trace report for lfn={fspec.lfn}')
 
     if not sent:
-        logger.warning(f'no remote_io indata matched failed LFNs {failed_lfns} — no traces sent')
+        logger.warning(f'no remote_io indata matched failed LFNs {failed_lfns} - no traces sent')
 
 
 def is_direct_access_error(job: JobData) -> tuple[int, str, list[str]]:
