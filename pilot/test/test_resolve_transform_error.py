@@ -25,13 +25,17 @@ Covers:
 - Pre-existing apptainer/singularity pattern matching (authoritative
   regardless of exit_code, since these indicate the container itself
   failed to mount/start).
-- Apptainer CLI version-incompatibility patterns (unknown shorthand flag,
-  unknown flag:), which are ambiguous (see class docstring) and are only
-  authoritative when exit_code != 0.
+- Ambiguous patterns (unknown shorthand flag, unknown flag:, No such file
+  or directory), which are only authoritative when exit_code != 0 (see
+  class docstring).
 - Regression: these ambiguous patterns must NOT override an already
-  successful (exit_code=0) transform result - the production false-positive
-  reported 2026-07-22, where an ALRB apptainer buildcfg version-probe failed
-  but the job's actual container and payload succeeded.
+  successful (exit_code=0) transform result:
+    * 2026-07-22: an ALRB apptainer buildcfg version-probe failed with
+      "unknown shorthand flag" but the job's actual container and payload
+      succeeded.
+    * 2026-07-30: a batch-system 'mktemp' call failed with "No such file
+      or directory" (an environment setup script, unrelated to the
+      container) while the payload transform completed with exit code 0.
 - The loop-guard fix: non-ambiguous patterns are returned for *any* exit
   code, not only when exit_code == 0.
 - Numeric exit-code fallbacks (2, 3, 251, -1, COMMANDTIMEDOUT).
@@ -99,25 +103,31 @@ class TestResolveTransformErrorExistingPatterns(unittest.TestCase):
         ec, msg = errors.resolve_transform_error(1, "cannot create directory /tmp/foo")
         self.assertEqual(ec, errors.MKDIR)
 
-    def test_no_such_file(self):
-        """'No such file or directory' maps to NOSUCHFILE."""
-        ec, msg = errors.resolve_transform_error(1, "No such file or directory: /cvmfs/atlas")
-        self.assertEqual(ec, errors.NOSUCHFILE)
 
+class TestResolveTransformErrorAmbiguousPatterns(unittest.TestCase):
+    """Patterns that are only authoritative when exit_code != 0.
 
-class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
-    """Patterns for apptainer CLI version-incompatibility failures.
-
-    These arise when ALRB's apptainerFunctions.sh probes the apptainer binary
-    with 'apptainer buildcfg' and the binary does not recognise a CLI flag
-    (e.g. -B). This probe is a *different* apptainer subcommand from the one
-    that actually launches the payload container ('apptainer exec'), which
-    commonly accepts flags that 'buildcfg' rejects. Confirmed in production
+    'unknown shorthand flag' / 'unknown flag:' arise when ALRB's
+    apptainerFunctions.sh probes the apptainer binary with 'apptainer
+    buildcfg' and the binary does not recognise a CLI flag (e.g. -B). This
+    probe is a *different* apptainer subcommand from the one that actually
+    launches the payload container ('apptainer exec'), which commonly
+    accepts flags that 'buildcfg' rejects. Confirmed in production
     (ATLASPANDA report, 2026-07-22): the buildcfg probe failed with this
     exact message while the job's container started normally and the payload
-    completed with trf exit code 0. Because of this, these two patterns are
-    only trusted as a failure signal when exit_code is already non-zero; they
-    must not override an already-successful (exit_code=0) result.
+    completed with trf exit code 0.
+
+    'No such file or directory' is included here for the same reason, and is
+    even more prone to false positives since it is a generic OS error
+    message rather than something apptainer/singularity-specific. Confirmed
+    in production (2026-07-30): a batch-system 'mktemp' call in an
+    environment setup script failed with this exact message, unrelated to
+    the container or the payload, while the transform completed with exit
+    code 0.
+
+    Because of this, these patterns are only trusted as a failure signal
+    when exit_code is already non-zero; they must not override an
+    already-successful (exit_code=0) result.
     """
 
     # --- unknown shorthand flag ---
@@ -187,6 +197,32 @@ class TestResolveTransformErrorApptainerVersionIncompat(unittest.TestCase):
         """Regression: 'unknown flag:' noise must not override a successful (exit_code=0) transform."""
         ec, msg = errors.resolve_transform_error(0, "Error: unknown flag: --bind")
         self.assertEqual(ec, 0)
+        self.assertEqual(msg, "")
+
+    # --- No such file or directory ---
+
+    def test_no_such_file_exit1(self):
+        """'No such file or directory' with exit_code=1 maps to NOSUCHFILE."""
+        ec, msg = errors.resolve_transform_error(1, "No such file or directory: /cvmfs/atlas")
+        self.assertEqual(ec, errors.NOSUCHFILE)
+        self.assertIn("No such file or directory", msg)
+
+    def test_no_such_file_exit0_does_not_override_success(self):
+        """Regression: benign 'No such file or directory' noise must not override a successful (exit_code=0) transform.
+
+        Reproduces the production false-positive reported 2026-07-30: an
+        asetup-related 'mktemp' call in payload.stderr failed with "No such
+        file or directory" while payload.stdout confirmed the transform
+        finished normally (trf exit code 0). The pilot must not reclassify
+        this as NOSUCHFILE.
+        """
+        stderr = (
+            "mktemp: failed to create file via template "
+            "'/tmp_local/condor/execute/dir_2556354/asetup_XXXXXX.sh': "
+            "No such file or directory\n"
+        )
+        ec, msg = errors.resolve_transform_error(0, stderr)
+        self.assertEqual(ec, 0, "exit_code=0 must be preserved despite the benign mktemp failure")
         self.assertEqual(msg, "")
 
 

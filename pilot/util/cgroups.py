@@ -20,6 +20,8 @@
 
 """Code for interacting with cgroups."""
 
+from __future__ import annotations
+
 import logging
 import os
 try:
@@ -31,10 +33,12 @@ else:
     _is_psutil_available = True
 import subprocess
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
+from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
 
+errors = ErrorCodes()
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
 CGROUP_PATH = "/sys/fs/cgroup"
@@ -548,29 +552,127 @@ def get_pids_for_cgroup(cgroup_path: str) -> list:
         return []
 
 
+def read_memory_events(cgroup_path: str, local: bool = False) -> dict:
+    """Read and parse the ``memory.events`` file of a cgroup v2 cgroup.
+
+    The file is a flat ``key value`` listing. All keys are returned as
+    integers, typically ``low``, ``high``, ``max``, ``oom``, ``oom_kill`` and
+    ``oom_group_kill``. Note the meaning of the two most relevant counters:
+
+    - ``max``: number of times the cgroup exceeded ``memory.max`` *without*
+      a kill (memory was reclaimed instead). A high value means the payload
+      repeatedly ran up against the limit and survived.
+    - ``oom_kill``: number of processes killed by the cgroup OOM killer. Any
+      increase means the kernel terminated a process on memory grounds.
+
+    The counters are cumulative for the lifetime of the cgroup and remain
+    readable after all processes in the cgroup have exited, which is what
+    makes this a reliable post-mortem source (unlike ``dmesg``).
+
+    This function never raises. A missing file means cgroups are not in use
+    or the node runs cgroups v1, both of which are legitimate states.
+
+    Args:
+        cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
+        local: If True, read ``memory.events.local`` (events attributed to this
+            cgroup only) instead of ``memory.events`` (hierarchical, i.e. this
+            cgroup and its descendants).
+
+    Returns:
+        dict mapping event name to integer count, or an empty dict if the file
+        does not exist or cannot be parsed.
+    """
+    filename = "memory.events.local" if local else "memory.events"
+    path = os.path.join(cgroup_path, filename)
+    events = {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    except FileNotFoundError:
+        logger.debug(f"{path} does not exist (cgroups v1 or cgroups not in use)")
+        return {}
+    except OSError as exc:  # includes PermissionError
+        logger.warning(f"failed to read {path}: {exc}")
+        return {}
+
+    for line in content.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            events[parts[0]] = int(parts[1])
+        except (ValueError, TypeError):
+            logger.warning(f"ignoring malformed line in {path}: {line!r}")
+
+    return events
+
+
+def get_memory_limit_and_peak(cgroup_path: str) -> tuple[Optional[int], Optional[int]]:
+    """Read ``memory.max`` and ``memory.peak`` for a cgroup v2 cgroup.
+
+    Both values are used for diagnostics only, so a missing or unreadable file
+    is not an error. ``memory.peak`` requires Linux 5.19 or later and is often
+    absent. ``memory.max`` contains the string ``"max"`` when no limit is set,
+    which is reported as None.
+
+    Args:
+        cgroup_path: Path to the cgroup directory.
+
+    Returns:
+        tuple of (memory.max in bytes, memory.peak in bytes); either element is
+        None if the corresponding value is unavailable or unlimited.
+    """
+    def _read_int(filename: str) -> Optional[int]:
+        path = os.path.join(cgroup_path, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                content = fh.read().strip()
+        except OSError as exc:  # includes FileNotFoundError and PermissionError
+            logger.debug(f"could not read {path}: {exc}")
+            return None
+        if content == "max":  # no limit set
+            return None
+        try:
+            return int(content)
+        except (ValueError, TypeError):
+            logger.debug(f"unexpected content in {path}: {content!r}")
+            return None
+
+    return _read_int("memory.max"), _read_int("memory.peak")
+
+
 def monitor_cgroup(cgroup_path: str) -> dict:
     """Monitor the specified cgroup by logging its PIDs and memory usage.
 
-    Reads ``memory.current``, ``memory.events``, and ``pids.current`` from
-    the cgroup and logs a formatted summary. Parses ``memory.events`` to
-    extract OOM kill counters which are returned to the caller so that
-    upstream code can react to kernel-initiated kills.
+    Reads ``memory.current``, ``memory.events`` and ``pids.current`` from the
+    cgroup and logs a formatted summary. The parsed ``memory.events`` contents
+    are returned so that upstream code can react to kernel-initiated kills.
+
+    ``memory.events`` is read even when the cgroup no longer holds any
+    processes: the counters persist after the processes are gone, and an
+    emptied cgroup is precisely the state left behind by an OOM kill (all the
+    more so when ``memory.oom.group`` is enabled).
 
     Args:
         cgroup_path: Path to the cgroup directory (e.g. ``/sys/fs/cgroup/mygroup``).
 
     Returns:
-        dict with keys ``oom_kill`` (int) and ``oom_group_kill`` (int)
-        reflecting the current cumulative counts from ``memory.events``.
-        Returns ``{'oom_kill': 0, 'oom_group_kill': 0}`` if the cgroup has
-        no processes or the file cannot be read.
+        dict mapping ``memory.events`` names to their cumulative counts, e.g.
+        ``{'low': 0, 'high': 0, 'max': 5605, 'oom': 0, 'oom_kill': 0,
+        'oom_group_kill': 0}``. Empty if the file could not be read. Callers
+        should use ``.get(name, 0)`` since the available keys are kernel
+        version dependent.
     """
-    oom_counts = {'oom_kill': 0, 'oom_group_kill': 0}
+    # read the OOM counters first - they are valid regardless of whether the
+    # cgroup still holds any processes
+    events = read_memory_events(cgroup_path)
 
     pids = get_pids_for_cgroup(cgroup_path)
     if not pids:
-        logger.info(f"[cgroup: {cgroup_path}]\n  No processes found.")
-        return oom_counts
+        events_str = " ".join([f"{key}={value}" for key, value in events.items()]) or "<unavailable>"
+        logger.info(f"[cgroup: {cgroup_path}]\n  No processes found.\n  Memory Events: {events_str}")
+        return events
 
     output_lines = [f"[cgroup: {cgroup_path}]", f"  PIDs: {', '.join([str(pid) for pid in pids])}"]
 
@@ -582,27 +684,177 @@ def monitor_cgroup(cgroup_path: str) -> dict:
 
     for label, filepath in files_to_read.items():
         try:
-            result = subprocess.run(f"cat {filepath}", shell=True, check=True, capture_output=True, text=True)
-            content = result.stdout.strip()
-            if '\n' in content:
-                indented = "\n    ".join(content.splitlines())
-                output_lines.append(f"  {label}:\n    {indented}")
-            else:
-                output_lines.append(f"  {label}: {content}")
-            # Parse OOM counters from memory.events
-            if label == "Memory Events":
-                for line in content.splitlines():
-                    parts = line.split()
-                    if len(parts) == 2:
-                        if parts[0] == "oom_kill":
-                            oom_counts['oom_kill'] = int(parts[1])
-                        elif parts[0] == "oom_group_kill":
-                            oom_counts['oom_group_kill'] = int(parts[1])
-        except subprocess.CalledProcessError as e:
-            output_lines.append(f"  {label}: <error reading {filepath}> ({e})")
+            with open(filepath, "r", encoding="utf-8") as fh:
+                content = fh.read().strip()
+        except OSError as exc:  # includes FileNotFoundError and PermissionError
+            output_lines.append(f"  {label}: <error reading {filepath}> ({exc})")
+            continue
+
+        if '\n' in content:
+            indented = "\n    ".join(content.splitlines())
+            output_lines.append(f"  {label}:\n    {indented}")
+        else:
+            output_lines.append(f"  {label}: {content}")
 
     logger.info("\n%s", "\n".join(output_lines))
-    return oom_counts
+    return events
+
+
+def get_oom_deltas(cgroup_path: str, events: dict) -> dict:
+    """Return the increase in each memory.events counter since the baseline.
+
+    The baseline is the snapshot stored in the pilot cache at payload start.
+    If no baseline is available the current values are returned unchanged,
+    i.e. the check fails towards reporting rather than towards silence.
+
+    Args:
+        cgroup_path: Path to the cgroup directory (also the baseline key).
+        events: Current parsed ``memory.events`` contents.
+
+    Returns:
+        dict mapping event name to the delta since the baseline.
+    """
+    baseline = pilot_cache.get_oom_baseline(cgroup_path) if pilot_cache else {}
+    if not baseline:
+        logger.warning(
+            f"no memory.events baseline stored for {cgroup_path} - "
+            "will interpret the absolute counters as belonging to the current payload"
+        )
+
+    return {key: value - baseline.get(key, 0) for key, value in events.items()}
+
+
+def store_oom_baseline(cgroup_path: str = None) -> dict:
+    """Snapshot the current memory.events counters as the OOM baseline.
+
+    Called at payload start. The "subprocesses" cgroup is created once per
+    pilot and is shared by every payload of a multi-job pilot as well as by
+    all commands launched through ``execute()``, so its OOM counters cannot be
+    attributed to the current payload without a baseline to subtract.
+
+    Args:
+        cgroup_path: Path to the cgroup directory. Defaults to the
+            "subprocesses" cgroup recorded in the pilot cache.
+
+    Returns:
+        The snapshotted ``memory.events`` contents (empty dict if unavailable).
+    """
+    if not cgroup_path:
+        cgroup_path = pilot_cache.get_cgroup("subprocesses") if pilot_cache else None
+    if not cgroup_path:
+        logger.debug("no subprocesses cgroup known - cannot store an OOM baseline")
+        return {}
+
+    events = read_memory_events(cgroup_path)
+    if pilot_cache:
+        pilot_cache.set_oom_baseline(cgroup_path, events)
+
+    if events:
+        logger.debug(f"stored memory.events baseline for {cgroup_path}: {events}")
+    else:
+        logger.debug(f"no memory.events available for {cgroup_path} - stored an empty OOM baseline")
+
+    return events
+
+
+def format_oom_diagnostics(cgroup_path: str, deltas: dict) -> str:
+    """Build a human readable diagnostics string for a cgroup OOM kill.
+
+    The message names ``memory.events`` explicitly so that it cannot be
+    confused with the ``dmesg`` based scan or with the prmon soft limit, and
+    it states the action needed so that it is directly usable in the job
+    monitor.
+
+    Args:
+        cgroup_path: Path to the cgroup directory.
+        deltas: Per-counter increases since the payload-start baseline.
+
+    Returns:
+        str: diagnostics message.
+    """
+    limit, peak = get_memory_limit_and_peak(cgroup_path)
+    extras = []
+    if limit is not None:
+        extras.append(f"cgroup limit {limit // (1024 * 1024)} MB")
+    if peak is not None:
+        extras.append(f"peak {peak // (1024 * 1024)} MB")
+    extras_str = f"; {', '.join(extras)}" if extras else ""
+
+    return (
+        f"Payload killed by the kernel cgroup OOM killer "
+        f"(memory.events: oom_kill={deltas.get('oom_kill', 0)}, "
+        f"oom_group_kill={deltas.get('oom_group_kill', 0)}){extras_str}; "
+        f"increase the memory request"
+    )
+
+
+def check_for_cgroup_oom_kill(exit_code: int, cgroup_path: str = None) -> tuple[int, str, dict]:
+    """Check whether the kernel OOM-killed the payload, using memory.events.
+
+    This is the authoritative post-mortem OOM check. ``dmesg`` is not always
+    readable in an unprivileged container and does not always retain the kill
+    message, whereas the cgroup ``memory.events`` counters are always present
+    on a cgroups v2 node and survive the death of the processes.
+
+    The counters are compared against the baseline taken at payload start, so
+    a kill belonging to an earlier job of a multi-job pilot is not attributed
+    to the current payload.
+
+    Following the reporting rules requested in the JIRA ticket:
+
+    - non-zero payload exit code and an OOM kill: return an error code
+    - zero payload exit code and an OOM kill: warn only, return 0 (a payload
+      that survived a partial kill should not be failed on this evidence)
+    - no OOM kill but a large ``max`` delta: log that the payload repeatedly
+      reached the limit without being killed, return 0
+
+    Args:
+        exit_code: Exit code from the payload execution.
+        cgroup_path: Path to the cgroup directory. Defaults to the
+            "subprocesses" cgroup recorded in the pilot cache.
+
+    Returns:
+        tuple of (error code, diagnostics, deltas). The error code is 0 when no
+        error should be set. The deltas dict is empty when no ``memory.events``
+        information was available.
+    """
+    if not cgroup_path:
+        cgroup_path = pilot_cache.get_cgroup("subprocesses") if pilot_cache else None
+    if not cgroup_path:
+        logger.debug("no subprocesses cgroup known - skipping the memory.events OOM check")
+        return 0, "", {}
+
+    events = read_memory_events(cgroup_path)
+    if not events:
+        logger.debug("no memory.events information available - skipping the memory.events OOM check")
+        return 0, "", {}
+
+    deltas = get_oom_deltas(cgroup_path, events)
+    logger.info(f"memory.events for {cgroup_path}: {events} (change since payload start: {deltas})")
+
+    oom_kill = deltas.get("oom_kill", 0)
+    oom_group_kill = deltas.get("oom_group_kill", 0)
+
+    if oom_kill <= 0 and oom_group_kill <= 0:
+        # no kill, but did the payload repeatedly hit the limit and survive?
+        if deltas.get("max", 0) > 0:
+            logger.warning(
+                f"payload reached the cgroup memory limit {deltas.get('max')} times without being killed "
+                f"(memory.events max counter) - the memory request is close to insufficient"
+            )
+        else:
+            logger.info("no cgroup OOM kill detected for the payload")
+        return 0, "", deltas
+
+    diagnostics = format_oom_diagnostics(cgroup_path, deltas)
+
+    if exit_code == 0:
+        # per the ticket: a warning is better than nothing, but do not fail the job
+        logger.warning(f"{diagnostics} (payload exit code is zero - not setting an error code)")
+        return 0, diagnostics, deltas
+
+    logger.warning(diagnostics)
+    return errors.PAYLOADOUTOFMEMORY, diagnostics, deltas
 
 
 def set_memory_limit(cgroup_path: str, memory_bytes: int):

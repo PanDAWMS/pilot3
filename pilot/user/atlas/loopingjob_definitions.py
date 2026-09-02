@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Looping-job detection settings for the ATLAS experiment plugin."""
 
@@ -71,3 +71,26 @@ def remove_unwanted_files(workdir: str, files: list[str]) -> list[str]:
             _files.append(_file)
 
     return _files
+
+
+def get_payload_process_names() -> list:
+    """Return the process names that identify the actual payload.
+
+    Used by the looping job diagnostics to pick which process to snapshot and
+    dump when a job is found to be looping, in preference to an arbitrary
+    descendant of the payload process. Matched case-insensitively as substrings
+    against the full command line.
+
+    Deliberately empty for now. What an ATLAS payload tree actually contains
+    during a loop has not been established, and a name that matches the wrong
+    process is worse than no name at all: it would promote that process above
+    the real payload, whereas an empty list simply leaves the ranking to
+    accumulated CPU time and resident set. The pilot logs the complete,
+    unfiltered inventory of the payload tree (grep 'PAYLOAD PROCESS INVENTORY'
+    in the job log) precisely so that this list can be filled in from real
+    looping jobs rather than guessed at in advance.
+
+    Returns:
+        list: process name fragments; empty until derived from logged inventories.
+    """
+    return []

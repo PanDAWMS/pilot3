@@ -2530,124 +2530,14 @@ def handle_file_content(content: bytes | str, auth_token: str) -> bool:
     return _atomic_write_token(token, auth_token)
 
 
-def refresh_oidc_token_old(auth_token: str, auth_origin: str, url: str, port: int) -> bool:
-    """Refresh the OIDC token using the legacy server endpoint (old version).
-
-    Args:
-        auth_token: Token name/path to refresh.
-        auth_origin: Token origin string used in the auth header.
-        url: PanDA server base URL.
-        port: PanDA server port.
-
-    Returns:
-        ``True`` if the token was refreshed and saved successfully, ``False``
-        otherwise.
-    """
-    status = False
-
-    # first get the token key
-    token_key = os.environ.get("PANDA_AUTH_TOKEN_KEY")
-    if not token_key:
-        logger.warning('PANDA_AUTH_TOKEN_KEY is not set - will not be able to download a new token')
-        return False
-
-    panda_token_key = get_auth_token_content(token_key, key=True)
-    if panda_token_key:
-        logger.info(f'read token key: {token_key}')
-    else:
-        logger.warning('failed to get panda_token_key - will not be able to download a new token')
-        return status
-
-    # now get the actual token
-    auth_token_content = get_auth_token_content(auth_token)
-    if not auth_token_content:
-        logger.warning(f'failed to get auth token content for {auth_token}')
-        return status
-
-    headers = get_headers(True, auth_token_content, auth_origin, content_type=None)
-    server_command = get_server_command(url, port, cmd='get_access_token')
-
-    # the client name and token key should be added to the URL as parameters
-    server_command += f'?client_name=pilot_server&token_key={panda_token_key}'
-
-    content = download_file(server_command, headers=headers)
-    if content:
-        status = handle_file_content(content, auth_token)
-    else:
-        logger.warning(f'failed to download data from \"{url}\" resource')
-
-    return status
-
-
-def handle_file_content_old(content: bytes | str, auth_token: str) -> bool:
-    """Handle a downloaded token payload using the legacy response format (old version).
-
-    Parses the response as a Python-literal dict (old-style server format),
-    extracts the ``userProxy`` field, and overwrites *auth_token* with the new
-    token via an atomic rename.
-
-    Args:
-        content: Raw response bytes or text from the legacy PanDA endpoint.
-        auth_token: Token filename or path to overwrite.
-
-    Returns:
-        ``True`` if the token was parsed and saved successfully, ``False``
-        otherwise.
-    """
-    status = False
-
-    # define the path if it does not exist already
-    path = os.environ.get('OIDC_REFRESHED_AUTH_TOKEN')
-    if path is None:
-        path = os.path.join(os.environ.get('PILOT_HOME'), 'tmp_refreshed_token')
-
-    if isinstance(content, bytes):
-        content = content.decode('utf-8')
-
-    # convert the string to a dictionary
-    _content = ast.literal_eval(content)
-
-    # check for errors
-    statuscode = _content.get('StatusCode', 0)
-    diagnostics = _content.get('ErrorDialog', '')
-    if statuscode != 0:
-        logger.warning(f"failed to get new token: StatusCode={statuscode}, ErrorDialog={diagnostics}")
-    else:
-        token = _content.get('userProxy')
-        if not token:
-            logger.warning(f'failed to find userProxy in content: {content}')
-        else:
-            # write the content to the file
-            try:
-                with open(path, "w", encoding='utf-8') as _file:
-                    _file.write(token)
-            except IOError as exc:
-                logger.warning(f'failed to write data to file {path}: {exc}')
-            else:
-                # proceed with renaming the refreshed token to that of the original one (i.e. overwrite)
-                status = rename(path, auth_token)
-                if status:
-                    logger.info(f'saved token data in file {auth_token}, length={len(content) / 1024.:.1f} kB')
-                    os.environ['OIDC_REFRESHED_AUTH_TOKEN'] = auth_token
-                else:
-                    logger.warning(f'failed to rename {path} to {auth_token}')
-
-                mtime = get_modification_time(auth_token)
-                if mtime:
-                    logger.info(f'{os.path.basename(auth_token)} modification time: {ctime(mtime)}')
-                else:
-                    logger.warning(f'failed to get modification time for {auth_token}')
-
-    return status
-
-
 def update_local_oidc_token_info(url: str, port: int) -> None:
     """Refresh the local OIDC token if one is configured.
 
     Reads the current token info via :func:`get_local_oidc_token_info` and,
     when both token and origin are available, calls :func:`refresh_oidc_token`
     to download a fresh token from the PanDA server.  On success the new
-    token's ``iat`` / ``exp`` fields are logged via :func:`decode_jwt_payload`.
+    token's subject, claims and validity window are logged via
+    :func:`decode_jwt_payload`.
 
     Args:
         url: PanDA server base URL.
@@ -2672,18 +2562,185 @@ def update_local_oidc_token_info(url: str, port: int) -> None:
         logger.debug('no OIDC token info to update')
 
 
+# Claims inspected to establish the token's subject, in the order in which they are tried.
+# The pilot's token is a client-credentials token: 'sub' and 'client_id' both carry the
+# client UUID and there is no user identity claim at all, so 'sub' comes first. The
+# remaining two are fallbacks for user tokens, which the pilot is not expected to see.
+#
+# Note that the subject is not the owner name that PanDA reports for a secrets lookup.
+# The observed 'owner=Robot Pilot' appears nowhere in the token, so the server resolves
+# that name from the subject on its own side; the pilot cannot derive it.
+TOKEN_SUBJECT_CLAIMS = ("sub", "client_id", "preferred_username")
+
+# Claims logged verbatim, in this order. Deliberately a fixed list rather than the whole
+# payload: the pilot log is uploaded, so nothing is logged that has not been looked at.
+# Absent claims are skipped, so this covers both client-credentials and user tokens.
+# 'jti' is included because it is what server-side logs can be matched on.
+TOKEN_LOGGED_CLAIMS = (
+    "sub", "name", "preferred_username", "email", "client_id", "iss", "aud",
+    "scope", "wlcg.groups", "groups", "jti",
+)
+
+# Maximum number of characters logged for a single claim value, since 'scope' can be long.
+CLAIM_VALUE_LENGTH = 300
+
+
+def _format_claim_value(value: Any) -> str:
+    """Render a claim value as a single truncated log-safe line.
+
+    Args:
+        value: Claim value, which may be a scalar or a list (``aud`` and
+            ``wlcg.groups`` are commonly lists).
+
+    Returns:
+        The value as a string, comma-joined if it is a list, truncated to
+        :data:`CLAIM_VALUE_LENGTH` characters.
+    """
+    text = ", ".join(str(item) for item in value) if isinstance(value, (list, tuple)) else str(value)
+    if len(text) > CLAIM_VALUE_LENGTH:
+        text = f"{text[:CLAIM_VALUE_LENGTH]}... (truncated)"
+
+    return text
+
+
+def _format_epoch(value: Any) -> str:
+    """Render a JWT epoch-seconds claim as a UTC timestamp.
+
+    Args:
+        value: Claim value, expected to be epoch seconds.
+
+    Returns:
+        The timestamp as ``YYYY-MM-DD HH:MM:SS UTC``, or a description of the
+        raw value when it cannot be interpreted as a time.
+    """
+    try:
+        stamp = datetime.datetime.fromtimestamp(float(value), datetime.timezone.utc)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return f"{value} (not a valid timestamp)"
+
+    return f"{stamp.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+
+
+def get_token_subject(payload: dict) -> tuple[str, str]:
+    """Return the subject the token identifies its bearer by.
+
+    This is the token's own notion of identity, not the owner name that PanDA reports for
+    a user-secrets lookup. Those are different things: the pilot's token carries only a
+    client UUID, while the server logs a human-readable owner that appears in no claim, so
+    the server must be resolving that name from the subject on its own side. The subject
+    is nevertheless the useful value to log, since it is what any server-side mapping is
+    keyed on.
+
+    Args:
+        payload: Decoded JWT payload.
+
+    Returns:
+        A two-element tuple ``(subject, claim)`` naming the subject and the claim it was
+        taken from, or ``('', '')`` when the payload carries none of the claims.
+    """
+    if not isinstance(payload, dict):
+        return "", ""
+
+    for claim in TOKEN_SUBJECT_CLAIMS:
+        value = payload.get(claim)
+        if value:
+            return str(value), claim
+
+    return "", ""
+
+
+def _log_token_validity(payload: dict) -> None:
+    """Log the validity window of a decoded token and its remaining lifetime.
+
+    Args:
+        payload: Decoded JWT payload.
+    """
+    for claim, description in (("iat", "issued at"), ("nbf", "not valid before"), ("exp", "expires at")):
+        if claim in payload:
+            logger.info(f"token {description} ({claim}): {_format_epoch(payload[claim])}")
+        elif claim != "nbf":  # nbf is frequently absent and its absence is not notable
+            logger.info(f"no '{claim}' field found in token")
+
+    if "exp" not in payload:
+        return
+
+    try:
+        remaining = int(float(payload["exp"]) - time())
+    except (TypeError, ValueError):
+        return
+
+    if remaining > 0:
+        logger.info(f"token remaining lifetime: {remaining} s ({remaining / 3600:.1f} h)")
+    else:
+        logger.warning(f"token expired {-remaining} s ago")
+
+
+def log_token_info(payload: dict) -> None:
+    """Log the identity and the validity window of a decoded OIDC token.
+
+    Logs the subject first, since that is what any server-side identity mapping is keyed
+    on, then the claims from :data:`TOKEN_LOGGED_CLAIMS` that are present, then the
+    ``iat``/``nbf``/``exp`` times with the remaining lifetime. The token string itself is
+    never logged.
+
+    Args:
+        payload: Decoded JWT payload.
+    """
+    subject, claim = get_token_subject(payload)
+    if subject:
+        logger.info(f"token subject: {subject} (from the '{claim}' claim)")
+        logger.info("note: the PanDA owner name used for user-secrets lookups is not a token "
+                    "claim - the server resolves it from the subject above, so a lookup that "
+                    "returns nothing has to be matched on the subject rather than on a name")
+    else:
+        logger.info("token subject: unknown (no subject claim in token)")
+
+    for claim in TOKEN_LOGGED_CLAIMS:
+        if claim in payload:
+            logger.info(f"token {claim}: {_format_claim_value(payload[claim])}")
+
+    _log_token_validity(payload)
+
+
+def get_local_token_subject() -> str:
+    """Return the subject of the local OIDC token, if one can be read.
+
+    Convenience wrapper for diagnostics: locates the local token, decodes it and returns
+    its subject. Never raises and never logs the token; an unreadable or absent token
+    simply yields an empty string.
+
+    Returns:
+        The token subject, or an empty string when no token could be read.
+    """
+    auth_token, _ = get_local_oidc_token_info()
+    if not auth_token:
+        return ""
+
+    path = locate_token(auth_token)
+    if not path:
+        return ""
+
+    try:
+        payload = decode_jwt_payload(path, return_times=False)
+    except ValueError as exc:
+        logger.debug(f"could not decode local OIDC token: {exc}")
+        return ""
+
+    return get_token_subject(payload)[0]
+
+
 def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
     """Decode and return the payload section of a JWT (OIDC token).
 
     Accepts either a raw JWT string or a filesystem path to a file containing
-    one.  Optionally logs the ``iat`` (issued-at) and ``exp`` (expiry) times
-    in UTC.
+    one.  Optionally logs the token's subject, claims and validity window via
+    :func:`log_token_info`.
 
     Args:
         token_or_path: JWT string (``header.payload.signature``) or path to a
             file containing the token.
-        return_times: If ``True``, log the ``iat`` and ``exp`` timestamps from
-            the payload.
+        return_times: If ``True``, log the token's subject, claims and
+            ``iat``/``nbf``/``exp`` times.
 
     Returns:
         Decoded payload as a Python dict.
@@ -2721,19 +2778,9 @@ def decode_jwt_payload(token_or_path: str, return_times: bool = True) -> dict:
     except Exception as e:
         raise ValueError(f"failed to decode JWT payload: {e}") from e
 
-    # Optionally print iat and exp
+    # Optionally log the identity and validity of the token
     if return_times:
-        if 'iat' in payload:
-            iat = datetime.datetime.utcfromtimestamp(payload['iat'])
-            logger.info(f"Token was issued at (iat):   {iat} UTC")
-        else:
-            logger.info("no 'iat' field found in token")
-
-        if 'exp' in payload:
-            exp = datetime.datetime.utcfromtimestamp(payload['exp'])
-            logger.info(f"Token expires at (exp):  {exp} UTC")
-        else:
-            logger.info("No 'exp' field found in token")
+        log_token_info(payload)
 
     return payload
 

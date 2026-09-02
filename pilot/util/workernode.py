@@ -877,6 +877,64 @@ def get_workernode_gpu_map(site: str, cache: bool = True) -> dict:
     return gpu_info
 
 
+def get_target_architecture() -> dict:
+    """Return the worker-node hardware description for the job dispatcher.
+
+    The dispatcher uses this to avoid handing a job to a worker node whose
+    hardware cannot run it. Brokerage only guarantees that *some* worker node in
+    the queue satisfies the GPU vendor, model and microarchitecture requested by
+    the task, so a queue holding both e.g. V100 and A100 nodes could previously
+    receive a job on either of them.
+
+    The GPU specifications are taken from the GPU map that the pilot collected
+    at startup, i.e. the same keys and values that are reported with the
+    ``update_worker_node_gpu`` call, wrapped in the ``gpus`` list expected by
+    the ``acquire_jobs`` API. Reading the cached file rather than probing the
+    hardware again keeps what the dispatcher matches against identical to what
+    the server already has on record, and avoids running ``nvidia-smi`` once per
+    job request.
+
+    Nothing is returned unless the GPU map exists and has content: an absent
+    ``gpus`` key tells the server that the worker node does not report GPU
+    information, which leaves the previous, unchecked behaviour in place. An
+    empty ``gpus`` list would instead assert that the node has no GPU at all,
+    which the pilot must not claim on the basis of a missing or unreadable file.
+
+    Returns:
+        Dictionary of the form ``{"gpus": [{...}]}``, or an empty dict when no
+        GPU information is available.
+    """
+    pilot_home = os.environ.get('PILOT_HOME', '')
+    if not pilot_home:
+        logger.warning('PILOT_HOME is not set - cannot look for the gpu map')
+        return {}
+
+    path = os.path.join(pilot_home, config.Workernode.gpu_map)
+    if not os.path.exists(path):
+        logger.info(f'no gpu map at {path} - target architecture will not be reported')
+        return {}
+
+    try:
+        gpu_map = read_json(path)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # job acquisition must not fail because the gpu map could not be read
+        logger.warning(f'failed to read gpu map from {path}: {exc}')
+        return {}
+
+    if not gpu_map:
+        # the map is only written when nvidia-smi returned GPU specifications, so an empty
+        # file means the pilot has lost the information rather than that there is no GPU
+        logger.warning(f'gpu map at {path} is empty - target architecture will not be reported')
+        return {}
+
+    if not isinstance(gpu_map, dict):
+        logger.warning(f'unexpected gpu map format in {path} ({type(gpu_map).__name__}) - '
+                       f'target architecture will not be reported')
+        return {}
+
+    return {'gpus': [gpu_map]}
+
+
 def get_workernode_map(site: str, queue: str, cache: bool = True) -> dict:
     """Return a dictionary of local worker-node hardware specifications.
 

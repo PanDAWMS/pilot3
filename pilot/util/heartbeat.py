@@ -104,7 +104,7 @@ def update_pilot_heartbeat(update_time: float, detected_job_suspension: bool = F
     t.join(_HEARTBEAT_WRITE_TIMEOUT)
     if t.is_alive():
         logger.warning(f'update_pilot_heartbeat timed out after {_HEARTBEAT_WRITE_TIMEOUT} s '
-                       f'— heartbeat file write is stalled (possible NFS issue at PILOT_HOME={os.getenv("PILOT_HOME", os.getcwd())})')
+                       f'- heartbeat file write is stalled (possible NFS issue at PILOT_HOME={os.getenv("PILOT_HOME", os.getcwd())})')
         return False
 
     return result[0]

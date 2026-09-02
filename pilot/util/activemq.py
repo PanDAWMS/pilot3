@@ -17,15 +17,19 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23, 2026
 
 """Functions for using ActiveMQ."""
+
+from __future__ import annotations
 
 import socket
 import json
 import random
 import logging
+import re
 import sys
+from collections.abc import Sequence
 from typing import Any
 
 try:
@@ -43,6 +47,177 @@ from pilot.util import https
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# API path serving the user secrets under the new PanDA credentials API. Note that
+# get_access_token serves tokens rather than secrets and must not be used here.
+CREDENTIALS_ENDPOINT = 'api/v1/creds/get_user_secrets'
+
+# Names of the message broker secrets to request, username first. They travel as a list
+# in the query string: _merge_query() renders it as keys=MB_USERNAME&keys=MB_PASSWORD.
+MB_CREDENTIAL_KEYS = ('MB_USERNAME', 'MB_PASSWORD')
+
+# Prefix that request2() returns in place of a response when the request could not be sent.
+REQUEST_FAILURE_MARKER = 'failed to send request'
+
+# Substrings that mark a field name as carrying a secret, matched case-insensitively
+# against the whole field name, so MB_PASSWORD, userSecret and access_token are all caught.
+SECRET_KEY_MARKERS = ('password', 'passwd', 'pwd', 'secret', 'token', 'credential')
+
+# Maximum number of characters of an unparseable response quoted in a diagnostic message.
+PREVIEW_LENGTH = 200
+
+
+def scrub_text(text: str) -> str:
+    """Mask secret-looking values in text that could not be parsed as JSON.
+
+    Covers both the ``"KEY": "value"`` and the ``KEY=value`` forms, so that neither an
+    HTML error page nor a query-string echo can carry a credential into the log.
+
+    Args:
+        text: Raw response text.
+
+    Returns:
+        The text with any secret-looking value replaced by an ellipsis.
+    """
+    pattern = '|'.join(re.escape(marker) for marker in SECRET_KEY_MARKERS)
+
+    text = re.sub(
+        rf'("[^"]*(?:{pattern})[^"]*"\s*:\s*")([^"]*)(")',
+        lambda match: match.group(1) + '......' + match.group(3),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    return re.sub(
+        rf'([A-Za-z0-9_]*(?:{pattern})[A-Za-z0-9_]*=)([^&\s"]+)',
+        lambda match: match.group(1) + '......',
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _coerce_mapping(value: Any) -> dict[str, Any]:
+    """Coerce a value into a dictionary where possible.
+
+    The server returns the secrets as a JSON-encoded *string* rather than as a nested
+    object, so the string form is the one that matters; the dictionary form is accepted
+    defensively in case that changes.
+
+    Args:
+        value: Candidate value from the response payload.
+
+    Returns:
+        A dictionary, or an empty dictionary if the value cannot be coerced.
+    """
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (ValueError, TypeError):
+            return {}
+        if isinstance(decoded, dict):
+            return decoded
+
+    return {}
+
+
+def _as_dict(res: Any) -> dict[str, Any]:
+    """Normalise a server response into a dictionary.
+
+    :func:`pilot.util.https.request2` returns a dictionary when the response parses, the
+    raw text when it does not, and a ``failed to send request`` marker string when the
+    request could not be sent at all. All three are handled here.
+
+    Args:
+        res: Response as returned by :func:`pilot.util.https.request2`.
+
+    Returns:
+        The parsed response dictionary.
+
+    Raises:
+        ValueError: If the request failed, or the response is empty, unparseable, or not
+            a dictionary.
+    """
+    if not res:
+        raise ValueError('empty response from server')
+
+    if isinstance(res, (bytes, str)):
+        text = res.decode('utf-8', errors='replace') if isinstance(res, bytes) else res
+        if text.startswith(REQUEST_FAILURE_MARKER):
+            raise ValueError(text)
+        try:
+            res = json.loads(text)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f'response is not valid JSON: {exc}: {scrub_text(text[:PREVIEW_LENGTH])!r}'
+            ) from exc
+
+    if not isinstance(res, dict):
+        raise ValueError(f'unexpected response type: {type(res).__name__}')
+
+    return res
+
+
+def extract_credentials(res: Any, keys: Sequence[str] = MB_CREDENTIAL_KEYS) -> tuple[str, str]:
+    r"""Extract MB_USERNAME and MB_PASSWORD from a get_user_secrets response.
+
+    The observed response shape is::
+
+        {"success": true, "message": "", "data": "{\"MB_USERNAME\": \"...\", ...}"}
+
+    i.e. ``data`` is a JSON-encoded *string*, not a nested object. Note that
+    ``success: true`` does not by itself mean that the secrets are present: the endpoint
+    returns only the secrets registered to the caller, and answers ``success=true`` with
+    ``data="{}"`` when the resolved owner has none. That is what the pilot's OIDC token
+    identity gets, so an empty mapping must be treated as a failure rather than as valid
+    but empty credentials.
+
+    No part of the response is included in the raised messages beyond the server's own
+    ``message`` field and the available key names, since the response carries the
+    password and the pilot log is uploaded.
+
+    Args:
+        res: Response as returned by :func:`pilot.util.https.request2`.
+        keys: Secret names, username first.
+
+    Returns:
+        A two-element tuple ``(username, password)``.
+
+    Raises:
+        ValueError: If the response is malformed, reports failure, or does not contain
+            both credentials.
+    """
+    names = [str(part) for part in keys]
+    if len(names) < 2:
+        raise ValueError(f'need two key names (username, password), got {names}')
+
+    payload = _as_dict(res)
+
+    if 'success' in payload:
+        if payload.get('success') is not True:
+            raise ValueError(f"server returned success=False: {payload.get('message', 'no message')!r}")
+        data = payload.get('data')
+    else:  # defensive: a bare secrets mapping without the status envelope
+        data = payload
+
+    secrets = _coerce_mapping(data)
+    if not secrets:
+        raise ValueError('server reported success but returned no secrets - the secrets are '
+                         'registered per caller identity, so verify that the call was '
+                         'authenticated with the X.509 proxy and not with the OIDC token')
+
+    try:
+        username = str(secrets[names[0]])
+        password = str(secrets[names[1]])
+    except KeyError as exc:
+        raise ValueError(f'missing key {exc} in secrets (available: {sorted(secrets)})') from exc
+
+    if not username or not password:
+        raise ValueError('username and/or password is empty')
+
+    return username, password
 
 
 class Listener(connectionlistener):
@@ -241,25 +416,41 @@ class ActiveMQ:
     def get_credentials(self) -> None:
         """Download ActiveMQ credentials from the PanDA server.
 
-        Fetches ``MB_USERNAME`` and ``MB_PASSWORD`` via the ``get_user_secrets`` server
-        command and stores them in ``self.username`` and ``self.password``. Does nothing
-        if ``pandaurl`` or ``pandaport`` are not configured.
+        Fetches ``MB_USERNAME`` and ``MB_PASSWORD`` from the ``get_user_secrets``
+        endpoint and stores them in ``self.username`` and ``self.password``. Does
+        nothing if ``pandaurl`` or ``pandaport`` are not configured.
         """
-        res = {}
         if not self.pandaurl or self.pandaport == 0:
             self.logger.warning('PanDA server URL and/or port not set - cannot get ActiveMQ credentials')
             return
 
-        data = {'get_json': True, 'keys': 'MB_USERNAME,MB_PASSWORD'}
-        cmd = https.get_server_command(self.pandaurl, self.pandaport, cmd='get_user_secrets')
-        if cmd != "":
-            self.logger.info(f'executing server command: {cmd}')
-            res = https.request(cmd, data=data)
+        cmd = https.get_server_command(self.pandaurl, self.pandaport, cmd=CREDENTIALS_ENDPOINT)
+        if not cmd:
+            return
 
-        # [True, {'MB_USERNAME': 'atlpndpilot', 'MB_PASSWORD': '7mNxYvOnsCX9iDBy'}]
-        if res and res[0]:
-            try:
-                self.username = res[1]['MB_USERNAME']
-                self.password = res[1]['MB_PASSWORD']
-            except KeyError as exc:
-                self.logger.warning(f'failed to extract keys from res={res}: {exc}')
+        self.logger.info(f'executing server command: {cmd}')
+        # note: no OIDC token - get_user_secrets only returns secrets registered to the
+        # caller, and the message broker secrets are registered to owner 'atlpilo1', which
+        # is what the X.509 proxy resolves to. The pilot's OIDC token resolves to a
+        # different owner ('Robot Pilot') that has no secrets registered, so with
+        # panda=True the call still succeeds but returns data="{}". panda is therefore
+        # left at its default (False), which makes request2() load the client certificate.
+        res = https.request2(cmd, params={'keys': list(MB_CREDENTIAL_KEYS)}, method='GET')
+
+        try:
+            self.username, self.password = extract_credentials(res)
+        except ValueError as exc:
+            # never log res itself: it carries the password
+            self.logger.warning(f'failed to get ActiveMQ credentials: {exc}')
+            # the usual cause is an owner mismatch. The pilot cannot resolve the owner name
+            # the server uses, but it can report the token subject that name is derived
+            # from, which is what a server-side log line has to be matched on
+            subject = https.get_local_token_subject()
+            if subject:
+                self.logger.warning(f'for reference, the local OIDC token has subject {subject}; '
+                                    f'the message broker secrets are registered to the proxy owner, '
+                                    f'not to whatever owner the server resolves this subject to')
+            return
+
+        self.logger.info(f'got ActiveMQ credentials for {self.username} '
+                         f'(password length {len(self.password)})')

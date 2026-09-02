@@ -19,7 +19,7 @@
 # Authors:
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
-"""DarkSide user specific functionality."""
+"""User specific functionality for Darkside."""
 
 import logging
 import os
