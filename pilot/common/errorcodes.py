@@ -193,6 +193,7 @@ class ErrorCodes:
     ALLOCATIONERROR = 1387
     XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
     NOTIMELEFTFORNEWJOB = 1389  # set when the pilot ends without running a job since too little time remained
+    SETUPTIMEDOUT = 1390  # the containerised payload setup verification command did not finish within its time limit
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -346,6 +347,7 @@ class ErrorCodes:
         ALLOCATIONERROR: "Failed to allocate memory for transform execution (cling JIT failure)",
         XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
         NOTIMELEFTFORNEWJOB: "Insufficient time remaining to start a new job",
+        SETUPTIMEDOUT: "Payload setup verification timed out",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
@@ -487,8 +489,16 @@ class ErrorCodes:
             "Singularity is not installed": self.SINGULARITYNOTINSTALLED,
             "Apptainer is not installed": self.APPTAINERNOTINSTALLED,
             "cannot create directory": self.MKDIR,
-            "General payload setup verification error": self.SETUPFAILURE,
         }
+        # Note: "General payload setup verification error" used to be a key in
+        # the map above. It is not an apptainer/singularity message at all, but
+        # the pilot's own placeholder for "the setup verification failed and
+        # there was no output to explain why" - so the pilot ended up
+        # pattern-matching its own text and reporting SETUPFAILURE for it.
+        # Confirmed in production (job 7291003889, 2026-09-02): a setup
+        # verification that was timed out by execute() (COMMANDTIMEDOUT) had its
+        # exit code reclassified to SETUPFAILURE because the placeholder was
+        # passed in as "stderr", hiding the fact that the command had hung.
 
         # Apptainer CLI version-incompatibility patterns: ALRB's
         # apptainerFunctions.sh probes the binary at job start with
@@ -522,13 +532,6 @@ class ErrorCodes:
             "No such file or directory": self.NOSUCHFILE,
         }
 
-        def get_key_by_value(d: dict, value: str) -> str:
-            """Return the key corresponding to a given value."""
-            for k, v in d.items():
-                if v == value:
-                    return k
-            return ""
-
         # Check if stderr contains any known error messages.
         # Return immediately on the first match: the matched pattern is
         # authoritative regardless of the numeric exit code.  (The previous
@@ -546,22 +549,30 @@ class ErrorCodes:
                 if error_message in stderr:
                     return error_code, error_message
 
-        # Handle specific exit codes
-        key = get_key_by_value({**error_map, **ambiguous_apptainer_patterns}, exit_code)
+        # Nothing was found in stderr. The remaining decisions are based on the
+        # numeric exit code alone, so there is no error message to report: the
+        # callers log any returned message as "found apptainer error in stderr",
+        # which must not be said about a string that was never in stderr.
+        # (This used to be a reverse look-up of the pattern maps by error code,
+        # which fabricated a message for every exit code that happened to equal
+        # one of the mapped pilot error codes - e.g. an empty payload.stderr
+        # with exit_code=SETUPFAILURE produced "found apptainer error in
+        # stderr: General payload setup verification error".)
         if exit_code == 2:
-            return self.LSETUPTIMEDOUT, key
+            return self.LSETUPTIMEDOUT, ""
         if exit_code == 3:
-            return self.REMOTEFILEOPENTIMEDOUT, key
-        if exit_code == 251:
-            return self.UNKNOWNTRFFAILURE, key
-        if exit_code == -1:
-            return self.UNKNOWNTRFFAILURE, key
-        if exit_code == self.COMMANDTIMEDOUT:
-            return exit_code, key
+            return self.REMOTEFILEOPENTIMEDOUT, ""
+        if exit_code in {251, -1}:
+            return self.UNKNOWNTRFFAILURE, ""
+        if exit_code >= 1000:
+            # already a pilot error code (e.g. COMMANDTIMEDOUT set by execute()
+            # on a time-out): keep the specific code instead of replacing it
+            # with the generic PAYLOADEXECUTIONFAILURE fallback
+            return exit_code, ""
         if exit_code != 0:
-            return self.PAYLOADEXECUTIONFAILURE, key
+            return self.PAYLOADEXECUTIONFAILURE, ""
 
-        return exit_code, key  # Return original exit code if no specific error is found
+        return exit_code, ""  # Return original exit code if no specific error is found
 
     def extract_stderr_error(self, stderr: str) -> str:
         """Extract the ERROR message from the payload stderr.

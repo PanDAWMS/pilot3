@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2023-24
-# - Paul Nilsson, paul.nilsson@cern.ch, 2024-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2024-26
 
 """Main process to handle event service.
 
@@ -878,7 +878,13 @@ class ESProcessFineGrainedProc(threading.Thread):
                 if err_msg == "":
                     err_msg = errors.extract_stderr_warning(stderr)
 
-                diagnostics = stderr + stdout if stdout and stderr else 'General payload setup verification error (check setup logs)'
+                # use whatever output is available: requiring *both* streams to be
+                # non-empty threw away a stderr-only failure reason, and the
+                # placeholder used to be pattern-matched by
+                # resolve_transform_error() as if it had come from stderr
+                diagnostics = stderr + stdout
+                if not diagnostics:
+                    diagnostics = 'payload failed without any output (check the payload logs)'
                 # check for special errors in thw output
                 _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
                 if error_message:

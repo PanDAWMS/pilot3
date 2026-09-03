@@ -4224,8 +4224,11 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
     # fail-safe to be able to report a job that is still running after the pilot has been ordered to abort
     final_job = None
 
-    # overall loop counter (ignoring the fact that more than one job may be running)
-    n = 0
+    # per-job monitor loop counters: a single job_monitor thread serves every job
+    # of a multi-job pilot, so the counter must be keyed by job id to restart at
+    # #1 for each new payload (it used to be a single counter for the lifetime of
+    # the thread, incremented even while no job was being monitored)
+    loop_counters = {}
     cont = True
     while cont:
 
@@ -4346,7 +4349,9 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                             logger.debug('killing payload processes')
                             kill_processes(jobs[i].pid)
 
-                    logger.info(f"monitor loop #{n}: job {i}:{current_id} is in state \'{jobs[i].state}\'")
+                    loop_counters[current_id] = loop_counters.get(current_id, 0) + 1
+                    logger.info(f"monitor loop #{loop_counters[current_id]}: job {i}:{current_id} "
+                                f"is in state \'{jobs[i].state}\'")
                     if jobs[i].state in {'finished', 'failed'}:
                         logger.info('will abort job monitoring soon since job state=%s (job is still in queue)', jobs[i].state)
                         if args.workflow == 'stager':  # abort interactive stager pilot, this will trigger an abort of all threads
@@ -4424,8 +4429,6 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
 
         elif os.environ.get('PILOT_JOB_STATE') == 'stagein':
             logger.info('job monitoring is waiting for stage-in to finish')
-
-        n += 1
 
         if abort_job:
             logger.warning('cannot recover job monitoring - aborting pilot')
