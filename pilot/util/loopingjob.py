@@ -43,6 +43,7 @@ from pilot.util.filehandling import (
 from pilot.util.heartbeat import time_since_suspension
 from pilot.util.loopingdumps import (
     create_core_dump,
+    remove_diagnostic_files,
     select_dump_candidates,
     take_looping_snapshot,
 )
@@ -119,22 +120,7 @@ def looping_job(job: Any, montime: Any) -> tuple[int, str]:
             logger.info(f'files were last touched {hours}h {minutes}m {seconds}s ago (current time: {currenttime})')
 
             if since_touch > looping_limit:
-                try:
-                    # which were the considered files?
-                    list_mod_files(recent_files)
-                    # overrule any other debug command before setting debug mode, so that
-                    # setting job.debug cannot start real-time logging in the payload thread
-                    job.debug_command = 'looping'
-                    # set debug mode to prevent core file from being removed before log creation
-                    job.debug = True
-                    # produce the core dump (and the analysis information needed to read it)
-                    # while the payload processes are still alive
-                    create_core_dump(job)
-                    kill_looping_job(job)
-                    exit_code = errors.LOOPINGJOB
-                    diagnostics = 'the payload was found to be looping - job will be failed in the next update'
-                except Exception as error:  # pylint: disable=broad-exception-caught
-                    logger.warning(f'exception caught: {error}')
+                exit_code, diagnostics = _handle_looping_payload(job, recent_files)
             else:
                 # not looping (yet) - record a cheap diagnostic snapshot if the job is
                 # already a configurable fraction of the way to the looping limit, so
@@ -142,6 +128,52 @@ def looping_job(job: Any, montime: Any) -> tuple[int, str]:
                 take_looping_snapshot(job, since_touch, looping_limit)
         else:
             logger.info('no files were touched')
+
+    return exit_code, diagnostics
+
+
+def _handle_looping_payload(job: Any, recent_files: list) -> tuple[int, str]:
+    """Report the looping payload, collect the diagnostics and kill it.
+
+    The outcome is recorded before anything else runs, so that a failing
+    diagnostic cannot cancel the detection: the error code used to be assigned
+    after the core dump and the kill, inside the same try block, which meant
+    that an exception in either left the job running with only a logged
+    warning.
+
+    Args:
+        job: Job object.
+        recent_files: The recently modified files the decision was based on.
+
+    Returns:
+        A tuple of ``(exit_code, diagnostics)``.
+    """
+    exit_code = errors.LOOPINGJOB
+    diagnostics = 'the payload was found to be looping - job will be failed in the next update'
+
+    # overrule any other debug command before setting debug mode, so that
+    # setting job.debug cannot start real-time logging in the payload thread
+    job.debug_command = 'looping'
+    # set debug mode to prevent core file from being removed before log creation
+    job.debug = True
+
+    # which were the considered files?
+    try:
+        list_mod_files(recent_files)
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to list the considered files: {error}')
+
+    # produce the core dump (and the analysis information needed to read it)
+    # while the payload processes are still alive
+    try:
+        create_core_dump(job)
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to create the core dump: {error}')
+
+    try:
+        kill_looping_job(job)
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        logger.warning(f'exception caught while killing the looping job: {error}')
 
     return exit_code, diagnostics
 
@@ -214,11 +246,14 @@ def _log_workdir_listing(workdir: str):
 def kill_looping_job(job: Any):
     """Kill the looping payload process and clean up.
 
-    Collects and reaps zombie processes, logs a snapshot of the pilot process
-    tree and work directory contents (scoped to this pilot only — not the full
-    worker node), sets the appropriate error code, transitions the job to the
-    ``failed`` state, removes any lingering stage-in files, and finally kills
-    all child processes of the pilot.
+    Sets the appropriate error code and transitions the job to the ``failed``
+    state first, since everything that follows is either slow or able to fail
+    and neither must be able to leave the job unmarked. Then dumps the payload
+    stack traces, collects and reaps zombie processes, logs a snapshot of the
+    pilot process tree and work directory contents (scoped to this pilot only —
+    not the full worker node), removes any lingering stage-in files, and
+    finally kills all child processes of the pilot. Each diagnostic step is
+    guarded individually so that a failure in one does not skip the kill.
 
     Args:
         job: Job object.
@@ -228,29 +263,31 @@ def kill_looping_job(job: Any):
     logger.fatal(diagnostics)
     job.debug_command = 'looping'  # overrule any other debug command - also prevents real time logging from starting
 
+    # fail the job before anything else is done: the diagnostics below take time and can
+    # fail, and neither must be able to leave the job unmarked
+    _set_looping_error_code(job)
+
     # dump stack traces while the payload processes are still alive (the generic kill
     # path does this, but this path kills the children itself)
     _dump_payload_stack_traces(job)
 
-    # process zombies
-    if job.pid not in job.zombies:
-        job.zombies.append(job.pid)
-    logger.info("pass #1/2: collecting zombie processes")
-    job.collect_zombies(depth=10)
-    logger.debug('pass #2/2: reaping zombies')
-    reap_zombies()
+    _collect_and_reap_zombies(job)
     _handle_zombies(job)
 
     # log diagnostics scoped to this pilot subtree only
     _log_workdir_listing(job.workdir)
+    _log_pilot_process_tree(job)
 
-    pilot_pid = os.getpid()
-    pilot_tree = get_pilot_process_tree(pilot_pid)
-    logger.info(f"pilot process tree (PID {pilot_pid}):\n{pilot_tree}")
+    _remove_lingering_input_files(job)
+    _kill_child_processes(os.getpid())
 
-    logger.info(f"payload process: {get_process_details(job.pid)}")
 
-    # set the relevant error code
+def _set_looping_error_code(job: Any):
+    """Add the error code matching the job state and fail the job.
+
+    Args:
+        job: Job object.
+    """
     if job.state == 'stagein':
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.STAGEINTIMEOUT, priority=True)
     elif job.state == 'stageout':
@@ -260,20 +297,70 @@ def kill_looping_job(job: Any):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.LOOPINGJOB, priority=True)
     set_pilot_state(job=job, state="failed")
 
-    # remove any lingering input files from the work dir
-    lfns, _ = job.get_lfns_and_guids()
-    if lfns:
-        _ec = remove_files(lfns, workdir=job.workdir)
-        if _ec != 0:
-            logger.warning('failed to remove all files')
 
+def _collect_and_reap_zombies(job: Any):
+    """Collect the payload's zombie processes and reap them.
+
+    Args:
+        job: Job object.
+    """
+    try:
+        if job.pid not in job.zombies:
+            job.zombies.append(job.pid)
+        logger.info("pass #1/2: collecting zombie processes")
+        job.collect_zombies(depth=10)
+        logger.debug('pass #2/2: reaping zombies')
+        reap_zombies()
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to process zombies: {exc}')
+
+
+def _log_pilot_process_tree(job: Any):
+    """Log the process tree of this pilot and the details of the payload process.
+
+    Args:
+        job: Job object.
+    """
+    pilot_pid = os.getpid()
+    try:
+        pilot_tree = get_pilot_process_tree(pilot_pid)
+        logger.info(f"pilot process tree (PID {pilot_pid}):\n{pilot_tree}")
+        logger.info(f"payload process: {get_process_details(job.pid)}")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to log the pilot process tree: {exc}')
+
+
+def _remove_lingering_input_files(job: Any):
+    """Remove any lingering input files from the job work directory.
+
+    Args:
+        job: Job object.
+    """
+    try:
+        lfns, _ = job.get_lfns_and_guids()
+        if lfns:
+            _ec = remove_files(lfns, workdir=job.workdir)
+            if _ec != 0:
+                logger.warning('failed to remove all files')
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to remove lingering input files: {exc}')
+
+
+def _kill_child_processes(pilot_pid: int):
+    """Kill all child processes of the pilot.
+
+    Args:
+        pilot_pid: Process id of the pilot.
+    """
     child_processes = get_child_processes(pilot_pid)
-    if child_processes:
-        logger.info(f"child processes of pilot (PID {pilot_pid}) to be killed:")
-        for pid, cmdline in child_processes:
-            logger.info(f"PID {pid}: {cmdline}")
-        for pid, _ in child_processes:
-            kill_process(pid)
+    if not child_processes:
+        return
+
+    logger.info(f"child processes of pilot (PID {pilot_pid}) to be killed:")
+    for pid, cmdline in child_processes:
+        logger.info(f"PID {pid}: {cmdline}")
+    for pid, _ in child_processes:
+        kill_process(pid)
 
 
 def get_time_for_last_touch(job: Any, montime: Any, looping_limit: int) -> tuple[int, list]:
@@ -307,6 +394,15 @@ def get_time_for_last_touch(job: Any, montime: Any, looping_limit: int) -> tuple
 
             # remove unwanted list items (*.py, *.pyc, workdir, ...)
             files = loopingjob_definitions.remove_unwanted_files(job.workdir, files)
+
+            # remove the files that the looping diagnostics themselves wrote into the work
+            # directory (snapshot series, core files and their analysis companions). They are
+            # pilot output, not payload activity, and counting them resets the very clock that
+            # triggered them - which makes any detection impossible. Done here rather than in
+            # each experiment plugin since the file names belong to the pilot, not to the
+            # experiment.
+            files = remove_diagnostic_files(files)
+
             if files:
                 logger.info(f'found {len(files)} files that were recently updated')
                 updated_files = verify_file_list(files)
