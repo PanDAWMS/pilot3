@@ -79,6 +79,26 @@ executable identity is recorded twice: as a greppable block in the pilot log
 marked with :data:`CORE_INFO_MARKER`, and as a companion file next to the core
 file in the job work directory, so that whoever picks up the log tarball later
 can run gdb against the right binary and the right software release.
+
+**These files must never look like payload activity.** The looping algorithm
+decides that a payload is alive by taking the modification time of the most
+recently modified file in the job work directory, and everything this module
+writes lands in that same directory. A diagnostic write therefore looks exactly
+like the payload doing work, which resets the very clock that triggered the
+diagnostic: the snapshot series starts at a fraction of the looping limit, so
+the time since the last touch was pinned just below that fraction and could
+never reach the limit. No looping job could be detected at all. Two independent
+guards prevent that, and both are needed - the first covers all artifacts, the
+second holds even if a caller forgets to apply the first:
+
+* :func:`is_looping_diagnostic_file` names every artifact written here, and the
+  looping algorithm drops those paths from the file list it measures
+  (:func:`pilot.util.loopingjob.get_time_for_last_touch`), centrally rather
+  than in each experiment plugin - the file names belong to this module, and
+  seven separate plugin filters are what failed to catch this;
+* :func:`store_snapshot` pins the modification time of the snapshot file to the
+  payload's own last touch, so that the file cannot be the newest file in the
+  work directory no matter who looks at it.
 """
 
 from __future__ import annotations
@@ -97,7 +117,10 @@ from typing import Any
 from pilot.common.errorcodes import ErrorCodes
 from pilot.util.config import config
 from pilot.util.container import execute
-from pilot.util.filehandling import write_file
+from pilot.util.filehandling import (
+    get_modification_time,
+    write_file
+)
 from pilot.util.math import human2bytes
 from pilot.util.parameters import convert_to_int
 from pilot.util.psutils import get_child_processes
@@ -128,6 +151,11 @@ INVENTORY_MARKER = "PAYLOAD PROCESS INVENTORY"
 
 # Name of the file in the job work directory holding the snapshot series.
 SNAPSHOT_FILENAME = "looping_snapshots.log"
+
+# Core files written by create_core_dump() are named 'core.<pid>'. Matched
+# against the basename so that the looping algorithm can recognise them as its
+# own output rather than as payload progress.
+CORE_FILE_PATTERN = re.compile(r"^core\.\d+$")
 
 # Command line fragments identifying processes that are known not to be the
 # looping payload. Matched case-insensitively against the basename of argv[0]
@@ -224,6 +252,59 @@ def reset_looping_dump_state() -> None:
     """
     _snapshot_state["jobid"] = None
     _snapshot_state["snapshots"] = []
+
+
+def is_looping_diagnostic_file(path: str) -> bool:
+    """Return True if the given path is a file the looping diagnostics wrote.
+
+    The looping algorithm must not measure the pilot's own diagnostic output as
+    if it were payload activity; see the module docstring. Everything this
+    module writes into the job work directory is listed here:
+
+    * the snapshot series (:data:`SNAPSHOT_FILENAME`);
+    * the core files (``core.<pid>``, :data:`CORE_FILE_PATTERN`);
+    * the core file analysis companions (``*.analysis.txt``,
+      :data:`CORE_INFO_SUFFIX`).
+
+    Args:
+        path: File path, absolute or relative.
+
+    Returns:
+        True if the path is a looping diagnostic artifact.
+    """
+    name = os.path.basename(path or "")
+    if not name:
+        return False
+
+    if name == SNAPSHOT_FILENAME or name.endswith(CORE_INFO_SUFFIX):
+        return True
+
+    return bool(CORE_FILE_PATTERN.match(name))
+
+
+def remove_diagnostic_files(files: list) -> list:
+    """Return the given file list without the looping diagnostic artifacts.
+
+    Called by the looping algorithm on the list of recently modified files
+    before their modification times are used to decide whether the payload is
+    still alive.
+
+    Args:
+        files: File paths.
+
+    Returns:
+        The paths that are not looping diagnostic artifacts.
+    """
+    kept = [_file for _file in files or [] if not is_looping_diagnostic_file(_file)]
+
+    dropped = len(files or []) - len(kept)
+    if dropped:
+        logger.debug(
+            f"{LOG_PREFIX}: ignoring {dropped} looping diagnostic file(s) in the work directory - "
+            f"they are pilot output, not payload activity"
+        )
+
+    return kept
 
 
 def read_proc_file(pid: int, name: str) -> str:
@@ -886,8 +967,34 @@ def take_looping_snapshot(job: Any, since_touch: int, looping_limit: int) -> Non
         logger.warning(f"{LOG_PREFIX}: snapshot failed (ignored): {exc}")
 
 
+def pin_diagnostic_mtime(path: str, mtime: int) -> None:
+    """Set the modification time of a diagnostic file to the given time.
+
+    The snapshot file lives in the job work directory, which is exactly what
+    the looping algorithm scans for payload activity, so writing it would
+    otherwise make the payload look alive and reset the looping clock. Pinning
+    the modification time to the payload's own last touch makes the file
+    incapable of being the newest file in the work directory, independently of
+    any name based filtering.
+
+    Args:
+        path: File path.
+        mtime: Modification time to set, in seconds since the Unix epoch.
+    """
+    try:
+        os.utime(path, (mtime, mtime))
+    except OSError as exc:
+        # the central filter in the looping algorithm still covers this file
+        logger.warning(f"{LOG_PREFIX}: could not pin the modification time of {path}: {exc}")
+
+
 def store_snapshot(job: Any, snapshot: dict) -> None:
     """Append a snapshot to the snapshot file in the job work directory.
+
+    The modification time of the file is pinned to the time of the payload's
+    last file touch (see :func:`pin_diagnostic_mtime`), which for the first
+    snapshot is derived from the snapshot itself and afterwards is simply the
+    time already carried by the file.
 
     Args:
         job: Job object.
@@ -897,10 +1004,20 @@ def store_snapshot(job: Any, snapshot: dict) -> None:
         return
 
     path = os.path.join(job.workdir, SNAPSHOT_FILENAME)
+
+    # the time the payload last touched a file: never later than this, so that the
+    # snapshot file cannot look like payload activity
+    pinned = get_modification_time(path)
+    if pinned is None:
+        pinned = int(snapshot.get("time", time.time())) - int(snapshot.get("since_touch", 0))
+
     try:
         write_file(path, format_snapshot(snapshot), mode="a")
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f"{LOG_PREFIX}: failed to append to {path}: {exc}")
+        return
+
+    pin_diagnostic_mtime(path, pinned)
 
 
 def summarise_snapshots() -> str:

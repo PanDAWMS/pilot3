@@ -29,10 +29,24 @@ subcommand entirely) ran to completion inside the container and reached its
 own "Done." completion marker. Genuine setup failures (no "Done." marker, or
 a non-ambiguous apptainer/singularity pattern) must still be reported as
 failures.
+
+Also covers the regression reported 2026-09-02 (job 7291003889,
+UNI-SIEGEN-HEP): the containerised setup verification hung and was killed by
+execute() after 600 s (COMMANDTIMEDOUT). The container had written its
+output to setup.stdout only, leaving setup.stderr empty, so re-reading both
+files overwrote the in-memory stderr holding the TimeoutExpired reason. The
+resulting placeholder ("General payload setup verification error ...") was
+itself an error_map pattern, so the pilot matched its own text, logged
+"found apptainer error in stderr" and reclassified 1367 -> 1110. A timed-out
+setup verification must now be reported as SETUPTIMEDOUT with the time-out
+reason preserved in the diagnostics.
 """
 
 import logging
+import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 from pilot.common.errorcodes import ErrorCodes
@@ -125,6 +139,137 @@ class TestResolveSetupVerificationResultGenuineFailures(unittest.TestCase):
         """Empty/None-like stdout must not raise and must not be treated as the 'Done.' marker."""
         exit_code, _ = Executor.resolve_setup_verification_result(1, "", _BUILDCFG_PROBE_STDERR)
         self.assertEqual(exit_code, errors.SINGULARITYGENERALFAILURE)
+
+
+# The exact production stderr returned by execute() for job 7291003889
+# (UNI-SIEGEN-HEP, 2026-09-02) when the setup verification container hung.
+_TIMEOUT_STDERR = (
+    "subprocess communicate sent TimeoutExpired: Command '['/bin/bash', '-c', "
+    "'export X509_USER_PROXY=/var/lib/condor/execute/dir_18031/x509up_u25606_prod;"
+    "source ${ATLAS_LOCAL_ROOT_BASE}/user/atlasLocalSetup.sh -c $thePlatform "
+    "-s /srv/my_release_setup.sh -r /srv/container_script.sh']' timed out after "
+    "599.9998625442386 seconds"
+)
+
+# setup.stdout as written by the container before it stalled: the ALRB banner and
+# the start of asetup, but no 'Done.' marker.
+_TRUNCATED_SETUP_STDOUT = (
+    "Info: /cvmfs mounted; do 'setupATLAS -d -c ...' to skip default mounts.\n"
+    "Apptainer: 1.2.2\n"
+    " sourcing /srv/my_release_setup.sh \n"
+    "Using AthGeneration/23.6.11 [cmake] with platform x86_64-centos7-gcc11-opt\n"
+)
+
+
+class TestResolveSetupVerificationResultTimeout(unittest.TestCase):
+    """A timed-out setup verification is reported as a time-out, not a pattern match."""
+
+    def test_timeout_is_reported_as_setuptimedout(self):
+        """Exact production case: COMMANDTIMEDOUT -> SETUPTIMEDOUT."""
+        diagnostics = _TIMEOUT_STDERR + _TRUNCATED_SETUP_STDOUT
+        exit_code, diagnostics_out = Executor.resolve_setup_verification_result(
+            errors.COMMANDTIMEDOUT, _TRUNCATED_SETUP_STDOUT, diagnostics, stderr=_TIMEOUT_STDERR
+        )
+        self.assertEqual(exit_code, errors.SETUPTIMEDOUT)
+        self.assertIn("Payload setup verification timed out", diagnostics_out)
+        self.assertIn("600 s", diagnostics_out)
+        self.assertLessEqual(len(diagnostics_out), 256)
+
+    def test_timeout_diagnostics_falls_back_to_combined_output(self):
+        """With no separate stderr the combined diagnostics is still used."""
+        exit_code, diagnostics_out = Executor.resolve_setup_verification_result(
+            errors.COMMANDTIMEDOUT, _TRUNCATED_SETUP_STDOUT, _TRUNCATED_SETUP_STDOUT
+        )
+        self.assertEqual(exit_code, errors.SETUPTIMEDOUT)
+        self.assertNotEqual(diagnostics_out, "")
+
+    def test_placeholder_is_not_reclassified_as_setupfailure(self):
+        """The pilot's own placeholder text must not be pattern-matched.
+
+        This is what turned the time-out into SETUPFAILURE (1110) with the
+        misleading "found apptainer error in stderr" warning.
+        """
+        placeholder = "setup verification failed without any output (check setup logs)"
+        exit_code, _ = Executor.resolve_setup_verification_result(
+            errors.COMMANDTIMEDOUT, "", placeholder, stderr=""
+        )
+        self.assertEqual(exit_code, errors.SETUPTIMEDOUT)
+        self.assertNotEqual(exit_code, errors.SETUPFAILURE)
+
+
+class TestCollectSetupDiagnostics(unittest.TestCase):
+    """The in-memory output from execute() must not be lost to an empty file."""
+
+    def setUp(self):
+        """Create a temporary work directory with setup.stdout/setup.stderr paths."""
+        self.workdir = tempfile.mkdtemp()
+        self.stdout_filename = os.path.join(self.workdir, "setup.stdout")
+        self.stderr_filename = os.path.join(self.workdir, "setup.stderr")
+
+    def tearDown(self):
+        """Remove the temporary work directory."""
+        shutil.rmtree(self.workdir, ignore_errors=True)
+
+    def _write(self, path: str, content: str):
+        """Write content to the given path."""
+        with open(path, "w", encoding="utf-8") as _file:
+            _file.write(content)
+
+    def test_timeout_stderr_survives_empty_stderr_file(self):
+        """Exact production case: stdout only on disk, time-out reason only in memory."""
+        self._write(self.stdout_filename, _TRUNCATED_SETUP_STDOUT)
+        self._write(self.stderr_filename, "")  # the container wrote everything to stdout
+
+        stdout, stderr, diagnostics = Executor.collect_setup_diagnostics(
+            "", _TIMEOUT_STDERR, self.stdout_filename, self.stderr_filename
+        )
+        self.assertEqual(stderr, _TIMEOUT_STDERR)
+        self.assertIn("AthGeneration/23.6.11", stdout)
+        self.assertIn("timed out after", diagnostics)
+        self.assertIn("AthGeneration/23.6.11", diagnostics)
+
+    def test_stdout_only_is_enough_for_diagnostics(self):
+        """A failure with output on stdout alone does not fall back to a placeholder."""
+        self._write(self.stdout_filename, "asetup: release not found\n")
+        self._write(self.stderr_filename, "")
+
+        _, _, diagnostics = Executor.collect_setup_diagnostics(
+            "", "", self.stdout_filename, self.stderr_filename
+        )
+        self.assertEqual(diagnostics, "asetup: release not found\n")
+
+    def test_placeholder_only_when_there_is_no_output_at_all(self):
+        """With nothing anywhere, a placeholder is used - and it matches no pattern."""
+        _, _, diagnostics = Executor.collect_setup_diagnostics(
+            "", "", self.stdout_filename, self.stderr_filename
+        )
+        self.assertNotEqual(diagnostics, "")
+        _exit_code, error_message = errors.resolve_transform_error(
+            errors.COMMANDTIMEDOUT, diagnostics
+        )
+        self.assertEqual(error_message, "")
+        self.assertEqual(_exit_code, errors.COMMANDTIMEDOUT)
+
+    def test_in_memory_output_takes_precedence_over_files(self):
+        """What execute() returned is kept; the files only fill in what is missing."""
+        self._write(self.stdout_filename, "from file\n")
+        self._write(self.stderr_filename, "from file\n")
+
+        stdout, stderr, _ = Executor.collect_setup_diagnostics(
+            "in memory out", "in memory err", self.stdout_filename, self.stderr_filename
+        )
+        self.assertEqual(stdout, "in memory out")
+        self.assertEqual(stderr, "in memory err")
+
+    def test_missing_files_do_not_raise(self):
+        """Absent setup.stdout/setup.stderr must not raise."""
+        stdout, stderr, diagnostics = Executor.collect_setup_diagnostics(
+            "", "", os.path.join(self.workdir, "nosuch.stdout"),
+            os.path.join(self.workdir, "nosuch.stderr")
+        )
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "")
+        self.assertNotEqual(diagnostics, "")
 
 
 if __name__ == "__main__":

@@ -17,11 +17,11 @@
 # under the License.
 #
 # Authors:
-# - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
+# - Mario Lassnig, mario.lassnig@cern.ch, 2016-17
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
-# - Wen Guan, wen.guan@cern.ch, 2017-2018
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
+# - Wen Guan, wen.guan@cern.ch, 2017-18
 
 """Functions for handling the payload."""
 
@@ -292,6 +292,12 @@ def execute_payloads(queues: namedtuple, traces: Any, args: object) -> None:  # 
                 logger.warning(f'failed to open payload stdout/err: {error}')
                 out = None
                 err = None
+            # set the internal job state as well: send_state() only updates
+            # job.serverstate, so without this the job monitor would report an
+            # empty state until run_payload() sets 'running' - which can be many
+            # minutes later if the setup verification is slow (and never for jobs
+            # without input files, which do not get the 'stagein' state either)
+            set_pilot_state(job=job, state='starting')
             send_state(job, args, 'starting')
 
             # note: when sending a state change to the server, the server might respond with 'tobekilled'

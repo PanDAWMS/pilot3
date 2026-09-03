@@ -508,9 +508,13 @@ def verify_looping_job(current_time: int, mt: MonitoringTime, job: JobData, args
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
     loopingjob_definitions = __import__(f'pilot.user.{pilot_user}.loopingjob_definitions', globals(), locals(), [pilot_user], 0)
 
+    # the check requires both the job and the experiment plugin to allow it ('not a and b'
+    # used to be tested here, which let a plugin that disallows detection be overruled and
+    # only skipped the check for the one case where both flags disagreed)
     runcheck = loopingjob_definitions.allow_loopingjob_detection()
-    if not job.looping_check and runcheck:
-        logger.debug('looping check not desired')
+    if not (job.looping_check and runcheck):
+        logger.debug(f'looping check not desired (job.looping_check={job.looping_check}, '
+                     f'{pilot_user} plugin allows looping job detection={runcheck})')
         return 0, ""
 
     time_since_start = get_time_since(job.jobid, PILOT_PRE_PAYLOAD, args)  # payload walltime

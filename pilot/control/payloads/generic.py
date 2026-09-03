@@ -892,8 +892,54 @@ class Executor:
         return exit_code
 
     @staticmethod
-    def resolve_setup_verification_result(exit_code: int, stdout: str, diagnostics: str) -> tuple[int, str]:
+    def collect_setup_diagnostics(stdout: str, stderr: str, stdout_filename: str,
+                                  stderr_filename: str) -> tuple[str, str, str]:
+        """Collect all available output from a failed setup verification.
+
+        ``execute()`` returns whatever it captured in memory, which for a
+        timed-out command is an empty stdout plus the reason for the kill in
+        stderr, while the child process writes its own output to
+        ``setup.stdout``/``setup.stderr``. Either source can be empty, so each
+        stream is only read back from file when it is missing from memory:
+        reading both unconditionally overwrote the in-memory stderr - the only
+        description of the failure - with an empty file (the container writes
+        everything to stdout, leaving setup.stderr empty).
+
+        Args:
+            stdout: stdout as returned by ``execute()`` (may be empty).
+            stderr: stderr as returned by ``execute()`` (may be empty).
+            stdout_filename: path to the setup stdout file.
+            stderr_filename: path to the setup stderr file.
+
+        Returns:
+            tuple[str, str, str]: (stdout, stderr, diagnostics), where
+            *diagnostics* is stderr followed by stdout, or a placeholder when
+            no output at all could be found.
+        """
+        if not stdout and os.path.exists(stdout_filename):
+            stdout = read_file(stdout_filename)
+        if not stderr and os.path.exists(stderr_filename):
+            stderr = read_file(stderr_filename)
+
+        diagnostics = stderr + stdout
+        if not diagnostics:
+            # note: this text must not match any pattern in
+            # ErrorCodes.resolve_transform_error(), or the pilot will end up
+            # pattern-matching its own placeholder
+            diagnostics = "setup verification failed without any output (check setup logs)"
+
+        return stdout, stderr, diagnostics
+
+    @staticmethod
+    def resolve_setup_verification_result(exit_code: int, stdout: str, diagnostics: str,
+                                          stderr: str = "") -> tuple[int, str]:
         """Resolve the final exit code/diagnostics for a setup verification run.
+
+        A ``COMMANDTIMEDOUT`` exit code means ``execute()`` had to kill the
+        command because it never finished (e.g. a container startup stalling
+        on CVMFS). Nothing was produced to pattern-match in that case, so the
+        time-out is reported as such (``SETUPTIMEDOUT``) rather than being run
+        through the apptainer/singularity stderr patterns.
 
         The setup verification command (see ``run()``) always appends
         ``echo "Done."`` as its final statement. ALRB separately probes the
@@ -911,7 +957,9 @@ class Executor:
         Args:
             exit_code: raw exit code from the setup verification command.
             stdout: captured stdout from the setup verification command.
-            diagnostics: combined diagnostic text (typically stdout + stderr).
+            diagnostics: combined diagnostic text (typically stderr + stdout).
+            stderr: captured stderr, used on its own for the time-out
+                diagnostics since it holds the reason the command was killed.
 
         Returns:
             tuple[int, str]: (exit_code, diagnostics), overridden to (0, "")
@@ -919,6 +967,20 @@ class Executor:
             artifact; otherwise the (possibly reclassified) exit code and
             formatted diagnostics.
         """
+        if exit_code == errors.COMMANDTIMEDOUT:
+            logger.warning("the setup verification command was timed out - reporting it as a setup time-out")
+            # keep the diagnostics short: format_diagnostics() truncates to 256
+            # characters and the setup command string alone is longer than that,
+            # which would push the actual time-out out of the reported message
+            found = re.search(r"timed out after ([\d.]+) seconds", stderr or diagnostics)
+            reason = (
+                f"the containerised setup command did not finish within {round(float(found.group(1)))} s "
+                f"and was killed"
+                if found
+                else "the containerised setup command did not finish and was killed"
+            )
+            return errors.SETUPTIMEDOUT, errors.format_diagnostics(errors.SETUPTIMEDOUT, reason)
+
         _exit_code, error_message = errors.resolve_transform_error(exit_code, diagnostics)
         if error_message:
             logger.warning(f"found apptainer error in stderr: {error_message}")
@@ -991,26 +1053,25 @@ class Executor:
                     job=self.__job,
                     timeout=_setup_verify_timeout,
                 )
-                if exit_code:
-                    logger.warning(f"setup returned exit code={exit_code}")
-                    diagnostics = stderr + stdout if stdout and stderr else ""
-                    if not diagnostics:
-                        stdout = read_file(stdout_filename)
-                        stderr = read_file(stderr_filename)
-                    diagnostics = (
-                        stderr + stdout
-                        if stdout and stderr
-                        else "General payload setup verification error (check setup logs)"
-                    )
-                    exit_code, diagnostics = self.resolve_setup_verification_result(exit_code, stdout, diagnostics)
-                    if exit_code:
-                        return exit_code, diagnostics
+                # the command has finished (or been killed), so close the output
+                # files before they are read back - and before any early return
+                # below, which used to leak both file objects
                 if out:
                     out.close()
                     logger.debug(f"closed {stdout_filename}")
                 if err:
                     err.close()
                     logger.debug(f"closed {stderr_filename}")
+                if exit_code:
+                    logger.warning(f"setup returned exit code={exit_code}")
+                    stdout, stderr, diagnostics = self.collect_setup_diagnostics(
+                        stdout, stderr, stdout_filename, stderr_filename
+                    )
+                    exit_code, diagnostics = self.resolve_setup_verification_result(
+                        exit_code, stdout, diagnostics, stderr=stderr
+                    )
+                    if exit_code:
+                        return exit_code, diagnostics
             except Exception as error:
                 diagnostics = f"could not execute: {error}"
                 logger.error(diagnostics)

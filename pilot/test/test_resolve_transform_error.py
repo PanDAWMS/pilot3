@@ -41,6 +41,10 @@ Covers:
 - Numeric exit-code fallbacks (2, 3, 251, -1, COMMANDTIMEDOUT).
 - Regression: no-match path still returns PAYLOADEXECUTIONFAILURE for
   unrecognised non-zero exit codes.
+- Regression (job 7291003889, 2026-09-02): nothing may be returned as an
+  "error message found in stderr" unless it was really found in stderr, and
+  an exit code that is already a pilot error code must be passed through
+  instead of being replaced by PAYLOADEXECUTIONFAILURE.
 """
 
 import logging
@@ -302,6 +306,46 @@ class TestResolveTransformErrorNumericFallbacks(unittest.TestCase):
             self.assertEqual(len(result), 2)
             self.assertIsInstance(result[0], int)
             self.assertIsInstance(result[1], str)
+
+
+class TestResolveTransformErrorNoFabricatedMessage(unittest.TestCase):
+    """Regression (job 7291003889, 2026-09-02): no invented stderr messages."""
+
+    def test_no_error_message_without_a_stderr_match(self):
+        """Regression: no error message may be reported when stderr matched nothing.
+
+        The callers log the returned message as "found apptainer error in
+        stderr: ...". A reverse look-up of the pattern maps by error code used
+        to fabricate one for every exit code that happened to equal a mapped
+        pilot error code - e.g. an empty payload.stderr with
+        exit_code=SETUPFAILURE (1110) produced "found apptainer error in
+        stderr: General payload setup verification error" (job 7291003889).
+        """
+        for code in (0, 1, 2, 3, -1, 251, errors.COMMANDTIMEDOUT, errors.SETUPFAILURE,
+                     errors.NOSUCHFILE, errors.MKDIR, errors.SINGULARITYNOTINSTALLED,
+                     errors.SINGULARITYFAILEDUSERNAMESPACE, errors.APPTAINERNOTINSTALLED):
+            _, msg = errors.resolve_transform_error(code, "")
+            self.assertEqual(msg, "", f"no message may be reported for exit code {code}")
+
+    def test_placeholder_diagnostics_is_not_a_pattern(self):
+        """Regression: the pilot's own setup-failure placeholder is not matched.
+
+        "General payload setup verification error" was an error_map key while
+        also being the text the pilot itself substituted when a setup
+        verification produced no output, so the pilot pattern-matched its own
+        placeholder and reclassified COMMANDTIMEDOUT to SETUPFAILURE.
+        """
+        placeholder = "General payload setup verification error (check setup logs)"
+        ec, msg = errors.resolve_transform_error(errors.COMMANDTIMEDOUT, placeholder)
+        self.assertEqual(ec, errors.COMMANDTIMEDOUT)
+        self.assertEqual(msg, "")
+
+    def test_pilot_error_code_is_passed_through(self):
+        """An exit code that is already a pilot error code is not rewritten."""
+        for code in (errors.SETUPFAILURE, errors.SETUPTIMEDOUT, errors.NOSUCHFILE,
+                     errors.SINGULARITYBINDPOINTFAILURE, errors.MKDIR):
+            ec, _ = errors.resolve_transform_error(code, "")
+            self.assertEqual(ec, code, f"pilot error code {code} must not be rewritten")
 
 
 if __name__ == "__main__":
