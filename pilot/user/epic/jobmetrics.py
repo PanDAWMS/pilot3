@@ -25,6 +25,7 @@
 
 
 from __future__ import annotations
+import json
 import logging
 import os
 import re
@@ -50,6 +51,15 @@ from .cpu import get_core_count
 from .utilities import get_memory_monitor_output_filename
 
 logger = logging.getLogger(__name__)
+
+
+# Bounds on the metrics a payload may declare in its job report. The job metrics field is size-limited by the
+# server, and the payload's entries are appended after the pilot's own, so these keep a payload from crowding
+# them out however much it declares.
+PAYLOAD_METRIC_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,31}$")
+MAX_PAYLOAD_METRICS = 10
+MAX_PAYLOAD_METRIC_VALUE = 64
+MAX_PAYLOAD_METRICS_LENGTH = 200
 
 
 def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C901
@@ -123,10 +133,74 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
         if alt_lfns:
             job_metrics += get_job_metrics_entry("altTransferred", ",".join(alt_lfns))
 
+    # add the metrics the payload declares in its job report
+    job_metrics += get_payload_metrics(job.workdir)
+
     # add any additional info
     if extra:
         for entry in extra:
             job_metrics += get_job_metrics_entry(entry, extra.get(entry))
+
+    return job_metrics
+
+
+def get_payload_metrics(workdir: str) -> str:
+    """Return the metrics the payload declares in its job report.
+
+    A payload that rewrites its report as it proceeds is reported to the server on every heartbeat, so a job that
+    dies with its worker has already said what it had done: the job record keeps job metrics, while metadata is
+    kept for finished jobs only. The report declares them as a flat "jobMetrics" object of scalars, and they are
+    bounded and sanitised here, so a payload can report a new metric without a change to the pilot.
+
+    Keys must be alphanumeric and are capped in number; values must be scalars without whitespace and are capped
+    in length. The whole job metrics string is size-limited by the caller.
+
+    Args:
+        workdir: work directory.
+
+    Returns:
+        str: job metrics entries for the declared metrics, empty when there are none or the report cannot be read.
+    """
+    path = os.path.join(workdir, config.Payload.jobreport)
+    if not os.path.exists(path):
+        return ""
+
+    try:
+        with open(path, encoding="utf-8") as _fp:
+            report = json.load(_fp)
+    except (OSError, ValueError) as error:
+        logger.warning(f"failed to read payload job report {path}: {error}")
+        return ""
+
+    if not isinstance(report, dict):
+        return ""
+
+    metrics = report.get("jobMetrics")
+    if not isinstance(metrics, dict):
+        return ""
+
+    job_metrics = ""
+    reported = 0
+    for key, value in metrics.items():
+        if reported >= MAX_PAYLOAD_METRICS:
+            logger.warning(f"payload declared more than {MAX_PAYLOAD_METRICS} job metrics - ignoring the rest")
+            break
+        if not isinstance(key, str) or not PAYLOAD_METRIC_KEY.match(key):
+            logger.warning(f"ignoring payload job metric with unusable name: {key}")
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            logger.warning(f"ignoring payload job metric {key} with unusable value type")
+            continue
+        text = str(value)
+        if not text or len(text) > MAX_PAYLOAD_METRIC_VALUE or any(c.isspace() for c in text):
+            logger.warning(f"ignoring payload job metric {key} with unusable value")
+            continue
+        entry = get_job_metrics_entry(key, text)
+        if len(job_metrics) + len(entry) > MAX_PAYLOAD_METRICS_LENGTH:
+            logger.warning("payload job metrics exceed the space allowed for them - ignoring the rest")
+            break
+        job_metrics += entry
+        reported += 1
 
     return job_metrics
 
