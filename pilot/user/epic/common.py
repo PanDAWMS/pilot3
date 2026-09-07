@@ -208,14 +208,16 @@ def update_job_data(job: object) -> None:
 
 
 def lift_payload_report(job: JobData) -> None:
-    """Lift error information from the payload job report into the job object.
+    """Lift information from the payload job report into the job object.
 
     If the payload wrote a job report (config.Payload.jobreport) in the work directory, parse it and copy its
-    error fields into the job object, so that the payload's own description of a failure is stored with the
-    job record (exeErrorCode/exeErrorDiag) rather than only the pilot's interpretation of the wrapper output.
+    fields into the job object, so that the payload's own account of the job is stored with the job record
+    rather than only the pilot's interpretation of the wrapper output: its error description
+    (exeErrorCode/exeErrorDiag), and its event counts, which nothing else sets for this experiment and which
+    job metrics, task sizing and accounting read.
     The report is optional: a missing or unparsable file leaves the job object unchanged.
 
-    Expected report fields: exitCode (int), exitMsg (str).
+    Expected report fields: exitCode (int), exitMsg (str), nEvents (int), nEventsW (int).
 
     Args:
         job: job object.
@@ -247,6 +249,15 @@ def lift_payload_report(job: JobData) -> None:
         logger.warning(f'payload job report: exitCode={exit_code} exitMsg={exit_msg}')
     elif isinstance(exit_code, int):
         logger.info('payload job report: exitCode=0')
+
+    # The payload is the only thing that knows how many events it processed: no ePIC job definition carries
+    # the count, and no other code path sets it, so without this the job record reports zero events for every
+    # job. Both counts are taken by name, so a payload that adds fields to its report needs no pilot change.
+    for attribute, key in (('nevents', 'nEvents'), ('neventsw', 'nEventsW')):
+        value = report.get(key)
+        if type(value) is int and value > 0:
+            setattr(job, attribute, value)
+            logger.info(f'payload job report: {key}={value}')
 
 
 def validate_output_data(job: JobData) -> None:
