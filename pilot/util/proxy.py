@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 
 """Proxy certificate handling and verification utilities."""
 
@@ -178,7 +178,10 @@ def get_proxy(proxy_outfile_name: str, voms_role: str) -> tuple[bool, str]:
             proxy_path: Path to the written proxy file (or the original path on failure).
     """
     _max_attempts = 3
-    _retry_sleep = 30  # seconds between attempts for transient network failures
+    # Seconds between attempts for transient network failures. Kept short since the caller
+    # (handle_payload_proxy()) runs during job validation and fails the job if the download
+    # does not succeed - there is no point in stretching the total wait to minutes.
+    _retry_sleep = 10
     proxy_contents = None
 
     for attempt in range(1, _max_attempts + 1):

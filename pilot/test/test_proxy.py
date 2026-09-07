@@ -26,12 +26,13 @@ download failures:
 
 1. ``get_proxy()`` in ``pilot/util/proxy.py``:
    Transient network errors (``request2()`` returning a "failed to send
-   request:" string) must be retried up to 3 times with a 30-second sleep
+   request:" string) must be retried up to 3 times with a 10-second sleep
    between attempts.  Definitive server-side failures must NOT be retried.
 
 2. ``get_and_verify_proxy()`` in ``pilot/user/atlas/proxy.py``:
    A download failure (``get_proxy()`` returning ``False``) must now
-   propagate as ``exit_code = NOPROXY`` rather than returning 0.
+   propagate as ``exit_code = PAYLOADPROXYDOWNLOADFAILURE`` rather than
+   returning 0.
 """
 
 import sys
@@ -138,7 +139,7 @@ class TestGetProxyRetry(unittest.TestCase):
         self.assertEqual(n_sleeps, 0)
 
     def test_retry_sleep_duration(self):
-        """Each retry must sleep for exactly 30 seconds."""
+        """Each retry must sleep for exactly 10 seconds."""
         from pilot.util.proxy import get_proxy
 
         transient = 'failed to send request: timeout'
@@ -163,7 +164,7 @@ class TestGetProxyRetry(unittest.TestCase):
                 mock_https.request2.side_effect = [transient, good]
                 get_proxy('/tmp/x509up_u0.proxy', 'atlas')
 
-            mock_sleep.assert_called_once_with(30)
+            mock_sleep.assert_called_once_with(10)
         finally:
             if original is None:
                 sys.modules.pop(fake_mod_name, None)
@@ -176,10 +177,10 @@ class TestGetProxyRetry(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestGetAndVerifyProxyErrorPropagation(unittest.TestCase):
-    """get_and_verify_proxy() must propagate download failure as NOPROXY."""
+    """get_and_verify_proxy() must propagate download failure as PAYLOADPROXYDOWNLOADFAILURE."""
 
-    def test_download_failure_returns_noproxy_exit_code(self):
-        """get_proxy() returning False must cause exit_code == NOPROXY."""
+    def test_download_failure_returns_dedicated_exit_code(self):
+        """get_proxy() returning False must cause exit_code == PAYLOADPROXYDOWNLOADFAILURE."""
         from pilot.user.atlas.proxy import get_and_verify_proxy
 
         with patch('pilot.user.atlas.proxy.get_proxy', return_value=(False, '/tmp/x509up_u0.proxy')):
@@ -187,8 +188,9 @@ class TestGetAndVerifyProxyErrorPropagation(unittest.TestCase):
                 '/tmp/x509up_u0.proxy', voms_role='atlas', proxy_type='payload'
             )
 
-        self.assertEqual(exit_code, errors.NOPROXY,
-                         f'download failure must return NOPROXY (1163), got {exit_code}')
+        self.assertEqual(exit_code, errors.PAYLOADPROXYDOWNLOADFAILURE,
+                         f'download failure must return PAYLOADPROXYDOWNLOADFAILURE (1391), '
+                         f'got {exit_code}')
 
     def test_download_failure_sets_diagnostics(self):
         """get_proxy() returning False must set a non-empty diagnostics string."""

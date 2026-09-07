@@ -1517,13 +1517,17 @@ def validate(queues: namedtuple, traces: Any, args: object) -> None:
 
             create_symlink(from_path=f'../{config.Pilot.pilotlog}', to_path=os.path.join(job_dir, config.Pilot.pilotlog))
 
-            # handle proxy in unified dispatch
-            if args.verify_proxy:
-                handle_proxy(job)
-            else:
-                logger.debug(
-                    f'will skip unified dispatch proxy handling since verify_proxy={args.verify_proxy} '
-                    f'(job.infosys.queuedata.type={job.infosys.queuedata.type})')
+            # verify the prerequisites that must hold before the payload may be executed. Note: these
+            # checks must happen before delayed_space_check(), since that function is what places the
+            # job in either the validated_jobs or the failed_jobs queue.
+            ec, diagnostics = verify_job_prerequisites(job, args)
+            if ec:
+                logger.error(f'cannot run job {job.jobid}: {diagnostics}')
+                traces.pilot['error_code'] = ec
+                job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(ec, msg=diagnostics)
+                job.piloterrordiag = diagnostics
+                put_in_queue(job, queues.failed_jobs)
+                continue
 
             # pre-cleanup
             pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -1542,19 +1546,6 @@ def validate(queues: namedtuple, traces: Any, args: object) -> None:
 
             # run the delayed space check now
             delayed_space_check(queues, traces, args, job)
-
-            # make sure the queue is correctly configured for containers if needed
-            if job.usecontainer:
-                if "pilot" in pilot_cache.queuedata.container_type:
-                    pass
-                else:
-                    logger.debug(f"pilot_cache.queuedata={pilot_cache.queuedata}")
-                    msg = "container_type must be set in CRIC"
-                    logger.error(msg)
-                    job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.QUEUENOTSETUPFORCONTAINERS,
-                                                                                     msg=msg)
-                    job.usecontainer = False
-                    put_in_queue(job, queues.failed_jobs)
 
         else:
             logger.debug(f'failed to validate job={job.jobid}')
@@ -3310,25 +3301,76 @@ def htcondor_envvar(jobid: int) -> None:
         logger.warning(f'caught exception: {exc}')
 
 
-def handle_proxy(job: Any) -> None:
-    """Handle the proxy in unified dispatch.
+def verify_job_prerequisites(job: Any, args: Any) -> tuple[int, str]:
+    """Verify everything that must hold before the payload may be executed.
+
+    A non-zero exit code means the job must be failed without running the payload. The caller is
+    responsible for recording the error code and placing the job in the failed_jobs queue.
+
+    Args:
+        job: job object.
+        args: Pilot arguments object.
+
+    Returns:
+        tuple[int, str]: exit code (0 if the job may proceed), diagnostics.
+    """
+    # handle proxy in unified dispatch, and download the payload proxy if one is needed
+    if args.verify_proxy:
+        exit_code, diagnostics = handle_proxy(job)
+        if exit_code:
+            return exit_code, diagnostics
+    else:
+        logger.debug(f'will skip proxy handling since verify_proxy={args.verify_proxy} '
+                     f'(job.infosys.queuedata.type={job.infosys.queuedata.type})')
+
+    # make sure the queue is correctly configured for containers if needed
+    if job.usecontainer and "pilot" not in pilot_cache.queuedata.container_type:
+        logger.debug(f"pilot_cache.queuedata={pilot_cache.queuedata}")
+        job.usecontainer = False
+        return errors.QUEUENOTSETUPFORCONTAINERS, "container_type must be set in CRIC"
+
+    return 0, ""
+
+
+def handle_proxy(job: Any) -> tuple[int, str]:
+    """Handle the job proxy, both for unified dispatch and for the payload proxy.
 
     In unified dispatch, the pilot is started with the production proxy, but in case the job is a user job, the
     production proxy is too powerful. A user proxy is then downloaded instead.
 
+    On non-unified analysis queues, a dedicated payload proxy is downloaded from the server instead (the user
+    plugin decides whether one is needed). Both downloads happen here, once per job, at a point where the job
+    can still be failed cleanly if they do not succeed - previously the payload proxy was downloaded from
+    within the container command builder, which meant a failure left the payload running under the pilot's own
+    proxy.
+
     Args:
         job: job object.
+
+    Returns:
+        tuple[int, str]: exit code (0 on success), diagnostics.
     """
     if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
         if ec:
-            logger.warning(f'failed to download proxy for unified dispatch - will continue with X509_USER_PROXY={os.environ.get("X509_USER_PROXY")}')
-        if ec == errors.CERTIFICATEHASEXPIRED:
-            logger.warning('the certificate has expired - cannot fail right now, should be picked up by the job later on')
+            diagnostics = f'failed to download/verify user proxy for unified dispatch (error code {ec})'
+            logger.warning(diagnostics)
+            return ec, diagnostics
     else:
         logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
                      f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
+
+    # download the payload proxy if the experiment requires one for this job
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    user = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
+    try:
+        exit_code, diagnostics = user.handle_payload_proxy(job)
+    except Exception as exc:
+        logger.warning(f'failed to execute handle_payload_proxy(): {exc}')
+        return 0, ''
+
+    return exit_code, diagnostics
 
 
 def dump_job_definition(res: dict) -> None:
