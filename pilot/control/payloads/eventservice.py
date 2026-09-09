@@ -77,7 +77,7 @@ class Executor(generic.Executor):
         self.utility_with_payload(job)
 
         try:
-            executable = user.get_payload_command(job)
+            executable = user.get_payload_command(job, args=self.__args)
         except exception.PilotException:
             logger.fatal("could not define payload command")
             return None
