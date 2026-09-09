@@ -194,6 +194,7 @@ class ErrorCodes:
     XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
     NOTIMELEFTFORNEWJOB = 1389  # set when the pilot ends without running a job since too little time remained
     SETUPTIMEDOUT = 1390  # the containerised payload setup verification command did not finish within its time limit
+    PAYLOADPROXYDOWNLOADFAILURE = 1391  # the payload proxy could not be downloaded from the PanDA server
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -348,6 +349,7 @@ class ErrorCodes:
         XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
         NOTIMELEFTFORNEWJOB: "Insufficient time remaining to start a new job",
         SETUPTIMEDOUT: "Payload setup verification timed out",
+        PAYLOADPROXYDOWNLOADFAILURE: "Failed to download payload proxy from server",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]

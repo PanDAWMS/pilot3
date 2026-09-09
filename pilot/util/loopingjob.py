@@ -42,6 +42,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.heartbeat import time_since_suspension
 from pilot.util.loopingdumps import (
+    MAX_STACK_TRACE_CANDIDATES,
     create_core_dump,
     remove_diagnostic_files,
     select_dump_candidates,
@@ -151,6 +152,12 @@ def _handle_looping_payload(job: Any, recent_files: list) -> tuple[int, str]:
     exit_code = errors.LOOPINGJOB
     diagnostics = 'the payload was found to be looping - job will be failed in the next update'
 
+    # log the decision before the diagnostics rather than after them: the core dump and the
+    # stack traces take minutes, and the kill message that used to be the first sign of the
+    # decision is only emitted once they are done, which reads as if the dump had been taken
+    # before anything was decided
+    logger.warning(f'looping payload detected for job {job.jobid} - collecting diagnostics before the kill')
+
     # overrule any other debug command before setting debug mode, so that
     # setting job.debug cannot start real-time logging in the payload thread
     job.debug_command = 'looping'
@@ -203,11 +210,26 @@ def _dump_payload_stack_traces(job: Any):
     children itself and would otherwise discard that information - which is
     precisely the information needed to explain the loop.
 
+    Only the top :data:`pilot.util.loopingdumps.MAX_STACK_TRACE_CANDIDATES`
+    candidates are traced. ``pstack`` is a gdb wrapper and costs up to its full
+    60 s timeout per process on a large payload, so tracing every candidate adds
+    minutes between the decision to kill and the log upload, on a worker node
+    that may be close to its wall clock limit. The candidates are ranked, so the
+    ones dropped here are the least likely to explain the loop, and the core
+    dump phases have already recorded the best candidate in more detail.
+
     Args:
         job: Job object.
     """
     try:
-        for pid, cmdline in select_dump_candidates(job, label="before kill"):
+        candidates = select_dump_candidates(job, label="before kill")
+        if len(candidates) > MAX_STACK_TRACE_CANDIDATES:
+            logger.info(
+                f'tracing the top {MAX_STACK_TRACE_CANDIDATES} of {len(candidates)} candidates '
+                f'to bound the time spent before the kill'
+            )
+            candidates = candidates[:MAX_STACK_TRACE_CANDIDATES]
+        for pid, cmdline in candidates:
             logger.info(f'stack trace for pid={pid} ({cmdline}):')
             dump_stack_trace(pid)
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -229,11 +251,14 @@ def _log_workdir_listing(workdir: str):
         logger.warning(f'failed to list workdir {workdir}: {exc}')
         return
 
-    lines = [f"workdir listing ({workdir}):"]
+    # UTC, not local time: the pilot log is written in UTC, and a listing in local time cannot
+    # be compared with it - which matters here, since the whole point of the listing is to see
+    # which files were touched when relative to the looping decision
+    lines = [f"workdir listing ({workdir}, times in UTC):"]
     for entry in entries:
         try:
             st = entry.stat()
-            mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.st_mtime))
+            mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(st.st_mtime))
             ftype = 'd' if entry.is_dir(follow_symlinks=False) else \
                     'l' if entry.is_symlink() else '-'
             lines.append(f"  {ftype} {st.st_size:>12}  {mtime}  {entry.name}")

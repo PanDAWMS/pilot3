@@ -203,20 +203,20 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
     diagnostics = ""
 
     #x509 = os.environ.get('X509_USER_PROXY', '')
-    x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+    x509 = os.environ.get('X509_UNIFIED_DISPATCH') or os.environ.get('X509_USER_PROXY', '')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
         cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
         # add it instead to the container setup command:
 
-        # not support yet, see atlas code if needed
-        # download and verify payload proxy from the server if desired
-        #proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
-        #if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis and queue_type != 'unified':
-        #    voms_role = get_voms_role(role='user')
-        #    exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
-        #    if exit_code != 0:  # do not return non-zero exit code if only download fails
-        #        logger.warning('payload proxy verification failed')
+        # not supported yet, see atlas code if needed. Note: the payload proxy must NOT be
+        # downloaded from here - this function is a command-string builder invoked from
+        # pilot.util.container.execute(), so it runs more than once per job and is reached too
+        # late for the job to be failed if the download does not succeed. Implement
+        # handle_payload_proxy() in this experiment's proxy.py instead (as ATLAS does) and only
+        # consume the resolved path here:
+        #if is_analysis and queue_type != 'unified' and pilot_cache.payload_proxy:
+        #    x509 = pilot_cache.payload_proxy
 
         # add X509_USER_PROXY setting to the container setup command
         setup_cmd = f"export X509_USER_PROXY={x509};" + setup_cmd
