@@ -403,6 +403,45 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
         self.assertEqual(exit_code, errors.LOOPINGJOB)
         self.assertIn("looping", diagnostics)
 
+    def test_the_stack_traces_are_capped(self):
+        """pstack is a gdb wrapper and costs up to its full timeout per process.
+
+        Tracing every candidate added minutes between the decision to kill and
+        the log upload, on a node that may be near its wall clock limit. The
+        candidates are ranked, so the ones dropped are the least informative.
+        """
+        traced = []
+        candidates = [(pid, f"payload {pid}") for pid in range(9001, 9007)]
+        with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(traced, [9001, 9002])
+
+    def test_a_failing_stack_trace_does_not_stop_the_kill(self):
+        """The traces are a diagnostic; the kill is not."""
+        with patch.object(loopingjob, "select_dump_candidates", side_effect=RuntimeError("no tree")):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+    def test_the_workdir_listing_is_in_utc(self):
+        """The pilot log is in UTC, so a listing in local time cannot be compared with it.
+
+        The whole point of the listing is to see which files were touched when
+        relative to the looping decision.
+        """
+        with tempfile.TemporaryDirectory() as workdir:
+            path = os.path.join(workdir, "payload.stdout")
+            with open(path, "w", encoding="utf-8") as _file:
+                _file.write("x")
+            os.utime(path, (1788506841, 1788506841))  # 2026-09-03 12:47:21 UTC
+
+            with self.assertLogs("pilot.util.loopingjob", level="INFO") as captured:
+                loopingjob._log_workdir_listing(workdir)  # pylint: disable=protected-access
+
+        text = "\n".join(captured.output)
+        self.assertIn("times in UTC", text)
+        self.assertIn(time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(1788506841)), text)
+
     def test_the_job_is_failed_before_the_diagnostics_run(self):
         """Slow or failing diagnostics must not leave the job unmarked."""
         job = FakeJob(workdir="/srv/nonexistent")

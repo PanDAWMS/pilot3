@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Functions related to proxy handling for generic user."""
 
@@ -25,6 +25,9 @@
 
 from __future__ import annotations
 import logging
+
+from typing import Any
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,6 +86,36 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     diagnostics = ""
 
     return exit_code, diagnostics, x509
+
+
+def requires_payload_proxy(job: Any) -> bool:
+    """Determine whether a payload proxy should be downloaded for the given job.
+
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if a payload proxy is required.
+    """
+    if job:  # to bypass pylint score 0
+        pass
+
+    return False
+
+
+def handle_payload_proxy(job: Any) -> tuple[int, str]:
+    """Download and verify the payload proxy for the given job, if one is required.
+
+    Args:
+        job: job object.
+
+    Returns:
+        tuple[int, str]: exit code (0 on success or if no payload proxy is required), diagnostics.
+    """
+    if job:  # to bypass pylint score 0
+        pass
+
+    return 0, ""
 
 
 def getproxy_dictionary(voms_role: str) -> dict:

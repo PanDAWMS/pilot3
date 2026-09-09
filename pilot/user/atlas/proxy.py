@@ -36,6 +36,7 @@ from typing import (
 # from pilot.user.atlas.setup import get_file_system_root_path
 from pilot.common.errorcodes import ErrorCodes
 from pilot.common.pilotcache import get_pilot_cache
+from pilot.util.config import config
 from pilot.util.container import (
     execute,
     execute_nothreads
@@ -87,23 +88,112 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     logger.info(f"download proxy from server (type=\'{proxy_type}\', x509_payload={x509_payload})")
     res, x509_payload = get_proxy(x509_payload, voms_role)  # note that x509_payload might be updated
     logger.debug(f'get_proxy() returned {x509_payload}')
-    if res:
-        logger.debug("server returned proxy (verifying)")
-        exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
-        # if all verifications fail, verify_proxy()  returns exit_code=0 and last failure in diagnostics
-        if exit_code != 0 or (exit_code == 0 and diagnostics != ''):
-            logger.warning(diagnostics)
-            logger.info(f"proxy verification failed (proxy type=\'{proxy_type}\')")
-        else:
-            logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
-            # is commented: no user proxy should be in the command the container will execute
-            x509 = x509_payload
-    else:
-        logger.warning(f"failed to download proxy from server for role='{voms_role}'")
-        exit_code = errors.NOPROXY
+    if not res:
         diagnostics = f"failed to download proxy from server for role='{voms_role}'"
+        logger.warning(diagnostics)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, diagnostics, x509
 
-    return exit_code, diagnostics, x509
+    logger.debug("server returned proxy (verifying)")
+    exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
+
+    # verify_arcproxy() returns -1 when arcproxy itself is unavailable on the queue. That says
+    # nothing about the downloaded proxy, so it must not be reported as an error code (-1 has no
+    # entry in ErrorCodes._error_messages) and must not fail the job. The proxy was downloaded
+    # successfully, so use it unverified.
+    if exit_code == -1:
+        logger.warning(f"cannot verify downloaded proxy ({diagnostics}) - will use it unverified")
+        return 0, "", x509_payload
+
+    # If all verifications fail, verify_proxy() returns exit_code=0 with the last failure in
+    # diagnostics. That must still be treated as a failure: previously exit_code=0 was returned
+    # while x509 was left unchanged, so the caller silently continued with the pilot's own proxy.
+    if exit_code != 0 or diagnostics != "":
+        logger.warning(diagnostics)
+        logger.info(f"proxy verification failed (proxy type=\'{proxy_type}\')")
+        return exit_code if exit_code != 0 else errors.NOVOMSPROXY, diagnostics, x509
+
+    logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
+
+    return 0, "", x509_payload
+
+
+def requires_payload_proxy(job: Any) -> bool:
+    """Determine whether a payload proxy should be downloaded for the given job.
+
+    The payload proxy is only ever applied to the container setup command built by
+    ``alrb_wrapper()``, so the conditions here must match those under which that command is
+    built - otherwise jobs that would never use a payload proxy would be failed for not being
+    able to download one.
+
+    Args:
+        job: job object.
+
+    Returns:
+        bool: True if a payload proxy is required.
+    """
+    x509 = os.environ.get("X509_UNIFIED_DISPATCH") or os.environ.get("X509_USER_PROXY", "")
+    if not x509:
+        logger.debug("no X509_USER_PROXY set - no payload proxy required")
+        return False
+
+    proxy_verification = (os.environ.get("PILOT_PROXY_VERIFICATION") == "True" and
+                          os.environ.get("PILOT_PAYLOAD_PROXY_VERIFICATION") == "True")
+    if not (proxy_verification and config.Pilot.payload_proxy_from_server):
+        logger.debug(f"no payload proxy required (proxy_verification={proxy_verification}, "
+                     f"payload_proxy_from_server={config.Pilot.payload_proxy_from_server})")
+        return False
+
+    if not job.is_analysis():
+        logger.debug("no payload proxy required for production jobs")
+        return False
+
+    queuedata = job.infosys.queuedata
+    if queuedata.type == "unified":
+        # on unified dispatch queues the user proxy is downloaded by handle_proxy() instead
+        logger.debug("no payload proxy required on unified dispatch queues")
+        return False
+
+    if not queuedata.container_type.get("pilot"):
+        # without a pilot container there is no container setup command to add the proxy to
+        logger.debug("no payload proxy required since the queue does not use a pilot container")
+        return False
+
+    return True
+
+
+def handle_payload_proxy(job: Any) -> tuple[int, str]:
+    """Download and verify the payload proxy for the given job, if one is required.
+
+    On success the resolved proxy path is stored in the pilot cache, where
+    ``update_for_user_proxy()`` picks it up when the container setup command is built.
+
+    This is deliberately done once per job during job validation rather than inside
+    ``alrb_wrapper()``: that function is a command-string builder invoked from
+    ``pilot.util.container.execute()``, so it ran the download twice per job (once for the setup
+    verification and once for the payload) and was reached too late for the job to be failed
+    cleanly - the payload used to run with the pilot's own proxy instead.
+
+    Args:
+        job: job object.
+
+    Returns:
+        tuple[int, str]: exit code (0 on success or if no payload proxy is required), diagnostics.
+    """
+    if not requires_payload_proxy(job):
+        return 0, ""
+
+    x509 = os.environ.get("X509_UNIFIED_DISPATCH") or os.environ.get("X509_USER_PROXY", "")
+    voms_role = get_voms_role(role="user")
+    exit_code, diagnostics, x509_payload = get_and_verify_proxy(
+        x509, voms_role=voms_role, proxy_type="payload"
+    )
+    if exit_code:
+        return exit_code, diagnostics
+
+    pilot_cache.payload_proxy = x509_payload
+    logger.info(f"payload proxy is ready: {x509_payload}")
+
+    return 0, ""
 
 
 def verify_proxy(limit: int = None, x509: bool = None, proxy_id: str = "pilot", test: bool = False, pilotstartup: bool = False) -> tuple[int, str]:

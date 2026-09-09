@@ -68,11 +68,47 @@ cover the top :data:`MAX_CANDIDATES` processes rather than only the winner, a
 mis-ranked first choice still leaves the real payload sampled.
 
 At kill time at most one core file is still produced
-(:func:`create_core_dump`), but with the experiment's own gdb (the system one
-is frequently too old, which is why the server-driven debug path already
-prepends a setup), with an explicit working directory, with a timeout that a
-real payload can meet, and with the backtraces requested *before* the expensive
-core write so that a timeout still leaves something behind.
+(:func:`create_core_dump`), in two independent phases with independent
+timeouts. The first ordering tried - all of it in one gdb invocation, with the
+backtraces requested before the core write "so that a timeout still leaves
+something behind" - was wrong in production, and wrong in three separate ways:
+
+* it assumed the core write was the expensive step. It is not. ``generate-core-file``
+  only walks the inferior's mappings and needs no symbols at all, whereas
+  ``thread apply all bt`` needs the symbol table of every mapped object, which
+  for an athena process means several hundred shared libraries read over CVMFS.
+  On a real looping job the backtraces had not finished after four minutes and
+  the core write was never reached, so the cheap artifact was lost to the
+  expensive one;
+* it prepended the experiment setup to the invocation that writes the core
+  file, which cost about a minute of asetup before gdb even started, wrote
+  ``.asetup.save`` into the job work directory, and exported ``PYTHONHOME`` and
+  ``PYTHONPATH`` pointing at the release's Python. A gdb linked against a
+  different libpython honours those, cannot find the ``encodings`` module and
+  aborts inside ``Py_Initialize()`` before executing a single ``-ex`` command
+  (see :data:`PYTHON_ENVIRONMENT_VARIABLES`), losing both artifacts at once;
+* it relied on the return value of :func:`pilot.util.container.execute` to
+  carry the output, and that function discards stdout when a command times out.
+  Everything gdb had printed before the timeout was thrown away, and the log
+  claimed the backtraces had been captured when nothing had been.
+
+So: phase A writes the core file with a bare gdb, no experiment setup, and a
+sanitised environment. Phase B collects the backtraces with the experiment
+setup, on its own timeout, and is allowed to fail - the stacks are in the core
+file too. Both phases redirect to a file in the job work directory
+(:data:`GDB_OUTPUT_SUFFIX`) rather than relying on the return value, so a
+timeout keeps whatever was produced up to that point, and both run with a
+working directory *outside* the job work directory so that the setup cannot
+write there. The total is bounded by a single diagnostics budget
+(:func:`get_diagnostics_budget`), because everything here happens between the
+decision to kill and the kill itself.
+
+The release gdb is only needed to *read* a core file, and that happens offline,
+long after the worker node is gone. What it needs in order to be possible at
+all is recorded next to the core file by :func:`get_core_analysis_info`,
+including the container the payload ran in: the payload's system libraries come
+from the container image, not from the worker node, so a gdb running on the
+host resolves the system frames against the wrong binaries.
 
 Because a core file is useless without knowing which binary produced it, the
 executable identity is recorded twice: as a greppable block in the pilot log
@@ -107,9 +143,11 @@ import logging
 import os
 import re
 import signal
+import tempfile
 import time
 from shutil import (
     disk_usage,
+    rmtree,
     which
 )
 from typing import Any
@@ -141,6 +179,12 @@ CORE_INFO_MARKER = "CORE FILE ANALYSIS INFO"
 # information as the CORE_INFO_MARKER log block. The core file and this file
 # travel together in the log tarball.
 CORE_INFO_SUFFIX = ".analysis.txt"
+
+# Name of the file the gdb phases redirect their output to, written next to the
+# core file. The output cannot be taken from the return value of execute():
+# that function discards stdout when a command times out, which is precisely
+# the case in which the partial output matters most.
+GDB_OUTPUT_SUFFIX = ".gdb.txt"
 
 # Marker bracketing the unfiltered inventory of the payload process tree. The
 # selection heuristics rest on assumptions about what that tree contains during a
@@ -204,6 +248,13 @@ DENYLISTED_ARGS = (
 # snapshot size and the number of stack tool invocations per snapshot.
 MAX_CANDIDATES = 5
 
+# Maximum number of candidates stack traced at kill time. pstack is a gdb
+# wrapper and costs up to its full timeout per process on a large payload, so
+# this bounds the time between the decision to kill and the log upload. The
+# candidates are ranked, so the ones dropped are the least likely to explain the
+# loop, and the best candidate has already been dumped in more detail.
+MAX_STACK_TRACE_CANDIDATES = 2
+
 # Maximum number of backtrace lines kept per process per snapshot.
 MAX_BACKTRACE_LINES = 40
 
@@ -220,15 +271,71 @@ STACK_TOOLS = ("eu-stack", "pstack")
 # samples before the payload is killed.
 DEFAULT_SNAPSHOT_FRACTION = 0.5
 
-# Default timeout for the core dump, in seconds. 'generate-core-file' writes the
-# whole address space, so this has to be generous; a multi-GB athena needs far
-# more than the 10 s previously allowed.
+# Default timeout for phase A, the core file, in seconds. 'generate-core-file'
+# writes the whole address space but needs no symbols, so the cost is bounded by
+# the resident set and the disk: at DEFAULT_CORE_DUMP_MAX_SIZE this is ample.
 DEFAULT_CORE_DUMP_TIMEOUT = 300
 
+# Default timeout for phase B, the backtraces, in seconds. This is the phase
+# that needs the symbol table of every mapped object, several hundred of them
+# over CVMFS for an athena process, and is the one that timed out in production.
+# It is allowed to: the stacks are in the core file from phase A as well.
+DEFAULT_BACKTRACE_TIMEOUT = 300
+
+# Default upper bound on the total time the diagnostics may take, in seconds.
+# Everything in this module runs between the decision to kill a looping payload
+# and the kill itself, so an unbounded sum of per-step timeouts delays the log
+# upload on a worker node that may be close to its wall clock limit.
+DEFAULT_DIAGNOSTICS_BUDGET = 900
+
 # Default upper bound on the resident set of a process for which a core file is
-# still attempted. Above this the backtraces are kept and the core file skipped,
-# since the log tarball has no size guard of its own.
-DEFAULT_CORE_DUMP_MAX_SIZE = "4 GB"
+# still attempted. Above this the backtraces are kept and the core file skipped.
+# The core file is deliberately kept in the log tarball so that it can be
+# analysed afterwards, which is what bounds this: the value is a limit on the
+# size of every looping job's log file, not just on the dump.
+DEFAULT_CORE_DUMP_MAX_SIZE = "2 GB"
+
+# Maximum number of gdb frames requested per thread in phase B.
+MAX_BACKTRACE_FRAMES = 100
+
+# Maximum number of lines of gdb output echoed into the pilot log. The full
+# output is in the file next to the core file either way; this only makes the
+# common case greppable without unpacking the log tarball.
+MAX_GDB_LOG_LINES = 200
+
+# Environment variables that must not reach gdb. The experiment setup exports
+# PYTHONHOME and PYTHONPATH pointing at the release's Python. A gdb linked
+# against a different libpython honours them, fails to find the 'encodings'
+# module and aborts during Py_Initialize() with
+#
+#   Fatal Python error: init_fs_encoding: failed to get the Python codec of the
+#   filesystem encoding
+#   ModuleNotFoundError: No module named 'encodings'
+#
+# before executing a single -ex command, so neither the core file nor the
+# backtraces are produced and gdb exits 1. Observed in production. Note that the
+# pilot's own environment can carry these too, since the pilot itself normally
+# runs under an ALRB Python, so they are stripped in every phase and not only
+# after the release setup.
+PYTHON_ENVIRONMENT_VARIABLES = (
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PYTHONNOUSERSITE",
+)
+
+# Fragments identifying the failure above in the gdb output. Used to decide
+# whether a retry is worth attempting and, more importantly, to say so in the
+# log: the message names the payload's Python, not gdb's, and is easy to
+# misread as a payload failure.
+PYTHON_FAILURE_SIGNATURES = (
+    "init_fs_encoding",
+    "No module named 'encodings'",
+)
+
+# Environment used for the last-resort retry, when even the sanitised
+# environment leaves gdb unable to start its interpreter.
+CLEAN_ENVIRONMENT = "env -i PATH=/usr/bin:/bin:/usr/local/bin TERM=dumb HOME=/tmp "
 
 # Multiplier applied to the resident set when checking free disk space, to cover
 # the difference between RSS and the size of the written core file.
@@ -264,7 +371,16 @@ def is_looping_diagnostic_file(path: str) -> bool:
     * the snapshot series (:data:`SNAPSHOT_FILENAME`);
     * the core files (``core.<pid>``, :data:`CORE_FILE_PATTERN`);
     * the core file analysis companions (``*.analysis.txt``,
-      :data:`CORE_INFO_SUFFIX`).
+      :data:`CORE_INFO_SUFFIX`);
+    * the gdb output of the two dump phases (``*.gdb.txt``,
+      :data:`GDB_OUTPUT_SUFFIX`).
+
+    Note what is deliberately *not* listed: ``.asetup.save``. The experiment
+    setup writes it into its working directory, which is why the gdb phases run
+    outside the job work directory (:func:`create_scratch_directory`) rather
+    than being filtered by name here. A multi-step transform legitimately
+    rewrites ``.asetup.save`` between steps, so filtering it would hide real
+    payload activity and could turn a healthy job into a looping one.
 
     Args:
         path: File path, absolute or relative.
@@ -276,7 +392,10 @@ def is_looping_diagnostic_file(path: str) -> bool:
     if not name:
         return False
 
-    if name == SNAPSHOT_FILENAME or name.endswith(CORE_INFO_SUFFIX):
+    if name == SNAPSHOT_FILENAME:
+        return True
+
+    if name.endswith(CORE_INFO_SUFFIX) or name.endswith(GDB_OUTPUT_SUFFIX):
         return True
 
     return bool(CORE_FILE_PATTERN.match(name))
@@ -817,7 +936,7 @@ def get_snapshot_fraction() -> float:
 
 
 def get_core_dump_timeout() -> int:
-    """Return the timeout for the core dump in seconds.
+    """Return the timeout for phase A, the core file, in seconds.
 
     Returns:
         Timeout in seconds.
@@ -826,6 +945,45 @@ def get_core_dump_timeout() -> int:
         return convert_to_int(config.Pilot.looping_core_dump_timeout, default=DEFAULT_CORE_DUMP_TIMEOUT)
     except AttributeError:
         return DEFAULT_CORE_DUMP_TIMEOUT
+
+
+def get_backtrace_timeout() -> int:
+    """Return the timeout for phase B, the backtraces, in seconds.
+
+    Returns:
+        Timeout in seconds.
+    """
+    try:
+        return convert_to_int(config.Pilot.looping_backtrace_timeout, default=DEFAULT_BACKTRACE_TIMEOUT)
+    except AttributeError:
+        return DEFAULT_BACKTRACE_TIMEOUT
+
+
+def get_diagnostics_budget() -> int:
+    """Return the total time the looping diagnostics may take, in seconds.
+
+    Bounds the sum of the dump phases rather than each of them individually,
+    since they all run between the decision to kill the payload and the kill.
+
+    Returns:
+        Budget in seconds.
+    """
+    try:
+        return convert_to_int(config.Pilot.looping_diagnostics_budget, default=DEFAULT_DIAGNOSTICS_BUDGET)
+    except AttributeError:
+        return DEFAULT_DIAGNOSTICS_BUDGET
+
+
+def get_remaining_budget(deadline: float) -> int:
+    """Return the time left before the diagnostics deadline, in seconds.
+
+    Args:
+        deadline: Deadline as a :func:`time.monotonic` value.
+
+    Returns:
+        Seconds remaining, never negative.
+    """
+    return max(0, int(deadline - time.monotonic()))
 
 
 def get_core_dump_max_size() -> int:
@@ -1140,7 +1298,62 @@ def get_shared_libraries(pid: int, maximum: int = 40) -> list:
     return ordered[:maximum]
 
 
-def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, with_core: bool = True) -> str:
+def get_container_analysis_info(job: Any, setup: str) -> list:
+    """Return the notes explaining how to reproduce the payload's environment.
+
+    A core file has to be read by a gdb running in the same environment as the
+    payload produced it in. The payload's system libraries - libc, libpthread,
+    the dynamic loader - come from the container image and not from the worker
+    node, so a gdb running on the host resolves those frames against the wrong
+    binaries even though the release libraries on CVMFS resolve correctly.
+
+    The container invocation is taken verbatim from the payload process rather
+    than reconstructed from the job description, so that it stays right for
+    whatever the pilot actually did, including the bind mounts.
+
+    Args:
+        job: Job object.
+        setup: Experiment setup string as returned by :func:`get_gdb_setup`.
+
+    Returns:
+        List of lines, empty when nothing could be established.
+    """
+    lines = [
+        "",
+        "IMPORTANT: run gdb inside a container of the same platform as the payload.",
+        "The payload's system libraries (libc, libpthread, the dynamic loader) come from",
+        "the container image, not from the worker node, so a gdb running on the host will",
+        "resolve the system frames against the wrong binaries. The working directory given",
+        "above is the one seen inside the container.",
+    ]
+
+    container_command = get_cmdline(job.pid)
+    if container_command:
+        lines += [
+            "",
+            "the payload container was started with:",
+            f"  {container_command}",
+        ]
+
+    if setup:
+        lines += [
+            "",
+            "release setup (as used by the pilot):",
+            f"  {setup.strip().rstrip(';')}",
+        ]
+
+    lines += [
+        "",
+        "if gdb aborts with \"ModuleNotFoundError: No module named 'encodings'\", the",
+        "release setup has exported a PYTHONHOME/PYTHONPATH that does not match the Python",
+        "that gdb itself is linked against - unset both before starting gdb.",
+    ]
+
+    return lines
+
+
+def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
+                           *, with_core: bool = True, setup: str = "") -> str:
     """Return the block describing how to analyse a core file.
 
     gdb cannot open a core file without being told which binary produced it,
@@ -1156,6 +1369,8 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, wit
         with_core: Whether a core file was actually requested. When False the
             block still records the executable identity, since the backtraces
             in the pilot log need it too.
+        setup: Experiment setup string, recorded so that the release can be set
+            up again when the core file is opened.
 
     Returns:
         Multi-line text block.
@@ -1191,6 +1406,9 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, wit
             f"  gdb {executable} {core_name}",
         ]
 
+    lines.append(f"gdb output from the dump phases: {os.path.basename(core_path)}{GDB_OUTPUT_SUFFIX}")
+    lines += get_container_analysis_info(job, setup)
+
     libraries = get_shared_libraries(pid)
     if libraries:
         lines += ["", "shared libraries mapped at dump time:"]
@@ -1201,7 +1419,8 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, wit
     return "\n".join(lines)
 
 
-def store_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, with_core: bool = True) -> None:
+def store_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
+                             *, with_core: bool = True, setup: str = "") -> None:
     """Log the core file analysis information and write it next to the core file.
 
     Args:
@@ -1210,8 +1429,9 @@ def store_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str, w
         cmdline: Full command line of that process.
         core_path: Path to the core file in the job work directory.
         with_core: Whether a core file was actually requested.
+        setup: Experiment setup string, recorded in the block.
     """
-    info = get_core_analysis_info(job, pid, cmdline, core_path, with_core=with_core)
+    info = get_core_analysis_info(job, pid, cmdline, core_path, with_core=with_core, setup=setup)
     logger.info(f"\n{info}")
 
     path = f"{core_path}{CORE_INFO_SUFFIX}"
@@ -1320,47 +1540,389 @@ def resume_process(pid: int) -> None:
         logger.info(f"{LOG_PREFIX}: sent SIGCONT to pid={pid} in case gdb left it stopped")
 
 
-def build_gdb_command(pid: int, core_path: str, setup: str, with_core: bool) -> str:
-    """Return the gdb command used to dump a process.
+def get_environment_prefix() -> str:
+    """Return the shell fragment that strips the Python environment before gdb.
 
-    The backtraces are requested before ``generate-core-file`` so that a
-    timeout during the (expensive) core write still leaves the (cheap and often
-    sufficient) backtraces behind. ``py-bt`` is included because for a looping
-    transform the Python stack usually identifies the algorithm directly; it is
-    silently ignored by a gdb without the Python extension.
+    See :data:`PYTHON_ENVIRONMENT_VARIABLES` for why this is needed.
+
+    Returns:
+        Shell fragment ending in ``'; '``.
+    """
+    return "unset " + " ".join(PYTHON_ENVIRONMENT_VARIABLES) + "; "
+
+
+def has_python_startup_failure(output: str) -> bool:
+    """Return True if the gdb output shows its interpreter failed to start.
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        True if the failure signature is present.
+    """
+    return any(signature in (output or "") for signature in PYTHON_FAILURE_SIGNATURES)
+
+
+def build_gdb_invocation(pid: int, commands: list, environment: str = "") -> str:
+    """Return the gdb invocation attaching to a process and running commands.
+
+    ``--nx`` keeps a stray ``.gdbinit`` out of the way, and debuginfod and the
+    index cache are disabled before the inferior is loaded: a worker node has no
+    route to a debuginfod server, so leaving it enabled risks a stall inside a
+    step that is already the slowest one here.
 
     Args:
         pid: Process id to attach to.
-        core_path: Absolute path of the core file to write.
-        setup: Experiment setup prepended to the command.
-        with_core: Whether to include the ``generate-core-file`` step.
+        commands: gdb ``-ex`` options to run, in order.
+        environment: Optional command prefix, e.g. :data:`CLEAN_ENVIRONMENT`.
 
     Returns:
-        Full command string.
+        gdb command string.
     """
     options = [
+        "--nx",
+        f"-p {pid}",
         "-batch",
+        "-iex 'set debuginfod enabled off'",
+        "-iex 'set index-cache enabled off'",
         "-ex 'set confirm off'",
         "-ex 'set pagination off'",
+    ]
+    options += commands
+    options += ["-ex detach", "-ex quit"]
+
+    return f"{environment}gdb {' '.join(options)}"
+
+
+def build_phase_command(invocation: str, output_path: str, header: str, setup: str = "") -> str:
+    """Return the full shell command for one dump phase.
+
+    Everything is redirected to *output_path* rather than read from the return
+    value of :func:`pilot.util.container.execute`, which discards stdout on a
+    timeout. The identity of the gdb that was actually used is recorded in the
+    same file: whether the release gdb or the system one was picked up is the
+    first question asked when a dump fails, and it is not answerable from any
+    log the pilot currently writes.
+
+    Args:
+        invocation: gdb command as returned by :func:`build_gdb_invocation`.
+        output_path: File the phase appends its output to.
+        header: Single line marking the phase in the output file; must not
+            contain a single quote.
+        setup: Experiment setup prepended to the command.
+
+    Returns:
+        Full shell command string.
+    """
+    identity = "echo \"gdb: $(command -v gdb)\"; gdb --version 2>&1 | head -1"
+    inner = f"echo '{header}'; date -u '+%Y-%m-%dT%H:%M:%SZ'; {identity}; {invocation}"
+
+    return f'{setup}{get_environment_prefix()}{{ {inner}; }} >> "{output_path}" 2>&1'
+
+
+def get_file_size(path: str) -> int:
+    """Return the size of a file, or 0 if it does not exist.
+
+    Args:
+        path: File path.
+
+    Returns:
+        Size in bytes.
+    """
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def read_gdb_output(path: str, offset: int = 0) -> str:
+    """Return the gdb output written from *offset* onwards.
+
+    Args:
+        path: Output file path.
+        offset: Byte offset to read from, so that one phase does not read the
+            output of the previous one.
+
+    Returns:
+        File contents from *offset*, or an empty string.
+    """
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as _file:
+            _file.seek(offset)
+            return _file.read()
+    except OSError as exc:
+        logger.warning(f"{LOG_PREFIX}: could not read {os.path.basename(path)}: {exc}")
+        return ""
+
+
+def create_scratch_directory(job: Any) -> str:
+    """Return a working directory for the gdb phases, outside the job work directory.
+
+    The experiment setup writes ``.asetup.save`` into its working directory, and
+    the job work directory is exactly what the looping algorithm scans for
+    payload activity, so running gdb there makes the pilot's own diagnostic look
+    like the payload doing work. Keeping the setup out of that directory is
+    preferred over filtering the file by name, since a multi-step transform
+    rewrites ``.asetup.save`` legitimately between steps.
+
+    Args:
+        job: Job object.
+
+    Returns:
+        Path to a new directory, or an empty string if none could be created.
+    """
+    parent = os.path.dirname(os.path.abspath(job.workdir)) if job.workdir else ""
+    for directory in (parent, None):
+        try:
+            return tempfile.mkdtemp(prefix="looping-dump-", dir=directory or None)
+        except OSError as exc:
+            logger.debug(f"{LOG_PREFIX}: could not create a scratch directory in {directory}: {exc}")
+
+    logger.warning(f"{LOG_PREFIX}: no scratch directory could be created - gdb will run in the current directory")
+
+    return ""
+
+
+def remove_scratch_directory(path: str) -> None:
+    """Remove the scratch directory used by the gdb phases.
+
+    Args:
+        path: Directory path; ignored when empty.
+    """
+    if path:
+        rmtree(path, ignore_errors=True)
+
+
+def log_gdb_output(output_path: str, label: str) -> None:
+    """Echo a bounded amount of gdb output into the pilot log.
+
+    The full output travels in the log tarball next to the core file; this only
+    makes the common case greppable without unpacking it.
+
+    Args:
+        output_path: Output file path.
+        label: Phase label used in the log message.
+    """
+    output = read_gdb_output(output_path).strip()
+    if not output:
+        logger.warning(f"{LOG_PREFIX}: {label}: gdb produced no output")
+        return
+
+    lines = output.split("\n")
+    if len(lines) > MAX_GDB_LOG_LINES:
+        remaining = len(lines) - MAX_GDB_LOG_LINES
+        lines = lines[-MAX_GDB_LOG_LINES:]
+        lines.insert(0, f"... ({remaining} earlier lines in {os.path.basename(output_path)})")
+
+    text = "\n".join(lines)
+    logger.info(f"{LOG_PREFIX}: {label}: gdb output:\n{text}")
+
+
+def run_gdb_phase(cmd: str, output_path: str, timeout: int, scratch: str, label: str) -> tuple:
+    """Run one gdb phase and return its exit code and its own output.
+
+    Args:
+        cmd: Full shell command as returned by :func:`build_phase_command`.
+        output_path: File the phase appends its output to.
+        timeout: Timeout in seconds.
+        scratch: Working directory for the command.
+        label: Phase label used in the log messages.
+
+    Returns:
+        Tuple of ``(exit_code, output)`` where *output* is what this phase
+        appended, so that a phase never inspects the previous phase's result.
+    """
+    offset = get_file_size(output_path)
+
+    # execute() is muted here on purpose: print_executable() redacts the value
+    # following '-p', so it would log 'gdb -p ********' and mask the pid
+    # everywhere else in the command as well
+    logger.info(f"{LOG_PREFIX}: {label}: timeout={timeout} s, command: {cmd}")
+    start = time.time()
+    exit_code, _, stderr = execute(cmd, cwd=scratch or None, timeout=timeout, mute=True)
+    elapsed = int(time.time() - start)
+
+    output = read_gdb_output(output_path, offset=offset)
+    if exit_code == errors.COMMANDTIMEDOUT:
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb timed out after {elapsed} s - whatever it had produced "
+            f"by then was kept in {os.path.basename(output_path)}"
+        )
+    elif exit_code != 0:
+        logger.warning(f"{LOG_PREFIX}: {label}: gdb failed with exit code {exit_code} after {elapsed} s")
+        if stderr:
+            logger.warning(f"{LOG_PREFIX}: {label}: {stderr}")
+    else:
+        logger.info(f"{LOG_PREFIX}: {label}: gdb finished in {elapsed} s")
+
+    if has_python_startup_failure(output):
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb's own embedded interpreter failed to start "
+            f"(the 'encodings' error refers to gdb's Python, not to the payload's) - "
+            f"a PYTHONHOME/PYTHONPATH in the environment does not match the Python gdb is "
+            f"linked against, and gdb aborted before running any command"
+        )
+
+    return exit_code, output
+
+
+def run_core_dump_phase(pid: int, core_path: str, output_path: str, scratch: str, deadline: float) -> bool:
+    """Run phase A: write the core file with a bare gdb.
+
+    No experiment setup is used. ``generate-core-file`` only walks the
+    inferior's mappings, so it needs no symbols at all, and the setup would add
+    about a minute of asetup plus its own failure modes for nothing. The release
+    gdb is only needed to *read* the core file, which happens offline.
+
+    Args:
+        pid: Process id to dump.
+        core_path: Absolute path of the core file to write.
+        output_path: File the phase appends its output to.
+        scratch: Working directory for the command.
+        deadline: Diagnostics deadline as a :func:`time.monotonic` value.
+
+    Returns:
+        True if gdb reported success.
+    """
+    timeout = min(get_core_dump_timeout(), get_remaining_budget(deadline))
+    if timeout <= 0:
+        logger.warning(f"{LOG_PREFIX}: phase A (core file): skipped - the diagnostics budget is spent")
+        return False
+
+    commands = [f"-ex 'generate-core-file {core_path}'"]
+    cmd = build_phase_command(
+        build_gdb_invocation(pid, commands),
+        output_path,
+        "=== phase A: core file (bare gdb, no release setup) ===",
+    )
+    exit_code, output = run_gdb_phase(cmd, output_path, timeout, scratch, "phase A (core file)")
+
+    if exit_code != 0 and has_python_startup_failure(output):
+        timeout = min(get_core_dump_timeout(), get_remaining_budget(deadline))
+        if timeout > 0:
+            logger.info(f"{LOG_PREFIX}: phase A (core file): retrying with a clean environment")
+            cmd = build_phase_command(
+                build_gdb_invocation(pid, commands, environment=CLEAN_ENVIRONMENT),
+                output_path,
+                "=== phase A (retry): core file (clean environment) ===",
+            )
+            exit_code, _ = run_gdb_phase(cmd, output_path, timeout, scratch, "phase A retry (core file)")
+
+    if exit_code != 0:
+        resume_process(pid)
+
+    return exit_code == 0
+
+
+def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, deadline: float) -> None:
+    """Run phase B: collect the backtraces with the experiment setup.
+
+    This is the expensive phase, since every mapped object's symbol table has to
+    be read, several hundred of them over CVMFS for an athena process. It is
+    therefore run last and is allowed to fail: the same stacks are in the core
+    file that phase A already wrote.
+
+    ``py-bt`` is requested because for a looping transform the Python stack
+    usually identifies the algorithm directly; a gdb without the Python
+    extension ignores it.
+
+    Args:
+        pid: Process id to attach to.
+        output_path: File the phase appends its output to.
+        scratch: Working directory for the command.
+        setup: Experiment setup prepended to the command.
+        deadline: Diagnostics deadline as a :func:`time.monotonic` value.
+    """
+    timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
+    if timeout <= 0:
+        logger.warning(
+            f"{LOG_PREFIX}: phase B (backtraces): skipped - the diagnostics budget is spent "
+            f"(the stacks are in the core file)"
+        )
+        return
+
+    commands = [
+        f"-ex 'set backtrace limit {MAX_BACKTRACE_FRAMES}'",
+        "-ex bt",
         "-ex 'thread apply all bt'",
         "-ex 'py-bt'",
     ]
-    if with_core:
-        options.append(f"-ex 'generate-core-file {core_path}'")
-    options += ["-ex detach", "-ex quit"]
+    invocation = build_gdb_invocation(pid, commands)
+    cmd = build_phase_command(
+        invocation, output_path, "=== phase B: backtraces (release setup) ===", setup=setup
+    )
+    exit_code, output = run_gdb_phase(cmd, output_path, timeout, scratch, "phase B (backtraces)")
 
-    return f"{setup}gdb -p {pid} {' '.join(options)}"
+    if exit_code != 0 and has_python_startup_failure(output):
+        timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
+        if timeout > 0:
+            logger.info(
+                f"{LOG_PREFIX}: phase B (backtraces): retrying without the release setup - "
+                f"the frames will be less well resolved, but the thread and Python stacks are "
+                f"worth more than nothing"
+            )
+            cmd = build_phase_command(
+                invocation, output_path, "=== phase B (retry): backtraces (no release setup) ==="
+            )
+            exit_code, _ = run_gdb_phase(cmd, output_path, timeout, scratch, "phase B retry (backtraces)")
+
+    if exit_code != 0:
+        resume_process(pid)
+
+
+def is_core_file_wanted_for(job: Any, pid: int) -> bool:
+    """Return True if a core file should be written for the given process.
+
+    Args:
+        job: Job object.
+        pid: Process id to dump.
+
+    Returns:
+        True if the core file is wanted and expected to fit.
+    """
+    if not is_core_dump_wanted():
+        return False
+
+    rss = get_rss(pid)
+    maximum = get_core_dump_max_size()
+    if rss > maximum:
+        logger.warning(
+            f"{LOG_PREFIX}: not dumping a core file for pid={pid} - its resident set "
+            f"({rss // (1024 * 1024)} MB) exceeds the configured maximum "
+            f"({maximum // (1024 * 1024)} MB); keeping the backtraces only. The core file is "
+            f"kept in the log tarball, so this limit bounds the log file size as well"
+        )
+        return False
+
+    return has_room_for_core(job.workdir, rss)
+
+
+def report_core_file(core_path: str) -> None:
+    """Log whether the core file was written, and how large it is.
+
+    Args:
+        core_path: Path to the core file.
+    """
+    name = os.path.basename(core_path)
+    size = get_file_size(core_path)
+    if size:
+        logger.info(f"{LOG_PREFIX}: core file written: {name} ({size // (1024 * 1024)} MB)")
+    else:
+        logger.warning(f"{LOG_PREFIX}: no core file was produced at {core_path}")
 
 
 def create_core_dump(job: Any) -> None:
     """Create a core dump of the looping payload and record how to analyse it.
 
     Targets the best candidate from :func:`select_dump_candidates` rather than
-    an arbitrary descendant, uses the experiment's gdb, writes directly into
-    the job work directory, and captures the backtraces before the core file so
-    that a timeout is not a total loss. The executable identity is recorded in
-    the pilot log and in a companion file so that the core file can still be
-    opened long after the worker node is gone.
+    an arbitrary descendant, and runs in two phases with independent timeouts
+    under one overall budget: phase A writes the core file with a bare gdb,
+    phase B collects the backtraces with the experiment setup and is allowed to
+    fail. Both redirect to a file next to the core file, so a timeout keeps
+    whatever was produced. The executable identity, the container the payload
+    ran in and the release setup are recorded in the pilot log and in a
+    companion file, so that the core file can still be opened long after the
+    worker node is gone.
 
     Args:
         job: Job object. Must have ``pid`` and ``workdir`` set.
@@ -1371,7 +1933,7 @@ def create_core_dump(job: Any) -> None:
 
     logger.info(summarise_snapshots())
 
-    candidates = select_dump_candidates(job, label="at kill time")
+    candidates = select_dump_candidates(job, label="before diagnostics")
     if not candidates:
         logger.warning(f"{LOG_PREFIX}: no dump candidate could be identified")
         return
@@ -1379,46 +1941,26 @@ def create_core_dump(job: Any) -> None:
     pid, cmdline = candidates[0]
     logger.info(f"{LOG_PREFIX}: selected pid={pid} for the core dump: {cmdline}")
 
-    rss = get_rss(pid)
-    with_core = is_core_dump_wanted()
-    if with_core and rss > get_core_dump_max_size():
-        logger.warning(
-            f"{LOG_PREFIX}: not dumping a core file for pid={pid} - its resident set "
-            f"({rss // (1024 * 1024)} MB) exceeds the configured maximum "
-            f"({get_core_dump_max_size() // (1024 * 1024)} MB); keeping the backtraces only"
-        )
-        with_core = False
-    if with_core and not has_room_for_core(job.workdir, rss):
-        with_core = False
-
+    with_core = is_core_file_wanted_for(job, pid)
     core_path = os.path.join(job.workdir, f"core.{pid}")
+    output_path = f"{core_path}{GDB_OUTPUT_SUFFIX}"
     setup = get_gdb_setup(job)
-    cmd = build_gdb_command(pid, core_path, setup, with_core)
-    timeout = get_core_dump_timeout()
 
     # the analysis information must be collected while the process still exists,
-    # since /proc/<pid>/exe and /proc/<pid>/maps disappear with it
-    store_core_analysis_info(job, pid, cmdline, core_path, with_core=with_core)
+    # since /proc/<pid>/exe, /proc/<pid>/cwd and /proc/<pid>/maps disappear with it
+    store_core_analysis_info(job, pid, cmdline, core_path, with_core=with_core, setup=setup)
 
-    logger.info(f"{LOG_PREFIX}: running gdb on pid={pid} (timeout={timeout} s, core={with_core})")
-    exit_code, stdout, stderr = execute(cmd, cwd=job.workdir, timeout=timeout)
-    output = (stdout or "") + (stderr or "")
-    if output:
-        logger.info(f"{LOG_PREFIX}: gdb output for pid={pid}:\n{output}")
+    budget = get_diagnostics_budget()
+    deadline = time.monotonic() + budget
+    logger.info(f"{LOG_PREFIX}: diagnostics budget for pid={pid}: {budget} s (core file={with_core})")
 
-    if exit_code != 0:
-        if exit_code == errors.COMMANDTIMEDOUT:
-            logger.warning(
-                f"{LOG_PREFIX}: gdb timed out after {timeout} s - any core file will be truncated "
-                f"or missing, but the backtraces above were captured first"
-            )
-        else:
-            logger.warning(f"{LOG_PREFIX}: gdb failed with exit code {exit_code}")
-        resume_process(pid)
+    scratch = create_scratch_directory(job)
+    try:
+        if with_core:
+            run_core_dump_phase(pid, core_path, output_path, scratch, deadline)
+            report_core_file(core_path)
+        run_backtrace_phase(pid, output_path, scratch, setup, deadline)
+    finally:
+        remove_scratch_directory(scratch)
 
-    if with_core:
-        if os.path.exists(core_path):
-            size = os.path.getsize(core_path)
-            logger.info(f"{LOG_PREFIX}: core file written: {os.path.basename(core_path)} ({size // (1024 * 1024)} MB)")
-        else:
-            logger.warning(f"{LOG_PREFIX}: no core file was produced at {core_path}")
+    log_gdb_output(output_path, f"pid={pid}")

@@ -43,13 +43,10 @@ from pilot.common.exception import (
     PilotException,
     FileHandlingFailure
 )
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.user.atlas.setup import (
     get_asetup,
     get_file_system_root_path
-)
-from pilot.user.atlas.proxy import (
-    get_and_verify_proxy,
-    get_voms_role
 )
 from pilot.info import (
     InfoService,
@@ -67,6 +64,7 @@ from pilot.util.filehandling import (
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 
 
 def do_use_container(**kwargs: Any) -> bool:
@@ -309,8 +307,12 @@ def update_alrb_setup(cmd: str, use_release_setup: str) -> str:
 def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, queue_type: str = '') -> tuple[int, str, str, str]:
     """Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
 
-    Try to receive payload proxy and update X509_USER_PROXY in container setup command
-    In case payload proxy from server is required, this function will also download and verify this proxy.
+    The payload proxy itself is no longer downloaded here. alrb_wrapper() is a command-string
+    builder invoked from pilot.util.container.execute(), so it runs at least twice per job (once
+    for the setup verification and once for the payload) and is reached too late for the job to
+    be failed cleanly - a failed download used to leave the payload running under the pilot's own
+    proxy. The download now happens once per job during job validation, in
+    pilot.user.atlas.proxy.handle_payload_proxy(), and this function only consumes the result.
 
     Args:
         setup_cmd: container setup command.
@@ -325,19 +327,16 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
     diagnostics = ""
 
     #x509 = os.environ.get('X509_USER_PROXY', '')
-    x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+    x509 = os.environ.get('X509_UNIFIED_DISPATCH') or os.environ.get('X509_USER_PROXY', '')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
         cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
         # add it instead to the container setup command:
 
-        # download and verify payload proxy from the server if desired
-        proxy_verification = os.environ.get('PILOT_PROXY_VERIFICATION') == 'True' and os.environ.get('PILOT_PAYLOAD_PROXY_VERIFICATION') == 'True'
-        if proxy_verification and config.Pilot.payload_proxy_from_server and is_analysis and queue_type != 'unified':
-            voms_role = get_voms_role(role='user')
-            exit_code, diagnostics, x509 = get_and_verify_proxy(x509, voms_role=voms_role, proxy_type='payload')
-            if exit_code != 0:
-                logger.warning('payload proxy download or verification failed')
+        # use the payload proxy resolved during job validation, if there is one
+        if is_analysis and queue_type != 'unified' and pilot_cache.payload_proxy:
+            x509 = pilot_cache.payload_proxy
+            logger.debug(f'using payload proxy: {x509}')
 
         # add X509_USER_PROXY setting to the container setup command
         setup_cmd = f"export X509_USER_PROXY={x509};" + setup_cmd
@@ -912,7 +911,7 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
 
     if status:
         # generate the final container command
-        x509 = os.environ.get('X509_UNIFIED_DISPATCH', os.environ.get('X509_USER_PROXY', ''))
+        x509 = os.environ.get('X509_UNIFIED_DISPATCH') or os.environ.get('X509_USER_PROXY', '')
         if x509:
             command += f'export X509_USER_PROXY={x509};'
         command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
