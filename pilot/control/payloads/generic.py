@@ -109,6 +109,15 @@ class Executor:
     #        self.__postprocess_stdout_name = ''
     #        self.__postprocess_stderr_name = ''
 
+    def get_args(self) -> object:
+        """
+        Get the pilot arguments object.
+
+        Returns:
+            The pilot arguments object.
+        """
+        return self.__args
+
     def get_job(self) -> object:
         """
         Get the job object.

@@ -171,7 +171,7 @@ class BaseExecutor(threading.Thread, PluginFactory):
             # get the payload command from the user specific code
             pilot_user = os.environ.get('PILOT_USER', 'atlas').lower()
             user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
-            cmd = user.get_payload_command(job)
+            cmd = user.get_payload_command(job, args=self.args)
             logger.info(f"payload execution command: {cmd}")
 
             payload = {'executable': cmd,
