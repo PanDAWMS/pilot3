@@ -208,26 +208,29 @@ class PandaCommunicator(BaseCommunicator):
                 # ToBeFix num_ranges with corecount
                 req.num_ranges = 1
 
-            data = {'pandaID': req.jobid,
-                    'jobsetID': req.jobsetid,
-                    'taskID': req.taskid,
-                    'nRanges': req.num_ranges}
+            # api/v1: the server's event API (acquire_event_ranges) answers
+            # {'success': bool, 'message': str, 'data': [event ranges]}; the
+            # pre-v1 getEventRanges method no longer exists on the server
+            data = {'job_id': req.jobid,
+                    'jobset_id': req.jobsetid,
+                    'task_id': req.taskid,
+                    'n_ranges': req.num_ranges}
 
             logger.info(f"Downloading new event ranges: {data}")
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request(f'{url}/server/panda/getEventRanges', data=data)
+            res = https.request2(f'{url}/api/v1/event/acquire_event_ranges', json_body=data, panda=True)
             logger.info(f"Downloaded event ranges: {res}")
 
-            if res is None:
+            if not isinstance(res, dict):
                 resp_attrs = {'status': -1,
                               'content': None,
-                              'exception': exception.CommunicationFailure("Get events from panda returns None as return value")}
-            elif res['StatusCode'] == 0 or str(res['StatusCode']) == '0':
-                resp_attrs = {'status': 0, 'content': res['eventRanges'], 'exception': None}
+                              'exception': exception.CommunicationFailure(f"Get events from panda returned no response: {res}")}
+            elif res.get('success'):
+                resp_attrs = {'status': 0, 'content': res.get('data'), 'exception': None}
             else:
-                resp_attrs = {'status': res['StatusCode'],
+                resp_attrs = {'status': -1,
                               'content': None,
-                              'exception': exception.CommunicationFailure(f"Get events from panda returns non-zero value: {res['StatusCode']}")}
+                              'exception': exception.CommunicationFailure(f"Get events from panda failed: {res.get('message')}")}
 
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
@@ -270,11 +273,20 @@ class PandaCommunicator(BaseCommunicator):
 
         try:
             logger.info(f"Updating events: {req}")
+            # api/v1: update_event_ranges takes the JSON-encoded event range
+            # list and the message version, and answers
+            # {'success': bool, 'message': str, 'data': {'Returns': [...], 'Commands': {...}}}
+            data = {'event_ranges': req.update_events.get('eventRanges'),
+                    'version': req.update_events.get('version', 0)}
             url = environ.get('PANDA_SERVER_URL', config.Pilot.pandaserver)
-            res = https.request(f'{url}/server/panda/updateEventRanges', data=req.update_events)
+            res = https.request2(f'{url}/api/v1/event/update_event_ranges', json_body=data, panda=True)
 
             logger.info(f"Updated event ranges status: {res}")
-            resp_attrs = {'status': 0, 'content': res, 'exception': None}
+            if isinstance(res, dict) and res.get('success'):
+                resp_attrs = {'status': 0, 'content': res.get('data'), 'exception': None}
+            else:
+                logger.warning(f"event range update not acknowledged by the server: {res}")
+                resp_attrs = {'status': -1, 'content': res, 'exception': None}
             resp = CommunicationResponse(resp_attrs)
         except Exception as e:  # Python 2/3
             logger.error(f"Failed to update event ranges: {e}, {traceback.format_exc()}")
