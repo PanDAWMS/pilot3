@@ -1579,6 +1579,25 @@ class TestPostMortemBacktraces(unittest.TestCase):
         # every process has PATH; the point is that /proc/<pid>/environ parsed at all
         self.assertIn("PATH", environment)
 
+    def test_the_image_is_looked_up_once_per_pid(self):
+        """Four callers need it, and each one used to log the same line.
+
+        The analysis notes, the sysroot, the Python stack check and the
+        decision not to trace a containerised payload all ask. Job 7311944106
+        carried four identical 'the payload container image is ...' lines.
+        """
+        environment = {"APPTAINER_CONTAINER": self.IMAGE}
+        with patch.object(loopingdumps, "get_process_environment",
+                          return_value=environment) as lookup, \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            first = loopingdumps.get_payload_container_image(1003)
+            second = loopingdumps.get_payload_container_image(1003)
+
+        self.assertEqual((first, second), (self.IMAGE, self.IMAGE))
+        self.assertEqual(lookup.call_count, 1)
+        announcements = [line for line in captured.output if "container image is" in line]
+        self.assertEqual(len(announcements), 1)
+
     def test_an_unreadable_environment_is_not_fatal(self):
         """The process may have exited between the ranking and the dump."""
         self.assertEqual(loopingdumps.get_process_environment(999999999), {})

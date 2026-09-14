@@ -699,6 +699,16 @@ class TestCvmfsClassification(unittest.TestCase):
         self.assertFalse(errors.is_looping_error([]))
         self.assertFalse(errors.is_looping_error(None))
 
+    def test_the_code_number_is_pinned(self):
+        """1391 was claimed by two work streams at once and shipped as neither.
+
+        The payload proxy work defined PAYLOADPROXYDOWNLOADFAILURE as 1391 in
+        parallel with this code taking the same number, and nothing failed
+        until the two branches met. Both numbers are now asserted, in their own
+        suites, so a third claim fails immediately rather than at a merge.
+        """
+        self.assertEqual(errors.LOOPINGJOBCVMFS, 1392)
+
     def test_the_error_message_is_registered(self):
         """A code without a message shows as a bare number in the monitor."""
         message = errors.get_error_message(errors.LOOPINGJOBCVMFS)

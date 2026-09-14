@@ -434,6 +434,11 @@ CLOCK_TICKS = 100.0
 _snapshot_state: dict[str, Any] = {"jobid": None, "snapshots": []}
 
 
+# Container image per pid, so that the four callers that need it neither
+# re-read /proc/<pid>/environ nor log the same line four times per dump.
+_container_image_cache: dict = {}
+
+
 def reset_looping_dump_state() -> None:
     """Reset the snapshot bookkeeping.
 
@@ -442,6 +447,7 @@ def reset_looping_dump_state() -> None:
     """
     _snapshot_state["jobid"] = None
     _snapshot_state["snapshots"] = []
+    _container_image_cache.clear()
 
 
 def is_looping_diagnostic_file(path: str) -> bool:
@@ -1736,22 +1742,35 @@ def get_payload_container_image(pid: int) -> str:
     job description or the platform, so it names the image that is actually in
     use. Apptainer and Singularity both export this into the container.
 
+    The answer is cached per pid and logged once. Four callers need it - the
+    analysis notes, the sysroot, the Python stack check and the decision not to
+    trace a containerised payload on the worker node - and without the cache
+    each one re-read /proc/<pid>/environ and repeated the same line into the
+    log.
+
     Args:
         pid: Process id of a process inside the container.
 
     Returns:
         Path to the image, or an empty string if it could not be established.
     """
+    if pid in _container_image_cache:
+        return _container_image_cache[pid]
+
+    image = ""
     environment = get_process_environment(pid)
     for name in CONTAINER_IMAGE_VARIABLES:
         image = environment.get(name, "")
         if image:
             logger.info(f"{LOG_PREFIX}: the payload container image is {image} (from {name})")
-            return image
+            break
 
-    logger.info(f"{LOG_PREFIX}: could not establish the payload container image from pid={pid}")
+    if not image:
+        logger.info(f"{LOG_PREFIX}: could not establish the payload container image from pid={pid}")
 
-    return ""
+    _container_image_cache[pid] = image
+
+    return image
 
 
 def get_sysroot_directory(pid: int) -> str:
