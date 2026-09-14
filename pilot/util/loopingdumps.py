@@ -372,6 +372,15 @@ CONTAINER_IMAGE_VARIABLES = (
 # Maximum number of gdb frames requested per thread in phase B.
 MAX_BACKTRACE_FRAMES = 100
 
+# Basename fragment identifying the CPython shared library among the mapped objects.
+PYTHON_LIBRARY_PREFIX = "libpython"
+
+# Suffix of the gdb helper script CPython ships to define py-bt.
+GDB_HELPER_SUFFIX = "-gdb.py"
+
+# Second place gdb looks for that script, relative to the sysroot.
+GDB_AUTO_LOAD_DIR = "usr/share/gdb/auto-load"
+
 # Maximum number of lines of gdb output echoed into the pilot log. The full
 # output is in the file next to the core file either way; this only makes the
 # common case greppable without unpacking the log tarball.
@@ -1763,11 +1772,6 @@ def get_sysroot_directory(pid: int) -> str:
         return ""
 
     if not os.path.isdir(image) or not os.access(image, os.R_OK | os.X_OK):
-        logger.info(
-            f"{LOG_PREFIX}: the payload container image {image} is not a readable directory "
-            f"(a .sif image, typically) - frames inside the container's own libraries will "
-            f"not resolve"
-        )
         return ""
 
     return image
@@ -1816,16 +1820,71 @@ def get_sysroot_options(pid: int) -> list:
     """
     image = get_sysroot_directory(pid)
     if not image:
+        if get_payload_container_image(pid):
+            logger.info(
+                f"{LOG_PREFIX}: the payload container image is not a readable directory "
+                f"(a .sif image, typically) - frames inside the container's own libraries "
+                f"will not resolve"
+            )
         return []
 
     logger.info(f"{LOG_PREFIX}: resolving the payload's libraries against {image}")
 
-    sysroot = shlex.quote(f"set sysroot {image}")
+    return [f"-iex {shlex.quote(f'set sysroot {image}')}"]
 
-    return [
-        f"-iex {sysroot}",
-        "-iex 'set auto-load safe-path /'",
-    ]
+
+def get_python_stack_options(pid: int, sysroot: str) -> tuple:
+    """Return the options asking gdb for the payload's Python-level stack.
+
+    ``py-bt`` is not built into gdb. It is defined by a helper script that
+    CPython ships alongside the interpreter, which gdb loads automatically when
+    it opens an object file with a matching ``<objfile>-gdb.py`` beside it or
+    under ``usr/share/gdb/auto-load``. If no such script exists, asking for
+    ``py-bt`` produces ``Undefined command: "py-bt"`` at the end of every dump,
+    which reads as a fault in the pilot's gdb rather than as an absent script
+    in the image.
+
+    So the script is looked for first, and ``py-bt`` is requested only when it
+    is there. The same check also covers a payload that is not Python at all.
+
+    Even when the script is present the Python stack is not guaranteed: it
+    walks CPython's structures through gdb's type information, so it also needs
+    debug information for the interpreter, without which it loads and then
+    reports "unable to read python frame information". Measured against gdb
+    15.1. That case is left to report itself, since unlike the missing script
+    it says something true about the image.
+
+    Args:
+        pid: Process id the backtraces are wanted for.
+        sysroot: Container image directory, empty for an uncontainerised
+            payload, in which case the recorded paths are already host paths.
+
+    Returns:
+        Tuple of (early options, commands), both empty when there is no script.
+    """
+    objfiles = [library for library in get_shared_libraries(pid)
+                if PYTHON_LIBRARY_PREFIX in os.path.basename(library)]
+    executable = read_proc_link(pid, "exe")
+    if executable:
+        objfiles.append(executable)
+
+    for objfile in objfiles:
+        candidates = (
+            f"{sysroot}{objfile}{GDB_HELPER_SUFFIX}",
+            os.path.join(sysroot or os.sep, GDB_AUTO_LOAD_DIR,
+                         objfile.lstrip(os.sep) + GDB_HELPER_SUFFIX),
+        )
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                logger.info(f"{LOG_PREFIX}: the Python stack will be requested ({candidate})")
+                return ["-iex 'set auto-load safe-path /'"], ["-ex 'py-bt'"]
+
+    logger.info(
+        f"{LOG_PREFIX}: not requesting the Python stack - no gdb helper script for the "
+        f"interpreter was found, so py-bt would only report an undefined command"
+    )
+
+    return [], []
 
 
 def build_gdb_invocation(pid: int, commands: list, *, environment: str = "", symbols: bool = True,
@@ -2354,7 +2413,7 @@ def run_core_dump_phase(pid: int, core_path: str, output_path: str, scratch: str
 
 def _run_backtrace_attempt(pid: int, output_path: str, scratch: str, *, setup: str,
                            deadline: float, header: str, label: str, core_path: str = "",
-                           sysroot_options: list = None) -> tuple:
+                           sysroot_options: list = None, python_commands: list = None) -> tuple:
     """Run one attempt at the backtraces and return its result.
 
     Args:
@@ -2367,11 +2426,13 @@ def _run_backtrace_attempt(pid: int, output_path: str, scratch: str, *, setup: s
         label: Phase label used in the log messages.
         core_path: Core file to read, if there is one.
         sysroot_options: Options from :func:`get_sysroot_options`.
+        python_commands: Commands from :func:`get_python_stack_options`.
 
     Returns:
         Tuple of ``(exit_code, output)``. The exit code is -1 when no attempt
         was made because the budget is spent.
     """
+    python_commands = python_commands or []
     timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
     if timeout <= 0:
         logger.warning(
@@ -2384,8 +2445,7 @@ def _run_backtrace_attempt(pid: int, output_path: str, scratch: str, *, setup: s
         f"-ex 'set backtrace limit {MAX_BACKTRACE_FRAMES}'",
         "-ex bt",
         "-ex 'thread apply all bt'",
-        "-ex 'py-bt'",
-    ]
+    ] + python_commands
     invocation = build_gdb_invocation(pid, commands, core_path=core_path,
                                       sysroot_options=sysroot_options)
     cmd = build_phase_command(invocation, output_path, header, setup=setup)
@@ -2423,6 +2483,8 @@ def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, *,
         True if gdb reported a CVMFS path it could not read.
     """
     sysroot_options = get_sysroot_options(pid)
+    early_options, python_commands = get_python_stack_options(pid, get_sysroot_directory(pid))
+    sysroot_options += early_options
     post_mortem = bool(core_path) and get_file_size(core_path) > 0
 
     exit_code, last_output = _run_backtrace_attempt(
@@ -2430,7 +2492,8 @@ def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, *,
         header=("=== phase B: backtraces (core file) ===" if post_mortem else
                 "=== phase B: backtraces (live process) ==="),
         label=("phase B (backtraces, core file)" if post_mortem else "phase B (backtraces)"),
-        core_path=core_path if post_mortem else "", sysroot_options=sysroot_options
+        core_path=core_path if post_mortem else "", sysroot_options=sysroot_options,
+        python_commands=python_commands
     )
     output = last_output
 
@@ -2444,7 +2507,8 @@ def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, *,
             pid, output_path, scratch, setup="", deadline=deadline,
             header="=== phase B (retry): backtraces (no release setup) ===",
             label="phase B retry (backtraces)",
-            core_path=core_path if post_mortem else "", sysroot_options=sysroot_options
+            core_path=core_path if post_mortem else "", sysroot_options=sysroot_options,
+            python_commands=python_commands
         )
         output += last_output
 
@@ -2465,7 +2529,8 @@ def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, *,
         exit_code, last_output = _run_backtrace_attempt(
             pid, output_path, scratch, setup=setup, deadline=deadline,
             header="=== phase B: backtraces (live process) ===",
-            label="phase B (backtraces)", sysroot_options=sysroot_options
+            label="phase B (backtraces)", sysroot_options=sysroot_options,
+            python_commands=python_commands
         )
         output += last_output
 

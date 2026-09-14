@@ -1430,6 +1430,27 @@ class TestCvmfsFailureDetection(unittest.TestCase):
 class TestExecutableArgument(unittest.TestCase):
     """gdb must be told which binary it is looking at, without going through the container."""
 
+    def test_the_core_file_is_read_instead_of_attaching(self):
+        """A second attach can be refused; reading a core file needs no ptrace."""
+        invocation = build_gdb_invocation(1003, ["-ex bt"], core_path="/srv/core.1003")
+
+        self.assertIn("-c /srv/core.1003", invocation)
+        self.assertNotIn("-p 1003", invocation)
+
+    def test_the_core_file_invocation_does_not_detach(self):
+        """Nothing is attached, so a detach only prints noise into the frames."""
+        invocation = build_gdb_invocation(1003, ["-ex bt"], core_path="/srv/core.1003")
+
+        self.assertNotIn("detach", invocation)
+        self.assertIn("-ex quit", invocation)
+
+    def test_a_live_attach_still_detaches(self):
+        """The payload is killed by the caller, not left stopped by the diagnostic."""
+        invocation = build_gdb_invocation(1003, ["-ex bt"])
+
+        self.assertIn("-p 1003", invocation)
+        self.assertIn("-ex detach", invocation)
+
     def test_the_proc_exe_link_is_used(self):
         """A magic symlink to the inode, so the mount namespace is irrelevant."""
         argument = loopingdumps.get_executable_argument(os.getpid())
@@ -1596,41 +1617,14 @@ class TestPostMortemBacktraces(unittest.TestCase):
         with patch.object(loopingdumps, "get_payload_container_image", return_value=""):
             self.assertEqual(loopingdumps.get_sysroot_options(1003), [])
 
-    def test_the_python_extension_is_allowed_to_load_with_a_sysroot(self):
-        """py-bt is a script in the image, and auto-load refuses it by default."""
-        with patch.object(loopingdumps, "get_payload_container_image", return_value=self.workdir):
-            options = loopingdumps.get_sysroot_options(1003)
-
-        self.assertIn("-iex 'set auto-load safe-path /'", options)
-
-    def test_the_core_file_is_read_instead_of_attaching(self):
-        """A second attach can be refused; reading a core file needs no ptrace."""
-        invocation = build_gdb_invocation(1003, ["-ex bt"], core_path="/srv/core.1003")
-
-        self.assertIn("-c /srv/core.1003", invocation)
-        self.assertNotIn("-p 1003", invocation)
-
-    def test_the_core_file_invocation_does_not_detach(self):
-        """Nothing is attached, so a detach only prints noise into the frames."""
-        invocation = build_gdb_invocation(1003, ["-ex bt"], core_path="/srv/core.1003")
-
-        self.assertNotIn("detach", invocation)
-        self.assertIn("-ex quit", invocation)
-
-    def test_a_live_attach_still_detaches(self):
-        """The payload is killed by the caller, not left stopped by the diagnostic."""
-        invocation = build_gdb_invocation(1003, ["-ex bt"])
-
-        self.assertIn("-p 1003", invocation)
-        self.assertIn("-ex detach", invocation)
-
-    def _run_phase_b(self, responses, core_path="", sysroot_options=None):
+    def _run_phase_b(self, responses, core_path="", sysroot_options=None, python_options=None):
         """Run the backtrace phase against the stub.
 
         Args:
             responses (list): Canned (exit_code, output) pairs.
             core_path (str): Core file handed to the phase.
             sysroot_options (list): Options the image resolves to.
+            python_options (tuple): Python stack options the image resolves to.
 
         Returns:
             tuple: (GdbStub, captured log text, resume_process mock).
@@ -1640,6 +1634,8 @@ class TestPostMortemBacktraces(unittest.TestCase):
         with patch.object(loopingdumps, "execute", stub), \
              patch.object(loopingdumps, "get_sysroot_options",
                           return_value=sysroot_options or []), \
+             patch.object(loopingdumps, "get_python_stack_options",
+                          return_value=python_options or ([], [])), \
              patch.object(loopingdumps, "resume_process") as resume, \
              self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
             loopingdumps.run_backtrace_phase(1003, output_path, "/tmp/scratch", "asetup Athena; ",
@@ -1730,11 +1726,118 @@ class TestPostMortemBacktraces(unittest.TestCase):
 
         resume.assert_called_once_with(1003)
 
+    def test_py_bt_does_not_reach_the_command_without_a_helper(self):
+        """The decision is useless unless the phase honours it."""
+        stub, _, _ = self._run_phase_b([(0, PARTIAL_BACKTRACE)], core_path=self._core())
+
+        self.assertNotIn("py-bt", stub.calls[0][0])
+        self.assertNotIn("auto-load safe-path", stub.calls[0][0])
+        self.assertIn("thread apply all bt", stub.calls[0][0])
+
+    def test_py_bt_reaches_the_command_when_there_is_a_helper(self):
+        """And the auto-load option with it, or the script would be refused."""
+        stub, _, _ = self._run_phase_b(
+            [(0, PARTIAL_BACKTRACE)], core_path=self._core(),
+            python_options=(["-iex 'set auto-load safe-path /'"], ["-ex 'py-bt'"]))
+
+        self.assertIn("py-bt", stub.calls[0][0])
+        self.assertIn("set auto-load safe-path /", stub.calls[0][0])
+
+    def test_the_retry_without_the_setup_keeps_asking_for_the_python_stack(self):
+        """It is the most valuable artefact for a looping transform."""
+        stub, _, _ = self._run_phase_b(
+            [(1, ENCODINGS_FAILURE), (0, PARTIAL_BACKTRACE)], core_path=self._core(),
+            python_options=(["-iex 'set auto-load safe-path /'"], ["-ex 'py-bt'"]))
+
+        self.assertEqual(len(stub.calls), 2)
+        self.assertIn("py-bt", stub.calls[1][0])
+
     def test_the_python_environment_is_stripped(self):
         """The pilot itself runs under an ALRB Python, so it can poison gdb."""
         stub, _, _ = self._run_phase_b([(0, PARTIAL_BACKTRACE)], core_path=self._core())
 
         self.assertIn("unset PYTHONHOME PYTHONPATH", stub.calls[0][0])
+
+
+class TestPythonStack(unittest.TestCase):
+    """py-bt is a script shipped with CPython, not a gdb built-in.
+
+    Asking for it where no such script exists ends every dump with
+    'Undefined command: "py-bt"', which reads as a fault in the pilot's gdb
+    rather than as an absent script in the image. Confirmed absent from the
+    ATLAS almalinux9 image.
+    """
+
+    def setUp(self):
+        """Create a directory standing in for an unpacked container image."""
+        reset_looping_dump_state()
+        self._tmp = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.workdir = self._tmp.name
+
+    def tearDown(self):
+        """Remove it."""
+        self._tmp.cleanup()
+        reset_looping_dump_state()
+
+    def _python_options(self, libraries, helper_name=""):
+        """Ask for the Python stack options for a payload mapping the given libraries.
+
+        Args:
+            libraries (list): Object files mapped by the payload.
+            helper_name (str): Helper script to create under the image, if any.
+
+        Returns:
+            tuple: (early options, commands).
+        """
+        if helper_name:
+            path = os.path.join(self.workdir, helper_name.lstrip(os.sep))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as _file:
+                _file.write("# helper\n")
+        with patch.object(loopingdumps, "get_shared_libraries", return_value=libraries), \
+             patch.object(loopingdumps, "read_proc_link", return_value=""):
+            return loopingdumps.get_python_stack_options(1003, self.workdir)
+
+    def test_py_bt_is_not_requested_when_the_image_has_no_helper(self):
+        """Otherwise every dump ends in 'Undefined command: "py-bt"'.
+
+        Which reads as a fault in the pilot's gdb rather than as an absent
+        script in the image. Confirmed absent from the ATLAS almalinux9 image.
+        """
+        early, commands = self._python_options(["/usr/lib64/libpython3.9.so.1.0"])
+
+        self.assertEqual((early, commands), ([], []))
+
+    def test_py_bt_is_requested_when_the_helper_sits_beside_the_library(self):
+        """The first of the two places gdb looks."""
+        _, commands = self._python_options(
+            ["/usr/lib64/libpython3.9.so.1.0"],
+            helper_name="/usr/lib64/libpython3.9.so.1.0-gdb.py")
+
+        self.assertEqual(commands, ["-ex 'py-bt'"])
+
+    def test_py_bt_is_requested_when_the_helper_is_under_auto_load(self):
+        """The second place, which is where a distribution usually ships it."""
+        _, commands = self._python_options(
+            ["/usr/lib64/libpython3.9.so.1.0"],
+            helper_name="/usr/share/gdb/auto-load/usr/lib64/libpython3.9.so.1.0-gdb.py")
+
+        self.assertEqual(commands, ["-ex 'py-bt'"])
+
+    def test_auto_load_is_only_widened_when_there_is_a_script_to_load(self):
+        """It lets gdb execute a script out of the image, so it is not free."""
+        early, _ = self._python_options(
+            ["/usr/lib64/libpython3.9.so.1.0"],
+            helper_name="/usr/lib64/libpython3.9.so.1.0-gdb.py")
+
+        self.assertEqual(early, ["-iex 'set auto-load safe-path /'"])
+        self.assertEqual(self._python_options(["/usr/lib64/libc.so.6"])[0], [])
+
+    def test_a_payload_that_is_not_python_is_not_asked_for_a_python_stack(self):
+        """The same check covers it, with no separate test for the payload type."""
+        early, commands = self._python_options(["/usr/lib64/libc.so.6"])
+
+        self.assertEqual((early, commands), ([], []))
 
 
 class TestHeaderQuoting(unittest.TestCase):
