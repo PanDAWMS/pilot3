@@ -418,10 +418,39 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
         traced = []
         candidates = [(pid, f"payload {pid}") for pid in range(9001, 9007)]
         with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
              patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
             loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
 
         self.assertEqual(traced, [9001, 9002])
+
+    def test_a_containerised_payload_is_not_traced_on_the_worker_node(self):
+        """pstack has no sysroot, so it can name no frame and unwind past none.
+
+        Observed on job 7306884824: three frames of '?? ()' logged directly
+        below the sixteen named frames the core file had just produced for the
+        same process. A misleading result, not a partial one.
+        """
+        traced = []
+        candidates = [(9001, "payload 9001"), (9002, "payload 9002")]
+        with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image",
+                          return_value="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-almalinux9"), \
+             patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(traced, [])
+
+    def test_an_uncontainerised_payload_is_still_traced(self):
+        """There the worker node's own libraries are the payload's, so pstack works."""
+        traced = []
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
+             patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(traced, [9001])
 
     def test_a_failing_stack_trace_does_not_stop_the_kill(self):
         """The traces are a diagnostic; the kill is not."""

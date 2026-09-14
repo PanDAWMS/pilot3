@@ -1010,6 +1010,61 @@ class TestDiagnosticFileFiltering(unittest.TestCase):
 class TestContainerAnalysisInfo(unittest.TestCase):
     """A core file has to be read in the environment that produced it."""
 
+    SIF = "/cvmfs/atlas.cern.ch/repo/containers/images/apptainer/x86_64-el9.img"
+
+    def setUp(self):
+        """Create a directory standing in for an unpacked container image."""
+        self._tmp = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.image = self._tmp.name
+
+    def tearDown(self):
+        """Remove it."""
+        self._tmp.cleanup()
+
+    def _analysis(self, image):
+        """Build the analysis block for a payload running in the given image.
+
+        Args:
+            image (str): Container image path, or "" for no container.
+
+        Returns:
+            str: Analysis block.
+        """
+        with patch.object(loopingdumps, "read_proc_link",
+                          side_effect=lambda pid, name: {"exe": "/usr/bin/python3.9",
+                                                         "cwd": "/srv/workDir"}.get(name, "")), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_cmdline", return_value="apptainer exec ..."), \
+             patch.object(loopingdumps, "get_shared_libraries", return_value=[]), \
+             patch.object(loopingdumps, "get_payload_container_image", return_value=image):
+            return loopingdumps.get_core_analysis_info(
+                FakeJob(), 1003, "python x.py", "/srv/core.1003", setup="")
+
+    def test_the_quoted_recipe_carries_the_sysroot(self):
+        """The reader must not be handed the recipe that produces '?? ()'.
+
+        A core file read without a sysroot gives unnamed frames and a backtrace
+        truncated at the first of them, which is the output this whole change
+        exists to stop producing.
+        """
+        info = self._analysis(self.image)
+
+        self.assertIn(f"gdb -iex 'set sysroot {self.image}' /usr/bin/python3.9 core.1003", info)
+
+    def test_a_sif_image_still_sends_the_reader_into_a_container(self):
+        """No sysroot is possible there, so the old advice is still the best there is."""
+        info = self._analysis(self.SIF)
+
+        self.assertNotIn("set sysroot", info)
+        self.assertIn("run gdb inside a container of the same platform", info)
+
+    def test_the_sysroot_note_replaces_the_container_instruction(self):
+        """Two different instructions for the same reader would be worse than one."""
+        info = self._analysis(self.image)
+
+        self.assertNotIn("run gdb inside a container of the same platform", info)
+        self.assertIn("truncated at the first one", info)
+
     def _info(self, setup="asetup AthGeneration,23.6.11; "):
         """Return an analysis block built with the given setup.
 

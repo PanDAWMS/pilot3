@@ -49,6 +49,7 @@ from pilot.util.loopingdumps import (
     MAX_STACK_TRACE_CANDIDATES,
     call_with_timeout,
     create_core_dump,
+    get_payload_container_image,
     remove_diagnostic_files,
     select_dump_candidates,
     take_looping_snapshot,
@@ -321,11 +322,27 @@ def _dump_payload_stack_traces(job: Any):
     ones dropped here are the least likely to explain the loop, and the core
     dump phases have already recorded the best candidate in more detail.
 
+    Nothing is traced at all for a containerised payload. ``pstack`` runs a gdb
+    on the worker node with no sysroot, so it reaches the payload's libraries
+    through the container's mount namespace, fails on every one of them, and
+    can then name no frame and unwind past none: observed on job 7306884824,
+    three frames of ``?? ()`` in the log immediately after the core file had
+    yielded sixteen named ones for the same process. That is not a partial
+    result worth keeping, it is a misleading one, and it appears in the log
+    directly below the good backtraces.
+
     Args:
         job: Job object.
     """
     try:
         candidates = select_dump_candidates(job, label="before kill")
+        if candidates and get_payload_container_image(candidates[0][0]):
+            logger.info(
+                'skipping the stack traces: the payload runs in a container, so a stack '
+                'trace taken on the worker node can resolve no frame - see the core file '
+                'backtraces above instead'
+            )
+            return
         if len(candidates) > MAX_STACK_TRACE_CANDIDATES:
             logger.info(
                 f'tracing the top {MAX_STACK_TRACE_CANDIDATES} of {len(candidates)} candidates '

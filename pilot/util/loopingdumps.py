@@ -1372,14 +1372,19 @@ def get_shared_libraries(pid: int, maximum: int = 40) -> list:
     return ordered[:maximum]
 
 
-def get_container_analysis_info(job: Any, setup: str) -> list:
+def get_container_analysis_info(job: Any, setup: str, sysroot: str = "") -> list:
     """Return the notes explaining how to reproduce the payload's environment.
 
-    A core file has to be read by a gdb running in the same environment as the
-    payload produced it in. The payload's system libraries - libc, libpthread,
-    the dynamic loader - come from the container image and not from the worker
-    node, so a gdb running on the host resolves those frames against the wrong
-    binaries even though the release libraries on CVMFS resolve correctly.
+    A core file records the paths of the libraries the payload mapped, and for
+    a containerised payload those paths name files inside the image. A reader
+    who opens the core file without saying where the image is gets ``?? ()``
+    for every frame in a container library, and - since gdb cannot unwind past
+    a frame it cannot identify - a backtrace truncated at the first one.
+
+    When the image is a readable directory the fix is a single gdb option, and
+    it is quoted here with the image already filled in. When it is not, the
+    reader has to enter a container of the same platform instead, which is what
+    this said unconditionally before the sysroot route existed.
 
     The container invocation is taken verbatim from the payload process rather
     than reconstructed from the job description, so that it stays right for
@@ -1388,18 +1393,30 @@ def get_container_analysis_info(job: Any, setup: str) -> list:
     Args:
         job: Job object.
         setup: Experiment setup string as returned by :func:`get_gdb_setup`.
+        sysroot: Container image directory, as returned by
+            :func:`get_sysroot_directory`.
 
     Returns:
         List of lines, empty when nothing could be established.
     """
-    lines = [
-        "",
-        "IMPORTANT: run gdb inside a container of the same platform as the payload.",
-        "The payload's system libraries (libc, libpthread, the dynamic loader) come from",
-        "the container image, not from the worker node, so a gdb running on the host will",
-        "resolve the system frames against the wrong binaries. The working directory given",
-        "above is the one seen inside the container.",
-    ]
+    if sysroot:
+        lines = [
+            "",
+            "the payload's system libraries (libc, the dynamic loader, libpython) come from",
+            "the container image, not from the worker node. The sysroot option above points",
+            "gdb at that image; without it every frame in a container library is '?? ()' and",
+            "the backtrace is truncated at the first one. The working directory given above",
+            "is the one seen inside the container.",
+        ]
+    else:
+        lines = [
+            "",
+            "IMPORTANT: run gdb inside a container of the same platform as the payload.",
+            "The payload's system libraries (libc, libpthread, the dynamic loader) come from",
+            "the container image, not from the worker node, so a gdb running on the host will",
+            "resolve the system frames against the wrong binaries. The working directory given",
+            "above is the one seen inside the container.",
+        ]
 
     container_command = get_cmdline(job.pid)
     if container_command:
@@ -1452,6 +1469,8 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
     executable = read_proc_link(pid, "exe")
     cwd = read_proc_link(pid, "cwd")
     core_name = os.path.basename(core_path)
+    sysroot = get_sysroot_directory(pid)
+    sysroot_option = f"-iex 'set sysroot {sysroot}' " if sysroot else ""
 
     lines = [
         CORE_INFO_MARKER,
@@ -1477,11 +1496,11 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
         lines += [
             "",
             "to analyse:",
-            f"  gdb {executable} {core_name}",
+            f"  gdb {sysroot_option}{executable} {core_name}",
         ]
 
     lines.append(f"gdb output from the dump phases: {os.path.basename(core_path)}{GDB_OUTPUT_SUFFIX}")
-    lines += get_container_analysis_info(job, setup)
+    lines += get_container_analysis_info(job, setup, sysroot)
 
     libraries = get_shared_libraries(pid)
     if libraries:
@@ -1726,6 +1745,34 @@ def get_payload_container_image(pid: int) -> str:
     return ""
 
 
+def get_sysroot_directory(pid: int) -> str:
+    """Return the container image directory usable as a gdb sysroot, if any.
+
+    Kept separate from :func:`get_sysroot_options` and silent, so that the
+    analysis notes and the gdb options cannot disagree about whether the
+    libraries are resolvable, and so that asking twice does not log twice.
+
+    Args:
+        pid: Process id of a process inside the container.
+
+    Returns:
+        Image directory, or an empty string when there is no usable one.
+    """
+    image = get_payload_container_image(pid)
+    if not image:
+        return ""
+
+    if not os.path.isdir(image) or not os.access(image, os.R_OK | os.X_OK):
+        logger.info(
+            f"{LOG_PREFIX}: the payload container image {image} is not a readable directory "
+            f"(a .sif image, typically) - frames inside the container's own libraries will "
+            f"not resolve"
+        )
+        return ""
+
+    return image
+
+
 def get_sysroot_options(pid: int) -> list:
     """Return the gdb options that make the container's libraries resolvable.
 
@@ -1767,16 +1814,8 @@ def get_sysroot_options(pid: int) -> list:
     Returns:
         List of gdb options, empty when no sysroot can be established.
     """
-    image = get_payload_container_image(pid)
+    image = get_sysroot_directory(pid)
     if not image:
-        return []
-
-    if not os.path.isdir(image) or not os.access(image, os.R_OK | os.X_OK):
-        logger.info(
-            f"{LOG_PREFIX}: the payload container image {image} is not a readable directory "
-            f"(a .sif image, typically) - frames inside the container's own libraries will "
-            f"not resolve"
-        )
         return []
 
     logger.info(f"{LOG_PREFIX}: resolving the payload's libraries against {image}")
