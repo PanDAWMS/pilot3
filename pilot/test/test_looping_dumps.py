@@ -1657,7 +1657,8 @@ class TestPostMortemBacktraces(unittest.TestCase):
                           return_value=python_options or ([], [])), \
              patch.object(loopingdumps, "resume_process") as resume, \
              self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
-            loopingdumps.run_backtrace_phase(1003, output_path, "/tmp/scratch", "asetup Athena; ",
+            loopingdumps.run_backtrace_phase(FakeJob(pid=1000, workdir=self.workdir), 1003,
+                                             output_path, "/tmp/scratch", "asetup Athena; ",
                                              deadline=time.monotonic() + 600,
                                              core_path=core_path)
 
@@ -1899,6 +1900,434 @@ class TestHeaderQuoting(unittest.TestCase):
             subprocess.run(["bash", "-c", cmd], check=False)
             with open(path, encoding="utf-8") as _file:
                 self.assertIn(header, _file.read())
+
+
+class TestImageExecutable(unittest.TestCase):
+    """The executable gdb is given must be the one the payload is running.
+
+    ``-se /proc/<pid>/exe`` opens the right inode, but gdb then records the
+    object file under the path that symlink *resolves* to - a path that names a
+    file inside the container image and a different file on the worker node.
+    Measured against gdb 15.1. In production (job 7313656511) gdb re-read the
+    worker node's copy during the attach:
+
+        `/usr/bin/python3.9' has changed; re-reading symbols.
+
+    and the core file was then written with the wrong executable loaded.
+    """
+
+    def setUp(self):
+        """Give the image a real executable and clear the per pid caches."""
+        reset_looping_dump_state()
+        self._image = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.image = self._image.name
+        os.makedirs(os.path.join(self.image, "usr", "bin"))
+        self.in_container = "/usr/bin/python3.9"
+        self.in_image = os.path.join(self.image, "usr/bin/python3.9")
+        with open(self.in_image, "wb") as _file:
+            _file.write(b"\x7fELF")
+
+    def tearDown(self):
+        """Remove the image and clear the caches for the next test."""
+        self._image.cleanup()
+        reset_looping_dump_state()
+
+    def _with_image(self, image=None, executable=None):
+        """Patch the container image and the executable link.
+
+        Args:
+            image (str): Container image directory, defaulting to the real one.
+            executable (str): In-container executable path.
+
+        Returns:
+            Context manager applying both patches.
+        """
+        return patch.multiple(
+            loopingdumps,
+            get_payload_container_image=lambda pid: self.image if image is None else image,
+            read_proc_link=lambda pid, name: executable or self.in_container,
+        )
+
+    def test_the_executable_is_named_inside_the_image(self):
+        """The same build as the running process, and a real host path."""
+        with self._with_image():
+            self.assertEqual(loopingdumps.get_image_executable(1003), self.in_image)
+
+    def test_the_gdb_option_names_the_image_copy(self):
+        """Not /proc/<pid>/exe, which gdb resolves to the worker node's file."""
+        with self._with_image():
+            argument = loopingdumps.get_executable_argument(1003)
+
+        self.assertEqual(argument, f"-se {self.in_image}")
+        self.assertNotIn("/proc/1003/exe", argument)
+
+    def test_an_executable_outside_the_image_falls_back(self):
+        """A binary from a bind mount cannot be reached by prefixing the image."""
+        with self._with_image(executable="/srv/workDir/private/python3"), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            argument = loopingdumps.get_executable_argument(os.getpid())
+
+        self.assertEqual(argument, f"-se /proc/{os.getpid()}/exe")
+        self.assertIn("was not found inside the image", "\n".join(captured.output))
+
+    def test_an_uncontainerised_payload_uses_the_proc_link(self):
+        """Nothing to prefix with, and the recorded path is already a host path."""
+        with self._with_image(image=""):
+            self.assertEqual(loopingdumps.get_image_executable(1003), "")
+            self.assertEqual(loopingdumps.get_executable_argument(os.getpid()),
+                             f"-se /proc/{os.getpid()}/exe")
+
+    def test_the_answer_is_cached_and_announced_once(self):
+        """Three callers need it; production carried four identical lines."""
+        with self._with_image(), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            first = loopingdumps.get_image_executable(1003)
+            second = loopingdumps.get_image_executable(1003)
+
+        self.assertEqual((first, second), (self.in_image, self.in_image))
+        announcements = [line for line in captured.output if "executable inside the image" in line]
+        self.assertEqual(len(announcements), 1)
+
+    def test_gdb_is_told_not_to_replace_the_executable(self):
+        """Its default is to load the target's file instead, silently.
+
+        Measured against gdb 15.1: attaching with an executable whose build id
+        differs from the target's produces "Build ID mismatch ...
+        exec-file-mismatch handling is currently "ask"" and, in batch mode, the
+        target's file is loaded. With the option off the given file is kept.
+        """
+        with self._with_image():
+            invocation = build_gdb_invocation(1003, ["-ex bt"])
+
+        self.assertIn("-iex 'set exec-file-mismatch off'", invocation)
+
+    def test_the_option_is_absent_without_an_image_executable(self):
+        """It does not exist before gdb 10, so it is not emitted for nothing."""
+        with self._with_image(image=""):
+            invocation = build_gdb_invocation(os.getpid(), ["-ex bt"])
+
+        self.assertNotIn("exec-file-mismatch", invocation)
+
+    def test_the_core_writing_phase_gets_it_too(self):
+        """Phase A is where the substitution happened, so it is the one that matters."""
+        with self._with_image():
+            invocation = build_gdb_invocation(1003, ["-ex 'generate-core-file /srv/core.1003'"],
+                                              symbols=False)
+
+        self.assertIn(f"-se {self.in_image}", invocation)
+        self.assertIn("-iex 'set exec-file-mismatch off'", invocation)
+
+
+class TestPayloadLibrariesOutsideTheImage(unittest.TestCase):
+    """A library the payload brought itself is covered by neither sysroot nor host.
+
+    Production (job 7313656511) mapped
+    /srv/workDir/<uuid>/lib64/wrapper.so, which is in the job work directory and
+    not in the image, and gdb said so twice. Measured against gdb 15.1:
+    'solib-search-path' removes the "Could not load shared library symbols"
+    warning and is *not* searched recursively, so the exact directory has to be
+    named; the "file-backed mapping note processing" warning is emitted earlier
+    and survives either way.
+    """
+
+    def setUp(self):
+        """Build a work directory holding a library, and clear the caches."""
+        reset_looping_dump_state()
+        self._workdir = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.workdir = self._workdir.name
+        self.libdir = os.path.join(self.workdir, "b296d528", "lib64")
+        os.makedirs(self.libdir)
+        self.library = os.path.join(self.libdir, "wrapper.so")
+        with open(self.library, "wb") as _file:
+            _file.write(b"\x7fELF")
+        self.job = FakeJob(pid=1000, workdir=self.workdir)
+
+    def tearDown(self):
+        """Remove the work directory and clear the caches."""
+        self._workdir.cleanup()
+        reset_looping_dump_state()
+
+    def test_a_library_in_the_image_is_resolved_already(self):
+        """The sysroot covers it, so naming a search path would say nothing."""
+        image = os.path.join(self.workdir, "image")
+        os.makedirs(os.path.join(image, "lib64"))
+        with open(os.path.join(image, "lib64", "libc.so.6"), "wb") as _file:
+            _file.write(b"\x7fELF")
+        with patch.object(loopingdumps, "get_shared_libraries", return_value=["/lib64/libc.so.6"]):
+            self.assertEqual(loopingdumps.classify_mapped_libraries(1003, image), ([], []))
+
+    def test_a_library_the_sysroot_hides_is_named_by_its_own_directory(self):
+        """Measured against gdb 15.1: a sysroot stops the fallback to the host path.
+
+        libc.so.6 existed on the worker node at exactly the path recorded in the
+        core file and gdb still reported "Could not load shared library
+        symbols". This is the normal case for an ATLAS release, since /cvmfs is
+        bind-mounted into the container at the same path, so every release
+        library is readable on the node and invisible to gdb once the sysroot
+        points at the image.
+        """
+        with patch.object(loopingdumps, "get_shared_libraries", return_value=[self.library]):
+            directories, basenames = loopingdumps.classify_mapped_libraries(1003, "/cvmfs/image")
+
+        self.assertEqual(directories, [self.libdir])
+        self.assertEqual(basenames, [])
+
+    def test_a_library_present_on_the_worker_node_needs_nothing_without_a_sysroot(self):
+        """An uncontainerised payload records host paths, which gdb opens itself."""
+        with patch.object(loopingdumps, "get_shared_libraries", return_value=[self.library]):
+            self.assertEqual(loopingdumps.classify_mapped_libraries(1003, ""), ([], []))
+
+    def test_a_library_in_neither_is_looked_for_by_basename(self):
+        """Its recorded path names a bind mount and cannot be inverted."""
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=["/srv/workDir/b296d528/lib64/wrapper.so"]):
+            directories, basenames = loopingdumps.classify_mapped_libraries(1003, "/cvmfs/image")
+
+        self.assertEqual(directories, [])
+        self.assertEqual(basenames, ["wrapper.so"])
+
+    def test_a_directory_is_named_once(self):
+        """A release contributes many libraries from the same few directories."""
+        second = os.path.join(self.libdir, "other.so")
+        with open(second, "wb") as _file:
+            _file.write(b"\x7fELF")
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=[self.library, second]):
+            directories, _ = loopingdumps.classify_mapped_libraries(1003, "/cvmfs/image")
+
+        self.assertEqual(directories, [self.libdir])
+
+    def test_the_exact_directory_is_found_not_the_work_directory(self):
+        """gdb does not search solib-search-path recursively (measured).
+
+        Passing job.workdir would look correct and resolve nothing.
+        """
+        directories = loopingdumps.find_library_directories(self.workdir, ["wrapper.so"])
+
+        self.assertEqual(directories, [self.libdir])
+        self.assertNotIn(self.workdir, directories)
+
+    def test_a_library_that_is_not_there_yields_nothing(self):
+        """Better than a directory that does not hold it."""
+        self.assertEqual(loopingdumps.find_library_directories(self.workdir, ["nothere.so"]), [])
+
+    def test_the_walk_is_bounded(self):
+        """This runs between the decision to kill and the kill itself."""
+        with patch.object(loopingdumps, "MAX_LIBRARY_SCAN_DIRECTORIES", 1), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            directories = loopingdumps.find_library_directories(self.workdir, ["wrapper.so"])
+
+        self.assertEqual(directories, [])
+        self.assertIn("stopped looking for payload libraries", "\n".join(captured.output))
+
+    def test_a_library_below_the_depth_limit_is_not_searched_for(self):
+        """The bound has to hold, or a deep tree costs the kill its budget."""
+        with patch.object(loopingdumps, "MAX_LIBRARY_SCAN_DEPTH", 1):
+            self.assertEqual(
+                loopingdumps.find_library_directories(self.workdir, ["wrapper.so"]), []
+            )
+
+    def test_the_number_of_directories_is_capped(self):
+        """A long option is a gdb command line that no longer parses."""
+        libraries = [f"/cvmfs/release/lib{index}/lib{index}.so" for index in range(30)]
+        for library in libraries:
+            os.makedirs(os.path.dirname(library.replace("/cvmfs", self.workdir)), exist_ok=True)
+            with open(library.replace("/cvmfs", self.workdir), "wb") as _file:
+                _file.write(b"\x7fELF")
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=[library.replace("/cvmfs", self.workdir)
+                                        for library in libraries]):
+            search_path = loopingdumps.get_solib_search_path(self.job, 1003, "/cvmfs/image")
+
+        self.assertEqual(len(search_path.split(":")),
+                         loopingdumps.MAX_SOLIB_SEARCH_DIRECTORIES)
+
+    def test_the_option_names_the_directory(self):
+        """And it is an -iex, since gdb reads the mappings while it starts up."""
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=["/srv/workDir/b296d528/lib64/wrapper.so"]):
+            options = loopingdumps.get_solib_search_path_options(self.job, 1003, "/cvmfs/image")
+
+        self.assertEqual(options, [f"-iex 'set solib-search-path {self.libdir}'"])
+
+    def test_nothing_is_searched_for_when_everything_resolves(self):
+        """The walk is the cost here, so it must not happen for nothing."""
+        with patch.object(loopingdumps, "get_shared_libraries", return_value=[]), \
+             patch.object(loopingdumps, "find_library_directories") as walk:
+            options = loopingdumps.get_solib_search_path_options(self.job, 1003, "/cvmfs/image")
+
+        self.assertEqual(options, [])
+        walk.assert_not_called()
+
+    def test_the_search_path_is_cached(self):
+        """Both the analysis notes and phase B ask for it."""
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=["/srv/workDir/b296d528/lib64/wrapper.so"]), \
+             patch.object(loopingdumps, "find_library_directories",
+                          return_value=[self.libdir]) as walk:
+            first = loopingdumps.get_solib_search_path(self.job, 1003, "/cvmfs/image")
+            second = loopingdumps.get_solib_search_path(self.job, 1003, "/cvmfs/image")
+
+        self.assertEqual((first, second), (self.libdir, self.libdir))
+        self.assertEqual(walk.call_count, 1)
+
+    def test_a_library_that_cannot_be_located_is_reported(self):
+        """Silence would leave the reader with gdb's unanswerable question."""
+        with patch.object(loopingdumps, "get_shared_libraries",
+                          return_value=["/srv/workDir/gone/lib64/missing.so"]), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            self.assertEqual(
+                loopingdumps.get_solib_search_path(self.job, 1003, "/cvmfs/image"), ""
+            )
+
+        self.assertIn("could not be found under the job work directory",
+                      "\n".join(captured.output))
+
+
+class TestAnalysisInstructions(unittest.TestCase):
+    """The recipe in the analysis file has to work on the reader's machine.
+
+    Measured against gdb 15.1: 'set sysroot' does not apply to the executable
+    named on the command line. gdb opened the host's copy of the path, and
+    failed outright when the host had no such path although the sysroot did. So
+    the in-container path is the one thing that must not be quoted there.
+    """
+
+    def setUp(self):
+        """Build an image holding the payload executable."""
+        reset_looping_dump_state()
+        self._image = tempfile.TemporaryDirectory()  # pylint: disable=consider-using-with
+        self.image = self._image.name
+        os.makedirs(os.path.join(self.image, "usr", "bin"))
+        self.in_image = os.path.join(self.image, "usr/bin/python3.9")
+        with open(self.in_image, "wb") as _file:
+            _file.write(b"\x7fELF")
+
+    def tearDown(self):
+        """Remove the image and clear the caches."""
+        self._image.cleanup()
+        reset_looping_dump_state()
+
+    def _info(self, libraries=None, search_path="", with_core=True):
+        """Return the analysis block for a containerised payload.
+
+        Args:
+            libraries (list): Libraries reported as mapped.
+            search_path (str): Search path the work directory scan resolves to.
+            with_core (bool): Whether a core file was written.
+
+        Returns:
+            str: The analysis block.
+        """
+        with patch.object(loopingdumps, "get_payload_container_image", return_value=self.image), \
+             patch.object(loopingdumps, "read_proc_link",
+                          side_effect=lambda pid, name: {"exe": "/usr/bin/python3.9",
+                                                         "cwd": "/srv/workDir"}.get(name, "")), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             patch.object(loopingdumps, "get_solib_search_path", return_value=search_path), \
+             patch.object(loopingdumps, "get_shared_libraries", return_value=libraries or []):
+            return get_core_analysis_info(FakeJob(), 1003, "/usr/bin/python3 -u ./LoopingJob.py",
+                                          "/srv/workDir/core.1003", with_core=with_core)
+
+    def test_the_command_names_the_executable_inside_the_image(self):
+        """Naming the in-container path opens the reader's own interpreter."""
+        info = self._info()
+
+        self.assertIn(f"gdb -iex 'set sysroot {self.image}' {self.in_image} core.1003", info)
+
+    def test_the_in_container_path_is_still_recorded_and_marked(self):
+        """It is what the core file and the backtraces refer to."""
+        info = self._info()
+
+        self.assertIn("executable: /usr/bin/python3.9 (path inside the container)", info)
+        self.assertIn(f"executable as seen from the worker node: {self.in_image}", info)
+
+    def test_the_reader_is_told_why_the_two_are_not_interchangeable(self):
+        """Otherwise the shorter path is the obvious thing to type."""
+        info = self._info()
+
+        self.assertIn("applies to the libraries, not to the executable", info)
+        self.assertIn("core file may", info)
+
+    def test_the_command_carries_the_library_search_path(self):
+        """The reader gets the same resolution the pilot's own phase B had."""
+        info = self._info(search_path="/pool/condor/dir/PanDA_Pilot-1/b296/lib64")
+
+        self.assertIn("-iex 'set solib-search-path /pool/condor/dir/PanDA_Pilot-1/b296/lib64'", info)
+
+    def test_the_expected_messages_are_listed(self):
+        """Both have cost time to investigate on a dump that was correct."""
+        info = self._info()
+
+        self.assertIn("0xffffffffff600000", info)
+        self.assertIn("file-backed mapping note processing", info)
+
+    def test_nothing_is_said_about_reading_a_core_file_that_was_not_written(self):
+        """An oversized payload keeps the backtraces and gets no core file."""
+        info = self._info(with_core=False)
+
+        self.assertNotIn("0xffffffffff600000", info)
+
+
+class TestQuietRanking(unittest.TestCase):
+    """The ranking is needed before the kill; its twenty-eight lines are not."""
+
+    def setUp(self):
+        """Clear the caches."""
+        reset_looping_dump_state()
+
+    def tearDown(self):
+        """Clear the caches."""
+        reset_looping_dump_state()
+
+    def test_the_quiet_ranking_is_the_same_ranking(self):
+        """A quieter answer must not be a different one."""
+        cpu = {1002: 10.0, 1003: 900.0, 1006: 1.0}
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             patch.object(loopingdumps, "get_cpu_time", side_effect=lambda pid: cpu.get(pid, 0.0)), \
+             patch.object(loopingdumps, "get_rss", return_value=0):
+            with self.assertLogs("pilot.util.loopingdumps", level="INFO"):
+                loud = select_dump_candidates(FakeJob(), label="before diagnostics")
+            quiet = select_dump_candidates(FakeJob(), label="before kill", verbose=False)
+
+        self.assertEqual(loud, quiet)
+        self.assertEqual(quiet[0][0], 1003)  # the athena process, ranked on CPU time
+
+    def test_the_quiet_ranking_logs_nothing(self):
+        """assertNoLogs is what pins this; the inventory is the bulk of it."""
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             patch.object(loopingdumps, "get_cpu_time", return_value=1.0), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
+            select_dump_candidates(FakeJob(), label="before kill", verbose=False)
+
+    def test_the_fallback_is_also_quiet(self):
+        """Every descendant filtered out is still not a reason to log twice."""
+        denylisted = [(1004, "prmon --pid 1002")]
+        with patch.object(loopingdumps, "get_descendants", return_value=denylisted), \
+             patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
+             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
+            candidates = select_dump_candidates(FakeJob(), label="before kill", verbose=False)
+
+        self.assertEqual(candidates, [(1000, "/bin/bash -c payload")])
+
+    def test_the_inventory_is_still_collected(self):
+        """The caller needs the tree; it just does not need it in the log."""
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
+            descendants = log_process_inventory(FakeJob(), label="before kill", verbose=False)
+
+        self.assertEqual(descendants, ATLAS_TREE)
+
+    def test_the_verbose_inventory_still_carries_the_marker(self):
+        """Which is what the payload name list is meant to be derived from."""
+        with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
+             patch.object(loopingdumps, "get_cpu_time", return_value=1.0), \
+             patch.object(loopingdumps, "get_rss", return_value=0), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            log_process_inventory(FakeJob(), label="before kill")
+
+        self.assertIn(INVENTORY_MARKER, "\n".join(captured.output))
 
 
 if __name__ == "__main__":

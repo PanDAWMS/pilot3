@@ -335,7 +335,12 @@ def _dump_payload_stack_traces(job: Any):
         job: Job object.
     """
     try:
-        candidates = select_dump_candidates(job, label="before kill")
+        # ranked quietly first: for a containerised payload nothing is traced,
+        # and logging the inventory and the ranking in order to then say so
+        # repeated the whole block two seconds after the identical one from the
+        # dump. The verbose call below only happens when there is something to
+        # trace, and the inventory is then genuinely the context for it
+        candidates = select_dump_candidates(job, label="before kill", verbose=False)
         if candidates and get_payload_container_image(candidates[0][0]):
             logger.info(
                 'skipping the stack traces: the payload runs in a container, so a stack '
@@ -343,6 +348,7 @@ def _dump_payload_stack_traces(job: Any):
                 'backtraces above instead'
             )
             return
+        candidates = select_dump_candidates(job, label="before kill")
         if len(candidates) > MAX_STACK_TRACE_CANDIDATES:
             logger.info(
                 f'tracing the top {MAX_STACK_TRACE_CANDIDATES} of {len(candidates)} candidates '

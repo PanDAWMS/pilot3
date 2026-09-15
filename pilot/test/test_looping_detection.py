@@ -452,6 +452,34 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
 
         self.assertEqual(traced, [9001])
 
+    def test_the_inventory_is_not_repeated_for_a_containerised_payload(self):
+        """Nothing is traced there, so the twenty-eight lines say nothing.
+
+        The identical inventory and ranking had already been logged by the dump
+        two seconds earlier (job 7313656511).
+        """
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates",
+                          return_value=candidates) as ranking, \
+             patch.object(loopingjob, "get_payload_container_image", return_value="/cvmfs/image"), \
+             patch.object(loopingjob, "dump_stack_trace"):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(ranking.call_count, 1)
+        self.assertFalse(ranking.call_args.kwargs["verbose"])
+
+    def test_the_inventory_is_logged_when_there_is_something_to_trace(self):
+        """It is the context for the traces, so it must survive the quiet path."""
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates",
+                          return_value=candidates) as ranking, \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
+             patch.object(loopingjob, "dump_stack_trace"):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(ranking.call_count, 2)
+        self.assertNotIn("verbose", ranking.call_args.kwargs)  # the second call is the loud one
+
     def test_a_failing_stack_trace_does_not_stop_the_kill(self):
         """The traces are a diagnostic; the kill is not."""
         with patch.object(loopingjob, "select_dump_candidates", side_effect=RuntimeError("no tree")):
