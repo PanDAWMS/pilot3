@@ -18,7 +18,8 @@
 #
 # Authors:
 # - Wen Guan, wen.guan@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-2024
+# - Torre Wenaus, wenaus@gmail.com, 2026
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """PanDA communicator."""
 
@@ -224,7 +225,8 @@ class PandaCommunicator(BaseCommunicator):
             if not isinstance(res, dict):
                 resp_attrs = {'status': -1,
                               'content': None,
-                              'exception': exception.CommunicationFailure(f"Get events from panda returned no response: {res}")}
+                              'exception': exception.CommunicationFailure(
+                                  f"Get events from panda request failed or returned a non-JSON response: {res}")}
             elif res.get('success'):
                 resp_attrs = {'status': 0, 'content': res.get('data'), 'exception': None}
             else:
@@ -282,7 +284,13 @@ class PandaCommunicator(BaseCommunicator):
             res = https.request2(f'{url}/api/v1/event/update_event_ranges', json_body=data, panda=True)
 
             logger.info(f"Updated event ranges status: {res}")
-            if isinstance(res, dict) and res.get('success'):
+            if not isinstance(res, dict):
+                logger.warning(f"event range update request failed or returned a non-JSON response: {res}")
+                resp_attrs = {'status': -1,
+                              'content': None,
+                              'exception': exception.CommunicationFailure(
+                                  f"Update events from panda request failed or returned a non-JSON response: {res}")}
+            elif res.get('success'):
                 resp_attrs = {'status': 0, 'content': res.get('data'), 'exception': None}
             else:
                 logger.warning(f"event range update not acknowledged by the server: {res}")
