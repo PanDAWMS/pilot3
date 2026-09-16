@@ -97,6 +97,10 @@ from .container import (
     execute_remote_file_open
 )
 from .dbrelease import get_dbrelease_version, create_dbrelease
+from .metadata import (
+    get_guid_from_xml,
+    get_metadata_from_xml,
+)
 from .setup import (
     should_pilot_prepare_setup,
     is_standard_atlas_job,
@@ -1349,22 +1353,85 @@ def update_job_data(job: JobData) -> None:
     # assigned (use job report value if present, otherwise generate the guid)
     is_raythena = os.environ.get('PILOT_ES_EXECUTOR_TYPE', 'generic') == 'raythena'
     if not is_raythena:
-        if job.metadata and not job.is_eventservice:
-            # keep this for now, complicated to merge with verify_output_files?
-            extract_output_file_guids(job)
-            try:
-                verify_output_files(job)
-            except Exception as exc:
-                logger.warning(f'exception caught while trying verify output files: {exc}')
-        elif not job.allownooutput:  # i.e. if it's an empty list/string, do nothing
-            logger.debug((
-                "will not try to extract output files from jobReport "
-                "for user job (and allowNoOut list is empty)"))
-        else:
-            # remove the files listed in allowNoOutput if they don't exist
-            remove_no_output_files(job)
+        process_output_file_metadata(job)
 
-        validate_output_data(job)
+
+def process_output_file_metadata(job: JobData) -> None:
+    """Extract the output file metadata from the job report and complete it.
+
+    Split out of :func:`update_job_data`, which had grown past the complexity
+    limit. Nothing in here may fail a payload that exited zero: a job report is
+    written by the transform and the pilot does not control its shape, so a
+    field that is absent or of an unexpected type is a reason to fall back, not
+    to fail the job. Job 7316132471 was failed exactly that way, by a missing
+    ``file_guid``.
+
+    Args:
+        job: job object.
+    """
+    if job.metadata and not job.is_eventservice:
+        # keep this for now, complicated to merge with verify_output_files?
+        try:
+            extract_output_file_guids(job)
+        except (AttributeError, IndexError, KeyError, TypeError) as exc:
+            # i.e. the job report is not shaped the way this code expects. The
+            # guids are assigned below in any case
+            logger.warning(f'exception caught while extracting output file guids: {exc}')
+        # any file the job report did not give a guid for is resolved here, the same
+        # way it is for a job whose transform wrote no job report at all
+        assign_missing_guids(job)
+        try:
+            verify_output_files(job)
+        except Exception as exc:
+            logger.warning(f'exception caught while trying verify output files: {exc}')
+    elif not job.allownooutput:  # i.e. if it's an empty list/string, do nothing
+        logger.debug((
+            "will not try to extract output files from jobReport "
+            "for user job (and allowNoOut list is empty)"))
+    else:
+        # remove the files listed in allowNoOutput if they don't exist
+        remove_no_output_files(job)
+
+    validate_output_data(job)
+
+
+def assign_missing_guids(job: JobData) -> None:
+    """Assign a guid to every output file that does not have one yet.
+
+    This is the single place that decides where a missing guid comes from, and
+    it is used by both routes that can produce one. A job whose transform wrote
+    no job report reaches it through ``process_metadata_from_xml()``; a job
+    whose job report exists but omits ``file_guid`` for a file reaches it
+    through ``update_job_data()``. The two used to behave differently: the
+    first generated a guid, the second raised ``KeyError`` and failed a payload
+    that had exited zero.
+
+    The XML is tried before generating, and that ordering is the point rather
+    than an optimisation. Production transforms write the real guid into
+    ``metadata.xml``, so generating one without looking would replace a true
+    guid with an invented one, which is worse than the crash it replaces.
+
+    Args:
+        job: job object, updated in place.
+    """
+    for dat in job.outdata:
+        if dat.guid:
+            continue
+
+        # try to read it from the metadata before the last resort of generating it
+        metadata = None
+        try:
+            metadata = get_metadata_from_xml(job.workdir)
+        except Exception as exc:
+            logger.warning(
+                f"Exception caught while interpreting XML: {exc} "
+                f"(ignoring it, but guids must now be generated)")
+        if metadata:
+            dat.guid = get_guid_from_xml(metadata, dat.lfn)
+            logger.info(f'read guid for lfn={dat.lfn} from xml: {dat.guid}')
+        else:
+            dat.guid = get_guid()
+            logger.info(f'generated guid for lfn={dat.lfn}: {dat.guid}')
 
 
 def validate_output_data(job: JobData) -> None:
@@ -1578,8 +1645,18 @@ def extract_output_file_guids(job: JobData) -> None:
             # only extra guid if the file is known by the
             # job definition (March 18 change, v 2.5.2)
             if lfn in data:
-                data[lfn].guid = fdat['file_guid']
-                logger.info(f'set guid={data[lfn].guid} for lfn={lfn} (value taken from job report)')
+                guid = fdat.get('file_guid')
+                if guid:
+                    data[lfn].guid = guid
+                    logger.info(
+                        f'set guid={data[lfn].guid} for lfn={lfn} (value taken from job report)')
+                else:
+                    # the job report exists but does not carry a guid for this file. Leave it
+                    # unset and let assign_missing_guids() resolve it exactly as it does for a
+                    # job whose transform wrote no job report at all
+                    logger.warning(
+                        f'job report contains no file_guid for lfn={lfn} - the guid will be '
+                        f'resolved as it is for a job without a job report')
             else:  # found new entry
                 logger.warning(f'pilot no longer considers output files not mentioned in job definition (lfn={lfn})')
                 continue
@@ -1823,9 +1900,13 @@ def get_outfiles_records(subfiles: list) -> dict:
     """
     res = {}
     for subfile in subfiles:
+        if 'file_guid' not in subfile:
+            logger.warning(f"file_guid is undefined in job report for {subfile.get('name')}")
+        if 'file_size' not in subfile:
+            logger.warning(f"file_size is undefined in job report for {subfile.get('name')}")
         res[subfile['name']] = {
-            'guid': subfile['file_guid'],
-            'size': subfile['file_size']
+            'guid': subfile.get('file_guid', ''),
+            'size': subfile.get('file_size', 0)
         }
 
         nentries = subfile.get('nentries', 'UNDEFINED')
