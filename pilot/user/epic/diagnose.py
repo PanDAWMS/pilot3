@@ -17,15 +17,16 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
-"""Functions for interpreting the payload stdout/err."""
+"""Payload stdout/stderr interpretation for the ePIC experiment plugin."""
 
 import logging
 import os
 
 from pilot.info import JobData
 from pilot.util.config import config
+from pilot.util.rootio import check_root_write_error
 from pilot.util.filehandling import (
     read_file,
     tail
@@ -39,6 +40,9 @@ logger = logging.getLogger(__name__)
 
 def interpret(job: JobData) -> int:
     """Interpret the payload stdout/err, look for specific errors.
+
+    Also checks payload stdout for a local ROOT file write failure, which truncates
+    the output file while the payload often still exits zero.
 
     Args:
         job: job object.
@@ -57,6 +61,10 @@ def interpret(job: JobData) -> int:
     message = 'payload stderr dump\n'
     message += read_file(stderr)
     logger.debug(message)
+
+    # did the payload fail to write its output ROOT file? a failing local disk or a full
+    # scratch area truncates the output while the payload frequently still exits zero
+    check_root_write_error(job)
 
     return 0
 

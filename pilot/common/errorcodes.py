@@ -196,6 +196,7 @@ class ErrorCodes:
     SETUPTIMEDOUT = 1390  # the containerised payload setup verification command did not finish within its time limit
     PAYLOADPROXYDOWNLOADFAILURE = 1391  # the payload proxy could not be downloaded from the server
     LOOPINGJOBCVMFS = 1392  # looping payload on a node whose CVMFS could not be read
+    PAYLOADWRITEFAILURE = 1393  # the payload could not write its output file (local I/O error)
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -222,6 +223,7 @@ class ErrorCodes:
         LOOPINGJOB: "Looping job killed by pilot",
         PAYLOADPROXYDOWNLOADFAILURE: "Failed to download payload proxy from server",
         LOOPINGJOBCVMFS: "Looping job killed by pilot - CVMFS I/O errors on the worker node",
+        PAYLOADWRITEFAILURE: "Payload failed to write output file (local I/O error)",
         STAGEINTIMEOUT: "File transfer timed out during stage-in",
         STAGEOUTTIMEOUT: "File transfer timed out during stage-out",
         NOPROXY: "Grid proxy not valid",

@@ -50,6 +50,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.tracereport import TraceReport
 from pilot.util.math import convert_mb_to_b
+from pilot.util.rootio import check_root_write_error
 from pilot.util.workernode import get_local_disk_space
 
 from .common import (
@@ -175,10 +176,16 @@ def interpret_payload_exit_info(job: JobData):
     """Interpret the exit information from the payload and set the appropriate error code.
 
     Checks for cling JIT allocation failure, out-of-memory, installation, AtlasSetup,
-    disk-space, NFS/SQLite, missing user code, and direct-access errors in that order.
-    The first matching condition sets the pilot error code with priority and returns.
-    If none match and the payload exited non-zero without a transform error,
-    ``UNKNOWNPAYLOADFAILURE`` is set as a catch-all.
+    disk-space, NFS/SQLite, missing user code, local ROOT write failure, and
+    direct-access errors in that order. The first matching condition sets the pilot
+    error code with priority and returns. If none match and the payload exited non-zero
+    without a transform error, ``UNKNOWNPAYLOADFAILURE`` is set as a catch-all.
+
+    The ROOT write check is placed before the direct-access scan so that a job using
+    direct access on a node with a failing local disk is reported as a write failure
+    rather than as a stage-in problem. Unlike the direct-access scan it is not gated on
+    the payload exit code, since a truncated output file is frequently accompanied by a
+    zero exit code.
 
     The cling JIT check is intentionally placed before the OOM check: VMA exhaustion
     (64k limit) causes cling to emit ``cling JIT session error: Cannot allocate memory``
@@ -238,6 +245,13 @@ def interpret_payload_exit_info(job: JobData):
     # is the user tarball missing on the server?
     if is_user_code_missing(job):
         job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.MISSINGUSERCODE, priority=True)
+        return
+
+    # did the payload fail to write its output ROOT file? this is checked before the
+    # direct-access scan so that a failing local disk on a remoteIO job is not reported
+    # as a stage-in problem, and it is not gated on the payload exit code since the
+    # transform routinely exits zero after ROOT has already truncated the output file
+    if check_root_write_error(job):
         return
 
     # did a direct-access (remoteIO) file open fail inside the payload?
