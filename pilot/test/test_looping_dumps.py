@@ -74,6 +74,7 @@ from pilot.util.loopingdumps import (
     format_snapshot,
     get_core_analysis_info,
     get_core_dump_max_size,
+    get_expected_message_info,
     get_process_name,
     has_python_startup_failure,
     is_denylisted,
@@ -2328,6 +2329,110 @@ class TestQuietRanking(unittest.TestCase):
             log_process_inventory(FakeJob(), label="before kill")
 
         self.assertIn(INVENTORY_MARKER, "\n".join(captured.output))
+
+
+class TestExpectedMessages(unittest.TestCase):
+    """A successful dump must not read like a failed one.
+
+    Phase A of job 7315111321 - the first with the executable fix in place -
+    still carried six pairs of
+
+        Error while mapping shared library sections:
+        Could not open `target:/lib64/libc.so.6' as an executable file: Input/output error
+
+    Measured against gdb 15.1 with 'set auto-solib-add off' in force: an
+    unreadable sysroot still produces a complaint about every mapped library,
+    while 'info sharedlibrary' reports 'Syms Read: No' for all of them. The
+    opens build the section table and are not symbol reading, so the flag does
+    not govern them and nothing in the pilot's control removes them. They are
+    explained instead.
+    """
+
+    # phase A output of job 7315111321, trimmed to the relevant lines
+    PHASE_A = (
+        "=== phase A: core file (bare gdb, no release setup, no symbols) ===\n"
+        "GNU gdb (Red Hat Enterprise Linux) 16.3-3.el9\n"
+        "[New LWP 10704]\n"
+        "Error while mapping shared library sections:\n"
+        "Could not open `target:/lib64/libc.so.6' as an executable file: Input/output error\n"
+        "0x00001512d460f8dd in ?? ()\n"
+        "=== gdb ready ===\n"
+        "Saved corefile /pool/condor/dir_3615630/core.10703\n"
+    )
+
+    def test_the_lines_are_recognised(self):
+        """Both halves are required: the message and a container path."""
+        self.assertTrue(loopingdumps.has_section_mapping_failure(self.PHASE_A))
+
+    def test_a_failure_under_gdbs_own_root_is_not_this(self):
+        """gdb failing to open a library it can see is a different situation."""
+        output = self.PHASE_A.replace("target:/lib64/libc.so.6", "/lib64/libc.so.6")
+
+        self.assertFalse(loopingdumps.has_section_mapping_failure(output))
+
+    def test_a_container_path_alone_is_not_this(self):
+        """gdb names 'target:' paths in other warnings too.
+
+        The executable warning that the CVMFS classification has to ignore is
+        one of them, and it is not a section mapping failure.
+        """
+        output = (
+            "=== phase A ===\n"
+            'warning: "target:/usr/bin/python3.9": could not open as an executable file: '
+            "Input/output error.\n"
+            "Saved corefile /tmp/core.1\n"
+        )
+
+        self.assertFalse(loopingdumps.has_section_mapping_failure(output))
+
+    def test_a_clean_phase_is_not_flagged(self):
+        """An uncontainerised payload produces none of this."""
+        self.assertFalse(loopingdumps.has_section_mapping_failure(
+            "=== phase A ===\nSaved corefile /tmp/core.1\n"))
+        self.assertFalse(loopingdumps.has_section_mapping_failure(""))
+
+    def test_the_pilot_says_they_are_expected(self):
+        """Immediately after the output, where the reader meets them."""
+        with patch.object(loopingdumps, "get_file_size", return_value=0), \
+             patch.object(loopingdumps, "execute", return_value=(0, "", "")), \
+             patch.object(loopingdumps, "read_gdb_output", return_value=self.PHASE_A), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            loopingdumps.run_gdb_phase("gdb ...", "/tmp/out.txt", 300, "/tmp", "phase A")
+
+        captured = "\n".join(captured.output)
+        self.assertIn("are expected for a containerised payload", captured)
+        self.assertIn("auto-solib-add", captured)
+
+    def test_a_clean_phase_gets_no_explanation(self):
+        """An explanation of something that did not happen is noise."""
+        with patch.object(loopingdumps, "get_file_size", return_value=0), \
+             patch.object(loopingdumps, "execute", return_value=(0, "", "")), \
+             patch.object(loopingdumps, "read_gdb_output",
+                          return_value="=== phase A ===\nSaved corefile /tmp/core.1\n"), \
+             self.assertLogs("pilot.util.loopingdumps", level="INFO") as captured:
+            loopingdumps.run_gdb_phase("gdb ...", "/tmp/out.txt", 300, "/tmp", "phase A")
+
+        self.assertNotIn("are expected for a containerised payload", "\n".join(captured.output))
+
+    def test_the_notes_cover_all_four_messages(self):
+        """The analysis file is what survives in the log tarball."""
+        info = "\n".join(get_expected_message_info())
+
+        self.assertIn("0xffffffffff600000", info)
+        self.assertIn("file-backed mapping note processing", info)
+        self.assertIn("Error while mapping shared library sections", info)
+        self.assertIn("core file may not match specified executable file", info)
+
+    def test_the_mismatch_note_says_what_to_check_instead(self):
+        """Job 7315111321 resolved all sixteen frames while warning about this."""
+        info = "\n".join(get_expected_message_info())
+
+        self.assertIn("name comparison", info)
+        self.assertIn("if they", info)
+
+    def test_nothing_is_said_when_no_core_file_was_written(self):
+        """These are messages about writing and reading one."""
+        self.assertEqual(get_expected_message_info(with_core=False), [])
 
 
 if __name__ == "__main__":

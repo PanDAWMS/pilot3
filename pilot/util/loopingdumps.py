@@ -355,6 +355,17 @@ CVMFS_FAILURE_SIGNATURES = (
 # path names, so it must not be read as evidence about CVMFS.
 TARGET_PATH_PATTERN = re.compile(r"target:\S*")
 
+# Fragment identifying gdb opening a mapped shared library to build its section
+# table. This is not symbol reading and is not controlled by 'auto-solib-add
+# off': measured against gdb 15.1, with the flag on and an unreadable sysroot
+# gdb still reports every mapped library it could not open, while 'info
+# sharedlibrary' shows 'Syms Read: No' for all of them. In phase A those opens
+# go through 'target:', which cannot reach into an unprivileged Apptainer image,
+# so a containerised payload produces one pair of lines per mapped library.
+# Harmless - the core file is written from the inferior's memory, not from these
+# - but it reads like a failed dump, so the pilot says otherwise.
+SECTION_MAPPING_SIGNATURE = "Error while mapping shared library sections"
+
 # Matches a CVMFS path in a gdb warning, so that the pilot can check it itself.
 CVMFS_PATH_PATTERN = re.compile(r"/cvmfs/\S+")
 
@@ -1506,9 +1517,9 @@ def get_container_analysis_info(job: Any, setup: str, sysroot: str = "") -> list
 def get_expected_message_info(with_core: bool = True) -> list:
     """Return the notes on the gdb messages that mean nothing is wrong.
 
-    Both of these appear on a dump that worked perfectly, and both have cost
-    time to investigate. They are recorded next to the core file so that the
-    next reader does not repeat that.
+    All four appear on a dump that worked perfectly, and each has cost time to
+    investigate. They are recorded next to the core file so that the next reader
+    does not repeat that.
 
     * The vsyscall page (``0xffffffffff600000``) is mapped into every process
       and is never dumpable. Measured: the warning appears on every core file
@@ -1518,10 +1529,25 @@ def get_expected_message_info(with_core: bool = True) -> list:
       path is consulted. Measured: neither ``sysroot`` nor ``solib-search-path``
       suppresses it, and the library concerned still resolves when a search path
       is given.
+    * The section mapping errors are gdb opening every mapped library to build
+      its section table, through the container's mount namespace, which the
+      worker node cannot reach. Measured against gdb 15.1: ``auto-solib-add
+      off`` does not govern these opens - with the flag set and an unreadable
+      sysroot gdb still reports every library, while ``info sharedlibrary``
+      shows ``Syms Read: No`` for all of them. Confirmed in production on job
+      7315111321, where the lines survived a release that removed every other
+      cause proposed for them.
+    * The executable mismatch warning is a *name* comparison. When gdb cannot
+      confirm the identity of the executable by build id it falls back to
+      comparing the command recorded in the core file with the executable's
+      basename, and for a transform launched through its shebang those differ by
+      construction - ``./LoopingJob.py`` against ``python3.9`` on job
+      7315111321, where all sixteen frames nevertheless resolved, including the
+      one in the executable itself.
 
     Args:
         with_core: Whether a core file was written; the messages are about
-            reading one.
+            writing and reading one.
 
     Returns:
         List of lines, empty when there is no core file to read.
@@ -1537,6 +1563,18 @@ def get_expected_message_info(with_core: bool = True) -> list:
         "  'Can't open file <path> during file-backed mapping note processing' - gdb",
         "  listing a file the core file records as mapped; it is printed before any",
         "  search path is consulted, and no gdb option removes it.",
+        "  'Error while mapping shared library sections: Could not open `target:...'",
+        "  - gdb opening every mapped library to build its section table. That is not",
+        "  symbol reading and 'set auto-solib-add off' does not govern it, and the",
+        "  opens go through the container's mount namespace, which the worker node",
+        "  cannot reach. The core file comes from the process's memory and is",
+        "  unaffected; the same libraries resolve against the image below.",
+        "  'core file may not match specified executable file' - a name comparison,",
+        "  not a content one. Where gdb cannot confirm the executable by build id it",
+        "  compares the command recorded in the core file with the executable's",
+        "  basename, and a transform started through its shebang records the script",
+        "  name against an interpreter binary. Check the frames instead: if they",
+        "  carry function names, the executable and the core file do match.",
     ]
 
 
@@ -1815,11 +1853,18 @@ def get_executable_argument(pid: int) -> str:
 
     Observed in production on job 7313656511: the re-read also re-adds the
     shared libraries, through ``target:``, which is exactly the access that
-    cannot work - so ``set auto-solib-add off`` does not protect against it. The
-    core file is still written correctly, but it is written with the *wrong*
-    executable loaded, which is what makes phase B report "core file may not
-    match specified executable file" when it opens that core file with the
-    right one.
+    cannot work. The core file is still written correctly, but it is written
+    with the *wrong* executable loaded, and every frame that gdb resolves
+    against the executable is then resolved against the worker node's build.
+
+    Two things once attributed to this turned out not to follow from it, and
+    job 7315111321 - the first with this fix in place - settled both. The
+    section mapping errors are not caused by the re-read: they survived it (see
+    :data:`SECTION_MAPPING_SIGNATURE`). Neither is "core file may not match
+    specified executable file": it survived too, and is a name comparison
+    rather than a statement about the executable being wrong (see
+    :func:`get_expected_message_info`). What this does fix is the executable
+    itself, which the two disproven items had obscured rather than evidenced.
 
     So the copy inside the image is named directly when there is one. It is the
     same build as the running process, it is a genuine host path, and gdb has no
@@ -2599,6 +2644,24 @@ def has_cvmfs_io_failure(output: str) -> bool:
     return False
 
 
+def has_section_mapping_failure(output: str) -> bool:
+    """Return True if gdb could not open the payload's mapped libraries.
+
+    Only meaningful together with a ``target:`` path: gdb naming a library it
+    could not open under its own root is a different situation from gdb failing
+    to reach through the container's mount namespace, which is the expected one.
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        True if gdb reported a section mapping failure against a container path.
+    """
+    output = output or ""
+
+    return SECTION_MAPPING_SIGNATURE in output and "target:" in output
+
+
 def has_attach_failure(output: str) -> bool:
     """Return True if the gdb output shows the attach itself failed.
 
@@ -2710,6 +2773,17 @@ def run_gdb_phase(cmd: str, output_path: str, timeout: int, scratch: str, label:
             f"{LOG_PREFIX}: {label}: gdb could not attach to the process - it may have exited "
             f"already, or the tracer and the payload may be in different user namespaces, "
             f"which is the case for any gdb started inside a second container"
+        )
+
+    if has_section_mapping_failure(output):
+        logger.info(
+            f"{LOG_PREFIX}: {label}: the 'Error while mapping shared library sections' lines "
+            f"above are expected for a containerised payload and do not affect the dump. gdb "
+            f"opens every mapped library to build its section table, which 'set auto-solib-add "
+            f"off' does not govern (it governs reading their symbols, which is still off), and "
+            f"those opens go through the container's mount namespace, which cannot be reached "
+            f"from the worker node. The core file is written from the process's memory and is "
+            f"unaffected; the libraries are resolved against the image when it is read back"
         )
 
     if has_cvmfs_io_failure(output):
