@@ -224,7 +224,7 @@ class GenericExecutor(BaseExecutor):
         activity = ['es_events', 'pw']  ## FIX ME LATER: replace `pw` with `write_lan` once AGIS is updated (acopytools)
 
         try:
-            client = StageOutESClient(job.infosys, logger=logger)
+            client = StageOutESClient(infosys_instance=job.infosys, logger=logger)
             try_failover = True
 
             client.prepare_destinations(xdata, activity)  ## IF ES job should be allowed to write only at `es_events` astorages, then fix activity names here

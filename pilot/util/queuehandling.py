@@ -25,10 +25,11 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import threading
 import time
 from collections import namedtuple
 from queue import Queue
-from typing import Optional
+from typing import Any, Optional
 
 from pilot.common.errorcodes import ErrorCodes
 from pilot.info import JobData
@@ -39,6 +40,58 @@ from pilot.util.auxiliary import (
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# Scan duration above which a queue scan is reported even when its outcome has
+# not changed, in seconds. A scan that finds a job immediately costs tens of
+# microseconds; one that takes measurable time means the queues were empty and
+# had to be waited for, which is worth a line every time it happens.
+SLOW_SCAN_THRESHOLD = 1.0
+
+# Last reported outcome of scan_for_jobs() and of the maxwalltime decision in
+# get_timeinfo_from_job(). Both functions are called from the pilot monitoring
+# loop, which runs every couple of seconds for the entire lifetime of the job:
+# logging them unconditionally produced one identical pair of lines per
+# iteration, thousands of them per job, for a result that changes at most a
+# handful of times. Only a change is reported.
+_report_state: dict[str, Any] = {"scan": None, "timeinfo": None}
+
+# Guards _report_state. The monitoring thread and the job control thread both
+# reach these functions, and without the lock a change can be reported twice or
+# (worse) swallowed by an interleaved write from the other thread.
+_report_lock = threading.Lock()
+
+
+def reset_queue_report_state() -> None:
+    """Reset the change-detection state of the repeated queue messages.
+
+    Exposed for tests, which must not see a message suppressed because an
+    earlier test in the same process already reported the same value.
+    """
+    with _report_lock:
+        _report_state["scan"] = None
+        _report_state["timeinfo"] = None
+
+
+def report_when_changed(key: str, value: Any, message: str, force: bool = False) -> bool:
+    """Log *message* at debug level only when *value* differs from the last one.
+
+    Args:
+        key: Entry in the module level report state, e.g. ``'scan'``.
+        value: Value identifying what is being reported.
+        message: Message to log when the value has changed.
+        force: Log regardless of whether the value has changed.
+
+    Returns:
+        True if the message was logged.
+    """
+    with _report_lock:
+        changed = _report_state.get(key) != value
+        _report_state[key] = value
+
+    if changed or force:
+        logger.debug(message)
+
+    return changed or force
 
 
 def get_signal_name(sig_num: int) -> str:
@@ -79,6 +132,16 @@ def declare_failed_by_kill(job: object, queue: Queue, signal_name: str) -> None:
 def scan_for_jobs(queues: namedtuple) -> list:
     """Scan queues until at least one queue has a job object, aborting after 30 seconds.
 
+    The outcome is reported at debug level only when it differs from the last
+    reported one, or when the scan itself took a measurable time
+    (:data:`SLOW_SCAN_THRESHOLD`). This function is called once per iteration of
+    the pilot monitoring loop, i.e. every couple of seconds for the whole life
+    of the job, and the answer is the same every time: reporting it
+    unconditionally filled the pilot log with thousands of identical lines and
+    pushed the messages that do carry information out of sight. A change - a
+    job appearing, disappearing, or moving to another queue - is still reported
+    the moment it happens, and so is a scan that had to wait.
+
     Args:
         queues: Named tuple of queue objects.
 
@@ -88,6 +151,7 @@ def scan_for_jobs(queues: namedtuple) -> list:
     _t0 = time.time()
     found_job = False
     jobs = None
+    found_in = ''
 
     while time.time() - _t0 < 30:
         for queue in queues._fields:
@@ -97,12 +161,22 @@ def scan_for_jobs(queues: namedtuple) -> list:
             _queue = getattr(queues, queue)
             jobs = list(_queue.queue)
             if len(jobs) > 0:
-                logger.debug(f'found {len(jobs)} job(s) in queue {queue} after {time.time() - _t0} s - will begin queue monitoring')
                 found_job = True
+                found_in = queue
                 break
         if found_job:
             break
         time.sleep(0.1)
+
+    duration = time.time() - _t0
+    if found_job:
+        report_when_changed(
+            'scan', (found_in, len(jobs)),
+            f'found {len(jobs)} job(s) in queue {found_in} after {duration:.3f} s - will begin queue monitoring',
+            force=duration > SLOW_SCAN_THRESHOLD
+        )
+    else:
+        report_when_changed('scan', None, f'found no jobs in any queue after {duration:.3f} s')
 
     return jobs
 
@@ -136,9 +210,15 @@ def get_timeinfo_from_job(queues: namedtuple, params: dict, harvester_submitmode
     # (ARC CE / OBS), where the batch system enforces maxWalltime from the job
     # definition as the hard wall-clock limit.  In pull mode, maxWalltime in the
     # job definition is task-level metadata and should not override the PQ limit.
+    # reported only on a change: this is called once per monitoring loop
+    # iteration, and the decision depends on the submit mode and the job, both
+    # of which are fixed for the duration of a job
     use_job_maxwalltime = harvester_submitmode.lower() == 'push'
-    logger.debug(f'use_job_maxwalltime={use_job_maxwalltime} (harvester_submitmode={harvester_submitmode!r}, '
-                 f'current job id={current_job_id})')
+    report_when_changed(
+        'timeinfo', (use_job_maxwalltime, harvester_submitmode, current_job_id),
+        f'use_job_maxwalltime={use_job_maxwalltime} (harvester_submitmode={harvester_submitmode!r}, '
+        f'current job id={current_job_id})'
+    )
 
     # extract jobs from the queues
     jobs = scan_for_jobs(queues)

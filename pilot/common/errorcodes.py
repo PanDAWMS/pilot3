@@ -194,7 +194,9 @@ class ErrorCodes:
     XRDACCESSRESTRICTED = 1388  # XRootD [3010] FullyRestricted / proxy scope too narrow
     NOTIMELEFTFORNEWJOB = 1389  # set when the pilot ends without running a job since too little time remained
     SETUPTIMEDOUT = 1390  # the containerised payload setup verification command did not finish within its time limit
-    PAYLOADPROXYDOWNLOADFAILURE = 1391  # the payload proxy could not be downloaded from the PanDA server
+    PAYLOADPROXYDOWNLOADFAILURE = 1391  # the payload proxy could not be downloaded from the server
+    LOOPINGJOBCVMFS = 1392  # looping payload on a node whose CVMFS could not be read
+    PAYLOADWRITEFAILURE = 1393  # the payload could not write its output file (local I/O error)
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -219,6 +221,9 @@ class ErrorCodes:
         SIZETOOLARGE: "Total file size too large",
         TRFDOWNLOADFAILURE: "Transform could not be downloaded",
         LOOPINGJOB: "Looping job killed by pilot",
+        PAYLOADPROXYDOWNLOADFAILURE: "Failed to download payload proxy from server",
+        LOOPINGJOBCVMFS: "Looping job killed by pilot - CVMFS I/O errors on the worker node",
+        PAYLOADWRITEFAILURE: "Payload failed to write output file (local I/O error)",
         STAGEINTIMEOUT: "File transfer timed out during stage-in",
         STAGEOUTTIMEOUT: "File transfer timed out during stage-out",
         NOPROXY: "Grid proxy not valid",
@@ -349,11 +354,30 @@ class ErrorCodes:
         XRDACCESSRESTRICTED: "XRootD access restricted: authorisation denied (proxy scope too narrow)",
         NOTIMELEFTFORNEWJOB: "Insufficient time remaining to start a new job",
         SETUPTIMEDOUT: "Payload setup verification timed out",
-        PAYLOADPROXYDOWNLOADFAILURE: "Failed to download payload proxy from server",
     }
 
     put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
     recoverable_error_codes = [0] + put_error_codes
+
+    def is_looping_error(self, codes: list) -> bool:
+        """Return True if any of the given error codes means a looping payload.
+
+        There is more than one looping code - the plain one and the variant for
+        a node whose CVMFS could not be read - and callers that guard on
+        "was this a looping job" have to honour all of them. Keeping the set in
+        one place stops a new code from silently changing behaviour in the
+        experiment plugins, where the guard decides whether the payload's
+        working directory is preserved for analysis.
+
+        Args:
+            codes: Pilot error codes reported for the job.
+
+        Returns:
+            True if any of them is a looping error code.
+        """
+        looping_codes = (self.LOOPINGJOB, self.LOOPINGJOBCVMFS)
+
+        return any(code in (codes or []) for code in looping_codes)
 
     def reset_pilot_errors(self):
         """Reset the class static variables related with pilot errors."""

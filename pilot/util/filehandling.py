@@ -279,6 +279,12 @@ def grep(patterns: list, file_name: str) -> list:
         grep(["St9bad_alloc", "FATAL"], "athena_stdout.txt")
         # -> lines containing 'St9bad_alloc' or 'FATAL'
 
+    Payload logs are not guaranteed to be valid UTF-8: a truncated write or a binary
+    fragment written by the payload is enough to produce an undecodable byte. Decoding
+    errors are therefore ignored rather than raised, since an exception here would
+    silently disable every stdout-based diagnosis for the job. The patterns searched for
+    are ASCII, so dropping an undecodable byte cannot hide a match.
+
     Args:
         patterns: List of regexp patterns to search for.
         file_name: Path to the file to search.
@@ -289,7 +295,7 @@ def grep(patterns: list, file_name: str) -> list:
     matched_lines = []
     compiled_patterns = [re.compile(pattern) for pattern in patterns]
 
-    with open(file_name, 'r', encoding='utf-8') as _file:
+    with open(file_name, 'r', encoding='utf-8', errors='ignore') as _file:
         matched_lines = [
             line for line in _file
             if any(compiled_pattern.search(line) for compiled_pattern in compiled_patterns)
