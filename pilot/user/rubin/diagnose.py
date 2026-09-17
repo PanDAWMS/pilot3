@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-26
 # - Tadashi Maeno, tadashi.maeno@cern.ch, 2020
 
 """Payload stdout/stderr interpretation for the Rubin experiment plugin."""
@@ -27,6 +27,7 @@ import os
 
 from pilot.info.jobdata import JobData
 from pilot.util.config import config
+from pilot.util.rootio import check_root_write_error
 from pilot.util.filehandling import read_file, tail
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 def interpret(job: JobData) -> int:
     """Interpret the payload, look for specific errors in the stdout.
+
+    Also checks payload stdout for a local ROOT file write failure, which truncates
+    the output file while the payload often still exits zero.
 
     Args:
         job: job object.
@@ -55,6 +59,10 @@ def interpret(job: JobData) -> int:
         logger.debug(message)
     else:
         logger.info('payload produced no stderr')
+
+    # did the payload fail to write its output ROOT file? a failing local disk or a full
+    # scratch area truncates the output while the payload frequently still exits zero
+    check_root_write_error(job)
 
     return 0
 

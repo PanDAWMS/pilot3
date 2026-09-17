@@ -55,6 +55,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock, patch
@@ -350,6 +351,10 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
                          return_value=(int(time.time()) - 2 * LOOPING_LIMIT, [])),
             patch.object(loopingjob, "time_since_suspension", return_value=0),
             patch.object(loopingjob, "get_looping_job_limit", return_value=LOOPING_LIMIT),
+            # a healthy node by default, so that these tests exercise the plain looping
+            # path; the CVMFS path has its own tests below
+            patch.object(loopingjob, "is_cvmfs_available", return_value=True),
+            patch.object(loopingjob, "cvmfs_diagnostics"),
         )
 
     def _run(self, extra):
@@ -374,7 +379,7 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
         """The baseline: the loop is detected and the kill is attempted."""
         kill = MagicMock()
         exit_code, diagnostics = self._run((
-            patch.object(loopingjob, "create_core_dump"),
+            patch.object(loopingjob, "create_core_dump", return_value=False),
             patch.object(loopingjob, "kill_looping_job", kill),
         ))
 
@@ -396,7 +401,7 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
     def test_a_failing_kill_still_reports_the_looping_job(self):
         """The server must be told even if the local kill went wrong."""
         exit_code, diagnostics = self._run((
-            patch.object(loopingjob, "create_core_dump"),
+            patch.object(loopingjob, "create_core_dump", return_value=False),
             patch.object(loopingjob, "kill_looping_job", side_effect=RuntimeError("kill failed")),
         ))
 
@@ -413,10 +418,67 @@ class TestDetectionSurvivesFailingDiagnostics(unittest.TestCase):
         traced = []
         candidates = [(pid, f"payload {pid}") for pid in range(9001, 9007)]
         with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
              patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
             loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
 
         self.assertEqual(traced, [9001, 9002])
+
+    def test_a_containerised_payload_is_not_traced_on_the_worker_node(self):
+        """pstack has no sysroot, so it can name no frame and unwind past none.
+
+        Observed on job 7306884824: three frames of '?? ()' logged directly
+        below the sixteen named frames the core file had just produced for the
+        same process. A misleading result, not a partial one.
+        """
+        traced = []
+        candidates = [(9001, "payload 9001"), (9002, "payload 9002")]
+        with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image",
+                          return_value="/cvmfs/atlas.cern.ch/repo/containers/fs/singularity/x86_64-almalinux9"), \
+             patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(traced, [])
+
+    def test_an_uncontainerised_payload_is_still_traced(self):
+        """There the worker node's own libraries are the payload's, so pstack works."""
+        traced = []
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates", return_value=candidates), \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
+             patch.object(loopingjob, "dump_stack_trace", side_effect=traced.append):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(traced, [9001])
+
+    def test_the_inventory_is_not_repeated_for_a_containerised_payload(self):
+        """Nothing is traced there, so the twenty-eight lines say nothing.
+
+        The identical inventory and ranking had already been logged by the dump
+        two seconds earlier (job 7313656511).
+        """
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates",
+                          return_value=candidates) as ranking, \
+             patch.object(loopingjob, "get_payload_container_image", return_value="/cvmfs/image"), \
+             patch.object(loopingjob, "dump_stack_trace"):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(ranking.call_count, 1)
+        self.assertFalse(ranking.call_args.kwargs["verbose"])
+
+    def test_the_inventory_is_logged_when_there_is_something_to_trace(self):
+        """It is the context for the traces, so it must survive the quiet path."""
+        candidates = [(9001, "payload 9001")]
+        with patch.object(loopingjob, "select_dump_candidates",
+                          return_value=candidates) as ranking, \
+             patch.object(loopingjob, "get_payload_container_image", return_value=""), \
+             patch.object(loopingjob, "dump_stack_trace"):
+            loopingjob._dump_payload_stack_traces(FakeJob())  # pylint: disable=protected-access
+
+        self.assertEqual(ranking.call_count, 2)
+        self.assertNotIn("verbose", ranking.call_args.kwargs)  # the second call is the loud one
 
     def test_a_failing_stack_trace_does_not_stop_the_kill(self):
         """The traces are a diagnostic; the kill is not."""
@@ -526,6 +588,161 @@ class TestLoopingCheckGate(unittest.TestCase):
     def test_neither_allows_it(self):
         """Both disabled is also not a reason to run it."""
         self.assertFalse(self._verify(looping_check=False, allowed=False))
+
+
+class TestCvmfsClassification(unittest.TestCase):
+    """A looping payload on a node that cannot serve it is a site problem.
+
+    Either signal is enough: gdb failing to read a CVMFS path while dumping,
+    which is tied to the payload's own executable, or the pilot's own
+    availability check, which still works when no gdb ran.
+    """
+
+    def setUp(self):
+        """Reset the singleton error code lists."""
+        errors.reset_pilot_errors()
+        os.environ.pop("NO_CVMFS_OK", None)
+
+    def tearDown(self):
+        """Reset the singleton error code lists."""
+        errors.reset_pilot_errors()
+        os.environ.pop("NO_CVMFS_OK", None)
+
+    def _handle(self, dump_failure, available):
+        """Run _handle_looping_payload() with the given signals.
+
+        Args:
+            dump_failure (bool): Whether gdb hit a CVMFS read error.
+            available: What the availability check returns.
+
+        Returns:
+            tuple: (exit code, diagnostics, job).
+        """
+        job = FakeJob()
+        diagnostics_called = MagicMock()
+        with patch.object(loopingjob, "create_core_dump", return_value=dump_failure), \
+             patch.object(loopingjob, "is_cvmfs_available", return_value=available), \
+             patch.object(loopingjob, "cvmfs_diagnostics", diagnostics_called), \
+             patch.object(loopingjob, "kill_looping_job"), \
+             patch.object(loopingjob, "list_mod_files"):
+            exit_code, diagnostics = loopingjob._handle_looping_payload(job, [])  # pylint: disable=protected-access
+
+        self.assertEqual(diagnostics_called.called, exit_code == errors.LOOPINGJOBCVMFS)
+
+        return exit_code, diagnostics, job
+
+    def test_a_healthy_node_reports_a_plain_looping_job(self):
+        """Neither signal fired, so nothing about CVMFS is claimed."""
+        exit_code, diagnostics, _ = self._handle(dump_failure=False, available=True)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOB)
+        self.assertNotIn("CVMFS", diagnostics)
+
+    def test_the_gdb_signal_alone_is_enough(self):
+        """gdb could not read the payload's own executable from CVMFS."""
+        exit_code, diagnostics, _ = self._handle(dump_failure=True, available=True)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOBCVMFS)
+        self.assertIn("CVMFS", diagnostics)
+
+    def test_the_availability_signal_alone_is_enough(self):
+        """Works when no gdb ran at all, e.g. a payload too large for a core file."""
+        exit_code, _, _ = self._handle(dump_failure=False, available=False)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOBCVMFS)
+
+    def test_an_unimplemented_check_is_not_a_failure(self):
+        """A plugin without a cvmfs module returns None, which claims nothing."""
+        exit_code, _, _ = self._handle(dump_failure=False, available=None)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOB)
+
+    def test_a_queue_without_cvmfs_is_never_blamed_on_cvmfs(self):
+        """NO_CVMFS_OK means the site does not use CVMFS at all.
+
+        The pilot aborts at start-up with CVMFSISNOTALIVE when CVMFS is
+        missing, unless this is set. Without the gate, every looping job at
+        such a site would be misreported as a CVMFS problem.
+        """
+        os.environ["NO_CVMFS_OK"] = "1"
+        exit_code, _, _ = self._handle(dump_failure=False, available=False)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOB)
+
+    def test_the_gdb_signal_still_counts_without_cvmfs_checks(self):
+        """A direct read failure on a CVMFS path is evidence regardless of the gate."""
+        os.environ["NO_CVMFS_OK"] = "1"
+        exit_code, _, _ = self._handle(dump_failure=True, available=False)
+
+        self.assertEqual(exit_code, errors.LOOPINGJOBCVMFS)
+
+    def test_a_hung_check_counts_as_unreadable(self):
+        """stat and open block indefinitely on a hung mount.
+
+        A check that never returns has established what it set out to.
+        """
+        started = threading.Event()
+
+        def _hang():
+            started.set()
+            time.sleep(30)
+
+        with patch.object(loopingjob, "CVMFS_CHECK_TIMEOUT", 0.2), \
+             patch.object(loopingjob, "is_cvmfs_available", side_effect=_hang):
+            healthy = loopingjob._check_cvmfs_health()  # pylint: disable=protected-access
+
+        self.assertTrue(started.wait(timeout=5))
+        self.assertFalse(healthy)
+
+    def test_the_error_code_is_the_one_sent_to_the_server(self):
+        """priority=True, so it is reported ahead of anything set earlier."""
+        job = FakeJob()
+        job.state = 'running'
+        loopingjob._set_looping_error_code(job, cvmfs_problem=True)  # pylint: disable=protected-access
+
+        self.assertEqual(job.piloterrorcodes[0], errors.LOOPINGJOBCVMFS)
+        self.assertEqual(job.state, 'failed')
+
+    def test_a_stageout_timeout_is_not_attributed_to_cvmfs(self):
+        """The payload was not the thing that stalled, so that would be a guess."""
+        job = FakeJob()
+        job.state = 'stageout'
+        loopingjob._set_looping_error_code(job, cvmfs_problem=True)  # pylint: disable=protected-access
+
+        self.assertEqual(job.piloterrorcodes[0], errors.STAGEOUTTIMEOUT)
+
+    def test_the_looping_predicate_covers_every_looping_code(self):
+        """The experiment plugins guard on this to preserve the payload workDir.
+
+        A new looping code that is not in the set would silently start
+        discarding the evidence for exactly the jobs that need it.
+        """
+        self.assertTrue(errors.is_looping_error([errors.LOOPINGJOB]))
+        self.assertTrue(errors.is_looping_error([errors.LOOPINGJOBCVMFS]))
+        self.assertTrue(errors.is_looping_error([errors.GENERALERROR, errors.LOOPINGJOBCVMFS]))
+
+    def test_the_looping_predicate_ignores_other_codes(self):
+        """It must not turn every failure into a looping job."""
+        self.assertFalse(errors.is_looping_error([errors.GENERALERROR]))
+        self.assertFalse(errors.is_looping_error([]))
+        self.assertFalse(errors.is_looping_error(None))
+
+    def test_the_code_number_is_pinned(self):
+        """1391 was claimed by two work streams at once and shipped as neither.
+
+        The payload proxy work defined PAYLOADPROXYDOWNLOADFAILURE as 1391 in
+        parallel with this code taking the same number, and nothing failed
+        until the two branches met. Both numbers are now asserted, in their own
+        suites, so a third claim fails immediately rather than at a merge.
+        """
+        self.assertEqual(errors.LOOPINGJOBCVMFS, 1392)
+
+    def test_the_error_message_is_registered(self):
+        """A code without a message shows as a bare number in the monitor."""
+        message = errors.get_error_message(errors.LOOPINGJOBCVMFS)
+
+        self.assertIn("CVMFS", message)
+        self.assertIn("Looping job", message)
 
 
 if __name__ == "__main__":

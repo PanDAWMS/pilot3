@@ -103,6 +103,19 @@ write there. The total is bounded by a single diagnostics budget
 (:func:`get_diagnostics_budget`), because everything here happens between the
 decision to kill and the kill itself.
 
+Phase B reads the core file phase A has just written rather than attaching to
+the payload a second time. A live attach cannot work from inside a second
+container: unprivileged Apptainer places that gdb in a new user namespace, and
+a tracer there holds no capability over a process in the parent namespace, so
+the attach is refused with ``ptrace: Operation not permitted`` even though the
+payload is plainly visible in the shared PID namespace. Nor is it needed - the
+core file holds the same stacks and reading it requires no ``ptrace`` at all.
+What the frames need in order to resolve is the payload's own libraries, and
+:func:`get_sysroot_options` supplies those by pointing gdb's ``sysroot`` at the
+container image, which for ATLAS is an unpacked directory on CVMFS that the
+host can read directly. A live attach on the worker node remains the fallback
+for a payload that has no core file.
+
 The release gdb is only needed to *read* a core file, and that happens offline,
 long after the worker node is gone. What it needs in order to be possible at
 all is recorded next to the core file by :func:`get_core_analysis_info`,
@@ -142,8 +155,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shlex
 import signal
 import tempfile
+import threading
 import time
 from shutil import (
     disk_usage,
@@ -295,8 +310,103 @@ DEFAULT_DIAGNOSTICS_BUDGET = 900
 # size of every looping job's log file, not just on the dump.
 DEFAULT_CORE_DUMP_MAX_SIZE = "2 GB"
 
+# Stage markers written by gdb itself into the output file. A phase that is
+# killed by its timeout leaves no exit status to reason from, so these are what
+# say how far gdb got.
+#
+# STARTUP_MARKER means "gdb finished starting up and began executing the
+# requested commands". It deliberately does not claim the attach succeeded: gdb
+# in batch mode carries on after an error, so an 'echo' runs even when the
+# attach failed (verified: a failed attach prints "ptrace: No such process."
+# and then the marker anyway). What its *absence* proves is the useful part -
+# gdb was still in start-up, which for an attach means reading symbols.
+STARTUP_MARKER = "=== gdb ready ==="
+CORE_WRITTEN_MARKER = "=== core file written ==="
+
+# Fragments identifying a failed attach. Needed because the marker above cannot
+# carry that meaning, and because a failed attach and a slow one call for
+# completely different responses.
+ATTACH_FAILURE_SIGNATURES = (
+    "ptrace:",
+    "You can't do that without a process to debug",
+)
+
+# Fragments identifying a CVMFS read failure in the gdb output, and the path
+# prefix that ties one to CVMFS rather than to a local file. Both are required
+# on the same line, since gdb reports plenty of unrelated warnings.
+#
+# This matters beyond the dump. The payload executes from CVMFS, so a node that
+# cannot serve the payload's own binary is a node on which the payload will
+# appear to loop. Seen in production as
+#
+#   warning: "target:/cvmfs/.../eventloop_run_grid_job": could not open as an
+#   executable file: Input/output error.
+#
+# on a job that was then reported as a looping payload.
+CVMFS_PATH_MARKER = "/cvmfs/"
+CVMFS_FAILURE_SIGNATURES = (
+    "Input/output error",
+    "can't open to read symbols",
+    "could not open as an executable file",
+)
+
+# Matches a path gdb reached for through the inferior's mount namespace. Such a
+# failure is about gdb's access to the container, not about the filesystem the
+# path names, so it must not be read as evidence about CVMFS.
+TARGET_PATH_PATTERN = re.compile(r"target:\S*")
+
+# Fragment identifying gdb opening a mapped shared library to build its section
+# table. This is not symbol reading and is not controlled by 'auto-solib-add
+# off': measured against gdb 15.1, with the flag on and an unreadable sysroot
+# gdb still reports every mapped library it could not open, while 'info
+# sharedlibrary' shows 'Syms Read: No' for all of them. In phase A those opens
+# go through 'target:', which cannot reach into an unprivileged Apptainer image,
+# so a containerised payload produces one pair of lines per mapped library.
+# Harmless - the core file is written from the inferior's memory, not from these
+# - but it reads like a failed dump, so the pilot says otherwise.
+SECTION_MAPPING_SIGNATURE = "Error while mapping shared library sections"
+
+# Matches a CVMFS path in a gdb warning, so that the pilot can check it itself.
+CVMFS_PATH_PATTERN = re.compile(r"/cvmfs/\S+")
+
+# Time allowed for the pilot's own read of a path gdb failed on, in seconds.
+PATH_CHECK_TIMEOUT = 20
+
+# Environment variables through which Apptainer and Singularity tell a process
+# which image it is running in. Read from the payload itself, so the image is
+# the one actually in use rather than one inferred from the platform.
+CONTAINER_IMAGE_VARIABLES = (
+    "APPTAINER_CONTAINER",
+    "SINGULARITY_CONTAINER",
+)
+
 # Maximum number of gdb frames requested per thread in phase B.
 MAX_BACKTRACE_FRAMES = 100
+
+# Basename fragment identifying the CPython shared library among the mapped objects.
+PYTHON_LIBRARY_PREFIX = "libpython"
+
+# Suffix of the gdb helper script CPython ships to define py-bt.
+GDB_HELPER_SUFFIX = "-gdb.py"
+
+# Second place gdb looks for that script, relative to the sysroot.
+GDB_AUTO_LOAD_DIR = "usr/share/gdb/auto-load"
+
+# Bounds on the search for a payload library that is mapped from the job work
+# directory rather than from the container image. gdb needs the exact directory
+# holding such a library, since 'solib-search-path' is not searched recursively
+# (measured), and the in-container path recorded in the core file cannot be
+# turned into a host path by string manipulation alone - it names a bind mount.
+# The directory is therefore found by basename, walking the job work directory,
+# which is bounded here because this runs immediately before a kill.
+MAX_LIBRARY_SCAN_DIRECTORIES = 2000
+MAX_LIBRARY_SCAN_DEPTH = 8
+
+# Maximum number of directories passed to gdb in 'solib-search-path'. A payload
+# that maps its release from CVMFS contributes one directory per library
+# directory, so this is not as tight as the single work-directory case suggests;
+# it exists to keep the gdb option shorter than the command it belongs to.
+MAX_SOLIB_SEARCH_DIRECTORIES = 16
 
 # Maximum number of lines of gdb output echoed into the pilot log. The full
 # output is in the file next to the core file either way; this only makes the
@@ -351,6 +461,21 @@ CLOCK_TICKS = 100.0
 _snapshot_state: dict[str, Any] = {"jobid": None, "snapshots": []}
 
 
+# Container image per pid, so that the four callers that need it neither
+# re-read /proc/<pid>/environ nor log the same line four times per dump.
+_container_image_cache: dict = {}
+
+# Path of the payload executable inside the container image, per pid. Resolved
+# once: both gdb phases and the analysis notes need it, and the fallback to
+# /proc/<pid>/exe must be reported once rather than once per caller.
+_image_executable_cache: dict = {}
+
+# Directories holding payload libraries that are not in the container image, per
+# pid. Cached because finding them means walking the job work directory, and
+# both the analysis notes and phase B need the answer.
+_solib_search_path_cache: dict = {}
+
+
 def reset_looping_dump_state() -> None:
     """Reset the snapshot bookkeeping.
 
@@ -359,6 +484,9 @@ def reset_looping_dump_state() -> None:
     """
     _snapshot_state["jobid"] = None
     _snapshot_state["snapshots"] = []
+    _container_image_cache.clear()
+    _image_executable_cache.clear()
+    _solib_search_path_cache.clear()
 
 
 def is_looping_diagnostic_file(path: str) -> bool:
@@ -729,7 +857,7 @@ def get_tree_depth(pid: int, root_pid: int, ppids: dict, maximum: int = 25) -> i
     return depth if current == root_pid else 0
 
 
-def log_process_inventory(job: Any, label: str = "") -> list:
+def log_process_inventory(job: Any, label: str = "", verbose: bool = True) -> list:
     """Log every process in the payload tree, whether or not it is a candidate.
 
     This is the observational half of the diagnostics and is deliberately
@@ -746,11 +874,17 @@ def log_process_inventory(job: Any, label: str = "") -> list:
     Args:
         job: Job object; ``job.pid`` must be set.
         label: Optional context added to the header, e.g. a snapshot number.
+        verbose: Whether the inventory is logged. False collects the tree
+            without logging it, for a caller that may yet decide it has nothing
+            to say - see :func:`select_dump_candidates`.
 
     Returns:
         List of ``(pid, cmdline)`` tuples for the whole tree, as collected.
     """
     descendants = get_descendants(job.pid)
+    if not verbose:
+        return descendants
+
     ppids = {pid: get_ppid(pid) for pid, _ in descendants}
 
     header = f"{INVENTORY_MARKER}"
@@ -813,12 +947,18 @@ def rank_candidate(cmdline: str, pid: int, payload_names: list) -> tuple:
     return name_match, get_cpu_time(pid), get_rss(pid)
 
 
-def select_dump_candidates(job: Any, label: str = "") -> list:
+def select_dump_candidates(job: Any, label: str = "", verbose: bool = True) -> list:
     """Return the payload processes ranked by how likely they are to be looping.
 
     The complete tree is logged first by :func:`log_process_inventory`, including
     the processes that are dropped, so that a wrong choice can be diagnosed from
     the log afterwards rather than guessed at.
+
+    With *verbose* false, nothing is logged. That exists for the pre-kill stack
+    traces, which need the ranking in order to decide whether they have anything
+    to trace at all: for a containerised payload they do not, and logging the
+    inventory and the ranking in order to then say so repeated twenty-eight
+    lines two seconds after the identical ones from the dump itself.
 
     Note that positive name matching is currently inert: no plugin except a
     deliberately configured one declares any payload names, so in practice the
@@ -829,6 +969,7 @@ def select_dump_candidates(job: Any, label: str = "") -> list:
     Args:
         job: Job object; ``job.pid`` must be set.
         label: Optional context passed through to the inventory header.
+        verbose: Whether the inventory and the ranking are logged.
 
     Returns:
         List of ``(pid, cmdline)`` tuples, best candidate first, truncated to
@@ -840,20 +981,24 @@ def select_dump_candidates(job: Any, label: str = "") -> list:
         return []
 
     payload_names = get_payload_process_names()
-    descendants = log_process_inventory(job, label=label)
+    descendants = log_process_inventory(job, label=label, verbose=verbose)
 
     kept = [(pid, cmdline) for pid, cmdline in descendants if not is_denylisted(cmdline)]
 
     if not kept:
         cmdline = get_cmdline(job.pid)
-        logger.info(
-            f"{LOG_PREFIX}: every descendant was filtered out - falling back to the payload "
-            f"process itself (pid={job.pid})"
-        )
+        if verbose:
+            logger.info(
+                f"{LOG_PREFIX}: every descendant was filtered out - falling back to the payload "
+                f"process itself (pid={job.pid})"
+            )
         return [(job.pid, cmdline)]
 
     kept.sort(key=lambda entry: rank_candidate(entry[1], entry[0], payload_names), reverse=True)
     candidates = kept[:MAX_CANDIDATES]
+
+    if not verbose:
+        return candidates
 
     lines = [f"{LOG_PREFIX}: candidate ranking (best first):"]
     for pid, cmdline in candidates:
@@ -1298,14 +1443,19 @@ def get_shared_libraries(pid: int, maximum: int = 40) -> list:
     return ordered[:maximum]
 
 
-def get_container_analysis_info(job: Any, setup: str) -> list:
+def get_container_analysis_info(job: Any, setup: str, sysroot: str = "") -> list:
     """Return the notes explaining how to reproduce the payload's environment.
 
-    A core file has to be read by a gdb running in the same environment as the
-    payload produced it in. The payload's system libraries - libc, libpthread,
-    the dynamic loader - come from the container image and not from the worker
-    node, so a gdb running on the host resolves those frames against the wrong
-    binaries even though the release libraries on CVMFS resolve correctly.
+    A core file records the paths of the libraries the payload mapped, and for
+    a containerised payload those paths name files inside the image. A reader
+    who opens the core file without saying where the image is gets ``?? ()``
+    for every frame in a container library, and - since gdb cannot unwind past
+    a frame it cannot identify - a backtrace truncated at the first one.
+
+    When the image is a readable directory the fix is a single gdb option, and
+    it is quoted here with the image already filled in. When it is not, the
+    reader has to enter a container of the same platform instead, which is what
+    this said unconditionally before the sysroot route existed.
 
     The container invocation is taken verbatim from the payload process rather
     than reconstructed from the job description, so that it stays right for
@@ -1314,18 +1464,30 @@ def get_container_analysis_info(job: Any, setup: str) -> list:
     Args:
         job: Job object.
         setup: Experiment setup string as returned by :func:`get_gdb_setup`.
+        sysroot: Container image directory, as returned by
+            :func:`get_sysroot_directory`.
 
     Returns:
         List of lines, empty when nothing could be established.
     """
-    lines = [
-        "",
-        "IMPORTANT: run gdb inside a container of the same platform as the payload.",
-        "The payload's system libraries (libc, libpthread, the dynamic loader) come from",
-        "the container image, not from the worker node, so a gdb running on the host will",
-        "resolve the system frames against the wrong binaries. The working directory given",
-        "above is the one seen inside the container.",
-    ]
+    if sysroot:
+        lines = [
+            "",
+            "the payload's system libraries (libc, the dynamic loader, libpython) come from",
+            "the container image, not from the worker node. The sysroot option above points",
+            "gdb at that image; without it every frame in a container library is '?? ()' and",
+            "the backtrace is truncated at the first one. The working directory given above",
+            "is the one seen inside the container.",
+        ]
+    else:
+        lines = [
+            "",
+            "IMPORTANT: run gdb inside a container of the same platform as the payload.",
+            "The payload's system libraries (libc, libpthread, the dynamic loader) come from",
+            "the container image, not from the worker node, so a gdb running on the host will",
+            "resolve the system frames against the wrong binaries. The working directory given",
+            "above is the one seen inside the container.",
+        ]
 
     container_command = get_cmdline(job.pid)
     if container_command:
@@ -1335,7 +1497,7 @@ def get_container_analysis_info(job: Any, setup: str) -> list:
             f"  {container_command}",
         ]
 
-    if setup:
+    if setup.strip(" ;\t\n"):
         lines += [
             "",
             "release setup (as used by the pilot):",
@@ -1350,6 +1512,70 @@ def get_container_analysis_info(job: Any, setup: str) -> list:
     ]
 
     return lines
+
+
+def get_expected_message_info(with_core: bool = True) -> list:
+    """Return the notes on the gdb messages that mean nothing is wrong.
+
+    All four appear on a dump that worked perfectly, and each has cost time to
+    investigate. They are recorded next to the core file so that the next reader
+    does not repeat that.
+
+    * The vsyscall page (``0xffffffffff600000``) is mapped into every process
+      and is never dumpable. Measured: the warning appears on every core file
+      gdb writes, including one taken from a trivially healthy process.
+    * The mapping-note warning is gdb listing the files a core file records as
+      mapped, and it is emitted while the notes are read - before any search
+      path is consulted. Measured: neither ``sysroot`` nor ``solib-search-path``
+      suppresses it, and the library concerned still resolves when a search path
+      is given.
+    * The section mapping errors are gdb opening every mapped library to build
+      its section table, through the container's mount namespace, which the
+      worker node cannot reach. Measured against gdb 15.1: ``auto-solib-add
+      off`` does not govern these opens - with the flag set and an unreadable
+      sysroot gdb still reports every library, while ``info sharedlibrary``
+      shows ``Syms Read: No`` for all of them. Confirmed in production on job
+      7315111321, where the lines survived a release that removed every other
+      cause proposed for them.
+    * The executable mismatch warning is a *name* comparison. When gdb cannot
+      confirm the identity of the executable by build id it falls back to
+      comparing the command recorded in the core file with the executable's
+      basename, and for a transform launched through its shebang those differ by
+      construction - ``./LoopingJob.py`` against ``python3.9`` on job
+      7315111321, where all sixteen frames nevertheless resolved, including the
+      one in the executable itself.
+
+    Args:
+        with_core: Whether a core file was written; the messages are about
+            writing and reading one.
+
+    Returns:
+        List of lines, empty when there is no core file to read.
+    """
+    if not with_core:
+        return []
+
+    return [
+        "",
+        "messages that are expected, and do not mean the backtrace is wrong:",
+        "  'Memory read failed for corefile section ... at 0xffffffffff600000' - the",
+        "  vsyscall page, which is mapped into every process and dumped from none.",
+        "  'Can't open file <path> during file-backed mapping note processing' - gdb",
+        "  listing a file the core file records as mapped; it is printed before any",
+        "  search path is consulted, and no gdb option removes it.",
+        "  'Error while mapping shared library sections: Could not open `target:...'",
+        "  - gdb opening every mapped library to build its section table. That is not",
+        "  symbol reading and 'set auto-solib-add off' does not govern it, and the",
+        "  opens go through the container's mount namespace, which the worker node",
+        "  cannot reach. The core file comes from the process's memory and is",
+        "  unaffected; the same libraries resolve against the image below.",
+        "  'core file may not match specified executable file' - a name comparison,",
+        "  not a content one. Where gdb cannot confirm the executable by build id it",
+        "  compares the command recorded in the core file with the executable's",
+        "  basename, and a transform started through its shebang records the script",
+        "  name against an interpreter binary. Check the frames instead: if they",
+        "  carry function names, the executable and the core file do match.",
+    ]
 
 
 def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
@@ -1378,13 +1604,26 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
     executable = read_proc_link(pid, "exe")
     cwd = read_proc_link(pid, "cwd")
     core_name = os.path.basename(core_path)
+    sysroot = get_sysroot_directory(pid)
+    image_executable = get_image_executable(pid)
+    options = []
+    if sysroot:
+        options.append(f"-iex 'set sysroot {sysroot}'")
+    search_path = get_solib_search_path(job, pid, sysroot)
+    if search_path:
+        options.append(f"-iex 'set solib-search-path {search_path}'")
+    option_string = "".join(f"{option} " for option in options)
 
     lines = [
         CORE_INFO_MARKER,
         f"core file: {core_name if with_core else '(none - backtraces only)'}",
         f"PanDA job id: {getattr(job, 'jobid', 'unknown')}",
         f"pid: {pid}",
-        f"executable: {executable or 'unknown'}",
+        f"executable: {executable or 'unknown'}{' (path inside the container)' if sysroot else ''}",
+    ]
+    if image_executable:
+        lines.append(f"executable as seen from the worker node: {image_executable}")
+    lines += [
         f"command line: {cmdline or 'unknown'}",
         f"working directory: {cwd or 'unknown'}",
         f"resident set at dump time: {get_rss(pid) // (1024 * 1024)} MB",
@@ -1403,11 +1642,23 @@ def get_core_analysis_info(job: Any, pid: int, cmdline: str, core_path: str,
         lines += [
             "",
             "to analyse:",
-            f"  gdb {executable} {core_name}",
+            f"  gdb {option_string}{image_executable or executable} {core_name}",
         ]
+        if image_executable:
+            lines += [
+                "",
+                "note that the executable named above is the copy inside the image, and that",
+                "this is not interchangeable with the in-container path: the sysroot option",
+                "applies to the libraries, not to the executable named on the command line,",
+                f"which gdb opens on whatever machine it runs on. Naming '{executable}'",
+                "instead opens that machine's own binary, and gdb then reports 'core file may",
+                "not match specified executable file' and resolves the frames against the",
+                "wrong build.",
+            ]
 
     lines.append(f"gdb output from the dump phases: {os.path.basename(core_path)}{GDB_OUTPUT_SUFFIX}")
-    lines += get_container_analysis_info(job, setup)
+    lines += get_container_analysis_info(job, setup, sysroot)
+    lines += get_expected_message_info(with_core)
 
     libraries = get_shared_libraries(pid)
     if libraries:
@@ -1491,7 +1742,17 @@ def get_gdb_setup(job: Any) -> str:
         logger.warning(f"{LOG_PREFIX}: failed to build the gdb setup: {exc}")
         return ""
 
-    return scratch.debug_command
+    setup = scratch.debug_command
+
+    # a job without a software release (a user analysis job, say) gets a setup that is
+    # empty apart from its separator. Treating that as a real setup puts a bare leading
+    # ';' into the gdb command and an empty "release setup:" section into the analysis
+    # file, both of which read as though something went missing
+    if not setup.strip(" ;\t\n"):
+        logger.debug(f"{LOG_PREFIX}: the {pilot_user} plugin returned no usable setup")
+        return ""
+
+    return setup
 
 
 def has_room_for_core(workdir: str, rss: int) -> bool:
@@ -1563,33 +1824,547 @@ def has_python_startup_failure(output: str) -> bool:
     return any(signature in (output or "") for signature in PYTHON_FAILURE_SIGNATURES)
 
 
-def build_gdb_invocation(pid: int, commands: list, environment: str = "") -> str:
-    """Return the gdb invocation attaching to a process and running commands.
+def get_executable_argument(pid: int) -> str:
+    """Return the gdb option naming the executable of a process.
+
+    gdb defaults to ``sysroot = target:``, which makes it fetch the executable
+    through the inferior's mount namespace. For a containerised payload that
+    means reaching into an Apptainer image from the host, which fails with
+
+        warning: "target:/usr/bin/python3.9": could not open as an executable
+        file: Input/output error.
+
+    and leaves gdb with no symbols, no vsyscall page and ``?? ()`` in place of
+    the stop location. ``/proc/<pid>/exe`` is a magic symlink to the inode
+    itself, so opening it bypasses the mount namespace entirely.
+
+    That is necessary but, on its own, not sufficient. Measured against gdb
+    15.1: gdb records the object file under the path the symlink *resolves to*,
+    not under ``/proc/<pid>/exe``. For a containerised payload that resolved
+    path - ``/usr/bin/python3.9``, say - names a file inside the image, but gdb
+    now holds it as a host path, and the worker node has a different file of
+    that name. gdb then stats it, finds it changed, and re-reads the worker
+    node's binary instead:
+
+        `/usr/bin/python3.9' has changed; re-reading symbols.
+        (no debugging symbols found)
+        Error while mapping shared library sections: Could not open
+        `target:/lib64/libc.so.6' as an executable file: Input/output error
+
+    Observed in production on job 7313656511: the re-read also re-adds the
+    shared libraries, through ``target:``, which is exactly the access that
+    cannot work. The core file is still written correctly, but it is written
+    with the *wrong* executable loaded, and every frame that gdb resolves
+    against the executable is then resolved against the worker node's build.
+
+    Two things once attributed to this turned out not to follow from it, and
+    job 7315111321 - the first with this fix in place - settled both. The
+    section mapping errors are not caused by the re-read: they survived it (see
+    :data:`SECTION_MAPPING_SIGNATURE`). Neither is "core file may not match
+    specified executable file": it survived too, and is a name comparison
+    rather than a statement about the executable being wrong (see
+    :func:`get_expected_message_info`). What this does fix is the executable
+    itself, which the two disproven items had obscured rather than evidenced.
+
+    So the copy inside the image is named directly when there is one. It is the
+    same build as the running process, it is a genuine host path, and gdb has no
+    reason to look anywhere else. ``/proc/<pid>/exe`` remains the fallback for
+    an uncontainerised payload and for an image that cannot be read.
+
+    Args:
+        pid: Process id to attach to.
+
+    Returns:
+        The ``-se <path>`` option, or an empty string if neither path is there.
+    """
+    image_executable = get_image_executable(pid)
+    if image_executable:
+        return f"-se {shlex.quote(image_executable)}"
+
+    path = f"/proc/{pid}/exe"
+    if not os.path.exists(path):
+        logger.warning(f"{LOG_PREFIX}: {path} does not exist - gdb will have to find the executable itself")
+        return ""
+
+    return f"-se {path}"
+
+
+def get_image_executable(pid: int) -> str:
+    """Return the payload executable as a path into the container image.
+
+    The executable recorded in ``/proc/<pid>/exe`` resolves to a path that is
+    only meaningful inside the container. Prefixing it with the image directory
+    turns it into a host path naming the same file, which is what both gdb and
+    a later reader of the core file need; see :func:`get_executable_argument`
+    for what happens without it.
+
+    Returns an empty string when the payload is not containerised, when the
+    image is not a readable directory, or when the executable is not in the
+    image - the last case being a payload running a binary from a bind mount
+    rather than from the image itself, where the in-container path cannot be
+    reconstructed by prefixing.
+
+    The answer is cached per pid and the fallback reported once.
+
+    Args:
+        pid: Process id of the payload process.
+
+    Returns:
+        Host path of the executable inside the image, or an empty string.
+    """
+    if pid in _image_executable_cache:
+        return _image_executable_cache[pid]
+
+    path = ""
+    image = get_sysroot_directory(pid)
+    executable = read_proc_link(pid, "exe")
+    if image and executable:
+        candidate = os.path.join(image, executable.lstrip(os.sep))
+        if os.path.isfile(candidate):
+            path = candidate
+            logger.info(f"{LOG_PREFIX}: the payload executable inside the image is {candidate}")
+        else:
+            logger.info(
+                f"{LOG_PREFIX}: {executable} was not found inside the image - gdb will be given "
+                f"/proc/{pid}/exe instead, and may re-read the worker node's copy of that path"
+            )
+
+    _image_executable_cache[pid] = path
+
+    return path
+
+
+def get_process_environment(pid: int) -> dict:
+    """Return the environment of a running process.
+
+    Args:
+        pid: Process id.
+
+    Returns:
+        Mapping of variable name to value, empty if it could not be read.
+    """
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as _file:
+            raw = _file.read()
+    except OSError as exc:
+        logger.debug(f"{LOG_PREFIX}: cannot read the environment of pid={pid}: {exc}")
+        return {}
+
+    environment = {}
+    for entry in raw.split(b"\0"):
+        if b"=" in entry:
+            name, _, value = entry.partition(b"=")
+            environment[name.decode("utf-8", "replace")] = value.decode("utf-8", "replace")
+
+    return environment
+
+
+def get_payload_container_image(pid: int) -> str:
+    """Return the container image the payload is running in.
+
+    Read from the payload's own environment rather than reconstructed from the
+    job description or the platform, so it names the image that is actually in
+    use. Apptainer and Singularity both export this into the container.
+
+    The answer is cached per pid and logged once. Four callers need it - the
+    analysis notes, the sysroot, the Python stack check and the decision not to
+    trace a containerised payload on the worker node - and without the cache
+    each one re-read /proc/<pid>/environ and repeated the same line into the
+    log.
+
+    Args:
+        pid: Process id of a process inside the container.
+
+    Returns:
+        Path to the image, or an empty string if it could not be established.
+    """
+    if pid in _container_image_cache:
+        return _container_image_cache[pid]
+
+    image = ""
+    environment = get_process_environment(pid)
+    for name in CONTAINER_IMAGE_VARIABLES:
+        image = environment.get(name, "")
+        if image:
+            logger.info(f"{LOG_PREFIX}: the payload container image is {image} (from {name})")
+            break
+
+    if not image:
+        logger.info(f"{LOG_PREFIX}: could not establish the payload container image from pid={pid}")
+
+    _container_image_cache[pid] = image
+
+    return image
+
+
+def get_sysroot_directory(pid: int) -> str:
+    """Return the container image directory usable as a gdb sysroot, if any.
+
+    Kept separate from :func:`get_sysroot_options` and silent, so that the
+    analysis notes and the gdb options cannot disagree about whether the
+    libraries are resolvable, and so that asking twice does not log twice.
+
+    Args:
+        pid: Process id of a process inside the container.
+
+    Returns:
+        Image directory, or an empty string when there is no usable one.
+    """
+    image = get_payload_container_image(pid)
+    if not image:
+        return ""
+
+    if not os.path.isdir(image) or not os.access(image, os.R_OK | os.X_OK):
+        return ""
+
+    return image
+
+
+def get_sysroot_options(pid: int) -> list:
+    """Return the gdb options that make the container's libraries resolvable.
+
+    gdb resolves a shared library by opening the path recorded in the inferior,
+    and for a containerised payload those paths name files in the image. Its
+    default ``sysroot = target:`` sends it through ``/proc/<pid>/root``, which
+    against an unprivileged Apptainer image fails with ``Input/output error``
+    for every library, leaving ``?? ()`` in every frame and "Unable to find
+    dynamic linker breakpoint function" in the output.
+
+    Pointing ``sysroot`` at the image itself fixes that without a second
+    container, but only when the image is a directory the host can read. The
+    ATLAS images on CVMFS are unpacked directories; a ``.sif`` is a single file
+    gdb cannot look inside, and there the frames stay unresolved. Measured
+    against gdb 15.1, reading a core file: without a sysroot a frame in an
+    unavailable library is ``?? ()`` and the unwind then fails outright
+    ("Backtrace stopped: frame did not save the PC"); with one it is a named
+    function with its source line, and the remaining frames unwind cleanly. So
+    this recovers the whole stack, not only the names in it.
+
+    A library the payload brought itself, in the job work directory rather than
+    in the image, is *not* covered by this: it needs ``solib-search-path`` as
+    well, naming the exact directory holding it, since gdb does not search that
+    path recursively. Measured, and not yet implemented.
+
+    ``auto-load safe-path`` is widened at the same time so that the image's
+    ``libpython*-gdb.py`` can be loaded, since that is what ``py-bt`` is. Note
+    that this lets gdb execute a script out of the image; it is done only for
+    the image the payload was already running in, and only for a diagnostic
+    that is allowed to fail. It is necessary but not sufficient: ``py-bt`` also
+    needs the interpreter's debug information, and without it the command loads
+    and then reports "unable to read python frame information" rather than a
+    Python stack. Measured; whether the ATLAS images carry that debug
+    information has not been established.
+
+    Args:
+        pid: Process id of a process inside the container.
+
+    Returns:
+        List of gdb options, empty when no sysroot can be established.
+    """
+    image = get_sysroot_directory(pid)
+    if not image:
+        if get_payload_container_image(pid):
+            logger.info(
+                f"{LOG_PREFIX}: the payload container image is not a readable directory "
+                f"(a .sif image, typically) - frames inside the container's own libraries "
+                f"will not resolve"
+            )
+        return []
+
+    logger.info(f"{LOG_PREFIX}: resolving the payload's libraries against {image}")
+
+    return [f"-iex {shlex.quote(f'set sysroot {image}')}"]
+
+
+def classify_mapped_libraries(pid: int, sysroot: str) -> tuple:
+    """Return where gdb has to be told to look for the payload's libraries.
+
+    A library is found without help only when its recorded path resolves under
+    the sysroot - or, for an uncontainerised payload where there is no sysroot,
+    on the worker node itself. Two other cases need naming, and they need
+    different answers:
+
+    * **Readable on the worker node at the recorded path.** Measured against gdb
+      15.1: once ``sysroot`` is set, gdb does *not* fall back to the absolute
+      path, so a library that exists at exactly that path is still reported as
+      "Could not load shared library symbols". This is not a corner case for
+      ATLAS: ``/cvmfs`` is bind-mounted into the container at the same path, so
+      every release library an athena payload maps is in it. The answer is the
+      library's own directory, which costs nothing to work out.
+    * **Not readable at all.** A library the payload brought with it, under a
+      path that means something only inside the container -
+      ``/srv/workDir/<uuid>/lib64/wrapper.so`` in job 7313656511. The recorded
+      path cannot be turned into a host path by string manipulation, since it
+      names a bind mount, so only the basename is usable.
+
+    Args:
+        pid: Process id the libraries are mapped by.
+        sysroot: Container image directory, empty when there is none.
+
+    Returns:
+        Tuple of (directories already known, basenames still to be found).
+    """
+    directories = []
+    basenames = []
+    for library in get_shared_libraries(pid):
+        if sysroot and os.path.isfile(os.path.join(sysroot, library.lstrip(os.sep))):
+            continue
+        if os.path.isfile(library):
+            # without a sysroot gdb opens this path itself and needs no help
+            directory = os.path.dirname(library)
+            if sysroot and directory not in directories:
+                directories.append(directory)
+            continue
+        basenames.append(os.path.basename(library))
+
+    return directories, basenames
+
+
+def find_library_directories(workdir: str, basenames: list) -> list:
+    """Return the directories under *workdir* holding the named libraries.
+
+    ``solib-search-path`` takes directories and is **not** searched recursively
+    (measured against gdb 15.1: a library one level below a listed directory is
+    not found), so passing ``job.workdir`` itself would look right and do
+    nothing. The exact directories have to be named, and the only reliable way
+    to find them is by basename: the path recorded in the process is the one
+    seen inside the container, and the mapping from that to a host path is a
+    bind mount the pilot cannot invert by string manipulation.
+
+    The walk is bounded in both depth and number of directories visited, and
+    stops as soon as every basename has been found. This runs between the
+    decision to kill a looping payload and the kill itself.
+
+    Args:
+        workdir: Job work directory to search.
+        basenames: Library file names to look for.
+
+    Returns:
+        List of directories, at most :data:`MAX_SOLIB_SEARCH_DIRECTORIES`.
+    """
+    if not workdir or not basenames or not os.path.isdir(workdir):
+        return []
+
+    wanted = set(basenames)
+    directories = []
+    visited = 0
+    root_depth = workdir.rstrip(os.sep).count(os.sep)
+
+    for current, subdirectories, files in os.walk(workdir):
+        visited += 1
+        if visited > MAX_LIBRARY_SCAN_DIRECTORIES:
+            logger.info(
+                f"{LOG_PREFIX}: stopped looking for payload libraries after "
+                f"{MAX_LIBRARY_SCAN_DIRECTORIES} directories"
+            )
+            break
+        if current.count(os.sep) - root_depth >= MAX_LIBRARY_SCAN_DEPTH:
+            subdirectories[:] = []
+            continue
+
+        found = wanted.intersection(files)
+        if found:
+            directories.append(current)
+            wanted -= found
+            if not wanted or len(directories) >= MAX_SOLIB_SEARCH_DIRECTORIES:
+                break
+
+    return directories
+
+
+def get_solib_search_path(job: Any, pid: int, sysroot: str) -> str:
+    """Return the gdb search path for the payload libraries the sysroot misses.
+
+    Cached per pid: both the analysis notes and phase B need it, and part of
+    the answer means walking the job work directory.
+
+    Args:
+        job: Job object; ``job.workdir`` is the directory searched.
+        pid: Process id the libraries are mapped by.
+        sysroot: Container image directory, empty when there is none.
+
+    Returns:
+        Colon-separated list of directories, empty when nothing needs one.
+    """
+    if pid in _solib_search_path_cache:
+        return _solib_search_path_cache[pid]
+
+    directories, basenames = classify_mapped_libraries(pid, sysroot)
+    if basenames:
+        found = find_library_directories(getattr(job, "workdir", ""), basenames)
+        directories += [directory for directory in found if directory not in directories]
+        if not found:
+            logger.info(
+                f"{LOG_PREFIX}: {', '.join(sorted(set(basenames)))} could not be found under the "
+                f"job work directory - the frames in those libraries will not resolve"
+            )
+
+    search_path = ":".join(directories[:MAX_SOLIB_SEARCH_DIRECTORIES])
+    if search_path:
+        logger.info(
+            f"{LOG_PREFIX}: the payload maps libraries the image does not hold - "
+            f"resolving them against {search_path}"
+        )
+
+    _solib_search_path_cache[pid] = search_path
+
+    return search_path
+
+
+def get_solib_search_path_options(job: Any, pid: int, sysroot: str) -> list:
+    """Return the gdb options resolving payload libraries outside the image.
+
+    Args:
+        job: Job object.
+        pid: Process id the libraries are mapped by.
+        sysroot: Container image directory, empty when there is none.
+
+    Returns:
+        List of gdb options, empty when no library needs one.
+    """
+    search_path = get_solib_search_path(job, pid, sysroot)
+    if not search_path:
+        return []
+
+    return [f"-iex {shlex.quote(f'set solib-search-path {search_path}')}"]
+
+
+def get_python_stack_options(pid: int, sysroot: str) -> tuple:
+    """Return the options asking gdb for the payload's Python-level stack.
+
+    ``py-bt`` is not built into gdb. It is defined by a helper script that
+    CPython ships alongside the interpreter, which gdb loads automatically when
+    it opens an object file with a matching ``<objfile>-gdb.py`` beside it or
+    under ``usr/share/gdb/auto-load``. If no such script exists, asking for
+    ``py-bt`` produces ``Undefined command: "py-bt"`` at the end of every dump,
+    which reads as a fault in the pilot's gdb rather than as an absent script
+    in the image.
+
+    So the script is looked for first, and ``py-bt`` is requested only when it
+    is there. The same check also covers a payload that is not Python at all.
+
+    Even when the script is present the Python stack is not guaranteed: it
+    walks CPython's structures through gdb's type information, so it also needs
+    debug information for the interpreter, without which it loads and then
+    reports "unable to read python frame information". Measured against gdb
+    15.1. That case is left to report itself, since unlike the missing script
+    it says something true about the image.
+
+    Args:
+        pid: Process id the backtraces are wanted for.
+        sysroot: Container image directory, empty for an uncontainerised
+            payload, in which case the recorded paths are already host paths.
+
+    Returns:
+        Tuple of (early options, commands), both empty when there is no script.
+    """
+    objfiles = [library for library in get_shared_libraries(pid)
+                if PYTHON_LIBRARY_PREFIX in os.path.basename(library)]
+    executable = read_proc_link(pid, "exe")
+    if executable:
+        objfiles.append(executable)
+
+    for objfile in objfiles:
+        candidates = (
+            f"{sysroot}{objfile}{GDB_HELPER_SUFFIX}",
+            os.path.join(sysroot or os.sep, GDB_AUTO_LOAD_DIR,
+                         objfile.lstrip(os.sep) + GDB_HELPER_SUFFIX),
+        )
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                logger.info(f"{LOG_PREFIX}: the Python stack will be requested ({candidate})")
+                return ["-iex 'set auto-load safe-path /'"], ["-ex 'py-bt'"]
+
+    logger.info(
+        f"{LOG_PREFIX}: not requesting the Python stack - no gdb helper script for the "
+        f"interpreter was found, so py-bt would only report an undefined command"
+    )
+
+    return [], []
+
+
+def build_gdb_invocation(pid: int, commands: list, *, environment: str = "", symbols: bool = True,
+                         core_path: str = "", sysroot_options: list = None) -> str:
+    """Return the gdb invocation running the requested commands.
 
     ``--nx`` keeps a stray ``.gdbinit`` out of the way, and debuginfod and the
     index cache are disabled before the inferior is loaded: a worker node has no
     route to a debuginfod server, so leaving it enabled risks a stall inside a
     step that is already the slowest one here.
 
+    With *core_path* set, gdb opens that core file instead of attaching. This is
+    what phase B does whenever phase A produced one. Reading a core file needs
+    no ``ptrace``, which removes a whole class of failure: a second attach can
+    be refused outright, and is refused unconditionally from inside another
+    container, where the tracer sits in a user namespace with no capability over
+    the payload. The stacks are the same either way, since the core file records
+    them.
+
+    ``symbols=False`` is what makes the core file affordable. gdb reads the
+    symbol table of every mapped shared object *during the attach*, before it
+    executes a single ``-ex`` command, so a phase that needs no symbols at all
+    still pays for all of them. For an AnalysisBase or athena process that is
+    several hundred objects read over CVMFS, and in production it exhausted a
+    300 s timeout on a 989 MB payload before ``generate-core-file`` was ever
+    reached. ``set auto-solib-add off`` has to be an ``-iex``, since by the time
+    an ``-ex`` runs the reading has already happened. It costs nothing there:
+    the core file records memory and mappings, and symbols are resolved when the
+    core file is opened, not when it is written.
+
     Args:
-        pid: Process id to attach to.
+        pid: Process id to attach to, and the source of the executable.
         commands: gdb ``-ex`` options to run, in order.
         environment: Optional command prefix, e.g. :data:`CLEAN_ENVIRONMENT`.
+        symbols: Whether shared library symbols should be read on attach.
+        core_path: Core file to open. When given, gdb reads the core file
+            instead of attaching to the process.
+        sysroot_options: Options from :func:`get_sysroot_options`, telling gdb
+            where the container's libraries can be read from.
 
     Returns:
         gdb command string.
     """
-    options = [
-        "--nx",
-        f"-p {pid}",
+    options = ["--nx"]
+    executable = get_executable_argument(pid)
+    if executable:
+        options.append(executable)
+    if get_image_executable(pid):
+        # the executable was named inside the image, so gdb must keep it. Its
+        # default 'exec-file-mismatch = ask' compares the build id of the file
+        # it was given with the one it determines from the target itself and,
+        # in batch mode, silently loads the target's - which for a containerised
+        # payload is the worker node's file of the same path. Measured against
+        # gdb 15.1: with the option off, the given file is kept and no warning
+        # is printed. On a gdb older than 10 the option does not exist and one
+        # line of complaint is printed instead; that gdb predates every
+        # container image the payload can be running in.
+        options.append("-iex 'set exec-file-mismatch off'")
+    if core_path:
+        options.append(f"-c {shlex.quote(core_path)}")
+    else:
+        options.append(f"-p {pid}")
+    options += [
         "-batch",
         "-iex 'set debuginfod enabled off'",
         "-iex 'set index-cache enabled off'",
+    ]
+    options += sysroot_options or []
+    if not symbols:
+        options += [
+            "-iex 'set auto-solib-add off'",
+            "-iex 'set auto-load no'",
+        ]
+    options += [
         "-ex 'set confirm off'",
         "-ex 'set pagination off'",
+        f"-ex 'echo {STARTUP_MARKER}\\n'",
     ]
     options += commands
-    options += ["-ex detach", "-ex quit"]
+    # nothing is attached in the core file case, where a detach only produces
+    # "The program is not being run." in the middle of the backtraces
+    if not core_path:
+        options.append("-ex detach")
+    options.append("-ex quit")
 
     return f"{environment}gdb {' '.join(options)}"
 
@@ -1607,15 +2382,18 @@ def build_phase_command(invocation: str, output_path: str, header: str, setup: s
     Args:
         invocation: gdb command as returned by :func:`build_gdb_invocation`.
         output_path: File the phase appends its output to.
-        header: Single line marking the phase in the output file; must not
-            contain a single quote.
+        header: Single line marking the phase in the output file. Quoted here
+            rather than constrained by convention: a header reading "in the
+            payload's container" once closed the quoting early and turned the
+            rest of the line into a syntax error, killing the phase before gdb
+            ran.
         setup: Experiment setup prepended to the command.
 
     Returns:
         Full shell command string.
     """
     identity = "echo \"gdb: $(command -v gdb)\"; gdb --version 2>&1 | head -1"
-    inner = f"echo '{header}'; date -u '+%Y-%m-%dT%H:%M:%SZ'; {identity}; {invocation}"
+    inner = f"echo {shlex.quote(header)}; date -u '+%Y-%m-%dT%H:%M:%SZ'; {identity}; {invocation}"
 
     return f'{setup}{get_environment_prefix()}{{ {inner}; }} >> "{output_path}" 2>&1'
 
@@ -1693,19 +2471,21 @@ def remove_scratch_directory(path: str) -> None:
         rmtree(path, ignore_errors=True)
 
 
-def log_gdb_output(output_path: str, label: str) -> None:
-    """Echo a bounded amount of gdb output into the pilot log.
+def log_gdb_output(output: str, label: str, output_path: str) -> None:
+    """Echo a bounded amount of one phase's gdb output into the pilot log.
 
-    The full output travels in the log tarball next to the core file; this only
-    makes the common case greppable without unpacking it.
+    Called per phase rather than once at the end: a phase whose output is only
+    logged after the following phase has finished is invisible for minutes, and
+    invisible altogether if the pilot does not get that far.
 
     Args:
-        output_path: Output file path.
+        output: Output produced by this phase.
         label: Phase label used in the log message.
+        output_path: Output file path, named in the log for the truncated case.
     """
-    output = read_gdb_output(output_path).strip()
+    output = (output or "").strip()
     if not output:
-        logger.warning(f"{LOG_PREFIX}: {label}: gdb produced no output")
+        logger.warning(f"{LOG_PREFIX}: {label}: gdb produced no output at all")
         return
 
     lines = output.split("\n")
@@ -1716,6 +2496,228 @@ def log_gdb_output(output_path: str, label: str) -> None:
 
     text = "\n".join(lines)
     logger.info(f"{LOG_PREFIX}: {label}: gdb output:\n{text}")
+
+
+def call_with_timeout(func: Any, timeout: float, default: Any = None) -> Any:
+    """Call a function in a daemon thread and give up after *timeout* seconds.
+
+    Used for filesystem checks that can block indefinitely. ``signal.alarm``,
+    which :mod:`pilot.util.cvmfs` uses at start-up, is not an option here: the
+    looping check runs in a monitoring thread and ``signal.alarm`` only works
+    in the main thread.
+
+    Args:
+        func: Callable taking no arguments.
+        timeout: Seconds to wait.
+        default: Value returned if the call does not finish in time.
+
+    Returns:
+        The call's return value, or *default* if it did not finish in time.
+    """
+    result = []
+
+    def _run():
+        try:
+            result.append(func())
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning(f"{LOG_PREFIX}: {getattr(func, '__name__', 'call')} raised: {exc}")
+            result.append(default)
+
+    thread = threading.Thread(target=_run, daemon=True, name="looping-dump-check")
+    thread.start()
+    thread.join(timeout=timeout)
+
+    return result[0] if result else default
+
+
+def strip_target_paths(line: str) -> str:
+    """Remove paths gdb reached for through the inferior's mount namespace.
+
+    A ``target:`` prefix means gdb was reading through the container rather
+    than from the worker node's own filesystem, and for an unprivileged
+    Apptainer image that fails with an I/O error even when the file is
+    perfectly readable on the host. Such a failure says nothing about the
+    health of the filesystem the path names.
+
+    Args:
+        line: One line of gdb output.
+
+    Returns:
+        The line with any ``target:`` paths removed.
+    """
+    return TARGET_PATH_PATTERN.sub("", line or "")
+
+
+def get_cvmfs_failure_paths(output: str) -> list:
+    """Return the CVMFS paths gdb failed to read from the worker node itself.
+
+    Both a CVMFS path and a read failure have to appear on the same line, and
+    paths reached through the container are excluded (see
+    :func:`strip_target_paths`).
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        List of CVMFS paths, without duplicates, in the order seen.
+    """
+    paths = []
+    for line in (output or "").split("\n"):
+        if not any(signature in line for signature in CVMFS_FAILURE_SIGNATURES):
+            continue
+        for path in CVMFS_PATH_PATTERN.findall(strip_target_paths(line)):
+            path = path.rstrip("\"'`:.,")
+            if path not in paths:
+                paths.append(path)
+
+    return paths
+
+
+def is_path_unreadable(path: str) -> bool:
+    """Return True if the pilot cannot read the given path from this node.
+
+    A read that blocks counts as unreadable, on the same reasoning as the CVMFS
+    availability check: ``open`` blocks indefinitely on a hung mount, so a check
+    that never returns has established what it set out to.
+
+    Args:
+        path: Absolute path to test.
+
+    Returns:
+        True if the path could not be read.
+    """
+    def _read() -> bool:
+        try:
+            with open(path, "rb") as _file:
+                _file.read(1)
+        except OSError as exc:
+            logger.warning(f"{LOG_PREFIX}: the pilot cannot read {path}: {exc}")
+            return True
+
+        return False
+
+    unreadable = call_with_timeout(_read, PATH_CHECK_TIMEOUT, default=None)
+    if unreadable is None:
+        logger.warning(
+            f"{LOG_PREFIX}: reading {path} did not return within {PATH_CHECK_TIMEOUT} s - "
+            f"treating it as unreadable, since a hung mount is what makes it block"
+        )
+        return True
+
+    return unreadable
+
+
+def has_cvmfs_io_failure(output: str) -> bool:
+    """Return True if CVMFS is genuinely unreadable on this worker node.
+
+    gdb failing to read a CVMFS path is not sufficient on its own. Its default
+    sysroot makes it fetch files through the inferior's mount namespace, and
+    reaching into an unprivileged Apptainer image from the host fails with an
+    I/O error whatever the file is - observed at ANALY_CERN-PTEST on
+    ``target:/usr/bin/python3.9`` while CVMFS was demonstrably healthy. Since
+    most payload executables live under ``/cvmfs``, taking gdb's word for it
+    would have mislabelled almost every containerised looping job.
+
+    So a path only counts if gdb named it without the ``target:`` prefix, and
+    the pilot - which runs outside the container - then confirms that it cannot
+    read the file either.
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        True if a CVMFS path was confirmed unreadable from this node.
+    """
+    for path in get_cvmfs_failure_paths(output):
+        if is_path_unreadable(path):
+            logger.warning(
+                f"{LOG_PREFIX}: {path} is unreadable for the pilot as well - CVMFS is broken on "
+                f"this node, which is enough on its own to make a payload appear to loop"
+            )
+            return True
+
+        logger.info(
+            f"{LOG_PREFIX}: gdb could not read {path} but the pilot can, so this is gdb reaching "
+            f"through the container's mount namespace rather than a CVMFS failure"
+        )
+
+    return False
+
+
+def has_section_mapping_failure(output: str) -> bool:
+    """Return True if gdb could not open the payload's mapped libraries.
+
+    Only meaningful together with a ``target:`` path: gdb naming a library it
+    could not open under its own root is a different situation from gdb failing
+    to reach through the container's mount namespace, which is the expected one.
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        True if gdb reported a section mapping failure against a container path.
+    """
+    output = output or ""
+
+    return SECTION_MAPPING_SIGNATURE in output and "target:" in output
+
+
+def has_attach_failure(output: str) -> bool:
+    """Return True if the gdb output shows the attach itself failed.
+
+    Args:
+        output: Captured gdb output.
+
+    Returns:
+        True if the failure signature is present.
+    """
+    return any(signature in (output or "") for signature in ATTACH_FAILURE_SIGNATURES)
+
+
+def phase_failed(exit_code: int, output: str) -> bool:
+    """Return True if a gdb phase did not do what it was asked to do.
+
+    The exit code on its own is not enough, for the same reason that
+    :data:`STARTUP_MARKER` does not prove the attach succeeded: gdb in batch
+    mode carries on after an error and still exits 0. In production an
+    in-container phase B printed ``ptrace: Operation not permitted``, produced
+    no frames at all, exited 0, and the fallback that should have followed was
+    therefore never reached - the phase was logged as having finished in 1 s.
+
+    Args:
+        exit_code: Exit code reported by :func:`pilot.util.container.execute`.
+        output: Output the phase appended.
+
+    Returns:
+        True if the phase should be treated as failed.
+    """
+    return exit_code != 0 or has_attach_failure(output)
+
+
+def log_stall_diagnosis(output: str, label: str) -> None:
+    """Say how far gdb got before it was stopped, using the stage markers.
+
+    A timeout leaves no exit status to reason from, and "gdb was still reading
+    symbols" and "gdb attached and then stalled writing the core file" point at
+    completely different causes.
+
+    Args:
+        output: Output produced by this phase.
+        label: Phase label used in the log message.
+    """
+    if CORE_WRITTEN_MARKER in output:
+        logger.info(f"{LOG_PREFIX}: {label}: the core file was complete before gdb was stopped")
+    elif STARTUP_MARKER in output:
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb reached the requested commands and was stopped while "
+            f"running them"
+        )
+    else:
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb never reached the requested commands - it was still "
+            f"starting up, which on an attach means reading the symbol table of every mapped "
+            f"shared object"
+        )
 
 
 def run_gdb_phase(cmd: str, output_path: str, timeout: int, scratch: str, label: str) -> tuple:
@@ -1748,6 +2750,7 @@ def run_gdb_phase(cmd: str, output_path: str, timeout: int, scratch: str, label:
             f"{LOG_PREFIX}: {label}: gdb timed out after {elapsed} s - whatever it had produced "
             f"by then was kept in {os.path.basename(output_path)}"
         )
+        log_stall_diagnosis(output, label)
     elif exit_code != 0:
         logger.warning(f"{LOG_PREFIX}: {label}: gdb failed with exit code {exit_code} after {elapsed} s")
         if stderr:
@@ -1755,12 +2758,39 @@ def run_gdb_phase(cmd: str, output_path: str, timeout: int, scratch: str, label:
     else:
         logger.info(f"{LOG_PREFIX}: {label}: gdb finished in {elapsed} s")
 
+    log_gdb_output(output, label, output_path)
+
     if has_python_startup_failure(output):
         logger.warning(
             f"{LOG_PREFIX}: {label}: gdb's own embedded interpreter failed to start "
             f"(the 'encodings' error refers to gdb's Python, not to the payload's) - "
             f"a PYTHONHOME/PYTHONPATH in the environment does not match the Python gdb is "
             f"linked against, and gdb aborted before running any command"
+        )
+
+    if has_attach_failure(output):
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb could not attach to the process - it may have exited "
+            f"already, or the tracer and the payload may be in different user namespaces, "
+            f"which is the case for any gdb started inside a second container"
+        )
+
+    if has_section_mapping_failure(output):
+        logger.info(
+            f"{LOG_PREFIX}: {label}: the 'Error while mapping shared library sections' lines "
+            f"above are expected for a containerised payload and do not affect the dump. gdb "
+            f"opens every mapped library to build its section table, which 'set auto-solib-add "
+            f"off' does not govern (it governs reading their symbols, which is still off), and "
+            f"those opens go through the container's mount namespace, which cannot be reached "
+            f"from the worker node. The core file is written from the process's memory and is "
+            f"unaffected; the libraries are resolved against the image when it is read back"
+        )
+
+    if has_cvmfs_io_failure(output):
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: gdb could not read a CVMFS path on this node. The payload "
+            f"executes from CVMFS, so this is likely to be why it appeared to loop, and is "
+            f"likely to affect other jobs on the same node"
         )
 
     return exit_code, output
@@ -1782,18 +2812,21 @@ def run_core_dump_phase(pid: int, core_path: str, output_path: str, scratch: str
         deadline: Diagnostics deadline as a :func:`time.monotonic` value.
 
     Returns:
-        True if gdb reported success.
+        True if gdb reported a CVMFS path it could not read.
     """
     timeout = min(get_core_dump_timeout(), get_remaining_budget(deadline))
     if timeout <= 0:
         logger.warning(f"{LOG_PREFIX}: phase A (core file): skipped - the diagnostics budget is spent")
         return False
 
-    commands = [f"-ex 'generate-core-file {core_path}'"]
+    commands = [
+        f"-ex 'generate-core-file {core_path}'",
+        f"-ex 'echo {CORE_WRITTEN_MARKER}\\n'",
+    ]
     cmd = build_phase_command(
-        build_gdb_invocation(pid, commands),
+        build_gdb_invocation(pid, commands, symbols=False),
         output_path,
-        "=== phase A: core file (bare gdb, no release setup) ===",
+        "=== phase A: core file (bare gdb, no release setup, no symbols) ===",
     )
     exit_code, output = run_gdb_phase(cmd, output_path, timeout, scratch, "phase A (core file)")
 
@@ -1802,7 +2835,7 @@ def run_core_dump_phase(pid: int, core_path: str, output_path: str, scratch: str
         if timeout > 0:
             logger.info(f"{LOG_PREFIX}: phase A (core file): retrying with a clean environment")
             cmd = build_phase_command(
-                build_gdb_invocation(pid, commands, environment=CLEAN_ENVIRONMENT),
+                build_gdb_invocation(pid, commands, environment=CLEAN_ENVIRONMENT, symbols=False),
                 output_path,
                 "=== phase A (retry): core file (clean environment) ===",
             )
@@ -1811,10 +2844,53 @@ def run_core_dump_phase(pid: int, core_path: str, output_path: str, scratch: str
     if exit_code != 0:
         resume_process(pid)
 
-    return exit_code == 0
+    return has_cvmfs_io_failure(output)
 
 
-def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, deadline: float) -> None:
+def _run_backtrace_attempt(pid: int, output_path: str, scratch: str, *, setup: str,
+                           deadline: float, header: str, label: str, core_path: str = "",
+                           sysroot_options: list = None, python_commands: list = None) -> tuple:
+    """Run one attempt at the backtraces and return its result.
+
+    Args:
+        pid: Process id the backtraces are wanted for.
+        output_path: File the phase appends its output to.
+        scratch: Working directory for the command.
+        setup: Experiment setup prepended to the command.
+        deadline: Diagnostics deadline as a :func:`time.monotonic` value.
+        header: Line marking this attempt in the output file.
+        label: Phase label used in the log messages.
+        core_path: Core file to read, if there is one.
+        sysroot_options: Options from :func:`get_sysroot_options`.
+        python_commands: Commands from :func:`get_python_stack_options`.
+
+    Returns:
+        Tuple of ``(exit_code, output)``. The exit code is -1 when no attempt
+        was made because the budget is spent.
+    """
+    python_commands = python_commands or []
+    timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
+    if timeout <= 0:
+        logger.warning(
+            f"{LOG_PREFIX}: {label}: skipped - the diagnostics budget is spent "
+            f"(the stacks are in the core file)"
+        )
+        return -1, ""
+
+    commands = [
+        f"-ex 'set backtrace limit {MAX_BACKTRACE_FRAMES}'",
+        "-ex bt",
+        "-ex 'thread apply all bt'",
+    ] + python_commands
+    invocation = build_gdb_invocation(pid, commands, core_path=core_path,
+                                      sysroot_options=sysroot_options)
+    cmd = build_phase_command(invocation, output_path, header, setup=setup)
+
+    return run_gdb_phase(cmd, output_path, timeout, scratch, label)
+
+
+def run_backtrace_phase(job: Any, pid: int, output_path: str, scratch: str, setup: str, *,
+                        deadline: float, core_path: str = "") -> bool:
     """Run phase B: collect the backtraces with the experiment setup.
 
     This is the expensive phase, since every mapped object's symbol table has to
@@ -1822,52 +2898,86 @@ def run_backtrace_phase(pid: int, output_path: str, scratch: str, setup: str, de
     therefore run last and is allowed to fail: the same stacks are in the core
     file that phase A already wrote.
 
+    It reads that core file rather than attaching a second time whenever phase A
+    produced one, which is the usual case. A live attach is kept as a fallback
+    for a payload with no core file, and for the unlikely case of a core file
+    gdb cannot open.
+
     ``py-bt`` is requested because for a looping transform the Python stack
     usually identifies the algorithm directly; a gdb without the Python
     extension ignores it.
 
     Args:
-        pid: Process id to attach to.
+        job: Job object; its work directory is searched for payload libraries
+            that are not in the container image.
+        pid: Process id the backtraces are wanted for.
         output_path: File the phase appends its output to.
         scratch: Working directory for the command.
         setup: Experiment setup prepended to the command.
         deadline: Diagnostics deadline as a :func:`time.monotonic` value.
+        core_path: Core file written by phase A, if any.
+
+    Returns:
+        True if gdb reported a CVMFS path it could not read.
     """
-    timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
-    if timeout <= 0:
-        logger.warning(
-            f"{LOG_PREFIX}: phase B (backtraces): skipped - the diagnostics budget is spent "
-            f"(the stacks are in the core file)"
-        )
-        return
+    sysroot = get_sysroot_directory(pid)
+    sysroot_options = get_sysroot_options(pid)
+    sysroot_options += get_solib_search_path_options(job, pid, sysroot)
+    early_options, python_commands = get_python_stack_options(pid, sysroot)
+    sysroot_options += early_options
+    post_mortem = bool(core_path) and get_file_size(core_path) > 0
 
-    commands = [
-        f"-ex 'set backtrace limit {MAX_BACKTRACE_FRAMES}'",
-        "-ex bt",
-        "-ex 'thread apply all bt'",
-        "-ex 'py-bt'",
-    ]
-    invocation = build_gdb_invocation(pid, commands)
-    cmd = build_phase_command(
-        invocation, output_path, "=== phase B: backtraces (release setup) ===", setup=setup
+    exit_code, last_output = _run_backtrace_attempt(
+        pid, output_path, scratch, setup=setup, deadline=deadline,
+        header=("=== phase B: backtraces (core file) ===" if post_mortem else
+                "=== phase B: backtraces (live process) ==="),
+        label=("phase B (backtraces, core file)" if post_mortem else "phase B (backtraces)"),
+        core_path=core_path if post_mortem else "", sysroot_options=sysroot_options,
+        python_commands=python_commands
     )
-    exit_code, output = run_gdb_phase(cmd, output_path, timeout, scratch, "phase B (backtraces)")
+    output = last_output
 
-    if exit_code != 0 and has_python_startup_failure(output):
-        timeout = min(get_backtrace_timeout(), get_remaining_budget(deadline))
-        if timeout > 0:
-            logger.info(
-                f"{LOG_PREFIX}: phase B (backtraces): retrying without the release setup - "
-                f"the frames will be less well resolved, but the thread and Python stacks are "
-                f"worth more than nothing"
-            )
-            cmd = build_phase_command(
-                invocation, output_path, "=== phase B (retry): backtraces (no release setup) ==="
-            )
-            exit_code, _ = run_gdb_phase(cmd, output_path, timeout, scratch, "phase B retry (backtraces)")
+    if phase_failed(exit_code, last_output) and has_python_startup_failure(last_output):
+        logger.info(
+            f"{LOG_PREFIX}: phase B (backtraces): retrying without the release setup - "
+            f"the frames will be less well resolved, but the thread and Python stacks are "
+            f"worth more than nothing"
+        )
+        exit_code, last_output = _run_backtrace_attempt(
+            pid, output_path, scratch, setup="", deadline=deadline,
+            header="=== phase B (retry): backtraces (no release setup) ===",
+            label="phase B retry (backtraces)",
+            core_path=core_path if post_mortem else "", sysroot_options=sysroot_options,
+            python_commands=python_commands
+        )
+        output += last_output
 
-    if exit_code != 0:
+    # a timeout means the core file was slow to read, not that it could not be
+    # read, and a live attach would be slower still - it has to read the same
+    # symbol tables and pays for the attach as well. -1 means nothing ran at
+    # all, the budget having been spent, in which case so is the fallback's
+    core_unreadable = (
+        post_mortem and
+        exit_code not in (-1, errors.COMMANDTIMEDOUT) and
+        phase_failed(exit_code, last_output)
+    )
+    if core_unreadable:
+        logger.info(
+            f"{LOG_PREFIX}: phase B (backtraces): the core file could not be read - "
+            f"attaching to the payload instead"
+        )
+        exit_code, last_output = _run_backtrace_attempt(
+            pid, output_path, scratch, setup=setup, deadline=deadline,
+            header="=== phase B: backtraces (live process) ===",
+            label="phase B (backtraces)", sysroot_options=sysroot_options,
+            python_commands=python_commands
+        )
+        output += last_output
+
+    if phase_failed(exit_code, last_output):
         resume_process(pid)
+
+    return has_cvmfs_io_failure(output)
 
 
 def is_core_file_wanted_for(job: Any, pid: int) -> bool:
@@ -1911,14 +3021,15 @@ def report_core_file(core_path: str) -> None:
         logger.warning(f"{LOG_PREFIX}: no core file was produced at {core_path}")
 
 
-def create_core_dump(job: Any) -> None:
+def create_core_dump(job: Any) -> bool:
     """Create a core dump of the looping payload and record how to analyse it.
 
     Targets the best candidate from :func:`select_dump_candidates` rather than
     an arbitrary descendant, and runs in two phases with independent timeouts
     under one overall budget: phase A writes the core file with a bare gdb,
-    phase B collects the backtraces with the experiment setup and is allowed to
-    fail. Both redirect to a file next to the core file, so a timeout keeps
+    phase B reads that core file back with the experiment setup to collect the
+    backtraces and is allowed to fail. Both redirect to a file next to the core
+    file, so a timeout keeps
     whatever was produced. The executable identity, the container the payload
     ran in and the release setup are recorded in the pilot log and in a
     companion file, so that the core file can still be opened long after the
@@ -1926,17 +3037,22 @@ def create_core_dump(job: Any) -> None:
 
     Args:
         job: Job object. Must have ``pid`` and ``workdir`` set.
+
+    Returns:
+        True if either phase found a CVMFS path it could not read. The caller
+        uses this to distinguish a payload that was looping from a payload on a
+        node that could not serve it.
     """
     if not job.pid or not job.workdir:
         logger.warning(f"{LOG_PREFIX}: cannot create a core file since pid or workdir is unknown")
-        return
+        return False
 
     logger.info(summarise_snapshots())
 
     candidates = select_dump_candidates(job, label="before diagnostics")
     if not candidates:
         logger.warning(f"{LOG_PREFIX}: no dump candidate could be identified")
-        return
+        return False
 
     pid, cmdline = candidates[0]
     logger.info(f"{LOG_PREFIX}: selected pid={pid} for the core dump: {cmdline}")
@@ -1955,12 +3071,14 @@ def create_core_dump(job: Any) -> None:
     logger.info(f"{LOG_PREFIX}: diagnostics budget for pid={pid}: {budget} s (core file={with_core})")
 
     scratch = create_scratch_directory(job)
+    cvmfs_failure = False
     try:
         if with_core:
-            run_core_dump_phase(pid, core_path, output_path, scratch, deadline)
+            cvmfs_failure = run_core_dump_phase(pid, core_path, output_path, scratch, deadline)
             report_core_file(core_path)
-        run_backtrace_phase(pid, output_path, scratch, setup, deadline)
+        cvmfs_failure = run_backtrace_phase(job, pid, output_path, scratch, setup, deadline=deadline,
+                                            core_path=core_path) or cvmfs_failure
     finally:
         remove_scratch_directory(scratch)
 
-    log_gdb_output(output_path, f"pid={pid}")
+    return cvmfs_failure
