@@ -49,6 +49,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.tracereport import TraceReport
 from pilot.util.math import convert_mb_to_b
+from pilot.util.rootio import check_root_write_error
 from pilot.util.workernode import get_local_disk_space
 
 from .common import (
@@ -173,11 +174,21 @@ def interpret(job: JobData) -> int:
 def interpret_payload_exit_info(job: JobData):
     """Interpret the exit information from the payload and set the appropriate error code.
 
-    Checks for cling JIT allocation failure, out-of-memory, installation, AtlasSetup,
-    disk-space, NFS/SQLite, missing user code, and direct-access errors in that order.
-    The first matching condition sets the pilot error code with priority and returns.
-    If none match and the payload exited non-zero without a transform error,
-    ``UNKNOWNPAYLOADFAILURE`` is set as a catch-all.
+    Checks for a local ROOT file write failure, cling JIT allocation failure,
+    out-of-memory, installation, AtlasSetup, disk-space, NFS/SQLite, missing user
+    code, and direct-access errors, in that order. The first matching condition
+    sets the pilot error code with priority and returns. If none match and the
+    payload exited non-zero without a transform error, ``UNKNOWNPAYLOADFAILURE``
+    is set as a catch-all.
+
+    The ROOT write-error check (shared with every other experiment plugin via
+    ``pilot.util.rootio.check_root_write_error()``) is placed first and is
+    deliberately not gated on the exit code: ROOT can latch a file unwritable and
+    exit the transform zero, and on a node with a failing local disk the same
+    payload can also emit XRootD direct-access errors reading its *input* files.
+    Running the write check first ensures a genuine local write failure is
+    reported instead of being masked by, or losing priority to, a direct-access
+    (stage-in) error detected later in this function.
 
     The cling JIT check is intentionally placed before the OOM check: VMA exhaustion
     (64k limit) causes cling to emit ``cling JIT session error: Cannot allocate memory``
@@ -189,6 +200,13 @@ def interpret_payload_exit_info(job: JobData):
     Args:
         job: Job object whose error codes and diagnostics will be updated in place.
     """
+    # did the payload fail to write its output ROOT file? a failing local disk or a full
+    # scratch area truncates the output while the payload frequently still exits zero, and
+    # this check must run before everything else below so it is not masked by (or loses
+    # priority to) a downstream direct-access/stage-in error on the same unhealthy node
+    if check_root_write_error(job):
+        return
+
     # check for cling JIT "Cannot allocate memory" BEFORE the generic OOM scan —
     # VMA exhaustion produces a secondary std::bad_alloc in payload.stdout that would
     # otherwise cause is_out_of_memory() to fire first and set PAYLOADOUTOFMEMORY

@@ -2295,28 +2295,39 @@ class TestQuietRanking(unittest.TestCase):
         self.assertEqual(quiet[0][0], 1003)  # the athena process, ranked on CPU time
 
     def test_the_quiet_ranking_logs_nothing(self):
-        """assertNoLogs is what pins this; the inventory is the bulk of it."""
+        """assertNoLogs is what pins this; the inventory is the bulk of it.
+
+        unittest.TestCase.assertNoLogs() was only added in Python 3.10; this
+        codebase's floor is 3.9 (see vermin config), so use the documented
+        assertLogs() behaviour instead: it raises AssertionError if no
+        matching record was logged inside the with-block, which is exactly
+        the condition we want to assert here (see test_gpu_nvidia_smi_parsing.py
+        for the same idiom).
+        """
         with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
              patch.object(loopingdumps, "get_cpu_time", return_value=1.0), \
              patch.object(loopingdumps, "get_rss", return_value=0), \
-             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
-            select_dump_candidates(FakeJob(), label="before kill", verbose=False)
+             self.assertRaises(AssertionError):
+            with self.assertLogs("pilot.util.loopingdumps", level="INFO"):
+                select_dump_candidates(FakeJob(), label="before kill", verbose=False)
 
     def test_the_fallback_is_also_quiet(self):
         """Every descendant filtered out is still not a reason to log twice."""
         denylisted = [(1004, "prmon --pid 1002")]
         with patch.object(loopingdumps, "get_descendants", return_value=denylisted), \
              patch.object(loopingdumps, "get_cmdline", return_value="/bin/bash -c payload"), \
-             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
-            candidates = select_dump_candidates(FakeJob(), label="before kill", verbose=False)
+             self.assertRaises(AssertionError):
+            with self.assertLogs("pilot.util.loopingdumps", level="INFO"):
+                candidates = select_dump_candidates(FakeJob(), label="before kill", verbose=False)
 
         self.assertEqual(candidates, [(1000, "/bin/bash -c payload")])
 
     def test_the_inventory_is_still_collected(self):
         """The caller needs the tree; it just does not need it in the log."""
         with patch.object(loopingdumps, "get_descendants", return_value=ATLAS_TREE), \
-             self.assertNoLogs("pilot.util.loopingdumps", level="INFO"):
-            descendants = log_process_inventory(FakeJob(), label="before kill", verbose=False)
+             self.assertRaises(AssertionError):
+            with self.assertLogs("pilot.util.loopingdumps", level="INFO"):
+                descendants = log_process_inventory(FakeJob(), label="before kill", verbose=False)
 
         self.assertEqual(descendants, ATLAS_TREE)
 
