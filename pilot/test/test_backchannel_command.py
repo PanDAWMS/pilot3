@@ -39,9 +39,12 @@ extract_backchannel_data() normalizes both response shapes into a single
 flat dict before handle_backchannel_command() looks at it.
 """
 
+import json
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -283,6 +286,97 @@ class TestSendStateBackchannelIntegration(unittest.TestCase):
         self.assertTrue(args.abort_job.is_set())
         self.assertEqual(job.state, 'failed')
         self.assertIn(errors.PANDAKILL, job.piloterrorcodes)
+
+
+class TestExportDebugMode(unittest.TestCase):
+    """Tests for the debug mode file that mirrors the server's debug flag for the payload."""
+
+    def setUp(self):
+        """Create a temporary work directory."""
+        self.workdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.workdir, ignore_errors=True)
+        self.job = FakeJob(self.workdir)
+        self.args = FakeArgs()
+        self.path = os.path.join(self.workdir, job_module.config.Pilot.debug_mode_file)
+
+    def send(self, command):
+        """Pass one update response carrying the given command (None: no command field)."""
+        data = {'StatusCode': 0}
+        if command is not None:
+            data['command'] = command
+        flat = job_module.extract_backchannel_data({'success': True, 'data': data})
+        job_module.handle_backchannel_command(flat, self.job, self.args)
+
+    def test_debug_writes_the_file(self):
+        """Test that a 'debug' response writes the file with its fields and leaves no temporary file."""
+        self.send('debug')
+        with open(self.path, encoding='utf-8') as _fh:
+            content = json.load(_fh)
+        self.assertTrue(content['debug'])
+        self.assertIn('since', content)
+        self.assertIn('heartbeat', content)
+        self.assertFalse(os.path.exists(f'{self.path}.tmp'))
+
+    def test_debug_with_command_writes_the_file(self):
+        """Test that 'debug' combined with a debug command also writes the file."""
+        self.send('debug,tail -100 pilotlog.txt')
+        self.assertTrue(os.path.exists(self.path))
+
+    def test_repeated_debug_keeps_the_first_file(self):
+        """Test that the file is not rewritten while debug mode stays on."""
+        self.send('debug')
+        with open(self.path, encoding='utf-8') as _fh:
+            first = _fh.read()
+        self.send('debug')
+        with open(self.path, encoding='utf-8') as _fh:
+            self.assertEqual(_fh.read(), first)
+
+    def test_response_without_debug_removes_the_file(self):
+        """Test that the file is removed by a response without 'debug', whatever its form."""
+        for command in (None, 'NULL', '', 'debugoff', 'tail pilotlog.txt'):
+            with self.subTest(command=command):
+                self.send('debug')
+                self.send(command)
+                self.assertFalse(os.path.exists(self.path))
+
+    def test_missing_workdir_is_ignored(self):
+        """Test that a missing work directory is not an error."""
+        self.job.workdir = '/no/such/workdir/should/exist/hopefully'
+        self.send('debug')
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_failed_write_leaves_no_file(self):
+        """Test that a failed write is reported and leaves neither the file nor a false success."""
+        with patch.object(job_module, 'write_json', return_value=False):
+            with self.assertLogs(job_module.logger, level='WARNING'):
+                self.send('debug')
+        self.assertEqual(os.listdir(self.workdir), [])
+
+    def test_failed_rename_leaves_no_temporary_file(self):
+        """Test that a failed rename is reported and removes the temporary file."""
+        with patch.object(job_module.os, 'replace', side_effect=OSError('simulated')):
+            with self.assertLogs(job_module.logger, level='WARNING'):
+                self.send('debug')
+        self.assertEqual(os.listdir(self.workdir), [])
+
+    def test_config_without_the_setting_uses_the_default_name(self):
+        """Test that a site configuration lacking debug_mode_file still exports the file."""
+        section = job_module.config.Pilot
+        saved = section.__dict__.pop('debug_mode_file', None)
+        try:
+            self.send('debug')
+            self.assertTrue(os.path.exists(os.path.join(self.workdir, 'pilot_debug_mode.json')))
+        finally:
+            if saved is not None:
+                section.__dict__['debug_mode_file'] = saved
+
+    def test_debugoff_turns_debug_off(self):
+        """Test that 'debugoff' clears job.debug (it used to match the 'debug' branch first)."""
+        self.send('debug')
+        self.assertTrue(self.job.debug)
+        self.send('debugoff')
+        self.assertFalse(self.job.debug)
+        self.assertEqual(self.job.debug_command, 'debugoff')
 
 
 if __name__ == '__main__':
