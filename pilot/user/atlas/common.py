@@ -1416,9 +1416,9 @@ def process_output_file_metadata(job: JobData) -> None:
         logger.debug((
             "will not try to extract output files from jobReport "
             "for user job (and allowNoOut list is empty)"))
-    else:
-        # remove the files listed in allowNoOutput if they don't exist
-        remove_no_output_files(job)
+
+    # files listed in allowNoOutput that were not produced are dropped from stage-out by
+    # process_job_report(), whatever the job report did or did not contain
 
     validate_output_data(job)
 
@@ -1882,39 +1882,67 @@ def remove_from_stageout(lfn: str, job: JobData) -> None:
     job.outdata = outdata
 
 
+def get_allowed_no_output(job: JobData) -> set:
+    """Return the set of file names listed in allowNoOutput.
+
+    The server sends allowNoOutput as one comma-separated string of lfns. Matching
+    against the split list rather than against the string itself means that an lfn
+    that is merely a substring of another one is not taken to be listed.
+
+    Args:
+        job: job object.
+
+    Returns:
+        set: Names listed in allowNoOutput (empty if there are none).
+    """
+    allowed = getattr(job, 'allownooutput', None)
+    if not allowed:
+        return set()
+    if isinstance(allowed, str):
+        allowed = allowed.split(',')
+    try:
+        return {str(name).strip() for name in allowed if str(name).strip()}
+    except TypeError:
+        return set()
+
+
 def remove_no_output_files(job: JobData) -> None:
-    """Remove files from output file list if they are listed in allowNoOutput and do not exist.
+    """Remove files from the stage-out list if they are listed in allowNoOutput and are missing or empty.
+
+    This does not depend on the job report in any way: a transform that was told a file
+    may be missing (runAthena, runGen) is free to leave it out of the job report, to write
+    a job report without any output section, or to write no job report at all.
 
     Args:
         job: job object.
     """
-    # first identify the files to keep
-    _outfiles = []
+    allowed = get_allowed_no_output(job)
+    if not allowed:
+        return
+
+    outdata = []
     for fspec in job.outdata:
         filename = fspec.lfn
         path = os.path.join(job.workdir, filename)
+        exists = os.path.exists(path)
+        empty = exists and os.path.isfile(path) and os.path.getsize(path) == 0
 
-        if filename in job.allownooutput:
-            if os.path.exists(path):
-                logger.info(f"file {filename} is listed in allowNoOutput but exists (will not be removed from "
-                            f"list of files to be staged-out)")
-                _outfiles.append(filename)
-            else:
-                logger.info(f"file {filename} is listed in allowNoOutput and does not exist (will be removed from list of files to be staged-out)")
-        else:
-            if os.path.exists(path):
-                logger.info(f"file {filename} is not listed in allowNoOutput (will be staged-out)")
-            else:
-                logger.warning(f"file {filename} is not listed in allowNoOutput and does not exist (job will fail)")
-            _outfiles.append(filename)
+        if filename in allowed:
+            if not exists:
+                logger.info(f"file {filename} is listed in allowNoOutput and does not exist (will be removed "
+                            f"from list of files to be staged-out)")
+                continue
+            if empty:
+                logger.info(f"file {filename} is listed in allowNoOutput and is empty (will be removed "
+                            f"from list of files to be staged-out)")
+                continue
+            logger.info(f"file {filename} is listed in allowNoOutput but exists (will not be removed from "
+                        f"list of files to be staged-out)")
+        elif not exists:
+            logger.warning(f"file {filename} is not listed in allowNoOutput and does not exist (job will fail)")
+        outdata.append(fspec)
 
-    # now remove the unwanted fspecs
-    if len(_outfiles) != len(job.outdata):
-        outdata = []
-        for fspec in job.outdata:
-            if fspec.lfn in _outfiles:
-                outdata.append(fspec)
-        job.outdata = outdata
+    job.outdata = outdata
 
 
 def get_outfiles_records(subfiles: list) -> dict:

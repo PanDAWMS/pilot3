@@ -55,7 +55,8 @@ from pilot.util.workernode import get_local_disk_space
 from .common import (
     assign_missing_guids,
     update_job_data,
-    parse_jobreport_data
+    parse_jobreport_data,
+    remove_no_output_files
 )
 from .metadata import (
     get_metadata_from_xml,
@@ -993,6 +994,11 @@ def process_job_report(job: JobData):
             # overwrite job.metadata since it was updated and overwrite the json file
             job.metadata = _metadata
             overwrite_metadata(_metadata, path)
+
+    # drop files listed in allowNoOutput that the payload did not produce, whatever the
+    # job report (or its absence) said about them. Without this they stay in the stage-out
+    # list and fail the job with "Local output file is missing" (ATLASPANDA-1867)
+    remove_no_output_files(job)
 
 
 def truncate_metadata(job_report_dictionary: dict) -> dict:
