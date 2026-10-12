@@ -40,6 +40,11 @@ OTHER = "user.tmaeno.52919790.log.tgz"
 # the part of an athena job report that the pilot reads besides the output files
 EXECUTOR = [{"logfileReport": {"details": {}}}]
 
+# ATLASPANDA-1867, job 7358358336 (D. Barberis): a text file that exists, is listed in allowNoOutput and is
+# listed in the job report without an event count, which is normal for files that are not ROOT files
+TXT_LFN = "user.dario.52977211.EXT0._000151.txt"
+TXT_GUID = "DE823ACA-1D42-4654-B020-EEBC4F3C434B"
+
 
 class FakeJob:  # pylint: disable=too-many-instance-attributes
     """Minimal stand-in for JobData."""
@@ -173,6 +178,71 @@ class TestAllowNoOutput(unittest.TestCase):
         remove_no_output_files(job)
 
         self.assertEqual(self._lfns(job), [LFN])
+
+    def _run_with_report_entry(self, entry, allownooutput=TXT_LFN, content="payload"):
+        """Process a job report that lists TXT_LFN with the given entry; return the lfns left to stage out.
+
+        Args:
+            entry (dict): The sub-file entry in the job report.
+            allownooutput (str): allowNoOutput as sent by the server.
+            content (str or None): Content of the file in the working directory (None: no file).
+
+        Returns:
+            list: The lfns left in the stage-out list.
+        """
+        self._write_report({"exitCode": 0, "exitMsg": "OK", "executor": EXECUTOR,
+                            "files": {"output": [{"subFiles": [entry]}]}})
+        if content is not None:
+            with open(os.path.join(self.workdir, TXT_LFN), "w", encoding="utf-8") as fout:
+                fout.write(content)
+        job = FakeJob(self.workdir, allownooutput=allownooutput, lfns=(TXT_LFN,))
+
+        process_job_report(job)
+
+        return self._lfns(job)
+
+    def test_existing_file_without_nentries_is_staged_out(self):
+        """No event count in the job report says nothing about the file (ATLASPANDA-1867, Dario's case)."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID}
+
+        self.assertEqual(self._run_with_report_entry(entry), [TXT_LFN])
+
+    def test_existing_file_with_null_nentries_is_staged_out(self):
+        """The same with an explicit null."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID, "nentries": None}
+
+        self.assertEqual(self._run_with_report_entry(entry), [TXT_LFN])
+
+    def test_existing_file_with_events_is_staged_out(self):
+        """A file with events is staged out whether it is listed or not."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID, "nentries": 5}
+
+        self.assertEqual(self._run_with_report_entry(entry), [TXT_LFN])
+        self.assertEqual(self._run_with_report_entry(entry, allownooutput=""), [TXT_LFN])
+
+    def test_unlisted_file_without_nentries_is_staged_out(self):
+        """Not listed in allowNoOutput: no change in behaviour."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID}
+
+        self.assertEqual(self._run_with_report_entry(entry, allownooutput=""), [TXT_LFN])
+
+    def test_missing_file_without_nentries_is_dropped(self):
+        """The job report lists the file but it is not there: the allowNoOutput list decides."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID}
+
+        self.assertEqual(self._run_with_report_entry(entry, content=None), [])
+
+    def test_empty_file_without_nentries_is_dropped(self):
+        """The job report lists the file, which is empty: the allowNoOutput list decides."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID}
+
+        self.assertEqual(self._run_with_report_entry(entry, content=""), [])
+
+    def test_listed_file_with_zero_events_is_dropped(self):
+        """An explicit zero event count for a listed file is still taken to mean no output (unchanged)."""
+        entry = {"name": TXT_LFN, "guid": TXT_GUID, "nentries": 0}
+
+        self.assertEqual(self._run_with_report_entry(entry), [])
 
     def test_missing_file_that_is_not_listed_is_kept(self):
         """Not listed means the stage-out check must still fail the job, so the file stays."""

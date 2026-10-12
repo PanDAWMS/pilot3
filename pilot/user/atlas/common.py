@@ -1838,13 +1838,11 @@ def verify_extracted_output_files(output: list, lfns_jobdef: list, job: JobData)
                 logger.warning(f'encountered file with nentries=UNDEFINED - will ignore {lfn}')
 
             elif nentries is None:
-                if lfn not in job.allownooutput:
-                    logger.warning(f'output file {lfn} is listed in job report, but has no events and '
-                                   f'is not listed in allowNoOutput - will ignore')
-                else:
-                    logger.warning(f'output file {lfn} is listed in job report, nentries is None and is listed in '
-                                   f'allowNoOutput - remove from stage-out')
-                    remove_from_stageout(lfn, job)
+                # no event count is normal for files that are not ROOT files; it says nothing about the file being
+                # empty, so the file stays in the stage-out list (a missing or empty file that is listed in
+                # allowNoOutput is removed by remove_no_output_files() once the job report has been processed)
+                logger.info(f'output file {lfn} is listed in job report without an event count - '
+                            f'will not use it to decide whether to stage out')
 
             elif nentries == 0:
                 if lfn not in job.allownooutput:
