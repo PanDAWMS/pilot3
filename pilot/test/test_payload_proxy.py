@@ -83,7 +83,6 @@ class _FakeJob:
         self.infosys = _FakeInfosys(_FakeQueuedata(queue_type, container_type))
         self.jobid = '7299340608'
         self.workdir = '/tmp/PanDA_Pilot-7299340608'
-        self.prodproxy = ''
 
     def is_analysis(self) -> bool:
         """Return True for a user analysis job."""

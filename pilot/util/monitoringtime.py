@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Monitoring timestamp container used to track when each monitoring task last ran."""
 
@@ -37,6 +37,7 @@ class MonitoringTime:
         ct = int(time.time())
         self.ct_start = ct
         self.ct_proxy = ct
+        self.ct_job_proxy = ct  # job proxies (payload proxy, unified dispatch user proxy)
         self.ct_looping = ct
         self.ct_looping_last_touched = None
         self.ct_diskspace = ct

@@ -30,6 +30,7 @@ import os
 import hashlib
 import logging
 import queue
+import threading
 import time
 
 from collections import namedtuple
@@ -97,6 +98,8 @@ from pilot.util.constants import (
     PILOT_MULTIJOB_START_TIME,
     PILOT_PRE_GETJOB,
     PILOT_POST_GETJOB,
+    PILOT_PRE_FINAL_UPDATE,
+    PILOT_POST_FINAL_UPDATE,
     PILOT_KILL_SIGNAL,
     LOG_TRANSFER_NOT_DONE,
     LOG_TRANSFER_IN_PROGRESS,
@@ -158,6 +161,7 @@ from pilot.util.queuehandling import (
     scan_for_jobs,
 )
 from pilot.util.realtimelogger import cleanup as rtcleanup
+from pilot.util.telemetry import handle_pilot_telemetry
 from pilot.util.timing import (
     add_to_pilot_timing,
     get_postgetjob_time,
@@ -191,6 +195,14 @@ pilot_cache = get_pilot_cache()
 # pilot.control.monitor.run_shutdowntime_minute_check()) plus typical job setup/stage-in/stage-out
 # overhead, so a freshly-started job is not immediately killed.
 MIN_TIME_FOR_NEW_JOB = 1800
+
+# job monitor exit codes that kill the payload immediately (after the error code has been set)
+PAYLOAD_KILL_EXIT_CODES = frozenset({
+    errors.KILLPAYLOAD,
+    errors.NOVOMSPROXY,
+    errors.CERTIFICATEHASEXPIRED,
+    errors.PAYLOADPROXYDOWNLOADFAILURE,  # a job proxy could not be renewed before it expired
+})
 
 
 def control(queues: namedtuple, traces: Any, args: object) -> None:
@@ -859,6 +871,64 @@ def extract_backchannel_data(res: dict) -> dict:
     return merged
 
 
+def export_debug_mode(res: dict, job: Any) -> None:
+    """Mirror the server's debug mode into the job work directory for the payload.
+
+    While a job's debug mode is on, the server puts 'debug' in the command of every
+    accepted update response; when the mode is turned off it stops sending it (no
+    'debugoff' is sent). The file named by config.Pilot.debug_mode_file therefore
+    exists in the work directory exactly while the latest accepted response carried
+    'debug', so a payload can poll for it and raise its own reporting while the job
+    is watched.
+
+    The file mirrors the server's debug flag, not job.debug: a bare debug command
+    (e.g. 'tail pilotlog.txt') sets job.debug without debug mode on the server, and
+    job.debug is not cleared when the server stops sending 'debug'.
+
+    The file is written to a temporary name and renamed into place, so a polling
+    payload never reads it half-written.
+
+    Args:
+        res: normalized server response (see extract_backchannel_data()).
+        job: job object.
+    """
+    workdir = getattr(job, 'workdir', '')
+    if not workdir or not os.path.isdir(workdir):
+        return
+    tokens = [token.strip() for token in str(res.get('command') or '').split(',')]
+    # a site configuration (HARVESTER_PILOT_CONFIG) may predate the setting
+    path = os.path.join(workdir, getattr(config.Pilot, 'debug_mode_file', 'pilot_debug_mode.json'))
+    if 'debug' in tokens:
+        if os.path.exists(path):
+            return
+        # unique per writer: updates can be sent from more than one pilot thread
+        tmp_path = f'{path}.{os.getpid()}.{threading.get_ident()}.tmp'
+        written = write_json(tmp_path, {'debug': True, 'since': int(time.time()),
+                                        'heartbeat': get_heartbeat_period(debug=True)})
+        try:
+            if not written:
+                logger.warning(f'failed to write {tmp_path}; debug mode not exported to the payload')
+                return
+            os.replace(tmp_path, path)
+        except OSError as exc:
+            logger.warning(f'failed to move {tmp_path} to {path}: {exc}')
+            return
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError as exc:
+                    logger.warning(f'failed to remove {tmp_path}: {exc}')
+        logger.info(f'debug mode on: wrote {path} for the payload')
+    elif os.path.exists(path):
+        try:
+            os.remove(path)
+        except OSError as exc:
+            logger.warning(f'failed to remove {path}: {exc}')
+            return
+        logger.info(f'debug mode off: removed {path}')
+
+
 def handle_backchannel_command(res: dict, job: Any, args: Any, test_tobekilled: bool = False) -> None:
     """Check if the server update contain any backchannel information. If so, update the job object.
 
@@ -908,19 +978,21 @@ def handle_backchannel_command(res: dict, job: Any, args: Any, test_tobekilled: 
             logger.info(f'pilot received a panda server signal to softkill job {job.jobid} at {time_stamp()}')
             # event service kill instruction
             job.debug_command = 'softkill'
+        elif 'debugoff' in cmd:  # before 'debug', which is a substring of it
+            logger.info('pilot received a command to turn off debug mode from the server')
+            job.debug = False
+            job.debug_command = 'debugoff'
         elif 'debug' in cmd:
             logger.info('pilot received a command to turn on standard debug mode from the server')
             job.debug = True
             job.debug_command = 'debug'
-        elif 'debugoff' in cmd:
-            logger.info('pilot received a command to turn off debug mode from the server')
-            job.debug = False
-            job.debug_command = 'debugoff'
         elif 'nocleanup' in cmd:
             logger.info('pilot received a command to turn off workdir cleanup')
             args.cleanup = False
         else:
             logger.warning(f'received unknown server command via backchannel: {cmd}')
+
+    export_debug_mode(res, job)
 
     # for testing debug mode
     # job.debug = True
@@ -3350,7 +3422,7 @@ def handle_proxy(job: Any) -> tuple[int, str]:
     Returns:
         tuple[int, str]: exit code (0 on success), diagnostics.
     """
-    if job.is_analysis() and job.infosys.queuedata.type == 'unified' and not job.prodproxy:
+    if job.is_analysis() and job.infosys.queuedata.type == 'unified':
         logger.info('the production proxy will be replaced by a user proxy (to be downloaded)')
         ec = download_new_proxy(role='user', proxy_type='unified', workdir=job.workdir)
         if ec:
@@ -3358,8 +3430,8 @@ def handle_proxy(job: Any) -> tuple[int, str]:
             logger.warning(diagnostics)
             return ec, diagnostics
     else:
-        logger.debug(f'will not download a new proxy since job.is_analysis()={job.is_analysis()}, '
-                     f'job.infosys.queuedata.type={job.infosys.queuedata.type}, job.prodproxy={job.prodproxy}')
+        logger.debug(f'no unified dispatch user proxy needed since job.is_analysis()={job.is_analysis()}, '
+                     f'job.infosys.queuedata.type={job.infosys.queuedata.type} (the payload proxy is handled next)')
 
     # download the payload proxy if the experiment requires one for this job
     pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -3597,11 +3669,6 @@ def has_job_completed(queues: namedtuple, args: object) -> bool:
 
         # reset any running real-time logger
         rtcleanup()
-
-        # reset proxy on unified queues for user jobs
-        if job.prodproxy:
-            os.environ['X509_USER_PROXY'] = job.prodproxy
-            job.prodproxy = ''
 
         # cleanup of any remaining processes
         if job.pid and job.pid not in job.zombies:
@@ -3999,10 +4066,16 @@ def update_server(job: Any, args: Any) -> None:
             if new_metadata is not None:
                 metadata = new_metadata
 
+    add_to_pilot_timing(job.jobid, PILOT_PRE_FINAL_UPDATE, time.time(), args)
     if job.fileinfo:
-        send_state(job, args, job.state, xml=dumps(job.fileinfo), metadata=metadata)
+        accepted = send_state(job, args, job.state, xml=dumps(job.fileinfo), metadata=metadata)
     else:
-        send_state(job, args, job.state, metadata=metadata)
+        accepted = send_state(job, args, job.state, metadata=metadata)
+    add_to_pilot_timing(job.jobid, PILOT_POST_FINAL_UPDATE, time.time(), args)
+
+    # job.completed was False on entry (see above), so it being set now means that this call was the accepted final
+    # update. The telemetry is therefore sent at most once per job
+    handle_pilot_telemetry(job, args, accepted)
 
 
 def pause_queue_monitor(delay: int) -> None:
@@ -4415,7 +4488,7 @@ def job_monitor(queues: namedtuple, traces: Any, args: object) -> None:  # noqa:
                             # attempt to download a new proxy since it is about to expire
                             ec = download_new_proxy(role='production')
                             exit_code = ec if ec != 0 else 0  # reset the exit_code if success
-                        if exit_code in {errors.KILLPAYLOAD, errors.NOVOMSPROXY, errors.CERTIFICATEHASEXPIRED}:
+                        if exit_code in PAYLOAD_KILL_EXIT_CODES:
                             jobs[i].piloterrorcodes, jobs[i].piloterrordiags = errors.add_error_code(exit_code)
                             logger.debug('killing payload process')
                             kill_process(jobs[i].pid)

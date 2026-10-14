@@ -19,7 +19,7 @@
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2016-2017
 # - Daniel Drizhuk, d.drizhuk@gmail.com, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-25
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Wen Guan, wen.guan@cern.ch, 2018
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
 
@@ -111,6 +111,7 @@ from pilot.util.middleware import (
     use_middleware_script
 )
 from pilot.util.processes import threads_aborted
+from pilot.util.proxy import remove_job_proxies
 from pilot.util.queuehandling import (
     declare_failed_by_kill,
     put_in_queue
@@ -859,6 +860,9 @@ def create_log(workdir: str, logfile_name: str, tarball_name: str, cleanup: bool
     # copy special files if they exist (could be made experiment specific if there's a need for it)
     copy_special_files(workdir)
 
+    # a job proxy (payload proxy or unified dispatch user proxy) must never be included in the log
+    remove_job_proxies(workdir)
+
     # perform special cleanup (user specific) prior to log file creation
     if cleanup:
         pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
@@ -984,6 +988,28 @@ def get_tar_timeout(dirsize: float) -> int:
     return min(timeout, timeout_max)
 
 
+def refresh_job_proxies_before_stageout() -> None:
+    """Renew the unified dispatch user proxy before stage-out if it is about to expire.
+
+    During the payload, the job monitor renews it (see verify_job_proxy() in pilot.util.monitoring),
+    but it stops doing so once the job has moved on to stage-out, which may take a long time. The
+    renewal is performed here in the stage-out thread itself, before the proxy is switched in. A
+    failure is only logged; the stage-out is attempted with the current proxy regardless.
+    """
+    if not os.environ.get('X509_UNIFIED_DISPATCH'):
+        return
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
+    verify_job_proxies = getattr(userproxy, 'verify_job_proxies', None)
+    if not verify_job_proxies:
+        return
+
+    exit_code, diagnostics = verify_job_proxies(proxy_ids=('unified',))
+    if exit_code:
+        logger.warning(f'unified dispatch user proxy could not be renewed before stage-out: {diagnostics}')
+
+
 def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title: str, ipv: str = 'IPv6') -> bool:
     """Use the ``StageOutClient`` in the Data API to perform stage-out.
 
@@ -1044,6 +1070,9 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))
     # use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware")) if title != 'log' else False
+
+    # make sure the unified dispatch user proxy is not about to expire before it is used for the stage-out
+    refresh_job_proxies_before_stageout()
 
     # switch the X509_USER_PROXY on unified dispatch queues (restore later in this function)
     x509_unified_dispatch = os.environ.get('X509_UNIFIED_DISPATCH', '')

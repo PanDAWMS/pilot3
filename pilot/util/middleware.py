@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """Middleware utilities for container and singularity command construction."""
 
@@ -45,6 +45,7 @@ from pilot.util.filehandling import (
     write_json,
     write_file,
 )
+from pilot.util.proxy import remove_container_proxies
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -199,6 +200,9 @@ def containerise_middleware(
             if label == "stage-in":
                 raise StageInFailure(msg) from exc
             raise StageOutFailure(msg) from exc
+    finally:
+        # the container may have been given a copy of the pilot's own proxy in the work directory
+        remove_container_proxies(job.workdir)
 
     # handle errors, file statuses, etc (the stage-in/out scripts write errors and file status to a json file)
     try:
