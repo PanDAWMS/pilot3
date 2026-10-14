@@ -24,11 +24,9 @@
 import json
 import math
 import os
-import re
 import shutil
 import tempfile
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -551,7 +549,16 @@ def logged_body(output: list) -> dict:
 
 
 class TestSendPilotTelemetry(TelemetryTestCase):
-    """For now the request body is only logged."""
+    """The request body is logged and sent once to the server (send_update() is mocked)."""
+
+    def setUp(self):
+        """Mock send_update() so that no server request is made."""
+        super().setUp()
+        self.result = UpdateResult(ok=True, attempts=1, response={'success': True}, success=True, status_code=0,
+                                   command=None, message='')
+        patcher = patch.object(telemetry, 'send_update', return_value=self.result)
+        self.send = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_body_logged(self):
         """The complete request body is logged as JSON."""
@@ -571,17 +578,47 @@ class TestSendPilotTelemetry(TelemetryTestCase):
         with self.assertLogs(telemetry.logger, level='INFO') as logs:
             telemetry.send_pilot_telemetry(make_job(), make_args(full_timing()))
         document = logged_body(logs.output)[PILOT_ATTRIBUTES_KEY]
-        self.assertIn(f'{PILOT_ATTRIBUTES_KEY}: {telemetry.attributes_size(document)} B', logs.output[-1])
+        ready = [entry for entry in logs.output if 'pilot telemetry ready to be sent' in entry]
+        self.assertIn(f'{PILOT_ATTRIBUTES_KEY}: {telemetry.attributes_size(document)} B', ready[0])
 
-    def test_nothing_sent(self):
-        """No server request is made while the server call is disabled."""
-        with patch('pilot.util.https.send_update') as send, patch('pilot.util.https.request2') as request2, \
-                patch('pilot.util.https.send_request') as send_request, \
+    def test_sent_once(self):
+        """The body is sent once to the endpoint, without the job object."""
+        job, args = make_job(), make_args(full_timing())
+        with self.assertLogs(telemetry.logger, level='INFO') as logs:
+            telemetry.send_pilot_telemetry(job, args)
+        self.send.assert_called_once()
+        call_args, call_kwargs = self.send.call_args
+        self.assertEqual(call_args[0], PILOT_ATTRIBUTES_ENDPOINT)
+        self.assertEqual(call_args[2:], (args.url, args.port))
+        self.assertEqual(call_kwargs, {'job': None, 'ipv': 'IPv4', 'max_attempts': 1})
+        self.assertEqual(call_args[1], logged_body(logs.output))
+        self.assertEqual(call_args[1][PILOT_ATTRIBUTES_KEY], telemetry.get_pilot_telemetry(job, args))
+        self.assertTrue(any('ok=True' in entry for entry in logs.output))
+
+    def test_rejected_update_is_only_logged(self):
+        """A rejected request is logged and nothing else happens."""
+        self.send.return_value = UpdateResult(ok=False, attempts=1, response=None, success=None, status_code=None,
+                                              command=None, message='No valid server response after retries')
+        job = make_job()
+        with self.assertLogs(telemetry.logger, level='INFO') as logs:
+            telemetry.send_pilot_telemetry(job, make_args(full_timing()))
+        self.assertTrue(any('ok=False' in entry and 'No valid server response' in entry for entry in logs.output))
+        self.assertFalse(job.completed)
+        self.assertEqual(ErrorCodes.pilot_error_codes, [])
+
+    def test_send_exception_is_swallowed(self):
+        """An exception while sending is logged as a warning."""
+        self.send.side_effect = RuntimeError('boom')
+        with self.assertLogs(telemetry.logger, level='WARNING') as logs:
+            telemetry.send_pilot_telemetry(make_job(), make_args(full_timing()))
+        self.assertIn('boom', logs.output[-1])
+
+    def test_not_sent_when_too_large(self):
+        """Nothing is sent when the size limit cannot be met."""
+        with patch.object(telemetry, 'PILOT_ATTRIBUTES_MAX_BYTES', 10), \
                 self.assertLogs(telemetry.logger, level='INFO'):
             telemetry.send_pilot_telemetry(make_job(), make_args(full_timing()))
-        send.assert_not_called()
-        request2.assert_not_called()
-        send_request.assert_not_called()
+        self.send.assert_not_called()
 
     def test_names_come_from_constants(self):
         """Changing the endpoint and key constants changes the request accordingly."""
@@ -614,95 +651,6 @@ class TestSendPilotTelemetry(TelemetryTestCase):
                 self.assertLogs(telemetry.logger, level='WARNING') as logs:
             telemetry.send_pilot_telemetry(make_job(), make_args(full_timing()))
         self.assertIn('assembly', logs.output[-1])
-
-
-def load_enabled_telemetry() -> dict:
-    """Return the namespace of a copy of the telemetry module with the disabled server call uncommented.
-
-    This is what the module becomes once the server call is enabled by hand.
-
-    Returns:
-        Global namespace of the module copy.
-    """
-    lines = Path(telemetry.__file__).read_text(encoding='utf-8').splitlines()
-
-    def uncomment(line):
-        return re.sub(r'^(\s*)# ', r'\1', line, count=1)
-
-    enabled, in_block = [], False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(('# import time', '# from pilot.util.https import send_update')):
-            line = uncomment(line)
-        elif stripped.startswith('# time_before = '):
-            in_block = True
-        elif in_block and not stripped.startswith('#'):
-            in_block = False
-        if in_block:
-            line = uncomment(line)
-        enabled.append(line)
-
-    namespace = {'__name__': 'pilot.util.telemetry_enabled'}
-    exec(compile('\n'.join(enabled), telemetry.__file__, 'exec'), namespace)  # pylint: disable=exec-used
-    return namespace
-
-
-class TestEnabledServerCall(TelemetryTestCase):
-    """The disabled server call works once it is uncommented."""
-
-    def setUp(self):
-        """Load the enabled copy of the module."""
-        super().setUp()
-        self.namespace = load_enabled_telemetry()
-
-    def _send(self, **kwargs):
-        """Call send_pilot_telemetry() of the enabled module with send_update() mocked.
-
-        Args:
-            **kwargs: Arguments for the send_update() mock (return_value or side_effect).
-
-        Returns:
-            tuple: (send_update mock, captured log output, job, args).
-        """
-        job, args = make_job(), make_args(full_timing())
-        send = MagicMock(**kwargs)
-        with patch.dict(self.namespace, {'send_update': send}), \
-                self.assertLogs(self.namespace['logger'], level='INFO') as logs:
-            self.namespace['send_pilot_telemetry'](job, args)
-        return send, logs.output, job, args
-
-    def test_call_is_present(self):
-        """The copy really contains the server call."""
-        self.assertIn('send_update', self.namespace)
-        self.assertIn('time', self.namespace)
-
-    def test_send(self):
-        """The body is sent once to the endpoint, without the job object."""
-        result = UpdateResult(ok=True, attempts=1, response={'success': True}, success=True, status_code=0,
-                              command=None, message='')
-        send, output, job, args = self._send(return_value=result)
-        send.assert_called_once()
-        call_args, call_kwargs = send.call_args
-        self.assertEqual(call_args[0], PILOT_ATTRIBUTES_ENDPOINT)
-        self.assertEqual(call_args[2:], (args.url, args.port))
-        self.assertEqual(call_kwargs, {'job': None, 'ipv': 'IPv4', 'max_attempts': 1})
-        self.assertEqual(call_args[1], logged_body(output))
-        self.assertEqual(call_args[1][PILOT_ATTRIBUTES_KEY], self.namespace['get_pilot_telemetry'](job, args))
-        self.assertTrue(any('ok=True' in entry for entry in output))
-
-    def test_rejected_update_is_only_logged(self):
-        """A rejected request is logged and nothing else happens."""
-        result = UpdateResult(ok=False, attempts=1, response=None, success=None, status_code=None, command=None,
-                              message='No valid server response after retries')
-        _, output, job, _ = self._send(return_value=result)
-        self.assertTrue(any('ok=False' in entry and 'No valid server response' in entry for entry in output))
-        self.assertFalse(job.completed)
-        self.assertEqual(ErrorCodes.pilot_error_codes, [])
-
-    def test_send_exception_is_swallowed(self):
-        """An exception while sending is logged as a warning."""
-        _, output, _, _ = self._send(side_effect=RuntimeError('boom'))
-        self.assertIn('boom', output[-1])
 
 
 class TestHandlePilotTelemetry(TelemetryTestCase):

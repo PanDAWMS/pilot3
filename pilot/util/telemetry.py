@@ -38,7 +38,7 @@ Missing values are omitted rather than reported as 0, and durations keep their s
 assembled is omitted, while a section with nothing to report is present but empty. The size limit applies to the
 uncompressed JSON of the pilot_attributes dictionary only.
 
-Until the server endpoint is available, the request body is only logged (see send_pilot_telemetry()).
+The request body is logged and then sent to the server (see send_pilot_telemetry()).
 
 Nothing in this module raises, and telemetry never affects the job.
 """
@@ -361,8 +361,8 @@ def apply_size_limit(document: dict, max_bytes: int) -> dict | None:
 def send_pilot_telemetry(job: Any, args: Any) -> None:
     """Assemble the telemetry document for the given job and send it to the server.
 
-    The server endpoint is not available yet, so for now the request body is only logged, to confirm that it is
-    ready to be sent. Failures are logged and otherwise ignored.
+    The request body is logged and then sent to the server in a single attempt. Failures are logged and otherwise
+    ignored.
 
     Args:
         job: Job object.
@@ -382,7 +382,6 @@ def send_pilot_telemetry(job: Any, args: Any) -> None:
                     f'({PILOT_ATTRIBUTES_KEY}: {attributes_size(document)} B, limit {PILOT_ATTRIBUTES_MAX_BYTES} B): '
                     f'{json.dumps(body)}')
 
-        # To be enabled once the server endpoint is available (also uncomment the two imports at the top).
         # send_update() gzips the body (with Content-Encoding: gzip) via request2(), with a curl fallback.
         time_before = time.time()
         result = send_update(PILOT_ATTRIBUTES_ENDPOINT, body, args.url, args.port, job=None,
