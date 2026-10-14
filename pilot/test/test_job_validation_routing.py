@@ -80,7 +80,6 @@ class _FakeJob:
         self.taskid = '2'
         self.workdir = ''
         self.usecontainer = usecontainer
-        self.prodproxy = ''
         self.piloterrorcodes = []
         self.piloterrordiags = []
         self.piloterrordiag = ''

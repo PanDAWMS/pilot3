@@ -164,9 +164,9 @@ def job_monitor_tasks(job: JobData, mt: MonitoringTime, args: object) -> tuple[i
 #    if exit_code != 0:
 #        return exit_code, diagnostics
 
-    # should the proxy be verified?
+    # should the proxies be verified?
     if args.verify_proxy:
-        exit_code, diagnostics = verify_user_proxy(current_time, mt)
+        exit_code, diagnostics = verify_proxies(current_time, mt, job)
         if exit_code != 0:
             return exit_code, diagnostics
 
@@ -461,6 +461,60 @@ def should_abort_payload(current_time: int, mt: MonitoringTime) -> tuple[int, st
             return errors.KILLPAYLOAD, ""  # note, this is not an error
 
     return 0, ""
+
+
+def verify_proxies(current_time: int, mt: MonitoringTime, job: JobData) -> tuple[int, str]:
+    """Verify the pilot's own proxy and the job proxies.
+
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
+    """
+    exit_code, diagnostics = verify_user_proxy(current_time, mt)
+    if exit_code != 0:
+        return exit_code, diagnostics
+
+    return verify_job_proxy(current_time, mt, job)
+
+
+def verify_job_proxy(current_time: int, mt: MonitoringTime, job: JobData) -> tuple[int, str]:
+    """Verify the job proxies and let the experiment plugin renew them if they are about to expire.
+
+    Job proxies are proxies downloaded per job, e.g. the payload proxy or the user proxy on
+    unified dispatch queues. They are only checked while the payload is running; once the job
+    has moved on to stage-out, the stage-out takes care of (and finally removes) them.
+
+    The renewal itself is handled by the experiment plugin (verify_job_proxies()), since the
+    generic renewal of the pilot's own proxy downloads a production proxy.
+
+    Args:
+        current_time: Current time at the start of the monitoring loop.
+        mt: Measured time object.
+        job: Job object.
+
+    Returns:
+        Tuple of (exit code, error diagnostics string).
+    """
+    if job.state != 'running':
+        return 0, ""
+
+    proxy_verification_time = convert_to_int(config.Pilot.proxy_verification_time, default=600)
+    if current_time - mt.get('ct_job_proxy') <= proxy_verification_time:
+        return 0, ""
+
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    userproxy = __import__(f'pilot.user.{pilot_user}.proxy', globals(), locals(), [pilot_user], 0)
+    verify_job_proxies = getattr(userproxy, 'verify_job_proxies', None)
+    exit_code, diagnostics = verify_job_proxies() if verify_job_proxies else (0, "")
+
+    # update the ct_job_proxy with the current time
+    mt.update('ct_job_proxy')
+
+    return exit_code, diagnostics
 
 
 def verify_user_proxy(current_time: int, mt: MonitoringTime) -> tuple[int, str]:

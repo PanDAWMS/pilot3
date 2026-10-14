@@ -132,7 +132,6 @@ class JobData(BaseData):
     looping_check = True           # perform looping payload check
     checkinputsize = True          # False when mv copytool is used and input reside on non-local disks
     subprocesses = []              # list of PIDs for payload subprocesses
-    prodproxy = ""                 # to keep track of production proxy on unified queues
     completed = False              # True when job has finished or failed, used by https::send_update()
     lsetuptime = 0                 # payload setup time (lsetup)
     runningstart = None            # time when the payload started running (only for internal monitoring purposes, not the actual start time)
@@ -199,7 +198,7 @@ class JobData(BaseData):
                    'cpuconsumptionunit', 'homepackage', 'jobsetid', 'payload', 'processingtype',
                    'swrelease', 'zipmap', 'imagename', 'imagename_jobdef', 'accessmode', 'transfertype',
                    'datasetin',    ## TO BE DEPRECATED: moved to FileSpec (job.indata)
-                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'prodproxy', 'alrbuserplatform',
+                   'infilesguids', 'memorymonitor', 'allownooutput', 'pandasecrets', 'alrbuserplatform',
                    'debug_command', 'dask_scheduler_ip', 'jupyter_session_ip', 'altstageout', 'nucleus', 'resourcetype'],
              list: ['piloterrorcodes', 'piloterrordiags', 'workdirsizes', 'zombies', 'corecounts', 'subprocesses',
                     'logdata', 'outdata', 'indata', 'cpufrequencies'],

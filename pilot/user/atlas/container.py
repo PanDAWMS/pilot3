@@ -61,6 +61,7 @@ from pilot.util.filehandling import (
     remove,
     write_file
 )
+from pilot.util.proxy import copy_proxy_for_container
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -304,7 +305,205 @@ def update_alrb_setup(cmd: str, use_release_setup: str) -> str:
     return updated_cmd
 
 
-def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, queue_type: str = '') -> tuple[int, str, str, str]:
+# name of the script (in the job work directory) that ALRB sources inside the payload container
+PROXY_PRESETUP_SCRIPT = 'pilot_proxy_presetup.sh'
+
+# label of the payload container (other containers are labelled e.g. 'stage-in', 'stage-out', 'file-open')
+PAYLOAD_LABEL = 'payload'
+
+# matches any X509_USER_PROXY export in a command
+PROXY_EXPORT_PATTERN = re.compile(r'export X509_USER_PROXY=[^;]*;')
+
+
+def get_presetup_script_name(label: str = PAYLOAD_LABEL) -> str:
+    """Return the name of the proxy presetup script for the container with the given label.
+
+    Each container type has its own script, so that a script written for one container never
+    affects another.
+
+    Args:
+        label: container label.
+
+    Returns:
+        str: script name (in the job work directory).
+    """
+    return PROXY_PRESETUP_SCRIPT if label == PAYLOAD_LABEL else f'pilot_proxy_presetup_{label}.sh'
+
+
+def is_in_workdir(path: str, workdir: str) -> bool:
+    """Check whether the given file is located directly in the work directory.
+
+    Args:
+        path: path to the file.
+        workdir: job work directory.
+
+    Returns:
+        bool: True if the file is located directly in the work directory.
+    """
+    return bool(path and workdir) and os.path.dirname(os.path.abspath(path)) == os.path.abspath(workdir)
+
+
+def write_proxy_presetup(x509: str, workdir: str, script_name: str = PROXY_PRESETUP_SCRIPT) -> bool:
+    """Write the script that points a container to a proxy in /srv.
+
+    ALRB copies the proxy given by X509_USER_PROXY into the container home when the container is
+    started and points X509_USER_PROXY to that copy, so a proxy renewed by the pilot during the job
+    would not be seen by the payload. The script is sourced inside the container (via
+    ALRB_CONT_PRESETUP, before the ALRB setup) and points X509_USER_PROXY to the proxy in the
+    work directory, which is mounted as /srv and renewed in place by the pilot.
+
+    The script only contains the path to the proxy, never the proxy itself. It is only (re)written
+    when its content changes, since it is requested once for the setup verification and once for
+    the payload.
+
+    Args:
+        x509: path to the proxy (in the work directory).
+        workdir: job work directory.
+        script_name: name of the script (see get_presetup_script_name()).
+
+    Returns:
+        bool: True if the script is in place.
+    """
+    path = os.path.join(workdir, script_name)
+    content = ("#!/bin/bash\n"
+               "# Created by the PanDA pilot. Sourced inside the container via ALRB_CONT_PRESETUP, so that the\n"
+               "# container uses the proxy in /srv (for the payload, renewed by the pilot during the job).\n"
+               f"export X509_USER_PROXY=/srv/{os.path.basename(x509)}\n")
+    try:
+        if os.path.exists(path):
+            with open(path, encoding='utf-8') as script:
+                if script.read() == content:
+                    return True
+        with open(path, 'w', encoding='utf-8') as script:
+            script.write(content)
+        os.chmod(path, 0o644)
+    except OSError as exc:
+        logger.warning(f'failed to write {path}: {exc}')
+        return False
+
+    logger.info(f'wrote {path} (X509_USER_PROXY=/srv/{os.path.basename(x509)} inside the container)')
+
+    return True
+
+
+def get_alrb_presetup(x509: str, workdir: str, script_name: str = PROXY_PRESETUP_SCRIPT) -> str:
+    """Return the ALRB_CONT_PRESETUP export for a proxy stored in the work directory.
+
+    ALRB evaluates ALRB_CONT_PRESETUP as a command inside the container, before the ALRB setup. It
+    is set to source a script written by the pilot (see write_proxy_presetup()), which points
+    X509_USER_PROXY to the proxy as seen inside the container (the work directory is mounted as
+    /srv). For the payload, this lets the running payload see a proxy renewed by the pilot. The
+    script is sourced rather than executed, since an export in a child process would be lost.
+    ALRB_CONT_PRESETUP must be set before the container is started. A proxy outside the work
+    directory is not visible inside the container, so nothing is returned for it.
+
+    A site-level ALRB_CONT_PRESETUP is respected, in which case nothing is returned either.
+
+    Args:
+        x509: path to the proxy used by the container.
+        workdir: job work directory.
+        script_name: name of the script (see get_presetup_script_name()).
+
+    Returns:
+        str: export command (ending with ';'), or an empty string.
+    """
+    if not is_in_workdir(x509, workdir):
+        return ''
+
+    if os.environ.get('ALRB_CONT_PRESETUP'):
+        logger.warning(f"ALRB_CONT_PRESETUP is already set ({os.environ.get('ALRB_CONT_PRESETUP')}) - "
+                       f"ALRB will copy {x509} into the container, and a running payload will not see a renewed proxy")
+        return ''
+
+    if not write_proxy_presetup(x509, workdir, script_name=script_name):
+        return ''
+
+    return f'export ALRB_CONT_PRESETUP="source /srv/{script_name}";'
+
+
+def get_proxy_setup(x509: str, workdir: str, label: str = PAYLOAD_LABEL) -> str:
+    """Return the part of a container command that gives the container its proxy.
+
+    ALRB copies the proxy in X509_USER_PROXY (explicitly exported or inherited from the pilot's
+    environment) into its own directories under ALRB_CONT_CHOME, i.e. the work directory. For a
+    proxy in the work directory, X509_USER_PROXY is therefore unset and the container is pointed to
+    the proxy via ALRB_CONT_PRESETUP instead (see get_alrb_presetup()), so that ALRB copies nothing.
+    If the presetup cannot be used, X509_USER_PROXY is exported as before, so that the container is
+    never left without a proxy.
+
+    Args:
+        x509: path to the proxy used by the container.
+        workdir: job work directory.
+        label: container label (see get_presetup_script_name()).
+
+    Returns:
+        str: command (ending with ';').
+    """
+    presetup = get_alrb_presetup(x509, workdir, script_name=get_presetup_script_name(label))
+    if presetup:
+        return 'unset X509_USER_PROXY;' + presetup
+
+    return f'export X509_USER_PROXY={x509};'
+
+
+def get_container_proxy_setup(x509: str, workdir: str, label: str) -> str:
+    """Return the part of the command that gives a container other than the payload container its proxy.
+
+    Used for the stage-in/out and file open containers, which run pilot code. A proxy outside the
+    work directory (the pilot's own proxy) is copied into it for the duration of the container,
+    since ALRB would otherwise copy it into its own directories, from where it would not be removed
+    if the container were killed. The copy must be removed by the caller once the container has
+    finished (see pilot.util.proxy.remove_container_proxies()). The choice of proxy is up to the
+    caller.
+
+    Args:
+        x509: path to the proxy used by the container.
+        workdir: job work directory.
+        label: container label, e.g. 'stage-in', 'stage-out' or 'file-open'.
+
+    Returns:
+        str: command (ending with ';'), or an empty string if no proxy is given.
+    """
+    if not x509:
+        return ''
+    if is_in_workdir(x509, workdir):
+        return get_proxy_setup(x509, workdir, label=label)
+
+    fallback = f'export X509_USER_PROXY={x509};'
+    if os.environ.get('ALRB_CONT_PRESETUP'):
+        logger.warning(f"ALRB_CONT_PRESETUP is already set ({os.environ.get('ALRB_CONT_PRESETUP')}) - "
+                       f"ALRB will copy {x509} into the {label} container")
+        return fallback
+
+    copy = copy_proxy_for_container(x509, label, workdir)
+    if not copy:
+        return fallback
+
+    setup = get_proxy_setup(copy, workdir, label=label)
+    if not setup.startswith('unset '):
+        # the presetup script could not be written - let ALRB copy the original proxy instead
+        remove(copy)
+        return fallback
+
+    return setup
+
+
+def remove_proxy_exports(cmd: str) -> str:
+    """Remove any X509_USER_PROXY export from the command that the container will execute.
+
+    That command runs after ALRB_CONT_PRESETUP, so an export in it would override the proxy set there.
+
+    Args:
+        cmd: command the container will execute.
+
+    Returns:
+        str: updated command.
+    """
+    return PROXY_EXPORT_PATTERN.sub('', cmd)
+
+
+def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, queue_type: str = '',
+                          workdir: str = '') -> tuple[int, str, str, str]:
     """Add the X509 user proxy to the container sub command string if set, and remove it from the main container command.
 
     The payload proxy itself is no longer downloaded here. alrb_wrapper() is a command-string
@@ -314,11 +513,16 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
     proxy. The download now happens once per job during job validation, in
     pilot.user.atlas.proxy.handle_payload_proxy(), and this function only consumes the result.
 
+    A job proxy (payload proxy or unified dispatch user proxy) is given to the container via
+    ALRB_CONT_PRESETUP with X509_USER_PROXY unset (see get_proxy_setup()). The pilot's own proxy
+    (production jobs, or user jobs without a job proxy) is still exported and copied by ALRB.
+
     Args:
         setup_cmd: container setup command.
         cmd: command the container will execute.
         is_analysis: True for user job.
         queue_type: queue type (e.g. 'unified').
+        workdir: job work directory (used to point ALRB to a job proxy that may be renewed).
 
     Returns:
         tuple[int, str, str, str]: exit_code, diagnostics, updated setup_cmd, updated cmd.
@@ -326,20 +530,21 @@ def update_for_user_proxy(setup_cmd: str, cmd: str, is_analysis: bool = False, q
     exit_code = 0
     diagnostics = ""
 
-    #x509 = os.environ.get('X509_USER_PROXY', '')
     x509 = os.environ.get('X509_UNIFIED_DISPATCH') or os.environ.get('X509_USER_PROXY', '')
     if x509 != "":
         # do not include the X509_USER_PROXY in the command the container will execute
-        cmd = cmd.replace(f"export X509_USER_PROXY={x509};", '')
-        # add it instead to the container setup command:
+        cmd = remove_proxy_exports(cmd)
 
         # use the payload proxy resolved during job validation, if there is one
         if is_analysis and queue_type != 'unified' and pilot_cache.payload_proxy:
             x509 = pilot_cache.payload_proxy
             logger.debug(f'using payload proxy: {x509}')
 
-        # add X509_USER_PROXY setting to the container setup command
-        setup_cmd = f"export X509_USER_PROXY={x509};" + setup_cmd
+        if is_analysis and not is_in_workdir(x509, workdir):
+            logger.warning(f'no job proxy available - the payload of this user job will use {x509}')
+
+        # add the proxy setting to the container setup command (ends up before setupATLAS)
+        setup_cmd = get_proxy_setup(x509, workdir) + setup_cmd
 
     return exit_code, diagnostics, setup_cmd, cmd
 
@@ -540,7 +745,9 @@ def alrb_wrapper(cmd: str, workdir: str, job: JobData = None) -> str:
         # -> if [ -z "$ATLAS_LOCAL_ROOT_BASE" ]; then export ATLAS_LOCAL_ROOT_BASE=/cvmfs/atlas.cern.ch/repo/ATLASLocalRootBase; fi;
 
         # add user proxy if necessary (actually it should also be removed from cmd)
-        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis(), queue_type=job.infosys.queuedata.type)
+        exit_code, diagnostics, alrb_setup, cmd = update_for_user_proxy(alrb_setup, cmd, is_analysis=job.is_analysis(),
+                                                                        queue_type=job.infosys.queuedata.type,
+                                                                        workdir=job.workdir)
         if exit_code:
             job.piloterrordiag = diagnostics
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(exit_code)
@@ -911,9 +1118,9 @@ def create_root_container_command(workdir: str, cmd: str, script: str) -> str:
 
     if status:
         # generate the final container command
+        # a copy of the pilot's own proxy made for this container must be removed by the caller once it has finished
         x509 = os.environ.get('X509_UNIFIED_DISPATCH') or os.environ.get('X509_USER_PROXY', '')
-        if x509:
-            command += f'export X509_USER_PROXY={x509};'
+        command += get_container_proxy_setup(x509, workdir, label='file-open')
         command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
         # ALRB_CONT_VERBOSE=3 emits timestamped container startup lines (apptainer version,
         # host OS, bind-mounts, etc.) to stdout so they are captured by execute_remote_file_open
@@ -1252,7 +1459,7 @@ def create_middleware_container_command(job: JobData, cmd: str, label: str = 'st
         job: job object.
         cmd: command to be containerised.
         label: 'stage-[in|out]|setup'.
-        proxy: add proxy export command.
+        proxy: give the container a proxy (otherwise X509_USER_PROXY is unset for it).
 
     Returns:
         str: container command to be executed.
@@ -1286,9 +1493,11 @@ def create_middleware_container_command(job: JobData, cmd: str, label: str = 'st
     if status:
         # generate the final container command
         if proxy:
-            x509 = os.environ.get('X509_USER_PROXY', '')
-            if x509:
-                command += f'export X509_USER_PROXY={x509};'
+            # a copy of the pilot's own proxy made for this container must be removed by the caller once it has finished
+            command += get_container_proxy_setup(os.environ.get('X509_USER_PROXY', ''), job.workdir, label=label)
+        else:
+            # without this, ALRB would still copy the proxy inherited from the pilot's environment into the container
+            command += 'unset X509_USER_PROXY;'
         if label != 'setup':  # only for stage-in/out; for setup verification, use -s .. -r .. below
             command += f'export ALRB_CONT_RUNPAYLOAD="source /srv/{script_name}";'
             if 'ALRB_CONT_UNPACKEDDIR' in os.environ:

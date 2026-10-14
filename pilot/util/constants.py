@@ -27,8 +27,8 @@ from os import environ
 # Pilot version
 RELEASE = '3'   # released number should be fixed at 3 for Pilot 3
 VERSION = '14'  # version number is '1' for first release, '0' until then, increased for bigger updates
-REVISION = '4'  # revision number should be reset to '0' for every new version release, increased for small updates
-BUILD = '19'        # build number should be reset to '1' for every new development cycle
+REVISION = '5'  # revision number should be reset to '0' for every new version release, increased for small updates
+BUILD = '13'        # build number should be reset to '1' for every new development cycle
 
 SUCCESS = 0
 FAILURE = 1
@@ -53,6 +53,9 @@ PILOT_PRE_GETJOB = 'PILOT_PRE_GETJOB'
 PILOT_POST_GETJOB = 'PILOT_POST_GETJOB'  # note: PILOT_POST_GETJOB corresponds to START_TIME in Pilot 1
 PILOT_PRE_SETUP = 'PILOT_PRE_SETUP'
 PILOT_POST_SETUP = 'PILOT_POST_SETUP'
+# pilot-side end of setup; unlike PILOT_POST_SETUP it is not overwritten afterwards with the setup end time
+# found in the payload stdout
+PILOT_POST_PILOT_SETUP = 'PILOT_POST_PILOT_SETUP'
 PILOT_PRE_STAGEIN = 'PILOT_PRE_STAGEIN'
 PILOT_POST_STAGEIN = 'PILOT_POST_STAGEIN'
 PILOT_PRE_PAYLOAD = 'PILOT_PRE_PAYLOAD'
@@ -67,6 +70,15 @@ PILOT_END_TIME = 'PILOT_END_TIME'
 PILOT_KILL_SIGNAL = 'PILOT_KILL_SIGNAL'
 PILOT_PRE_REMOTEIO = 'PILOT_PRE_REMOTEIO'
 PILOT_POST_REMOTEIO = 'PILOT_POST_REMOTEIO'
+
+# Structured pilot attributes (telemetry) sent to the PanDA server once per job, after the final job update.
+# Names and size limit as agreed with the PanDA server developers; keep each defined only here.
+PILOT_ATTRIBUTES_ENDPOINT = 'api/v1/pilot/update_pilot_attributes'
+PILOT_ATTRIBUTES_KEY = 'pilot_attributes'
+PILOT_ATTRIBUTES_SCHEMA_VERSION = 1
+# limit on the uncompressed JSON of the pilot_attributes dictionary only (not job_id / pilot_version);
+# the server validates the same limit after decompressing the request body
+PILOT_ATTRIBUTES_MAX_BYTES = 64 * 1024
 
 # Keep track of log transfers
 LOG_TRANSFER_NOT_DONE = 'NOT_DONE'

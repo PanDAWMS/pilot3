@@ -1796,12 +1796,7 @@ def _get_auth_and_headers(url: str, panda: bool) -> tuple[dict[str, str], bool]:
         *use_oidc_token* indicates whether OIDC auth was applied.
     """
     auth_token, auth_origin = get_local_oidc_token_info()
-
-    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
-        logger.debug('switched off OIDC tokens for CERN-PTEST (2)')
-        use_oidc_token = False
-    else:
-        use_oidc_token = bool(auth_token and auth_origin and panda)
+    use_oidc_token = bool(auth_token and auth_origin and panda)
 
     auth_token_content = get_auth_token_content(auth_token) if use_oidc_token else ""
     if not auth_token_content and use_oidc_token:
@@ -1993,11 +1988,7 @@ def request2(url: str = "", *, params: dict[str, Any | None] = None, json_body: 
 
     # Determine OIDC usage
     auth_token_name, auth_origin = get_local_oidc_token_info()
-    if "CERN-PTEST" in os.environ.get('PILOT_SITENAME', ''):
-        logger.debug('switched off OIDC tokens for CERN-PTEST')
-        use_oidc_token = False
-    else:
-        use_oidc_token = bool(auth_token_name and auth_origin and panda)
+    use_oidc_token = bool(auth_token_name and auth_origin and panda)
     logger.info("will use OIDC token authentication" if use_oidc_token else "will not use OIDC token authentication")
 
     auth_token_content = ""

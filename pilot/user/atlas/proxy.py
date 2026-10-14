@@ -25,7 +25,7 @@
 from __future__ import annotations
 import logging
 import os
-import re
+import threading
 
 from time import time
 from typing import (
@@ -41,11 +41,45 @@ from pilot.util.container import (
     execute,
     execute_nothreads
 )
-from pilot.util.proxy import get_proxy
+from pilot.util.filehandling import remove
+from pilot.util.proxy import (
+    JOB_PROXY_TYPES,
+    get_job_proxy_path,
+    get_proxy
+)
 
 errors = ErrorCodes()
 logger = logging.getLogger(__name__)
 pilot_cache = get_pilot_cache()
+
+# TEST-ONLY: when True, the validity of a job proxy (payload proxy or unified dispatch user proxy) is clamped
+# to JOB_PROXY_RENEWAL_THRESHOLD + TEST_JOB_PROXY_MARGIN from the moment it is verified, so that the renewal
+# mechanism is triggered TEST_JOB_PROXY_MARGIN after each download within a short test job (use together with
+# a short proxy_verification_time in pilot/util/default.cfg). Must be False in any release (guarded by
+# test_job_proxy_renewal.py).
+_TEST_JOB_PROXY_RENEWAL = False
+TEST_JOB_PROXY_MARGIN = 300
+
+# a job proxy is renewed once its remaining validity drops below this (s)
+JOB_PROXY_RENEWAL_THRESHOLD = 24 * 3600
+
+# a job proxy that cannot be renewed only fails the job once its remaining validity drops below this (s)
+JOB_PROXY_HARD_FLOOR = 600
+
+# minimum remaining validity of a proxy served by the PanDA server (s) and the grace allowed for it
+JOB_PROXY_EXPECTED_LIFETIME = 72 * 3600
+JOB_PROXY_LIFETIME_GRACE = 20 * 60
+
+# after a renewal that did not solve the problem (the new proxy did not last longer than the current one,
+# or is still below the renewal threshold), wait this long before the next attempt (s) - except during the
+# last backoff interval before JOB_PROXY_HARD_FLOOR is reached, when every check attempts a renewal
+JOB_PROXY_RENEWAL_BACKOFF = 3600
+
+# earliest time (epoch seconds) of the next renewal attempt, per job proxy id
+_renewal_backoff: dict[str, int] = {}
+
+# serialises job proxy renewals between the job monitor and the stage-out threads
+_renewal_lock = threading.Lock()
 
 
 def get_voms_role(role: str = 'production') -> str:
@@ -75,14 +109,16 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
     exit_code = 0
     diagnostics = ""
 
-    x509_payload = re.sub('.proxy$', '', x509) + f'-{proxy_type}.proxy' if proxy_type else x509
-    # remove the .proxy suffix if it is not present in the original x509
-    if not x509.endswith('.proxy'):
-        x509_payload = re.sub('.proxy$', '', x509_payload)
+    x509_payload = get_job_proxy_path(x509, proxy_type, workdir=workdir) if proxy_type else x509
 
-    # for unified proxies, store it in the workdir
-    if proxy_type == 'unified':
-        x509_payload = os.path.join(workdir, os.path.basename(x509_payload))
+    # Job proxies are verified under their own cache entry, so that the periodic checks during the job
+    # can be served from the cache without executing arcproxy again (see check_job_proxy()). Any entry
+    # left from a previous job or an earlier download must be cleared first, since verify_arcproxy()
+    # would otherwise judge the new proxy by the validity of the old one.
+    proxy_id = proxy_type if proxy_type in JOB_PROXY_TYPES else None
+    if proxy_id:
+        invalidate_proxy_cache(proxy_id)
+        clear_renewal_backoff(proxy_id)
 
     # try to receive payload proxy and update x509
     logger.info(f"download proxy from server (type=\'{proxy_type}\', x509_payload={x509_payload})")
@@ -94,7 +130,7 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
         return errors.PAYLOADPROXYDOWNLOADFAILURE, diagnostics, x509
 
     logger.debug("server returned proxy (verifying)")
-    exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=None, test=False)
+    exit_code, diagnostics = verify_proxy(x509=x509_payload, proxy_id=proxy_id, test=False)
 
     # verify_arcproxy() returns -1 when arcproxy itself is unavailable on the queue. That says
     # nothing about the downloaded proxy, so it must not be reported as an error code (-1 has no
@@ -113,6 +149,8 @@ def get_and_verify_proxy(x509: str, voms_role: str = '', proxy_type: str = '', w
         return exit_code if exit_code != 0 else errors.NOVOMSPROXY, diagnostics, x509
 
     logger.info(f"proxy verified (proxy type=\'{proxy_type}\')")
+    if proxy_id:
+        check_downloaded_lifetime(proxy_id)
 
     return 0, "", x509_payload
 
@@ -179,13 +217,18 @@ def handle_payload_proxy(job: Any) -> tuple[int, str]:
     Returns:
         tuple[int, str]: exit code (0 on success or if no payload proxy is required), diagnostics.
     """
+    # never let a payload proxy from a previous job be used by this one
+    pilot_cache.payload_proxy = None
+
     if not requires_payload_proxy(job):
         return 0, ""
 
+    # the payload proxy is stored in the work directory, which is visible as /srv inside the payload
+    # container - required for a renewed proxy to be seen by the running payload (see check_job_proxy())
     x509 = os.environ.get("X509_UNIFIED_DISPATCH") or os.environ.get("X509_USER_PROXY", "")
     voms_role = get_voms_role(role="user")
     exit_code, diagnostics, x509_payload = get_and_verify_proxy(
-        x509, voms_role=voms_role, proxy_type="payload"
+        x509, voms_role=voms_role, proxy_type="payload", workdir=job.workdir
     )
     if exit_code:
         return exit_code, diagnostics
@@ -301,6 +344,7 @@ def verify_arcproxy(envsetup: str, limit: int, proxy_id: str = "pilot", test: bo
                 # is a parsed property of the proxy independent of whether it passed the limit check.
                 pilot_cache.proxy_validity_end = validity_end
 
+            validity_end_cert, validity_end = apply_test_lifetime(proxy_id, validity_end_cert, validity_end)
             if proxy_id and validity_end:  # setup cache if requested
                 if exit_code == 0:
                     logger.info(f"caching the validity ends from arcproxy: cache[\'{proxy_id}\'] = [{validity_end_cert}, {validity_end}]")
@@ -367,6 +411,414 @@ def check_time_left(proxyname: str, validity: int, limit: int) -> tuple[int, str
         logger.info(f"{proxyname} validity time is verified")
 
     return exit_code, diagnostics
+
+
+def get_test_lifetime() -> int:
+    """Return the validity (s) that job proxies are clamped to in test mode.
+
+    It is defined relative to the renewal threshold, so that a renewal is triggered
+    TEST_JOB_PROXY_MARGIN seconds after each download regardless of the threshold.
+
+    Returns:
+        int: clamped validity in seconds.
+    """
+    return JOB_PROXY_RENEWAL_THRESHOLD + TEST_JOB_PROXY_MARGIN
+
+
+def apply_test_lifetime(proxy_id: str | None, validity_end_cert: int | None,
+                        validity_end: int | None) -> tuple[int | None, int | None]:
+    """Clamp the validity of a job proxy in test mode (see _TEST_JOB_PROXY_RENEWAL).
+
+    The pilot's own proxy is never affected.
+
+    Args:
+        proxy_id: proxy id used for the arcproxy cache.
+        validity_end_cert: certificate validity end (epoch seconds).
+        validity_end: VOMS attribute validity end (epoch seconds).
+
+    Returns:
+        tuple[int | None, int | None]: possibly clamped validity_end_cert, validity_end.
+    """
+    if not _TEST_JOB_PROXY_RENEWAL or proxy_id not in JOB_PROXY_TYPES:
+        return validity_end_cert, validity_end
+
+    lifetime = get_test_lifetime()
+    latest = int(time()) + lifetime
+    logger.warning(f"TEST MODE: clamping the validity of the {proxy_id} proxy to {lifetime} s "
+                   f"(set _TEST_JOB_PROXY_RENEWAL=False in pilot/user/atlas/proxy.py before release)")
+    if validity_end_cert:
+        validity_end_cert = min(validity_end_cert, latest)
+    if validity_end:
+        validity_end = min(validity_end, latest)
+
+    return validity_end_cert, validity_end
+
+
+def get_cache_entry(proxy_id: str) -> list | None:
+    """Return the arcproxy cache entry for the given proxy id.
+
+    Args:
+        proxy_id: proxy id used for the arcproxy cache.
+
+    Returns:
+        list | None: [validity end cert, validity end], or None if there is no entry.
+    """
+    return getattr(verify_arcproxy, "cache", {}).get(proxy_id)
+
+
+def set_cache_entry(proxy_id: str, entry: list | None) -> None:
+    """Set (or remove, if entry is None) the arcproxy cache entry for the given proxy id.
+
+    Args:
+        proxy_id: proxy id used for the arcproxy cache.
+        entry: [validity end cert, validity end], or None to remove the entry.
+    """
+    if not hasattr(verify_arcproxy, "cache"):
+        verify_arcproxy.cache = {}
+    if entry is None:
+        verify_arcproxy.cache.pop(proxy_id, None)
+    else:
+        verify_arcproxy.cache[proxy_id] = entry
+
+
+def invalidate_proxy_cache(proxy_id: str) -> None:
+    """Remove the arcproxy cache entry for the given proxy id.
+
+    Args:
+        proxy_id: proxy id used for the arcproxy cache.
+    """
+    set_cache_entry(proxy_id, None)
+
+
+def get_cached_validity_end(proxy_id: str) -> int | None:
+    """Return the earliest cached validity end of the given proxy.
+
+    Both the certificate and the VOMS attribute validity ends are considered, since the proxy
+    is unusable as soon as either of them has passed.
+
+    Args:
+        proxy_id: proxy id used for the arcproxy cache.
+
+    Returns:
+        int | None: validity end (epoch seconds), -1 if the earlier verification failed,
+            or None if there is no cache entry.
+    """
+    entry = get_cache_entry(proxy_id)
+    if not entry:
+        return None
+    ends = [end for end in entry if end is not None]
+
+    return min(ends) if ends else None
+
+
+def check_downloaded_lifetime(proxy_id: str) -> bool:
+    """Check that a job proxy just downloaded from the PanDA server has the expected remaining validity.
+
+    The server only serves proxies with at least JOB_PROXY_EXPECTED_LIFETIME left. A shorter proxy
+    indicates a server-side problem and is reported, but it is still used: it may well be long enough
+    for the job, and the job would otherwise be failed over a problem that may not affect it. In test
+    mode the validity is clamped (see apply_test_lifetime()), so the check is skipped.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+
+    Returns:
+        bool: False if the proxy is shorter than expected, True otherwise (including unknown validity).
+    """
+    if _TEST_JOB_PROXY_RENEWAL:
+        logger.debug(f"TEST MODE: not checking the remaining validity of the downloaded {proxy_id} proxy")
+        return True
+
+    validity_end = get_cached_validity_end(proxy_id)
+    if validity_end is None or validity_end < 0:
+        return True
+
+    seconds_left = validity_end - int(time())
+    if seconds_left < JOB_PROXY_EXPECTED_LIFETIME - JOB_PROXY_LIFETIME_GRACE:
+        logger.warning(f"the PanDA server returned a {proxy_id} proxy with only {seconds_left / 3600:.2f}h left "
+                       f"(expected at least {JOB_PROXY_EXPECTED_LIFETIME / 3600:.0f}h) - using it anyway")
+        return False
+
+    return True
+
+
+def is_renewal_backed_off(proxy_id: str, seconds_left: int) -> bool:
+    """Check whether the renewal of the given job proxy should be postponed.
+
+    The backoff never applies during the last backoff interval before JOB_PROXY_HARD_FLOOR, so that
+    every check makes a last attempt before the job is failed.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        seconds_left: remaining validity of the current proxy (s).
+
+    Returns:
+        bool: True if the renewal should be postponed.
+    """
+    if seconds_left < JOB_PROXY_HARD_FLOOR + JOB_PROXY_RENEWAL_BACKOFF:
+        return False
+
+    return int(time()) < _renewal_backoff.get(proxy_id, 0)
+
+
+def set_renewal_backoff(proxy_id: str) -> None:
+    """Postpone the next renewal attempt of the given job proxy by JOB_PROXY_RENEWAL_BACKOFF.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+    """
+    _renewal_backoff[proxy_id] = int(time()) + JOB_PROXY_RENEWAL_BACKOFF
+    logger.info(f"next renewal attempt of the {proxy_id} proxy in {JOB_PROXY_RENEWAL_BACKOFF} s at the earliest")
+
+
+def clear_renewal_backoff(proxy_id: str) -> None:
+    """Allow the next renewal attempt of the given job proxy at the next check.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+    """
+    _renewal_backoff.pop(proxy_id, None)
+
+
+def get_job_proxies() -> list[tuple[str, str]]:
+    """Return the job proxies currently in use.
+
+    Returns:
+        list[tuple[str, str]]: list of (proxy id, path) for each existing job proxy.
+    """
+    proxies = []
+    unified = os.environ.get("X509_UNIFIED_DISPATCH", "")
+    if unified and os.path.exists(unified):
+        proxies.append(("unified", unified))
+    payload = pilot_cache.payload_proxy
+    if payload and os.path.exists(payload):
+        proxies.append(("payload", payload))
+
+    return proxies
+
+
+def is_current_job_proxy(proxy_id: str, path: str) -> bool:
+    """Check whether the given path is still the job proxy of the given type.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        path: path to the proxy.
+
+    Returns:
+        bool: True if the proxy is still in use.
+    """
+    current = os.environ.get("X509_UNIFIED_DISPATCH", "") if proxy_id == "unified" else pilot_cache.payload_proxy
+
+    return current == path
+
+
+def verify_job_proxies(proxy_ids: tuple = JOB_PROXY_TYPES) -> tuple[int, str]:
+    """Verify the job proxies and renew any proxy that is about to expire.
+
+    Job proxies are the payload proxy (non-unified analysis queues) and the user proxy on
+    unified dispatch queues. Unlike the pilot's own proxy, they are renewed here directly,
+    since the generic renewal in the job monitor downloads a production proxy.
+
+    Args:
+        proxy_ids: job proxy ids to consider.
+
+    Returns:
+        tuple[int, str]: exit code (0, or PAYLOADPROXYDOWNLOADFAILURE if a proxy could not be
+            renewed before it expired), diagnostics.
+    """
+    for proxy_id, path in get_job_proxies():
+        if proxy_id not in proxy_ids:
+            continue
+        exit_code, diagnostics = check_job_proxy(proxy_id, path)
+        if exit_code:
+            return exit_code, diagnostics
+
+    return 0, ""
+
+
+def check_job_proxy(proxy_id: str, path: str) -> tuple[int, str]:
+    """Check the validity of a job proxy using the arcproxy cache, and renew it if necessary.
+
+    arcproxy is only executed when a proxy has been downloaded (see get_and_verify_proxy()),
+    the checks in between are served from the cache. A proxy without a cached validity (arcproxy
+    unavailable) cannot be verified and is left alone.
+
+    The proxy is renewed once less than JOB_PROXY_RENEWAL_THRESHOLD remains. A failed download or
+    verification is retried at the next check. A renewal that did not solve the problem (see
+    _renew_job_proxy()) is retried after JOB_PROXY_RENEWAL_BACKOFF. The job is only failed once the
+    proxy is about to expire for real (see JOB_PROXY_HARD_FLOOR).
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        path: path to the proxy.
+
+    Returns:
+        tuple[int, str]: exit code (0 or PAYLOADPROXYDOWNLOADFAILURE), diagnostics.
+    """
+    validity_end = get_cached_validity_end(proxy_id)
+    if validity_end is None or validity_end < 0:
+        if validity_end is None:
+            # remember this, so that arcproxy is not executed and the warning not repeated at every check
+            logger.warning(f"the validity of the {proxy_id} proxy is unknown - it cannot be verified or renewed")
+            set_cache_entry(proxy_id, [-1, -1])
+        return 0, ""
+
+    seconds_left = validity_end - int(time())
+    logger.info(f"the {proxy_id} proxy has {seconds_left / 3600:.2f}h left "
+                f"(renewal below {JOB_PROXY_RENEWAL_THRESHOLD / 3600:.0f}h)")
+    if seconds_left >= JOB_PROXY_RENEWAL_THRESHOLD:
+        return 0, ""
+
+    if is_renewal_backed_off(proxy_id, seconds_left):
+        logger.info(f"the renewal of the {proxy_id} proxy is postponed after an earlier attempt")
+        return 0, ""
+
+    exit_code, diagnostics = renew_job_proxy(proxy_id, path)
+    if exit_code == 0:
+        return 0, ""
+
+    seconds_left = validity_end - int(time())
+    if seconds_left < JOB_PROXY_HARD_FLOOR:
+        diagnostics = f"the {proxy_id} proxy could not be renewed and expires in {seconds_left} s: {diagnostics}"
+        logger.warning(diagnostics)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, diagnostics
+
+    logger.warning(f"the {proxy_id} proxy was not renewed (will try again later): {diagnostics}")
+
+    return 0, ""
+
+
+def renew_job_proxy(proxy_id: str, path: str) -> tuple[int, str]:
+    """Download, verify and install a new job proxy.
+
+    Only one renewal runs at a time. If another thread renewed the proxy, or attempted to, while
+    this one was waiting, nothing is done.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        path: path to the proxy.
+
+    Returns:
+        tuple[int, str]: exit code (0 or PAYLOADPROXYDOWNLOADFAILURE), diagnostics.
+    """
+    with _renewal_lock:
+        validity_end = get_cached_validity_end(proxy_id)
+        if validity_end and validity_end > 0:
+            seconds_left = validity_end - int(time())
+            if seconds_left >= JOB_PROXY_RENEWAL_THRESHOLD:
+                logger.info(f"the {proxy_id} proxy has already been renewed")
+                return 0, ""
+            if is_renewal_backed_off(proxy_id, seconds_left):
+                logger.info(f"the renewal of the {proxy_id} proxy has just been attempted")
+                return 0, ""
+
+        return _renew_job_proxy(proxy_id, path)
+
+
+def _renew_job_proxy(proxy_id: str, path: str) -> tuple[int, str]:
+    """Download, verify and install a new job proxy (to be called with _renewal_lock held).
+
+    The new proxy is downloaded to a temporary file next to the proxy in use, verified, and only
+    then moved over it. The proxy in use is therefore never replaced by one that failed to
+    download or verify, and a reader never sees a partially written file. The file is replaced
+    within the same directory, which is visible to the running payload container as /srv.
+
+    The new proxy is only installed if it is valid longer than the current one, since the server
+    may return the same (cached) proxy. If it is not, or if it is still below the renewal threshold,
+    the next attempt is postponed (see JOB_PROXY_RENEWAL_BACKOFF).
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        path: path to the proxy.
+
+    Returns:
+        tuple[int, str]: exit code (0 or PAYLOADPROXYDOWNLOADFAILURE), diagnostics.
+    """
+    logger.info(f"the {proxy_id} proxy is about to expire - downloading a new one for {path}")
+    tmp_path = f"{path}.tmp"
+    old_entry = get_cache_entry(proxy_id)
+    old_end = get_cached_validity_end(proxy_id)
+
+    exit_code, diagnostics = _download_job_proxy(proxy_id, tmp_path)
+    if exit_code:
+        set_cache_entry(proxy_id, old_entry)
+        return exit_code, diagnostics
+
+    new_end = get_cached_validity_end(proxy_id)
+    check_downloaded_lifetime(proxy_id)
+    if new_end is None or (old_end is not None and new_end <= old_end):
+        _remove_if_exists(tmp_path)
+        set_cache_entry(proxy_id, old_entry)
+        set_renewal_backoff(proxy_id)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, (f"the new {proxy_id} proxy (valid until {new_end}) is not valid "
+                                                    f"longer than the current one (valid until {old_end}) - keeping "
+                                                    f"the current one")
+
+    try:
+        os.replace(tmp_path, path)
+    except OSError as exc:
+        _remove_if_exists(tmp_path)
+        set_cache_entry(proxy_id, old_entry)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, f"failed to install the new {proxy_id} proxy: {exc}"
+
+    if not is_current_job_proxy(proxy_id, path):
+        # the job has moved on while the proxy was being renewed (e.g. stage-out removed it)
+        logger.info(f"the {proxy_id} proxy is no longer in use - removing the renewed proxy")
+        _remove_if_exists(path)
+        invalidate_proxy_cache(proxy_id)
+        return 0, ""
+
+    if new_end - int(time()) < JOB_PROXY_RENEWAL_THRESHOLD:
+        set_renewal_backoff(proxy_id)
+    else:
+        clear_renewal_backoff(proxy_id)
+    logger.info(f"renewed the {proxy_id} proxy: {path} (valid until {new_end})")
+
+    return 0, ""
+
+
+def _download_job_proxy(proxy_id: str, tmp_path: str) -> tuple[int, str]:
+    """Download a new job proxy to a temporary file and verify it (to be called with _renewal_lock held).
+
+    On success, the arcproxy cache entry of the job proxy holds the validity of the new proxy. On
+    failure, the temporary file is removed, and the caller must restore the cache entry.
+
+    Args:
+        proxy_id: job proxy id ('payload' or 'unified').
+        tmp_path: path of the temporary file.
+
+    Returns:
+        tuple[int, str]: exit code (0 or PAYLOADPROXYDOWNLOADFAILURE), diagnostics.
+    """
+    x509 = os.environ.get("X509_USER_PROXY", "")
+    res, written = get_proxy(tmp_path, get_voms_role(role="user"))
+    if written != tmp_path:
+        # get_proxy() fell back to another location (read-only file system) and redirected
+        # X509_USER_PROXY there - undo that, the pilot's own proxy must not be replaced
+        os.environ["X509_USER_PROXY"] = x509
+        _remove_if_exists(written)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, f"the new {proxy_id} proxy could not be written to {tmp_path}"
+    if not res:
+        _remove_if_exists(tmp_path)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, f"failed to download a new {proxy_id} proxy"
+
+    invalidate_proxy_cache(proxy_id)
+    exit_code, diagnostics = verify_proxy(x509=tmp_path, proxy_id=proxy_id)
+    if exit_code != 0 or diagnostics:
+        _remove_if_exists(tmp_path)
+        return errors.PAYLOADPROXYDOWNLOADFAILURE, f"the new {proxy_id} proxy failed verification: {exit_code}, {diagnostics}"
+
+    return 0, ""
+
+
+def _remove_if_exists(path: str) -> None:
+    """Remove the given file if it exists.
+
+    Args:
+        path: path to the file.
+    """
+    if path and os.path.exists(path):
+        remove(path)
 
 
 def verify_vomsproxy(envsetup: str, limit: int) -> tuple[int, str]:

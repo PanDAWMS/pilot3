@@ -55,6 +55,7 @@ from pilot.util.constants import (
     UTILITY_BEFORE_PAYLOAD,
     UTILITY_WITH_PAYLOAD,
     PILOT_POST_PAYLOAD,
+    PILOT_POST_PILOT_SETUP,
     PILOT_POST_SETUP,
     PILOT_PRE_SETUP,
     PILOT_PRE_PAYLOAD,
@@ -149,6 +150,9 @@ class Executor:
         # write time stamps to pilot timing file
         if not update_time:
             update_time = time.time()
+            # pilot-side end of setup, kept since improve_post_setup() later overwrites PILOT_POST_SETUP
+            # with the setup end time found in the payload stdout
+            add_to_pilot_timing(job.jobid, PILOT_POST_PILOT_SETUP, update_time, self.__args)
         add_to_pilot_timing(job.jobid, PILOT_POST_SETUP, update_time, self.__args)
 
     def improve_post_setup(self):
