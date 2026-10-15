@@ -395,13 +395,15 @@ def request(url: str,
         if _proxy_cert:
             logger.debug("request(): cacert is a GSI proxy - suppressing --cert/--key in curl call")
 
+        _, _auth_origin = get_local_oidc_token_info()
+
         res = send_request_with_token_via_curl_config(
             url=url,
             payload=data,
             cacertfile=_ctx.capath or "/etc/grid-security/certificates",
             use_capath=bool(_ctx.capath),
             token=auth_token_content,
-            extra_headers={"Origin": "atlas.pilot"},
+            extra_headers={"Origin": _auth_origin or "atlas.pilot"},
             use_token_only=_proxy_cert,
             certfile=None if _proxy_cert else _cacert or None,
             keyfile=None if _proxy_cert else _cacert or None,
