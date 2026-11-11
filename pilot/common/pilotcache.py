@@ -36,6 +36,7 @@ def get_pilot_cache():
             self.set_memory_limits = []  # cgroup paths for which a memory limit has been set
             self.set_memory_limits_values = {}  # cgroup path -> limit in kB
             self.oom_baselines = {}  # cgroup path -> memory.events dict, snapshotted at payload start
+            self.kernel_log_marks = {}  # job id -> time stamp of the newest kernel log message at payload start
             self.proxy_validity_end = 0  # absolute epoch time (s) when the proxy validity ends
             # path to the payload proxy downloaded and verified during job validation, or None if
             # no payload proxy is required for the current job (see handle_payload_proxy())
