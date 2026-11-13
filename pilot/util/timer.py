@@ -156,7 +156,7 @@ class TimedProcess:
                 print(f'exception occurred while executing {func}', file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
                 try:
-                    pickle.dumps(e)
+                    pickle.loads(pickle.dumps(e))
                 except Exception:  # the queue pickles; keep the type and message of one that cannot be
                     e = RuntimeError(f'{type(e).__name__}: {e}')
                 queue.put((False, e))
