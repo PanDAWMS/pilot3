@@ -261,6 +261,11 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
         ret = get_error_info(ErrorCodes.XRDCPERROR, 'XRDCP_ERROR', output)
     elif "Unable to locate credentials" in output:
         ret = get_error_info(ErrorCodes.MISSINGCREDENTIALS, 'S3_ERROR', output)
+    elif "Cannot authenticate" in output or "CannotAuthenticate" in output:
+        ret = get_error_info(ErrorCodes.STAGEINAUTHENTICATIONFAILURE if is_stagein else ErrorCodes.STAGEOUTAUTHENTICATIONFAILURE,
+                             'AUTH_FAIL', output)
+    elif re.search(r'http status code: 5\d\d', output):
+        ret = get_error_info(ErrorCodes.SERVICENOTAVAILABLE, 'SERVICE_ERROR', f"Data management server error: {output}")
 
     # reg exp the output to get real error message
     return output_line_scan(ret, output)
