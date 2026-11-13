@@ -26,6 +26,12 @@ import json
 import logging
 import os
 import re
+import ssl
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
 
 from glob import glob
 from signal import SIGTERM
@@ -63,6 +69,98 @@ from .utilities import (
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+
+# Where a log whose transfer failed is held until production operations recover it. The grant service checks that
+# the job is live and the file is its log, and returns a presigned POST for that one object; no credential sits on
+# the worker. The object store needs no library beyond the standard one.
+LOG_GRANT_URL = 'https://epic-devcloud.org/prod/pcs/api/v1/stageout/log-grant/'
+LOG_GRANT_TIMEOUT = 60
+LOG_GRANT_WAIT = 300
+LOG_UPLOAD_TIMEOUT = 600
+
+
+def _log_grant(url: str, pandaid: int, lfn: str, context: ssl.SSLContext) -> dict:
+    """Ask the grant service for this log's upload grant, waiting while it is signed (202).
+
+    Returns:
+        The grant, or an empty dict when none was given.
+    """
+    query = urllib.parse.urlencode({'pandaid': pandaid, 'lfn': lfn})
+    deadline = time.time() + LOG_GRANT_WAIT
+    while True:
+        try:
+            with urllib.request.urlopen(f'{url}?{query}', timeout=LOG_GRANT_TIMEOUT, context=context) as response:
+                body = json.loads(response.read().decode())
+                if response.status == 200:
+                    return body
+                wait = int(body.get('retry_after', 10))
+        except urllib.error.HTTPError as error:
+            logger.warning(f'log fallback: grant refused by {url}: HTTP {error.code} {error.read()[:300]!r}')
+            return {}
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            logger.warning(f'log fallback: no grant from {url}: {error}')
+            return {}
+        if time.time() + wait > deadline:
+            logger.warning(f'log fallback: no grant from {url} within {LOG_GRANT_WAIT} s')
+            return {}
+        time.sleep(wait)
+
+
+def _multipart_body(fields: dict, filename: str, data: bytes) -> tuple[bytes, str]:
+    """Encode an S3 POST form: the policy fields, then the file, which S3 requires last."""
+    boundary = uuid.uuid4().hex
+    parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+             for name, value in fields.items()]
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+                 f'Content-Type: application/octet-stream\r\n\r\n'.encode() + data + b'\r\n')
+    parts.append(f'--{boundary}--\r\n'.encode())
+    return b''.join(parts), f'multipart/form-data; boundary={boundary}'
+
+
+def log_stageout_fallback(job: JobData, fspec: Any) -> bool:
+    """Hold a log whose transfer failed in the production object store.
+
+    The payload's output is registered by the payload itself; the log is the pilot's, and a failure to store it
+    must not fail the job. The log is uploaded under a grant for exactly its object, and production operations
+    move it to its dataset once the catalog takes it.
+
+    Args:
+        job: Job object.
+        fspec: FileSpec of the log file.
+
+    Returns:
+        True if the log is held, False otherwise.
+    """
+    path = os.path.join(job.workdir, fspec.lfn)
+    if not os.path.exists(path):
+        logger.warning(f'log fallback: {path} does not exist')
+        return False
+
+    url = os.environ.get('EPICPROD_LOG_GRANT_URL', LOG_GRANT_URL)
+    context = ssl.create_default_context()
+    grant = _log_grant(url, int(job.jobid), fspec.lfn, context)
+    if not grant:
+        return False
+
+    try:
+        with open(path, 'rb') as _fp:
+            body, content_type = _multipart_body(grant['fields'], fspec.lfn, _fp.read())
+        upload = urllib.request.Request(grant['url'], data=body, headers={'Content-Type': content_type}, method='POST')
+        with urllib.request.urlopen(upload, timeout=LOG_UPLOAD_TIMEOUT, context=context) as response:
+            status = response.status
+    except urllib.error.HTTPError as error:
+        logger.warning(f'log fallback: upload of {fspec.lfn} refused: HTTP {error.code} {error.read()[:300]!r}')
+        return False
+    except (urllib.error.URLError, OSError, KeyError, TypeError) as error:
+        logger.warning(f'log fallback: upload of {fspec.lfn} failed: {error}')
+        return False
+    if status not in {200, 201, 204}:
+        logger.warning(f'log fallback: upload of {fspec.lfn} answered HTTP {status}')
+        return False
+
+    job.log_held = grant.get('key', '')
+    logger.info(f'log fallback: {fspec.lfn} held at {job.log_held}')
+    return True
 
 
 def sanity_check() -> int:

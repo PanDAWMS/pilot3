@@ -133,6 +133,10 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
         if alt_lfns:
             job_metrics += get_job_metrics_entry("altTransferred", ",".join(alt_lfns))
 
+    # a log held by the fallback (common.log_stageout_fallback) awaits recovery by production operations
+    if getattr(job, 'log_held', ''):
+        job_metrics += get_job_metrics_entry("logHeld", "s3")
+
     # add the metrics the payload declares in its job report
     job_metrics += get_payload_metrics(job.workdir)
 

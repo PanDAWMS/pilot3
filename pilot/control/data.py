@@ -1162,6 +1162,42 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
     return not remain_files
 
 
+def _log_stageout_fallback(job: JobData, logfile: Any, codes_before: list) -> bool:
+    """Hand a log whose transfer failed to the pilot user's fallback, if it has one.
+
+    A log the fallback takes is held where the experiment recovers it, and its failed transfer does not fail the
+    job: the error codes added since ``codes_before`` are removed. The log stays out of the file info sent to the
+    server, which therefore sees it as not transferred.
+
+    Args:
+        job: Job object.
+        logfile: FileSpec of the log file.
+        codes_before: pilot error codes before the log transfer was attempted.
+
+    Returns:
+        True if the user plugin took the log, False otherwise.
+    """
+    pilot_user = os.environ.get('PILOT_USER', 'generic').lower()
+    try:
+        user = __import__(f'pilot.user.{pilot_user}.common', globals(), locals(), [pilot_user], 0)
+    except ImportError as error:
+        logger.warning(f'no user module for the log stage-out fallback: {error}')
+        return False
+    fallback = getattr(user, 'log_stageout_fallback', None)
+    if fallback is None:
+        return False
+    try:
+        held = bool(fallback(job, logfile))
+    except Exception as error:
+        logger.warning(f'log stage-out fallback failed: {error}')
+        return False
+    if held:
+        for code in [code for code in job.piloterrorcodes if code not in codes_before]:
+            errors.remove_error_code(code)
+        logger.warning(f'log transfer failed; {logfile.lfn} is held by the {pilot_user} fallback')
+    return held
+
+
 def _stage_out_new(job: JobData, args: object) -> bool:
     """Stage out all output files for a job.
 
@@ -1239,8 +1275,9 @@ def _stage_out_new(job: JobData, args: object) -> bool:
         # write time stamps to pilot timing file
         add_to_pilot_timing(job.jobid, PILOT_POST_LOG_TAR, time.time(), args)
 
-        if not _do_stageout(job, args, [logfile], ['pl'] + activities, title='log',
-                            ipv=args.internet_protocol_version):
+        codes_before = list(job.piloterrorcodes)
+        if not (_do_stageout(job, args, [logfile], ['pl'] + activities, title='log', ipv=args.internet_protocol_version) or
+                _log_stageout_fallback(job, logfile, codes_before)):
             is_success = False
             logger.warning('log transfer failed')
             job.status['LOG_TRANSFER'] = LOG_TRANSFER_FAILED
