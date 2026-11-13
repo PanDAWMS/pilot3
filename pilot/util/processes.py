@@ -977,3 +977,37 @@ def check_proc_access() -> bool:
     except (FileNotFoundError, PermissionError) as e:
         logger.warning(f"error accessing /proc/self/statm: {e} (CPU consumption time will be discarded)")
         return False
+
+
+# the time stamp dmesg prints at the start of a kernel log message: seconds since boot
+KERNEL_LOG_TIME = re.compile(r'^\[\s*(\d+\.\d+)\]')
+
+
+def get_kernel_log_time(line: str) -> Optional[float]:
+    """Return the time stamp of a dmesg message line.
+
+    Args:
+        line: one line of dmesg output.
+
+    Returns:
+        Seconds since boot in the kernel log's clock, or None if the line carries no time stamp.
+    """
+    match = KERNEL_LOG_TIME.match(line)
+    return float(match.group(1)) if match else None
+
+
+def get_kernel_log_mark() -> Optional[float]:
+    """Return the time stamp of the newest kernel log message.
+
+    Taken as the payload starts, it marks where the kernel log stands: a message stamped
+    after it was logged while the payload ran (see pilot.control.payload.scan_for_memory_errors).
+
+    Returns:
+        The newest time stamp, or None if dmesg cannot be read or prints no time stamps.
+    """
+    _, stdout, _ = execute('dmesg | tail -n 20', mute=True)
+    for line in reversed(stdout.splitlines()):
+        stamp = get_kernel_log_time(line)
+        if stamp is not None:
+            return stamp
+    return None
