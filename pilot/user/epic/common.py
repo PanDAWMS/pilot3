@@ -70,6 +70,12 @@ from .utilities import (
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
 
+# The ePIC Rucio client configuration and account. The queue's CRIC environ normally
+# supplies both; when the wrapper's fetch of it fails, the client would otherwise take
+# whatever configuration the middleware setup left (ATLAS's, under ALRB).
+EPIC_RUCIO_CONFIG = '/cvmfs/eic.opensciencegrid.org/rucio-clients/rucio.cfg'
+EPIC_RUCIO_ACCOUNT = 'panda'
+
 # Where a log whose transfer failed is held until production operations recover it. The grant service checks that
 # the job is live and the file is its log, and returns a presigned POST for that one object; no credential sits on
 # the worker. The object store needs no library beyond the standard one.
@@ -77,6 +83,25 @@ LOG_GRANT_URL = 'https://epic-devcloud.org/prod/pcs/api/v1/stageout/log-grant/'
 LOG_GRANT_TIMEOUT = 60
 LOG_GRANT_WAIT = 300
 LOG_UPLOAD_TIMEOUT = 600
+
+
+def ensure_rucio_config() -> None:
+    """Make the Rucio client use the ePIC configuration when the environment does not name one."""
+    current = os.environ.get('RUCIO_CONFIG', '')
+    if current and os.path.exists(current):
+        logger.info(f'RUCIO_CONFIG={current} (from the environment)')
+    elif os.path.exists(EPIC_RUCIO_CONFIG):
+        if current:
+            logger.warning(f'RUCIO_CONFIG={current} does not exist; using {EPIC_RUCIO_CONFIG}')
+        else:
+            logger.warning(f'RUCIO_CONFIG not set (queue environ not received?); using {EPIC_RUCIO_CONFIG}')
+        os.environ['RUCIO_CONFIG'] = EPIC_RUCIO_CONFIG
+    else:
+        logger.warning(f'no usable RUCIO_CONFIG and {EPIC_RUCIO_CONFIG} is not available; '
+                       f'the Rucio client falls back to RUCIO_HOME={os.environ.get("RUCIO_HOME", "")}')
+    if not os.environ.get('RUCIO_ACCOUNT'):
+        logger.warning(f'RUCIO_ACCOUNT not set; using {EPIC_RUCIO_ACCOUNT}')
+        os.environ['RUCIO_ACCOUNT'] = EPIC_RUCIO_ACCOUNT
 
 
 def _log_grant(url: str, pandaid: int, lfn: str, context: ssl.SSLContext) -> dict:
@@ -172,6 +197,7 @@ def sanity_check() -> int:
     Returns:
         int: exit code (0 if all is ok, otherwise non-zero exit code).
     """
+    ensure_rucio_config()
     return 0
 
 
