@@ -68,6 +68,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.https import get_base_urls
 from pilot.util.processes import (
+    get_kernel_log_mark,
     kill_process,
     kill_processes,
 )
@@ -513,6 +514,10 @@ class Executor:
         # write time stamps to pilot timing file
         update_time = time.time()
         add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
+
+        # where the kernel log stands as the payload starts, so that the dmesg memory scan
+        # counts only the OOM kills logged while this payload ran
+        pilot_cache.kernel_log_marks[job.jobid] = get_kernel_log_mark()
 
     def post_payload(self, job: JobData):
         """
