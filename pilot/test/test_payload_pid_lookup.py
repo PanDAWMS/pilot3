@@ -34,14 +34,15 @@ Fixed here:
   execution;
 - the wait for the stage-out of an aborted job ends once the log transfer has been attempted;
 - ``find_lingering_processes()`` caught the non-existent ``psutil.FileNotFoundError``.
+
+psutil is optional for the pilot (see pilot.util.psutils) and is not installed in the GitHub CI, so the tests that
+need it are skipped when it cannot be imported.
 """
 
 import queue
 import types
 import unittest
 from unittest.mock import MagicMock, patch
-
-import psutil
 
 from pilot.control import job as job_control
 from pilot.control.payloads.generic import Executor
@@ -54,7 +55,13 @@ from pilot.util.constants import (
     LOG_TRANSFER_IN_PROGRESS,
 )
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 JOB_ID = 7379005140
+NO_PSUTIL = 'psutil is not installed'
 PAYLOAD_PID = 3242352
 
 
@@ -85,6 +92,7 @@ def processes_of_job_7379005140() -> list:
     ]
 
 
+@unittest.skipUnless(psutil, NO_PSUTIL)
 class TestFindProcessByJobid(unittest.TestCase):
     """find_process_by_jobid() skips processes that cannot be read."""
 
@@ -105,6 +113,7 @@ class TestFindProcessByJobid(unittest.TestCase):
             self.assertEqual(atlas_utilities.get_pid_for_jobid(JOB_ID), PAYLOAD_PID)
 
 
+@unittest.skipUnless(psutil, NO_PSUTIL)
 class TestGetCommandByPid(unittest.TestCase):
     """get_command_by_pid() returns None for processes that cannot be read."""
 
@@ -130,6 +139,7 @@ class TestGetCommandByPid(unittest.TestCase):
         self.check(FakeProcess(3, error=psutil.NoSuchProcess(3)), None)
 
 
+@patch.object(psutils, '_is_psutil_available', True)  # the process helpers are mocked, so psutil is not needed
 class TestFindActualPayloadPid(unittest.TestCase):
     """find_actual_payload_pid() skips children whose command is unknown."""
 
@@ -147,6 +157,7 @@ class TestFindActualPayloadPid(unittest.TestCase):
             self.assertIsNone(psutils.find_actual_payload_pid(9, 'Reco_tf.py'))
 
 
+@unittest.skipUnless(psutil, NO_PSUTIL)
 class TestFindLingeringProcesses(unittest.TestCase):
     """find_lingering_processes() handles errors (it caught the non-existent psutil.FileNotFoundError)."""
 
@@ -170,6 +181,7 @@ class TestUtilityAfterPayloadStarted(unittest.TestCase):
         executor._Executor__args = types.SimpleNamespace(baseurls='')  # pylint: disable=attribute-defined-outside-init
         return executor
 
+    @unittest.skipUnless(psutil, NO_PSUTIL)
     def test_job_7379005140(self):
         """AccessDenied from the pid lookup is logged, not raised, and no utility is stored."""
         job = MagicMock(jobid=str(JOB_ID), workdir='/tmp', utilities={})
