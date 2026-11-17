@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2021-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2021-26
 
 """S3 copy tool."""
 

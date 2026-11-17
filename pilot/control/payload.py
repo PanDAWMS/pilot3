@@ -39,6 +39,7 @@ from re import (
 )
 from typing import (
     Any,
+    Optional,
     TextIO
 )
 
@@ -47,6 +48,7 @@ from pilot.common.exception import (
     ExcThread,
     PilotException
 )
+from pilot.common.pilotcache import get_pilot_cache
 from pilot.control.payloads import (
     eventservice,
     eventservicemerge,
@@ -69,6 +71,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.processes import (
     get_cpu_consumption_time,
+    get_kernel_log_time,
     threads_aborted
 )
 from pilot.util.queuehandling import (
@@ -79,6 +82,7 @@ from pilot.util.realtimelogger import get_realtime_logger
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
+pilot_cache = get_pilot_cache()
 
 
 def control(queues: namedtuple, traces: Any, args: object) -> None:
@@ -881,8 +885,8 @@ def perform_memory_error_checks(job: JobData, exit_code: int) -> bool:
     found_oom = set_error_from_cgroup_oom_kill(job, exit_code)
 
     if not found_oom and exit_code != 0 and job.subprocesses:
-        # scan for memory errors in dmesg messages
-        msg = scan_for_memory_errors(job.subprocesses)
+        # scan for memory errors in dmesg messages, counting only those logged while the payload ran
+        msg = scan_for_memory_errors(job.subprocesses, since=pilot_cache.kernel_log_marks.get(job.jobid))
         if msg:
             job.piloterrorcodes, job.piloterrordiags = errors.add_error_code(errors.PAYLOADOUTOFMEMORY, msg=msg)
             found_oom = True
@@ -971,11 +975,20 @@ def get_critical_error_from_stdout(workdir: str) -> str:
     return msg
 
 
-def scan_for_memory_errors(subprocesses: list) -> str:
+def scan_for_memory_errors(subprocesses: list, since: Optional[float] = None) -> str:
     """Scan for memory errors in dmesg messages.
+
+    The kernel log outlives the processes it names, and process ids are reused: on a busy
+    node a payload subprocess can carry the id of a process the kernel killed hours earlier,
+    for another job. A message is therefore counted only when it was logged after ``since``,
+    the time stamp of the newest kernel log message when the payload started
+    (pilot.util.processes.get_kernel_log_mark). Both stamps are in the kernel log's own clock.
+    Without ``since``, or for a message without a time stamp, every matching message counts,
+    as before.
 
     Args:
         subprocesses: list of payload subprocesses.
+        since: kernel log time stamp at payload start, or None.
 
     Returns:
         str: error diagnostics, or empty string if none found.
@@ -989,6 +1002,11 @@ def scan_for_memory_errors(subprocesses: list) -> str:
         if search_str in out:
             for line in out.split('\n'):
                 if search_str in line:
+                    stamp = get_kernel_log_time(line)
+                    if since is not None and stamp is not None and stamp <= since:
+                        logger.info(f'ignoring a memory error logged before the payload started '
+                                    f'(kernel time {stamp} <= {since}): {line[line.find(search_str):]}')
+                        continue
                     diagnostics = line[line.find(search_str):]
                     logger.warning(f'found memory error: {diagnostics}')
 

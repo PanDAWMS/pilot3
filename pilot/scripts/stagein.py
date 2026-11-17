@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """This script is executed by the pilot in a container to perform stage-in of input files."""
 
@@ -42,7 +42,10 @@ from pilot.util.filehandling import (
     read_json,
 )
 from pilot.util.loggingsupport import establish_logging
-from pilot.util.tracereport import TraceReport
+from pilot.util.tracereport import (
+    TraceReport,
+    enable_trace_spool
+)
 
 # error codes
 GENERAL_ERROR = 1
@@ -412,6 +415,9 @@ if __name__ == '__main__':
 
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=config.Pilot.stageinlog)
     logger = logging.getLogger(__name__)
+
+    # the pilot sends the rucio traces after this script has finished, so that they do not delay the transfers
+    enable_trace_spool(args.workdir)
 
     # get the file info
     try:

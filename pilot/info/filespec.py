@@ -17,7 +17,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018-19
-# - Paul Nilsson, paul.nilsson@cern.ch, 2022-23
+# - Paul Nilsson, paul.nilsson@cern.ch, 2022-26
 
 """The implementation of data structure to host File related data description.
 
@@ -77,6 +77,7 @@ class FileSpec(BaseData):
     ddm_activity = None  # DDM activity names (e.g. [read_lan, read_wan]) which should be used to resolve appropriate protocols from StorageData.arprotocols
     checkinputsize = True
     is_altstaged = None  # indicates if file was transferred using alternative method (altstageout)
+    stageout_attempts = 0  # number of upload attempts made for the file by the rucio copytool (0: not counted)
 
     # specify the type of attributes for proper data validation and casting
     _keys = {int: ['filesize', 'mtime', 'status_code'],

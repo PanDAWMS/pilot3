@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2020-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2020-26
 
 """This script is executed by the pilot in a container to perform stage-out of output files."""
 
@@ -41,7 +41,10 @@ from pilot.util.config import config
 from pilot.util.https import https_setup
 from pilot.util.filehandling import write_json
 from pilot.util.loggingsupport import establish_logging
-from pilot.util.tracereport import TraceReport
+from pilot.util.tracereport import (
+    TraceReport,
+    enable_trace_spool
+)
 
 errors = ErrorCodes()
 
@@ -251,10 +254,11 @@ class Job:
 
 
 def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, value3: str, value4: str, value5: str,
-                      value6: str) -> dict:
-    """Add key: [value1, value2, value3, value4, value5, value6] to dictionary.
+                      value6: str, *, attempts: int | None = None) -> dict:
+    """Add key: [value1, value2, value3, value4, value5, value6(, attempts)] to dictionary.
 
-    In practice; lfn: [status, status_code, surl, turl, checksum, fsize].
+    In practice; lfn: [status, status_code, surl, turl, checksum, fsize, stageout_attempts]. The number of
+    stage-out attempts is only added for files (not for the error entry), and read by the pilot if present.
 
     Args:
         dictionary: Dictionary to be updated.
@@ -265,13 +269,31 @@ def add_to_dictionary(dictionary: dict, key: str, value1: str, value2: str, valu
         value4: TURL to be added to list belonging to key.
         value5: Checksum to be added to list belonging to key.
         value6: File size to be added to list belonging to key.
+        attempts: Number of stage-out attempts made for the file (not added if None).
 
     Returns:
         dict: Updated dictionary.
     """
     dictionary[key] = [value1, value2, value3, value4, value5, value6]
+    if attempts is not None:
+        dictionary[key].append(attempts)
 
     return dictionary
+
+
+def add_file_to_dictionary(dictionary: dict, spec: FileSpec) -> dict:
+    """Add the status of a staged-out file to the dictionary that is read by the pilot.
+
+    Args:
+        dictionary: Dictionary to be updated.
+        spec: File specification object.
+
+    Returns:
+        dict: Updated dictionary.
+    """
+    return add_to_dictionary(dictionary, spec.lfn, spec.status, spec.status_code, spec.surl, spec.turl,
+                             spec.checksum.get('adler32'), spec.filesize,
+                             attempts=getattr(spec, 'stageout_attempts', 0) or 0)
 
 
 def extract_error_info(_err: str) -> tuple[int, str]:
@@ -306,6 +328,9 @@ if __name__ == '__main__':  # noqa: C901
 
     establish_logging(debug=args.debug, nopilotlog=args.nopilotlog, filename=config.Pilot.stageoutlog)
     logger = logging.getLogger(__name__)
+
+    # the pilot sends the rucio traces after this script has finished, so that they do not delay the transfers
+    enable_trace_spool(args.workdir)
 
     # get the file info
     lfns, scopes, ddmendpoints, datasets, guids = get_file_lists(args.lfns, args.scopes, args.ddmendpoints, args.datasets, args.guids)
@@ -373,8 +398,7 @@ if __name__ == '__main__':  # noqa: C901
     if xfiles:
         message('stageout script summary of transferred files:')
         for fspec in xfiles:
-            add_to_dictionary(file_dictionary, fspec.lfn, fspec.status, fspec.status_code,
-                              fspec.surl, fspec.turl, fspec.checksum.get('adler32'), fspec.filesize)
+            add_file_to_dictionary(file_dictionary, fspec)
             status = fspec.status if fspec.status else "(not transferred)"
             message(f" -- lfn={fspec.lfn}, status_code={fspec.status_code}, status={status}, surl={fspec.surl}, "
                     f"turl={fspec.turl}, checksum={fspec.checksum.get('adler32')}, filesize={fspec.filesize}")

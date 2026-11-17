@@ -23,6 +23,7 @@
 from __future__ import annotations
 import argparse
 import functools
+import json
 import os
 import logging
 import queue
@@ -30,6 +31,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from collections import namedtuple
 from typing import Any
@@ -40,7 +42,10 @@ except ModuleNotFoundError:
     ROOT = None  # type: ignore[assignment]
 
 from pilot.util.config import config
-from pilot.util.filehandling import write_json
+from pilot.util.filehandling import (
+    append_filetype_raw,
+    write_json,
+)
 from pilot.util.loggingsupport import (
     establish_logging,
     flush_handler,
@@ -48,6 +53,12 @@ from pilot.util.loggingsupport import (
 from pilot.util.processes import kill_processes
 
 logger = logging.getLogger(__name__)
+
+# Per-file states recorded in the progress file (see ProgressRecorder). They are read back by
+# the pilot (pilot/user/atlas/common.py) when the script had to be killed on a time-out.
+STATE_STARTED = 'started'
+STATE_OPENED = 'opened'
+STATE_FAILED = 'failed'
 
 
 def get_args(argv: list = None) -> argparse.Namespace:
@@ -99,6 +110,12 @@ def get_args(argv: list = None) -> argparse.Namespace:
                             required=False,
                             default=None,
                             help='Path to a file containing one raw-first TURL per line (alternative to --rawfirst)')
+    arg_parser.add_argument('--progress-file',
+                            dest='progress_file',
+                            required=False,
+                            default=None,
+                            help='Name of the file (in the working directory) in which the per-file progress '
+                                 'is recorded while the files are being opened')
     arg_parser.add_argument('--no-pilot-log',
                             dest='nopilotlog',
                             action='store_true',
@@ -197,31 +214,110 @@ def message(msg: str) -> None:
         _file.write(msg + '\n')
 
 
-def append_filetype_raw(turl_str: str) -> str:
-    """Return the turl with ROOT's ``filetype=raw`` option appended.
+class ProgressRecorder:
+    """Record the per-file progress of the verification in a JSON file, while it happens.
 
-    ``filetype=raw`` instructs ROOT to open the file without interpreting it as a ROOT
-    file, which is what allows non-ROOT input (e.g. HDF5 used for ML training) to be
-    verified at all. The option is appended as a URL query parameter, using ``&`` when the
-    turl already carries a query string so that signed or otherwise parameterised PFNs are
-    not corrupted. Appending is idempotent.
+    The results dictionary is only written once every file has been processed, so it does not
+    exist when the pilot has to kill the script on a time-out. The progress file is rewritten
+    every time a file open starts or finishes, which allows the pilot to tell which files were
+    opened, which could not be opened, which were still being opened when the script was killed
+    and which were never attempted (seen in production for job 7136531874, where a time-out led
+    to successful traces being sent for all input files).
+
+    Format::
+
+        {turl: {'state': 'started' | 'opened' | 'failed', 'start': <epoch s>, 'end': <epoch s>}}
+
+    The key is always the original, unmodified turl (also when the file was opened in raw mode)
+    and 'end' is absent while the file is being opened. The file is replaced atomically, so the
+    pilot never reads a partially written file, and a write failure never affects the
+    verification itself.
+    """
+
+    def __init__(self, path: str):
+        """Set the path of the progress file.
+
+        Args:
+            path: Path of the progress file.
+        """
+        self.path = path
+        self._lock = threading.Lock()
+        self._progress = {}
+
+    def update(self, turl_str: str, state: str) -> None:
+        """Record a new state for a turl and rewrite the progress file.
+
+        Args:
+            turl_str: Original TURL string.
+            state: One of STATE_STARTED, STATE_OPENED or STATE_FAILED.
+        """
+        with self._lock:
+            entry = self._progress.setdefault(turl_str, {})
+            if state == STATE_STARTED:
+                entry['start'] = time.time()
+            else:
+                entry['end'] = time.time()
+            entry['state'] = state
+            self._write()
+
+    def _write(self) -> None:
+        """Write the progress dictionary to a temporary file and move it into place."""
+        tmp_path = f'{self.path}.tmp'
+        try:
+            with open(tmp_path, 'w', encoding='utf-8') as _file:
+                json.dump(self._progress, _file)
+            os.replace(tmp_path, self.path)
+        except (OSError, TypeError, ValueError) as exc:
+            message(f'failed to write progress file {self.path}: {exc}')
+
+
+def attempt_open(path: str) -> bool:
+    """Return True if ROOT successfully opens the file.
 
     Args:
-        turl_str: TURL string.
+        path: TURL to open (possibly with filetype=raw appended).
 
     Returns:
-        str: TURL with the filetype=raw option present exactly once.
+        bool: True if the file could be opened.
     """
-    if 'filetype=raw' in turl_str:
-        return turl_str
+    try:
+        message(f'opening {path}')
+        _ = ROOT.TFile.SetOpenTimeout(
+            30 * 1000)  # 30 seconds
+        in_file = ROOT.TFile.Open(path)
+    except Exception as exc:
+        message(f'caught exception: {exc}')
+        return False
 
-    separator = '&' if '?' in turl_str else '?'
+    if in_file and in_file.IsOpen():
+        in_file.Close()
+        message(f'closed {path}')
+        return True
 
-    return f'{turl_str}{separator}filetype=raw'
+    return False
+
+
+def open_first_working_mode(attempts: list) -> str:
+    """Attempt to open the file in each of the given modes, in order, until one succeeds.
+
+    Args:
+        attempts: TURLs to try, one per open mode.
+
+    Returns:
+        str: the TURL that could be opened (empty if none could).
+    """
+    for position, path in enumerate(attempts):
+        if attempt_open(path):
+            return path
+        if position + 1 < len(attempts):
+            message(f'failed to open {path} - retrying with {attempts[position + 1]}')
+
+    return ''
 
 
 # pylint: disable=useless-param-doc
-def try_open_file(turl_str: str, _queues: namedtuple, rawfirst_turls: set = None) -> None:
+def try_open_file(turl_str: str, _queues: namedtuple, rawfirst_turls: set = None,
+                  progress: ProgressRecorder = None) -> None:
     """Attempt to open a remote file.
 
     Two open modes are attempted: the plain TURL (ROOT format) and the TURL with
@@ -247,25 +343,10 @@ def try_open_file(turl_str: str, _queues: namedtuple, rawfirst_turls: set = None
         turl_str: TURL string.
         _queues: Namedtuple with 'opened', 'unopened', 'result' queues.
         rawfirst_turls: Set of turls to be opened in raw mode first, or None.
+        progress: Recorder of the per-file progress, or None.
     """
-
-    def attempt_open(path: str) -> bool:
-        """Return True if ROOT successfully opens the file."""
-        try:
-            message(f'opening {path}')
-            _ = ROOT.TFile.SetOpenTimeout(
-                30 * 1000)  # 30 seconds
-            in_file = ROOT.TFile.Open(path)
-        except Exception as exc:
-            message(f'caught exception: {exc}')
-            return False
-
-        if in_file and in_file.IsOpen():
-            in_file.Close()
-            message(f'closed {path}')
-            return True
-
-        return False
+    if progress:
+        progress.update(turl_str, STATE_STARTED)
 
     raw_turl = append_filetype_raw(turl_str)
     if rawfirst_turls and turl_str in rawfirst_turls:
@@ -274,31 +355,29 @@ def try_open_file(turl_str: str, _queues: namedtuple, rawfirst_turls: set = None
     else:
         attempts = [turl_str, raw_turl]
 
-    opened_path = ''
-    for position, path in enumerate(attempts):
-        if attempt_open(path):
-            opened_path = path
-            break
-        if position + 1 < len(attempts):
-            message(f'failed to open {path} - retrying with {attempts[position + 1]}')
-
+    opened_path = open_first_working_mode(attempts)
     if opened_path:
         _queues.opened.put(opened_path)
     else:
         message(f'failed to open {turl_str} in all {len(attempts)} attempted modes')
         _queues.unopened.put(turl_str)
 
+    if progress:
+        progress.update(turl_str, STATE_OPENED if opened_path else STATE_FAILED)
+
     _queues.result.put(turl_str)
 
 
 # pylint: disable=useless-param-doc
-def spawn_file_open_thread(_queues: Any, file_list: list, rawfirst_turls: set = None) -> threading.Thread:
+def spawn_file_open_thread(_queues: Any, file_list: list, rawfirst_turls: set = None,
+                           progress: ProgressRecorder = None) -> threading.Thread:
     """Spawn a thread for the try_open_file().
 
     Args:
         _queues: Queue collection.
         file_list: Files to open.
         rawfirst_turls: Set of turls to be opened in raw mode first, or None.
+        progress: Recorder of the per-file progress, or None.
 
     Returns:
         threading.Thread: The spawned thread.
@@ -310,7 +389,7 @@ def spawn_file_open_thread(_queues: Any, file_list: list, rawfirst_turls: set = 
         pass
     else:
         # create and start thread for the current turl
-        _thread = threading.Thread(target=try_open_file, args=(_turl, _queues, rawfirst_turls))
+        _thread = threading.Thread(target=try_open_file, args=(_turl, _queues, rawfirst_turls, progress))
         _thread.daemon = True
         _thread.start()
 
@@ -386,6 +465,7 @@ if __name__ == '__main__':  # noqa: C901
     if rawfirst:
         message(f'{len(rawfirst)} file(s) reported by the pilot as not being in ROOT format')
     processed_turls_dictionary = {}
+    recorder = ProgressRecorder(os.path.join(args.workdir, args.progress_file)) if args.progress_file else None
 
     queues = namedtuple('queues', ['result', 'opened', 'unopened'])
     queues.result = queue.Queue()
@@ -397,8 +477,8 @@ if __name__ == '__main__':  # noqa: C901
 
     if turls:
         # make N calls to begin with
-        for index in range(args.nthreads):
-            thread = spawn_file_open_thread(queues, turls, rawfirst_turls=rawfirst)
+        for _ in range(args.nthreads):
+            thread = spawn_file_open_thread(queues, turls, rawfirst_turls=rawfirst, progress=recorder)
             if thread:
                 threads.append(thread)
 
@@ -410,7 +490,7 @@ if __name__ == '__main__':  # noqa: C901
                 message("reached time-out")
                 break
 
-            thread = spawn_file_open_thread(queues, turls, rawfirst_turls=rawfirst)
+            thread = spawn_file_open_thread(queues, turls, rawfirst_turls=rawfirst, progress=recorder)
             if thread:
                 threads.append(thread)
 

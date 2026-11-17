@@ -68,6 +68,7 @@ from pilot.util.filehandling import (
 )
 from pilot.util.https import get_base_urls
 from pilot.util.processes import (
+    get_kernel_log_mark,
     kill_process,
     kill_processes,
 )
@@ -310,6 +311,22 @@ class Executor:
         """
         Run utility functions after payload started.
 
+        The payload is already running at this point, so a failure to set up or start the
+        utility (e.g. the memory monitor) is logged and does not stop the payload execution
+        (PanDA job 7379005140).
+
+        Args:
+            job: Job object.
+        """
+        try:
+            self._start_utility_after_payload(job)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            logger.error(f"failed to start the utility command after the payload (payload continues without it): {error}",
+                         exc_info=True)
+
+    def _start_utility_after_payload(self, job: JobData):
+        """Set up and start the utility command to be run after the payload has started.
+
         Args:
             job: Job object.
         """
@@ -513,6 +530,10 @@ class Executor:
         # write time stamps to pilot timing file
         update_time = time.time()
         add_to_pilot_timing(job.jobid, PILOT_PRE_PAYLOAD, update_time, self.__args)
+
+        # where the kernel log stands as the payload starts, so that the dmesg memory scan
+        # counts only the OOM kills logged while this payload ran
+        pilot_cache.kernel_log_marks[job.jobid] = get_kernel_log_mark()
 
     def post_payload(self, job: JobData):
         """

@@ -36,6 +36,7 @@ def get_pilot_cache():
             self.set_memory_limits = []  # cgroup paths for which a memory limit has been set
             self.set_memory_limits_values = {}  # cgroup path -> limit in kB
             self.oom_baselines = {}  # cgroup path -> memory.events dict, snapshotted at payload start
+            self.kernel_log_marks = {}  # job id -> time stamp of the newest kernel log message at payload start
             self.proxy_validity_end = 0  # absolute epoch time (s) when the proxy validity ends
             # path to the payload proxy downloaded and verified during job validation, or None if
             # no payload proxy is required for the current job (see handle_payload_proxy())
@@ -55,6 +56,17 @@ def get_pilot_cache():
             # set if the server refused an acquire_jobs request carrying the target architecture,
             # in which case the pilot stops reporting it
             self.target_architecture_rejected = False
+            # OIDC token lifecycle (see pilot.util.tokenlifetime):
+            # True once the server rejected the token and an X.509 retry succeeded; PanDA server
+            # requests then use X.509 directly until a newer token has been downloaded
+            self.token_x509_mode = False
+            # True when the most recent PanDA server request was rejected for an authentication
+            # reason (token rejected, and no X.509 failover succeeded); cleared by any successful request
+            self.token_rejected = False
+            # absolute epoch time (s) of the next scheduled token refresh (0 = not scheduled yet)
+            self.token_next_refresh = 0
+            # ids of jobs whose final server update failed because the token was rejected
+            self.token_failed_final_updates = set()
 
         def get_pids(self):
             """Get the list of process IDs (PIDs) from the cgroups dictionary.

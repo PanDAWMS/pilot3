@@ -1643,3 +1643,30 @@ def looks_like_root_file(name: str) -> bool:
     _name = '.'.join(parts)
 
     return not any(_name.endswith(extension) for extension in NON_ROOT_EXTENSIONS)
+
+
+def append_filetype_raw(turl_str: str) -> str:
+    """Return the turl with ROOT's ``filetype=raw`` option appended.
+
+    ``filetype=raw`` instructs ROOT to open the file without interpreting it as a ROOT
+    file, which is what allows non-ROOT input (e.g. HDF5 used for ML training) to be
+    verified at all. The option is appended as a URL query parameter, using ``&`` when the
+    turl already carries a query string so that signed or otherwise parameterised PFNs are
+    not corrupted. Appending is idempotent.
+
+    Shared by the remote file open verification script (pilot/scripts/open_remote_file.py),
+    which builds the raw-mode turl, and the pilot, which must recognise that turl when it
+    reads the verification results back.
+
+    Args:
+        turl_str: TURL string.
+
+    Returns:
+        str: TURL with the filetype=raw option present exactly once.
+    """
+    if 'filetype=raw' in turl_str:
+        return turl_str
+
+    separator = '&' if '?' in turl_str else '?'
+
+    return f'{turl_str}{separator}filetype=raw'

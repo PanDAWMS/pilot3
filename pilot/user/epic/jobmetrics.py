@@ -17,7 +17,7 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2025
+# - Paul Nilsson, paul.nilsson@cern.ch, 2025-26
 
 """Job metrics helpers for the ePIC experiment plugin."""
 
@@ -43,6 +43,7 @@ from pilot.util.filehandling import (
     read_file
 )
 from pilot.util.jobmetrics import get_job_metrics_entry
+from pilot.util.tracesender import get_lost_traces
 from pilot.util.math import (
     float_to_rounded_string,
     mean
@@ -103,6 +104,10 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
     if trace_exit_code != '0':
         job_metrics += get_job_metrics_entry("rucioTraceError", trace_exit_code)
 
+    # rucio traces that did not reach the trace server (only logged: not added to the job metrics until the
+    # server can receive this value)
+    log_lost_traces(job.jobid)
+
     # add job and machine feature data if available
     job_metrics = add_features(job_metrics, corecount, add=['hs06'])
 
@@ -132,6 +137,10 @@ def get_job_metrics_string(job: JobData, extra: dict = None) -> str:  # noqa: C9
         alt_lfns = [entry.lfn for entry in job.outdata if entry.is_altstaged]
         if alt_lfns:
             job_metrics += get_job_metrics_entry("altTransferred", ",".join(alt_lfns))
+
+    # a log held by the fallback (common.log_stageout_fallback) awaits recovery by production operations
+    if getattr(job, 'log_held', ''):
+        job_metrics += get_job_metrics_entry("logHeld", "s3")
 
     # add the metrics the payload declares in its job report
     job_metrics += get_payload_metrics(job.workdir)
@@ -203,6 +212,26 @@ def get_payload_metrics(workdir: str) -> str:
         reported += 1
 
     return job_metrics
+
+
+def log_lost_traces(job_id: str) -> int:
+    """Log the number of rucio traces of the job that did not reach the trace server.
+
+    The value is only known once the background trace sender has finished, just before the
+    final server update. It is not added to the job metrics yet, since the server cannot
+    receive it.
+
+    Args:
+        job_id: PanDA job id.
+
+    Returns:
+        int: number of lost traces.
+    """
+    lost = get_lost_traces(job_id)
+    if lost:
+        logger.warning(f'rucioTracesLost={lost} (not reported in the job metrics)')
+
+    return lost
 
 
 def get_trace_exit_code(workdir: str) -> str:

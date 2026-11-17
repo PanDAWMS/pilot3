@@ -17,13 +17,14 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2023-26
 
 """Functions related to networking."""
 
 import ipaddress
 import logging
 import re
+import socket
 
 from pilot.util.auxiliary import is_command_available
 from pilot.util.container import execute
@@ -107,3 +108,52 @@ def extract_ipv6(ifconfig: str) -> str:
         ipv6_addresses = []
 
     return ipv6_addresses
+
+
+def get_host_ip(hostname: str) -> str:
+    """Return an IP address for the given host name, IPv4 preferred.
+
+    Unlike ``socket.gethostbyname()``, which only knows about IPv4, this also
+    resolves names that only have an IPv6 address, as on IPv6-only worker
+    nodes. IPv4 is preferred when both exist, so that dual-stack nodes report
+    the same address as before.
+
+    Args:
+        hostname: Host name to resolve.
+
+    Returns:
+        The first IPv4 address of the host, or else its first IPv6 address.
+
+    Raises:
+        OSError: If the name cannot be resolved (``socket.gaierror``).
+    """
+    infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    for family in (socket.AF_INET, socket.AF_INET6):
+        for info in infos:
+            if info[0] == family:
+                return info[4][0]
+
+    raise socket.gaierror(socket.EAI_NONAME, f'no IPv4 or IPv6 address found for {hostname}')
+
+
+def get_local_ip() -> str:
+    """Return the address of the local interface used for outgoing traffic.
+
+    Connecting a UDP socket only selects a route; no packets are sent. IPv4 is
+    tried first, then IPv6, so that IPv6-only worker nodes also get a real
+    address.
+
+    Returns:
+        The local IP address, or an empty string if there is no route.
+    """
+    targets = (('IPv4', socket.AF_INET, ('8.8.8.8', 80)),
+               ('IPv6', socket.AF_INET6, ('2001:4860:4860::8888', 80)))
+    for label, family, target in targets:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as sock:
+                sock.connect(target)
+                return sock.getsockname()[0]
+        except OSError as exc:
+            logger.debug(f'no outgoing {label} route: {exc}')
+
+    return ''

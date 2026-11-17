@@ -204,6 +204,7 @@ def get_error_code_translation_dictionary() -> dict:
         errors.NOJOBSINPANDA: [82, "No jobs in PanDA"],  # added to traces object
         errors.PANDAQUEUENOTONLINE: [83, "Site offline"],
         errors.NOTIMELEFTFORNEWJOB: [84, "No time left for new job"],
+        errors.TOKENTOOSHORT: [85, "Token too short"],  # added to traces object / set at pilot exit
         errors.KILLSIGNAL: [137, "General kill signal"],  # Job terminated by unknown kill signal
         errors.SIGTERM: [143, "Job killed by signal: SIGTERM"],  # 128+15
         errors.SIGQUIT: [131, "Job killed by signal: SIGQUIT"],  # 128+3
