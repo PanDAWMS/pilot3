@@ -322,8 +322,8 @@ def get_command_by_pid(pid: int) -> Optional[str]:
         pid: Process ID to query.
 
     Returns:
-        Full command line string, or None if psutil is unavailable or the
-        process no longer exists.
+        Full command line string, or None if psutil is unavailable, the
+        process no longer exists, or its command line cannot be read.
     """
     try:
         process = psutil.Process(pid)
@@ -335,10 +335,16 @@ def get_command_by_pid(pid: int) -> Optional[str]:
     except psutil.NoSuchProcess:
         logger.warning(f"process with PID {pid} not found")
         return None
+    except psutil.AccessDenied as exc:  # e.g. processes of other users when /proc is mounted with hidepid=1
+        logger.warning(f"cannot read the command line of process {pid}: {exc}")
+        return None
 
 
 def find_process_by_jobid(jobid: int) -> Optional[int]:
     """Find the PID of a process whose command arguments contain the given job ID.
+
+    Processes whose command line cannot be read (e.g. processes of other users when
+    /proc is mounted with hidepid=1) are skipped.
 
     Args:
         jobid: PanDA job ID to search for.
@@ -353,7 +359,7 @@ def find_process_by_jobid(jobid: int) -> Optional[int]:
     for proc in psutil.process_iter():
         try:
             cmd_line = proc.cmdline()
-        except psutil.NoSuchProcess:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):  # NoSuchProcess includes ZombieProcess
             continue
 
         for arg in cmd_line:
@@ -389,7 +395,7 @@ def find_actual_payload_pid(bash_pid: int, payload_cmd: str) -> Optional[int]:
     for pid in children:
         cmd = get_command_by_pid(pid)
         logger.debug(f'pid={pid} cmd={cmd}')
-        if payload_cmd in cmd:
+        if cmd and payload_cmd in cmd:
             logger.info(f'found payload PID={pid} for bash PID={bash_pid}')
             return pid
 
@@ -419,7 +425,7 @@ def find_lingering_processes(parent_pid: int) -> list:
                     lingering_processes.append(child.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                 logger.warning(f"[harmless] failed to get status for child process {child.pid}: {e}")
-    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, psutil.FileNotFoundError) as e:
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, FileNotFoundError) as e:
         logger.warning(f"[harmless] failed to get parent process {parent_pid}: {e}")
 
     return lingering_processes

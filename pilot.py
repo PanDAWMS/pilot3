@@ -84,13 +84,16 @@ from pilot.util.https import (
     get_panda_server,
     https_setup,
     send_update,
-    update_local_oidc_token_info,
     get_memory_limits
 )
 from pilot.util.loggingsupport import establish_logging
 from pilot.util.networking import dump_ipv6_info
 from pilot.util.processgroups import find_defunct_subprocesses
 from pilot.util.timing import add_to_pilot_timing
+from pilot.util.tokenlifetime import (  # pylint: disable=wrong-import-position
+    apply_token_exit_code,
+    refresh_token,
+)
 from pilot.util.workernode import (
     get_node_name,
     get_workernode_map,
@@ -189,10 +192,8 @@ def main() -> int:  # noqa: C901
     if 'no_token_renewal' in infosys.queuedata.catchall or args.token_renewal is False:
         logger.info("OIDC token will not be renewed by the pilot")
     else:
-        try:
-            update_local_oidc_token_info(args.url, args.port)
-        except Exception as exc:
-            logger.warning(f"failed to update local OIDC token: {exc}")
+        # also schedules the next refresh from the token's expiry (exceptions are handled inside)
+        refresh_token(args.url, args.port)
 
     # create and report the worker node map
     # note: the worker node map will always be created, but only sent to the server
@@ -475,6 +476,9 @@ def get_proper_exit_code() -> (int, int):
     except TypeError as exc:
         logging.warning(f"failed to convert exit code to int: {exitcode}, {exc}")
         exitcode = 1008
+
+    # a final server update lost to a rejected token must not end with exit code 0
+    exitcode = apply_token_exit_code(exitcode)
 
     if exitcode == 0 and args.signal:
         exitcode = convert_signal_to_exit_code(args.signal)

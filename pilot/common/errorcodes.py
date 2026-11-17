@@ -197,6 +197,8 @@ class ErrorCodes:
     PAYLOADPROXYDOWNLOADFAILURE = 1391  # the payload proxy could not be downloaded from the server
     LOOPINGJOBCVMFS = 1392  # looping payload on a node whose CVMFS could not be read
     PAYLOADWRITEFAILURE = 1393  # the payload could not write its output file (local I/O error)
+    TOKENTOOSHORT = 1394  # the OIDC token would not outlast the next server update, or expired before the final update
+    STORAGESERVERERROR = 1395  # the storage endpoint reported an internal error during stage-out (XRootD [3012] kXR_ServerError)
 
     _error_messages = {
         GENERALERROR: "General pilot error, consult batch log",
@@ -224,6 +226,8 @@ class ErrorCodes:
         PAYLOADPROXYDOWNLOADFAILURE: "Failed to download payload proxy from server",
         LOOPINGJOBCVMFS: "Looping job killed by pilot - CVMFS I/O errors on the worker node",
         PAYLOADWRITEFAILURE: "Payload failed to write output file (local I/O error)",
+        TOKENTOOSHORT: "OIDC token lifetime too short for server updates",
+        STORAGESERVERERROR: "Storage endpoint reported an internal server error during stage-out",
         STAGEINTIMEOUT: "File transfer timed out during stage-in",
         STAGEOUTTIMEOUT: "File transfer timed out during stage-out",
         NOPROXY: "Grid proxy not valid",
@@ -356,7 +360,7 @@ class ErrorCodes:
         SETUPTIMEDOUT: "Payload setup verification timed out",
     }
 
-    put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181]
+    put_error_codes = [1135, 1136, 1137, 1141, 1152, 1181, 1395]
     recoverable_error_codes = [0] + put_error_codes
 
     def is_looping_error(self, codes: list) -> bool:

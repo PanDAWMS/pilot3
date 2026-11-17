@@ -405,7 +405,7 @@ class TestCounters(TelemetryTestCase):
     def test_no_files(self):
         """A job without files gives zero counters and an empty status dictionary."""
         expected = {'n_input_files': 0, 'input_bytes': 0, 'input_status': {}, 'n_output_files': 0,
-                    'output_bytes': 0, 'n_altstaged': 0}
+                    'output_bytes': 0, 'n_altstaged': 0, 'n_stageout_retried': 0}
         self.assertEqual(telemetry.get_counters(make_job()), expected)
         self.assertEqual(telemetry.get_counters(SimpleNamespace(indata=None)), expected)
 
@@ -433,13 +433,13 @@ class TestGetPilotTelemetry(TelemetryTestCase):
 
     def test_failing_section_is_omitted(self):
         """A section that fails is omitted and the others are kept."""
-        for name in ('get_timestamps', 'get_durations', 'get_counters'):
+        for name in ('get_timestamps', 'get_durations', 'get_counters', 'get_traces'):
             section = name.replace('get_', '')
             with self.subTest(section=section), patch.object(telemetry, name, side_effect=RuntimeError('boom')), \
                     self.assertLogs(telemetry.logger, level='WARNING'):
                 document = telemetry.get_pilot_telemetry(make_job(), make_args(full_timing()))
                 self.assertNotIn(section, document)
-                self.assertEqual(set(document), {'schema_version', 'timestamps', 'durations', 'counters'} - {section})
+                self.assertEqual(set(document), {'schema_version', 'timestamps', 'durations', 'counters', 'traces'} - {section})
 
     def test_durations_without_timestamps(self):
         """If the timestamps failed, durations are still assembled (lsetup only)."""
@@ -674,7 +674,7 @@ class TestHandlePilotTelemetry(TelemetryTestCase):
     def test_all_conditions(self):
         """Server updated by the pilot and final update accepted: sent, with no opt-in needed."""
         job, args = make_job(completed=True), make_args()
-        self._handle(job, args, True).assert_called_once_with(job, args)
+        self._handle(job, args, True).assert_called_once_with(job, args, trace_snapshot=None)
 
     def test_no_update_server(self):
         """Not sent when the pilot does not update the server itself."""
@@ -751,7 +751,7 @@ class TestUpdateServerHook(TelemetryTestCase):
             with self.subTest(state=state):
                 job, args = self._job(state), make_args()
                 _, send = self._run(job, args)
-                send.assert_called_once_with(job, args)
+                send.assert_called_once_with(job, args, trace_snapshot=None)
 
     def test_final_update_timestamps_recorded(self):
         """The final update is timed around send_state()."""
@@ -803,7 +803,7 @@ class TestUpdateServerHook(TelemetryTestCase):
         job.fileinfo = {'file': {'guid': 'x'}}
         send_state, send = self._run(job, args)
         self.assertIn('xml', send_state.call_args[1])
-        send.assert_called_once_with(job, args)
+        send.assert_called_once_with(job, args, trace_snapshot=None)
 
     def test_telemetry_failure_does_not_propagate(self):
         """A failing sender does not affect update_server() or the job."""

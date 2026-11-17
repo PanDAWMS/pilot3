@@ -35,7 +35,10 @@ from pilot.common.exception import (
     StageInFailure,
     StageOutFailure,
 )
-from pilot.info import JobData
+from pilot.info import (
+    FileSpec,
+    JobData,
+)
 from pilot.util.config import config
 from pilot.util.container import execute
 from pilot.util.filehandling import (
@@ -46,6 +49,7 @@ from pilot.util.filehandling import (
     write_file,
 )
 from pilot.util.proxy import remove_container_proxies
+from pilot.util.tracesender import collect_spooled_traces
 
 logger = logging.getLogger(__name__)
 errors = ErrorCodes()
@@ -203,6 +207,8 @@ def containerise_middleware(
     finally:
         # the container may have been given a copy of the pilot's own proxy in the work directory
         remove_container_proxies(job.workdir)
+        # send the rucio traces written by the script, also if it failed (this never raises)
+        collect_spooled_traces(job)
 
     # handle errors, file statuses, etc (the stage-in/out scripts write errors and file status to a json file)
     try:
@@ -350,6 +356,26 @@ def get_command(
     return cmd
 
 
+def add_stageout_attempts(fspec: FileSpec, entry: list) -> None:
+    """Add the number of stage-out attempts made in the container to the file's count.
+
+    The count is the 7th value of the file's entry in the stage-out status dictionary. It is missing when the
+    dictionary was written by an older stage-out script, and the file's count is then left unchanged.
+
+    Args:
+        fspec: File specification object.
+        entry: The file's entry in the stage-out status dictionary.
+    """
+    if len(entry) < 7:
+        return
+    try:
+        attempts = int(entry[6] or 0)
+    except (TypeError, ValueError):
+        logger.warning(f'ignoring malformed number of stage-out attempts for {fspec.lfn}: {entry[6]!r}')
+        return
+    fspec.stageout_attempts = (getattr(fspec, 'stageout_attempts', 0) or 0) + attempts
+
+
 def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in") -> None:
     """Update job and file-spec state from the stage-in/out status JSON file.
 
@@ -394,6 +420,7 @@ def handle_updated_job_object(job: JobData, xdata: list, label: str = "stage-in"
                         fspec.lfn
                     ][4]
                     fspec.filesize = file_dictionary[fspec.lfn][5]
+                    add_stageout_attempts(fspec, file_dictionary[fspec.lfn])
             except Exception as exc:
                 msg = f"exception caught while reading file dictionary: {exc}"
                 logger.warning(msg)

@@ -171,6 +171,15 @@ from pilot.util.timing import (
     time_stamp,
     timing_report,
 )
+from pilot.util.tokenlifetime import (
+    check_token_for_new_job,
+    record_final_update,
+)
+from pilot.util.tracesender import (
+    finish_traces,
+    get_trace_snapshot,
+    remove_sender,
+)
 from pilot.util.workernode import (
     collect_workernode_info,
     extract_site_and_schedd,
@@ -203,6 +212,13 @@ PAYLOAD_KILL_EXIT_CODES = frozenset({
     errors.CERTIFICATEHASEXPIRED,
     errors.PAYLOADPROXYDOWNLOADFAILURE,  # a job proxy could not be renewed before it expired
 })
+
+# Serialises update_server(). Several threads can send the final update for the same job (e.g. job_monitor after an
+# abort and queue_monitor once the failed job reaches it), and the job.completed guard is only set at the end of a
+# successful final update, so without the lock both could pass the guard (job 7378803325: two final updates and the
+# pilot telemetry sent twice, while the first thread was handling a 'tobekilled' command in the server response).
+# Reentrant, so that a nested call from the same thread cannot deadlock.
+FINAL_UPDATE_LOCK = threading.RLock()
 
 
 def control(queues: namedtuple, traces: Any, args: object) -> None:
@@ -765,6 +781,10 @@ def send_state(job: Any, args: Any, state: str, xml: str = "", metadata: str = "
         job=job,
         ipv=args.internet_protocol_version,
     )
+
+    if final:
+        # a final update lost to a rejected token turns into a non-zero pilot exit code
+        record_final_update(job.jobid, result.ok)
 
     if not result.ok:
         if final:
@@ -2233,6 +2253,10 @@ def proceed_with_getjob(timefloor: int, starttime: int, jobnumber: int, getjob_r
                     f'minimum, bound by {source}) - will not fetch another job'
                 )
 
+    # do not fetch a new job if the OIDC token will not outlast the next heartbeat (and there is no X.509 failover)
+    if args is not None and should_update_server and not _check_token_lifetime(args, jobnumber, traces):
+        return False
+
     if harvester and jobnumber > 0:
         # unless it's the first job (which is preplaced in the init dir), instruct Harvester to place another job
         # in the init dir
@@ -2273,6 +2297,36 @@ def _set_no_time_error_code(traces: Any, source: str) -> None:
     traces.pilot['error_code'] = error_code
     logger.warning(f'setting error code {error_code} ({errors.get_error_message(error_code)}) - '
                    f'the pilot will end without having run a job (bound by {source})')
+
+
+def _check_token_lifetime(args: Any, jobnumber: int, traces: Any) -> bool:
+    """Check that the OIDC token will outlast the next heartbeat before a new job is fetched.
+
+    For PanDA ID 7367714395, the token had 891 s left when the job was fetched and every server
+    update after the token expired was rejected. A token that is too short is refreshed first;
+    if it is still too short, the job is only fetched if X.509 failover is available. As for the
+    remaining-time check, an error code is only set if the pilot ends without having run a job.
+
+    Args:
+        args: Pilot arguments (server url and port, token renewal option).
+        jobnumber: Number of jobs already downloaded.
+        traces: Traces object (to propagate the error code to the wrapper).
+
+    Returns:
+        bool: True if the pilot can fetch a new job, False otherwise.
+    """
+    catchall = (getattr(infosys.queuedata, 'catchall', '') or '') if infosys.queuedata else ''
+    renewal_allowed = 'no_token_renewal' not in catchall and getattr(args, 'token_renewal', True) is not False
+    proceed, diagnostics = check_token_for_new_job(getattr(args, 'url', ''), getattr(args, 'port', 0), renewal_allowed)
+    if proceed:
+        return True
+
+    if jobnumber == 0 and traces.pilot['error_code'] == 0:  # careful so we don't overwrite another error code
+        traces.pilot['error_code'] = errors.TOKENTOOSHORT
+        logger.warning(f'setting error code {errors.TOKENTOOSHORT} ({errors.get_error_message(errors.TOKENTOOSHORT)}) '
+                       f'- the pilot will end without having run a job')
+
+    return wrap_up_quickly(diagnostics)
 
 
 def wrap_up_quickly(message: str) -> bool:
@@ -2369,7 +2423,10 @@ def get_job_definition_from_server(args: Any, taskid: str = "") -> dict:
 
             log_res, pilot_secrets = mask_sensitive_response(res)
             logger.info(f'server responded with: res = {log_res}')
-            if not res or isinstance(res, str):  # fallback to curl solution
+            if https.is_token_rejection(res):
+                # the curl fallback would only resend the same token
+                logger.warning('the server rejected the authentication - curl fallback skipped')
+            elif not res or isinstance(res, str):  # fallback to curl solution
                 res = https.request(cmd, data=data)
 
     return res
@@ -3782,6 +3839,12 @@ def order_log_transfer(queues: namedtuple, job: object) -> None:
 def wait_for_aborted_job_stageout(args: object, queues: namedtuple, job: object) -> None:
     """Wait for stage-out to finish for aborted job.
 
+    Stage-out has finished when the log transfer has been attempted (DONE or FAILED), or when the
+    job is in one of the data_out queues. The job usually reaches the queue monitor via the
+    failed_jobs queue, i.e. after it has left the data_out queues, so the log transfer status is
+    the reliable check (PanDA job 7379005140 waited the full time although its log was already
+    transferred).
+
     Args:
         args: Pilot arguments object.
         queues: Pilot queues object.
@@ -3807,7 +3870,8 @@ def wait_for_aborted_job_stageout(args: object, queues: namedtuple, job: object)
     logger.debug(f'using max_wait_time = {max_wait_time} s')
     t0 = time.time()
     while time.time() - t0 < max_wait_time:
-        if job in queues.finished_data_out.queue or job in queues.failed_data_out.queue:
+        if get_job_status(job, 'LOG_TRANSFER') in {LOG_TRANSFER_DONE, LOG_TRANSFER_FAILED} or \
+                job in queues.finished_data_out.queue or job in queues.failed_data_out.queue:
             logger.info('stage-out has finished, proceed with final server update')
             break
 
@@ -4022,6 +4086,25 @@ def merge_worker_maps(
 def update_server(job: Any, args: Any) -> None:
     """Update the server (wrapper for send_state() that also prepares the metadata).
 
+    Only one thread at a time can update the server for a job: a second caller waits until the first one has
+    finished, and then returns without sending anything if the first one completed the job.
+
+    Args:
+        job: job object.
+        args: Pilot arguments object.
+    """
+    if not FINAL_UPDATE_LOCK.acquire(blocking=False):  # pylint: disable=consider-using-with
+        logger.info(f'another thread is updating the server for job {job.jobid} - waiting for it to finish')
+        FINAL_UPDATE_LOCK.acquire()  # pylint: disable=consider-using-with
+    try:
+        _update_server(job, args)
+    finally:
+        FINAL_UPDATE_LOCK.release()
+
+
+def _update_server(job: Any, args: Any) -> None:
+    """Update the server (see update_server(), which must be the only caller since it holds the lock).
+
     Args:
         job: job object.
         args: Pilot arguments object.
@@ -4066,16 +4149,24 @@ def update_server(job: Any, args: Any) -> None:
             if new_metadata is not None:
                 metadata = new_metadata
 
+    # the rucio traces sent in the background must be done before the final update, since the job metrics are built
+    # there (this is done before the timing measurement, so that the final update timing is not inflated by the wait)
+    finish_traces(job, args)
+    trace_snapshot = get_trace_snapshot(job.jobid)  # for the telemetry (the sender is removed below)
+
     add_to_pilot_timing(job.jobid, PILOT_PRE_FINAL_UPDATE, time.time(), args)
     if job.fileinfo:
         accepted = send_state(job, args, job.state, xml=dumps(job.fileinfo), metadata=metadata)
     else:
         accepted = send_state(job, args, job.state, metadata=metadata)
     add_to_pilot_timing(job.jobid, PILOT_POST_FINAL_UPDATE, time.time(), args)
+    if job.completed:
+        remove_sender(job.jobid)  # otherwise keep it, so that a repeated final update reports the same lost traces
 
     # job.completed was False on entry (see above), so it being set now means that this call was the accepted final
-    # update. The telemetry is therefore sent at most once per job
-    handle_pilot_telemetry(job, args, accepted)
+    # update. Since update_server() holds FINAL_UPDATE_LOCK, no other thread can have passed the same check, and the
+    # telemetry is therefore sent at most once per job
+    handle_pilot_telemetry(job, args, accepted, trace_snapshot=trace_snapshot)
 
 
 def pause_queue_monitor(delay: int) -> None:

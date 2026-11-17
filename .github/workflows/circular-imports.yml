@@ -19,7 +19,8 @@ permissions:
 jobs:
   circular-imports:
     name: circular-imports (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Python 3.9 has no build for Ubuntu 26.04 (ubuntu-latest), so it runs on 24.04
+    runs-on: ${{ matrix.python-version == '3.9' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:

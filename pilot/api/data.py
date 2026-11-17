@@ -18,9 +18,9 @@
 #
 # Authors:
 # - Mario Lassnig, mario.lassnig@cern.ch, 2017
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2026
-# - Tobias Wegner, tobias.wegner@cern.ch, 2017-2018
-# - Alexey Anisenkov, anisyonk@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
+# - Tobias Wegner, tobias.wegner@cern.ch, 2017-18
+# - Alexey Anisenkov, anisyonk@cern.ch, 2018-24
 
 """
 API for data transfers.
@@ -113,6 +113,7 @@ from pilot.util.filehandling import (
     write_json,
 )
 from pilot.util.math import convert_mb_to_b
+from pilot.util.networking import get_local_ip
 from pilot.util.parameters import get_maximum_input_sizes
 from pilot.util.workernode import get_local_disk_space
 from pilot.util.auxiliary import TimeoutException
@@ -755,8 +756,12 @@ class StagingClient:
     def detect_client_location(self, use_vp: bool = False) -> tuple:
         """Detect the worker node's network location for Rucio geo-sorting.
 
-        Opens a UDP socket toward the public internet to discover the local IP
-        address.  For VP sites, geographic coordinates are obtained from the
+        Uses :func:`~pilot.util.networking.get_local_ip` to discover the local
+        IP address (IPv4 first, then IPv6, so IPv6-only nodes are covered).
+        Note that the Rucio server replaces this IP with the source address of
+        the request before sorting, so it does not affect the replica order.
+
+        For VP sites, geographic coordinates are obtained from the
         ``RUCIO_LATITUDE`` / ``RUCIO_LONGITUDE`` environment variables or by
         querying an external geo-IP service.
 
@@ -774,23 +779,10 @@ class StagingClient:
         diagnostics = ''
         client_location = {}
 
-        ip = '0.0.0.0'
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-            finally:
-                s.close()
-        except socket.gaierror as e:
-            diagnostics = f'failed to get socket info due to address-related error: {e}'
-            self.logger.warning(diagnostics)
-        except socket.timeout as e:
-            diagnostics = f'failed to get socket info due to timeout: {e}'
-            self.logger.warning(diagnostics)
-        except socket.error as e:
-            diagnostics = f'failed to get socket info due to general socket error: {e}'
+        ip = get_local_ip()
+        if not ip:
+            ip = '0.0.0.0'
+            diagnostics = 'failed to get the local IP address: no outgoing IPv4 or IPv6 route'
             self.logger.warning(diagnostics)
 
         client_location['ip'] = ip

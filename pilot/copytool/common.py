@@ -21,7 +21,7 @@
 # - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Mario Lassnig, mario.lassnig@cern.ch, 2020
 
-"""Commnon functions for copytools."""
+"""Common functions for copytools."""
 
 from __future__ import annotations
 import logging
@@ -37,6 +37,10 @@ from pilot.util.filehandling import (
 )
 
 logger = logging.getLogger(__name__)
+
+# XRootD kXR_ServerError (3012) as reported by XrdCl, e.g.
+# "Error on XrdCl::CopyProcess::Run(): [ERROR] Server responded with an error: [3012] Internal timeout (destination)"
+XRD_SERVER_ERROR = re.compile(r'Server responded with an error: \[3012\]')
 
 
 def get_timeout(filesize: int, add: int = 0) -> int:
@@ -220,7 +224,11 @@ def resolve_common_transfer_errors(output: str, is_stagein: bool = True) -> dict
     if not output:
         return ret
 
-    if "timeout" in output:
+    if not is_stagein and XRD_SERVER_ERROR.search(output):
+        # must precede the generic time-out match: e.g. "[3012] Internal timeout (destination)" is a failure inside
+        # the storage endpoint, not a time-out of the copy command
+        ret = get_error_info(ErrorCodes.STORAGESERVERERROR, 'STORAGE_SERVER_ERROR', output)
+    elif "timeout" in output:
         ret = get_error_info(ErrorCodes.STAGEINTIMEOUT if is_stagein else ErrorCodes.STAGEOUTTIMEOUT,
                              'CP_TIMEOUT', f'copy command timed out: {output}')
     elif "failed xrdadler32" in output:

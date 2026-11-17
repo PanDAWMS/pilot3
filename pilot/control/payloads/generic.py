@@ -311,6 +311,22 @@ class Executor:
         """
         Run utility functions after payload started.
 
+        The payload is already running at this point, so a failure to set up or start the
+        utility (e.g. the memory monitor) is logged and does not stop the payload execution
+        (PanDA job 7379005140).
+
+        Args:
+            job: Job object.
+        """
+        try:
+            self._start_utility_after_payload(job)
+        except Exception as error:  # pylint: disable=broad-exception-caught
+            logger.error(f"failed to start the utility command after the payload (payload continues without it): {error}",
+                         exc_info=True)
+
+    def _start_utility_after_payload(self, job: JobData):
+        """Set up and start the utility command to be run after the payload has started.
+
         Args:
             job: Job object.
         """

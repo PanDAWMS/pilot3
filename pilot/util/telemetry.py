@@ -22,17 +22,25 @@
 """Structured pilot telemetry (pilot attributes) sent to the PanDA server once per job.
 
 The document is sent after the final job update has been accepted by the server. It contains the raw pilot
-timestamps, durations derived from them and a few file counters. It is independent of the job metadata (job
-report) and of the ``pilotTiming`` field of the job update, which is left unchanged.
+timestamps, durations derived from them, file counters and a summary of the job's Rucio traces. It is independent
+of the job metadata (job report) and of the ``pilotTiming`` field of the job update, which is left unchanged.
 
-Request body (schema version 1)::
+Request body (schema version 2)::
 
     {"job_id": <int>, "pilot_version": "<str>",
-     "pilot_attributes": {"schema_version": 1,
+     "pilot_attributes": {"schema_version": 2,
                           "timestamps": {<name>: <int epoch seconds>, ..},
                           "durations": {<name>: <int seconds>, ..},
                           "counters": {<name>: <int or dict>, ..},
+                          "traces": {<name>: <int, bool, dict or list>, ..},
                           "truncated": [<dropped section>, ..]}}   # only if the size limit was hit
+
+Changes in schema version 2:
+
+- ``counters`` has ``stageout_attempts_max`` (the --stageout-attempts value) and ``n_stageout_retried`` (output and
+  log files that needed more than one upload attempt, alternative stage-out included).
+- ``traces`` is new (see get_traces()). It is empty when the job had no background trace sender, e.g. in the HPC
+  workflow, whose traces are sent at once and not counted.
 
 Missing values are omitted rather than reported as 0, and durations keep their sign. A section that could not be
 assembled is omitted, while a section with nothing to report is present but empty. The size limit applies to the
@@ -48,7 +56,11 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from collections import Counter
+from typing import (
+    TYPE_CHECKING,
+    Any
+)
 
 from pilot.util.constants import (
     PILOT_ATTRIBUTES_ENDPOINT,
@@ -78,6 +90,9 @@ from pilot.util.constants import (
     get_pilot_version,
 )
 from pilot.util.https import send_update
+
+if TYPE_CHECKING:
+    from pilot.util.tracesender import TraceSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +142,13 @@ DURATIONS = (
 )
 
 # Sections that may be dropped (in this order) to respect the size limit. Timestamps are never dropped.
-DROPPABLE_SECTIONS = ('counters', 'durations')
+DROPPABLE_SECTIONS = ('traces', 'counters', 'durations')
 
 # Key used in input_status for files whose status was never set.
 UNSET_STATUS = 'unset'
+
+# Maximum number of distinct trace reasons reported (the most frequent ones).
+MAX_TRACE_REASONS = 10
 
 
 def timestamp_key(timing_constant: str) -> str:
@@ -250,11 +268,16 @@ def _total_size(files: list) -> int:
     return sum(to_int(getattr(fspec, 'filesize', None)) or 0 for fspec in files)
 
 
-def get_counters(job: Any) -> dict:
+def get_counters(job: Any, args: Any = None) -> dict:
     """Return file counters for the given job.
+
+    ``n_stageout_retried`` counts the output and log files with more than one upload attempt. The attempts are
+    counted by the rucio copytool only, and they include alternative stage-out: a file that failed its attempts and
+    was then staged out to the alternative storage counts as retried (and as altstaged).
 
     Args:
         job: Job object.
+        args: Pilot arguments object (for the number of stage-out attempts).
 
     Returns:
         Dictionary of counters.
@@ -268,7 +291,7 @@ def get_counters(job: Any) -> dict:
         status = getattr(fspec, 'status', None) or UNSET_STATUS
         input_status[status] = input_status.get(status, 0) + 1
 
-    return {
+    counters = {
         'n_input_files': len(indata),
         'input_bytes': _total_size(indata),
         'input_status': input_status,
@@ -276,10 +299,72 @@ def get_counters(job: Any) -> dict:
         'output_bytes': _total_size(outdata),
         # alternative stage-out applies to both output and log files
         'n_altstaged': sum(1 for fspec in outdata + logdata if getattr(fspec, 'is_altstaged', False)),
+        'n_stageout_retried': sum(1 for fspec in outdata + logdata
+                                  if (to_int(getattr(fspec, 'stageout_attempts', None)) or 0) > 1),
     }
+    attempts_max = to_int(getattr(args, 'stageout_attempts', None))
+    if attempts_max is not None:
+        counters['stageout_attempts_max'] = attempts_max
+
+    return counters
 
 
-def get_pilot_telemetry(job: Any, args: Any) -> dict:
+def get_traces(snapshot: TraceSnapshot | None) -> dict:
+    """Return the summary of the Rucio traces of the job.
+
+    The summary is built from the final state of the job's background trace sender:
+
+    - ``sent``, ``failed``, ``abandoned``, ``invalid``: number of traces per delivery result (lost traces are
+      ``failed`` plus ``abandoned``);
+    - ``requests``, ``parallel``, ``degraded``, ``sending_time``, ``final_wait``: the requests to the trace
+      server (times in seconds);
+    - ``request_errors``: number of failed requests per HTTP status or curl code (only if a request failed);
+    - ``states``: number of traces per eventType and clientState (only if there are traces);
+    - ``reasons``: the most frequent combinations of eventType, clientState and stateReason, for the traces with
+      a reason other than OK (at most MAX_TRACE_REASONS, reasons shortened to 100 characters), with
+      ``n_reasons``, the number of distinct combinations (only if there are such traces).
+
+    Args:
+        snapshot: Final state of the trace sender (see pilot.util.tracesender.get_trace_snapshot()), or None.
+
+    Returns:
+        Dictionary (empty if there is no snapshot).
+    """
+    if snapshot is None:
+        return {}
+
+    summary, stats = snapshot.summary, snapshot.stats
+    traces = {
+        'sent': summary.sent,
+        'failed': summary.failed,
+        'abandoned': summary.abandoned,
+        'invalid': summary.invalid,
+        'requests': stats.requests,
+        'parallel': stats.parallel,
+        'degraded': bool(summary.degraded),
+        'sending_time': round(stats.sending_time),
+        'final_wait': round(stats.final_wait),
+    }
+    if snapshot.request_errors:
+        traces['request_errors'] = {str(code): count for code, count in sorted(snapshot.request_errors.items())}
+
+    states: dict = {}
+    for record in snapshot.records:
+        event = states.setdefault(record.event, {})
+        event[record.state] = event.get(record.state, 0) + 1
+    if states:
+        traces['states'] = states
+
+    reasons = Counter((record.event, record.state, record.reason) for record in snapshot.records if record.reason)
+    if reasons:
+        traces['reasons'] = [{'event': event, 'state': state, 'reason': reason, 'count': count}
+                             for (event, state, reason), count in reasons.most_common(MAX_TRACE_REASONS)]
+        traces['n_reasons'] = len(reasons)
+
+    return traces
+
+
+def get_pilot_telemetry(job: Any, args: Any, trace_snapshot: TraceSnapshot | None = None) -> dict:
     """Assemble the telemetry document for the given job.
 
     Each section is assembled independently, so a failing section is omitted and the rest is returned.
@@ -287,6 +372,7 @@ def get_pilot_telemetry(job: Any, args: Any) -> dict:
     Args:
         job: Job object.
         args: Pilot arguments object.
+        trace_snapshot: Final state of the job's trace sender, or None if it had none.
 
     Returns:
         Telemetry document (the value sent under PILOT_ATTRIBUTES_KEY).
@@ -304,9 +390,14 @@ def get_pilot_telemetry(job: Any, args: Any) -> dict:
         logger.warning(f'failed to assemble telemetry durations: {exc}')
 
     try:
-        document['counters'] = get_counters(job)
+        document['counters'] = get_counters(job, args)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning(f'failed to assemble telemetry counters: {exc}')
+
+    try:
+        document['traces'] = get_traces(trace_snapshot)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(f'failed to assemble telemetry traces: {exc}')
 
     return document
 
@@ -358,7 +449,7 @@ def apply_size_limit(document: dict, max_bytes: int) -> dict | None:
     return None
 
 
-def send_pilot_telemetry(job: Any, args: Any) -> None:
+def send_pilot_telemetry(job: Any, args: Any, trace_snapshot: TraceSnapshot | None = None) -> None:
     """Assemble the telemetry document for the given job and send it to the server.
 
     The request body is logged and then sent to the server in a single attempt. Failures are logged and otherwise
@@ -367,9 +458,10 @@ def send_pilot_telemetry(job: Any, args: Any) -> None:
     Args:
         job: Job object.
         args: Pilot arguments object.
+        trace_snapshot: Final state of the job's trace sender, or None if it had none.
     """
     try:
-        document = apply_size_limit(get_pilot_telemetry(job, args), PILOT_ATTRIBUTES_MAX_BYTES)
+        document = apply_size_limit(get_pilot_telemetry(job, args, trace_snapshot), PILOT_ATTRIBUTES_MAX_BYTES)
         if document is None:
             return
 
@@ -392,17 +484,19 @@ def send_pilot_telemetry(job: Any, args: Any) -> None:
         logger.warning(f'failed to send pilot telemetry: {exc}')
 
 
-def handle_pilot_telemetry(job: Any, args: Any, final_update_accepted: bool) -> None:
+def handle_pilot_telemetry(job: Any, args: Any, final_update_accepted: bool,
+                           trace_snapshot: TraceSnapshot | None = None) -> None:
     """Send the pilot telemetry after the final job update, if the conditions are met.
 
     The telemetry is sent when the pilot updates the server itself and the final update was accepted, i.e. the
     job was marked as completed. The caller only calls this function once per job, since update_server() refuses
-    to run for a completed job.
+    to run for a completed job and serialises concurrent callers.
 
     Args:
         job: Job object.
         args: Pilot arguments object.
         final_update_accepted: True if the server accepted the job update.
+        trace_snapshot: Final state of the job's trace sender, taken before it was removed, or None if it had none.
     """
     if not getattr(args, 'update_server', False):
         logger.debug('pilot telemetry is not supported when the pilot does not update the server - skipped')
@@ -412,4 +506,4 @@ def handle_pilot_telemetry(job: Any, args: Any, final_update_accepted: bool) -> 
         logger.debug('final job update was not accepted - pilot telemetry will not be sent')
         return
 
-    send_pilot_telemetry(job, args)
+    send_pilot_telemetry(job, args, trace_snapshot=trace_snapshot)

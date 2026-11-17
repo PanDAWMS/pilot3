@@ -58,10 +58,7 @@ from pilot.util.constants import MAX_KILL_WAIT_TIME
 # from pilot.util.container import execute
 from pilot.util.features import MachineFeatures
 from pilot.util.heartbeat import update_pilot_heartbeat
-from pilot.util.https import (
-    get_local_oidc_token_info,
-    update_local_oidc_token_info
-)
+from pilot.util.https import get_local_oidc_token_info
 from pilot.util.psutils import get_process_info
 from pilot.util.queuehandling import (
     abort_jobs_in_queues,
@@ -69,6 +66,10 @@ from pilot.util.queuehandling import (
     get_queuedata_from_job,
 )
 from pilot.util.timing import get_time_since_start
+from pilot.util.tokenlifetime import (
+    is_refresh_due,
+    refresh_token
+)
 
 errors = ErrorCodes()
 pilot_cache = get_pilot_cache()
@@ -231,14 +232,15 @@ def control(queues: namedtuple, traces: Any, args: object) -> None:  # noqa: C90
                 run_checks(queues, args)
                 break
 
-            # check if the OIDC token needs to be refreshed
+            # check if the OIDC token needs to be refreshed (scheduled from the token's expiry,
+            # at the latest every tokendownloadchecktime seconds - see pilot.util.tokenlifetime)
             if tokendownloadchecktime and queuedata:
-                if int(time.time() - last_token_check) > tokendownloadchecktime:
+                if is_refresh_due(last_token_check, tokendownloadchecktime):
                     last_token_check = time.time()
                     if 'no_token_renewal' in queuedata.catchall or args.token_renewal is False:
                         logger.info("OIDC token will not be renewed by the pilot")
                     else:
-                        update_local_oidc_token_info(args.url, args.port)
+                        refresh_token(args.url, args.port)
 
             # abort if kill signal arrived too long time ago, ie loop is stuck
             if args.kill_time and int(time.time()) - args.kill_time > MAX_KILL_WAIT_TIME:

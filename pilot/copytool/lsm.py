@@ -19,7 +19,7 @@
 # Authors:
 # - Pavlo Svirin, pavlo.svirin@cern.ch, 2017
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2018-2024
+# - Paul Nilsson, paul.nilsson@cern.ch, 2018-26
 
 """Local site mover copy tool."""
 
@@ -122,7 +122,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
         #    trace_report.send()
         #    continue
 
-        trace_report.update(catStart=time())
+        trace_report.start_file()  # every file's trace has its own start time stamps
 
         dst = fspec.workdir or kwargs.get('workdir') or '.'
         #timeout = get_timeout(fspec.filesize)
@@ -145,6 +145,7 @@ def copy_in(files: list, **kwargs: dict) -> list:
             raise PilotException(error.get('error'), code=error.get('rcode'), state=error.get('state'))
 
         # verify checksum; compare local checksum with catalog value (fspec.checksum), use same checksum type
+        trace_report.update(validateStart=time())
         state, diagnostics = verify_catalog_checksum(fspec, destination)
         if diagnostics != "":
             trace_report.update(clientState=state or 'STAGEIN_ATTEMPT_FAILED', stateReason=diagnostics,
@@ -189,7 +190,8 @@ def copy_out(files: list, **kwargs: dict) -> list:
 
     for fspec in files:
         trace_report.update(scope=fspec.scope, dataset=fspec.dataset, url=fspec.surl, filesize=fspec.filesize)
-        trace_report.update(catStart=time(), filename=fspec.lfn, guid=fspec.guid.replace('-', ''))
+        trace_report.update(filename=fspec.lfn, guid=fspec.guid.replace('-', ''))
+        trace_report.start_file()  # every file's trace has its own start time stamps
 
         # resolve token value from fspec.ddmendpoint
         ddm = ddmconf.get(fspec.ddmendpoint)

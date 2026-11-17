@@ -18,7 +18,7 @@
 #
 # Authors:
 # - Alexey Anisenkov, anisyonk@cern.ch, 2018
-# - Paul Nilsson, paul.nilsson@cern.ch, 2019-24
+# - Paul Nilsson, paul.nilsson@cern.ch, 2019-26
 
 """Standalone implementation of time-out check on function call.
 
@@ -64,13 +64,19 @@ class TimedThread:
     def execute(self, func, args, kwargs):
         """Execute the function and store its return value or exception info.
 
+        Every exception raised by ``func`` is captured and handed back to the
+        caller through :meth:`run`. An exception escaping this method would
+        end the worker thread (dumping its traceback to stderr), be lost, and
+        leave :meth:`run` able to report only a misleading time-out, which the
+        stage-in/out error resolution then classified as a transfer time-out.
+
         Args:
-            func: Callable to execute.
-            args: Positional arguments for ``func``.
-            kwargs: Keyword arguments for ``func``.
+            func (Callable): Callable to execute.
+            args (tuple): Positional arguments for ``func``.
+            kwargs (dict): Keyword arguments for ``func``.
 
         Returns:
-            Tuple of (success_bool, result_or_exc_info).
+            tuple: (success_bool, result_or_exc_info).
         """
         try:
             ret = (True, func(*args, **kwargs))
@@ -84,9 +90,20 @@ class TimedThread:
     def run(self, func, args, kwargs, _timeout=None):
         """Run the given function in a daemon thread with a timeout.
 
+        A ``_timeout`` value (seconds) overrides ``self.timeout``.
+
+        Args:
+            func (Callable): Callable to execute in the thread.
+            args (tuple): Positional arguments for ``func``.
+            kwargs (dict): Keyword arguments for ``func``.
+
+        Returns:
+            Any: Return value of ``func``.
+
         Raises:
             TimeoutException: If the timeout value is reached before the
                 function finishes.
+            Exception: Whatever ``func`` raised, re-raised unchanged.
         """
         thread = threading.Thread(target=self.execute, args=(func, args, kwargs))
         thread.daemon = True
@@ -135,14 +152,15 @@ class TimedProcess:
     def run(self, func, args, kwargs, _timeout=None):
         """Run the given function in a daemon process with a timeout.
 
+        A ``_timeout`` value (seconds) overrides ``self.timeout``.
+
         Args:
-            func: Callable to execute in a subprocess.
-            args: Positional arguments for ``func``.
-            kwargs: Keyword arguments for ``func``.
-            _timeout: Timeout override in seconds; falls back to ``self.timeout``.
+            func (Callable): Callable to execute in a subprocess.
+            args (tuple): Positional arguments for ``func``.
+            kwargs (dict): Keyword arguments for ``func``.
 
         Returns:
-            Return value of ``func``.
+            Any: Return value of ``func``.
 
         Raises:
             TimeoutException: If the timeout is reached before ``func`` returns.
@@ -162,7 +180,7 @@ class TimedProcess:
                 queue.put((False, e))
 
         # do not put this import at the top since it can possibly interfere with some modules (esp. Google Cloud Logging modules)
-        import multiprocessing
+        import multiprocessing  # pylint: disable=import-outside-toplevel
 
         queue = multiprocessing.Queue(1)
         process = multiprocessing.Process(target=_execute, args=(func, args, kwargs, queue))

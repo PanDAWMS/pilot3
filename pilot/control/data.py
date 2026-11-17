@@ -118,6 +118,7 @@ from pilot.util.queuehandling import (
 )
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
+from pilot.util.tracesender import get_or_create_sender
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +319,9 @@ def _stage_in(args: object, job: JobData) -> bool:
 
     # write time stamps to pilot timing file
     add_to_pilot_timing(job.jobid, PILOT_PRE_STAGEIN, time.time(), args)
+
+    # the rucio traces are sent in the background, so that they do not delay the stage-in
+    get_or_create_sender(job)
 
     # any DBRelease files should not be staged in
     skip_special_files(job)
@@ -1066,6 +1070,9 @@ def _do_stageout(job: JobData, args: object, xdata: list, activity: list, title:
     """
     logger.info('prepare to stage-out %d %s file(s)', len(xdata), title)
     label = 'stage-out'
+
+    # the rucio traces are sent in the background (before the final server update), so that they do not delay the stage-out
+    get_or_create_sender(job)
 
     # should stage-in be done by a script (for containerisation) or by invoking the API (ie classic mode)?
     use_container = use_middleware_script(job.infosys.queuedata.container_type.get("middleware"))

@@ -17,9 +17,9 @@
 # under the License.
 #
 # Authors:
-# - Paul Nilsson, paul.nilsson@cern.ch, 2017-2023
+# - Paul Nilsson, paul.nilsson@cern.ch, 2017-26
 # - Tobias Wegner, tobias.wegner@cern.ch, 2018
-# - David Cameron, david.cameron@cern.ch, 2018-2022
+# - David Cameron, david.cameron@cern.ch, 2018-22
 
 """mv/cp/ln copy tool."""
 

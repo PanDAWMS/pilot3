@@ -71,6 +71,7 @@ from pilot.util.filehandling import (
     get_disk_usage,
     get_guid,
     get_local_file_size,
+    append_filetype_raw,
     looks_like_root_file,
     remove,
     remove_dir_tree,
@@ -93,6 +94,7 @@ from pilot.util.processes import (
 from pilot.util.proxy import remove_container_proxies
 from pilot.util.timing import add_to_pilot_timing
 from pilot.util.tracereport import TraceReport
+from pilot.util.tracesender import get_or_create_sender
 from .container import (
     create_root_container_command,
     execute_remote_file_open
@@ -201,8 +203,42 @@ def validate(job: JobData) -> bool:
     return status
 
 
-def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, str, list, int]:  # noqa: C901
+# Remote file open verification: time-out budget per remote i/o file. open_remote_file.py attempts
+# up to two open modes per file (ROOT format and raw), each with an internal 30 s time-out.
+REMOTEIO_PER_FILE_TIMEOUT = 60
+
+# Per-file outcomes of the remote file open verification, and the trace clientState reported for
+# each of them. A file without a known outcome (never attempted, or interrupted by a time-out before
+# its own time-out budget had passed) gets no trace at all, since reporting it as either good or bad
+# would be a guess.
+REMOTEIO_OPENED = 'opened'
+REMOTEIO_FAILED = 'failed'
+REMOTEIO_TIMED_OUT = 'timed_out'
+REMOTEIO_CLIENT_STATES = {
+    REMOTEIO_OPENED: 'FOUND_ROOT',
+    REMOTEIO_FAILED: 'FAILED_REMOTE_OPEN',
+    REMOTEIO_TIMED_OUT: 'TIMEOUT_REMOTE_OPEN',
+}
+REMOTEIO_STATE_REASONS = {
+    REMOTEIO_FAILED: 'remote file could not be opened',
+    REMOTEIO_TIMED_OUT: 'remote file open did not complete in time',
+}
+
+# progress file written by open_remote_file.py while the files are being opened (used if the
+# setting is absent from a site-specific pilot configuration file)
+_DEFAULT_REMOTEIO_PROGRESS_FILE = 'remotefileverification_progress.json'
+
+# maximum number of file names listed per category in the time-out diagnostics
+_MAX_LISTED_FILES = 3
+
+
+def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, str, dict, int]:
     """Verify that direct i/o files can be opened.
+
+    The per-file outcomes are only returned for files whose outcome is actually known: from the
+    verification dictionary when the check ran to completion, or from the progress file when the
+    check had to be killed on a time-out. In all other failure cases (e.g. the container could not
+    be started) the outcomes are unknown and an empty dictionary is returned.
 
     Args:
         indata: list of FileSpec objects.
@@ -210,135 +246,189 @@ def open_remote_files(indata: list, workdir: str, nthreads: int) -> tuple[int, s
         nthreads: number of concurrent file open threads.
 
     Returns:
-        tuple[int, str, list, int]: exit code, diagnostics, not opened files, lsetup time.
+        tuple[int, str, dict, int]: exit code, diagnostics, per-file outcomes ({turl: outcome}, see
+            REMOTEIO_CLIENT_STATES), lsetup time.
 
     Raises:
         PilotException: in case of pilot error.
     """
     exitcode = 0
-    diagnostics = ""
-    not_opened = []
     lsetup_time = 0
 
     # extract direct i/o files from indata (string of comma-separated turls)
     turls = extract_turls(indata)
-    if turls:
-        # execute file open script which will attempt to open each file
-
-        # copy pilot source into container directory, unless it is already there
-        diagnostics = copy_pilot_source(workdir)
-        if diagnostics:
-            raise PilotException(diagnostics)
-
-        os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
-
-        # first copy all scripts that are needed
-        scripts = ['open_remote_file.py', 'open_file.sh']
-        final_paths = {}
-        for script in scripts:
-
-            final_script_path = os.path.join(workdir, script)
-            script_path = os.path.join('pilot/scripts', script)
-            dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
-            dir2 = os.path.join(workdir, script_path)
-            full_script_path = dir1 if os.path.exists(dir1) else dir2
-            if not os.path.exists(full_script_path):
-                # do not set ec since this will be a pilot issue rather than site issue
-                diagnostics = (
-                    f'cannot perform file open test - script path does not exist: {full_script_path}'
-                )
-                logger.warning(diagnostics)
-                logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
-                return exitcode, diagnostics, not_opened, lsetup_time
-
-            try:
-                copy(full_script_path, final_script_path)
-            except PilotException as exc:
-                # do not set ec since this will be a pilot issue rather than site issue
-                diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
-                logger.warning(diagnostics)
-                return exitcode, diagnostics, not_opened, lsetup_time
-
-            # correct the path when containers have been used
-            if "open_remote_file.py" in script:
-                final_script_path = os.path.join('.', script)
-
-            final_paths[script] = final_script_path
-            logger.debug(f'final path={final_script_path}')
-
-        logger.debug(f'reading file: {final_paths["open_file.sh"]}')
-        script_content = read_file(final_paths['open_file.sh'])
-        if not script_content:
-            diagnostics = (f'cannot perform file open test - failed to read script content from path '
-                           f'{final_paths["open_file.sh"]}')
-            logger.warning(diagnostics)
-            return exitcode, diagnostics, not_opened, lsetup_time
-
-        logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
-        _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir,
-                                     rawfirst_turls=extract_rawfirst_turls(indata))
-        if not _cmd:
-            diagnostics = (f'cannot perform file open test - failed to create file open command from path '
-                           f'{final_paths["open_remote_file.py"]}')
-            logger.warning(diagnostics)
-            return exitcode, diagnostics, not_opened, lsetup_time
-
-        timeout = get_timeout_for_remoteio(indata)
-        cmd = create_root_container_command(workdir, _cmd, script_content)
-        path = os.path.join(workdir, 'open_remote_file_cmd.sh')
-        logger.info(f'executing file open verification script (path={path}, timeout={timeout}):\n\n\'{cmd}\'\n\n')
-        exitcode, stdout, lsetup_time, diagnostics = run_file_open_command(path, cmd, timeout, workdir)
-        if diagnostics:
-            return exitcode, diagnostics, not_opened, lsetup_time
-
-        # Log all captured container output so that apptainer startup lines, lsetup
-        # trace (ALRB_CONT_VERBOSE=3), and any error messages are visible in the
-        # pilot log and not only in open_remote_file_cmd.stdout on disk.
-        # Log at WARNING level on failure so the output is visible without raising
-        # the log level at the site; log at DEBUG on success to keep normal logs quiet.
-        if stdout:
-            if exitcode:
-                logger.warning(f'container output from open_remote_file_cmd (ec={exitcode}):\n{stdout}')
-            else:
-                logger.debug(f'container output from open_remote_file_cmd:\n{stdout}')
-
-        logger.info(f'remote file open finished with ec={exitcode}')
-        if lsetup_time > 0:
-            logger.info(f"lsetup completed after {lsetup_time} seconds")
-        else:
-            logger.info("lsetup did not finish correctly")
-
-        # error handling
-        if exitcode:
-            # first check for apptainer errors
-            _exitcode, error_message = errors.resolve_transform_error(exitcode, stdout)
-            if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
-                if error_message:
-                    logger.warning(f"found apptainer error in stderr: {error_message}")
-                    logger.warning(f"will overwrite trf exit code {exitcode} due to previous error")
-                return _exitcode, stdout, not_opened, lsetup_time
-
-            # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
-            _exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
-            if not _exitcode:
-                logger.info('remote file could still be opened in spite of previous error')
-            elif _exitcode:
-                if exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILECOULDNOTBEOPENED:
-                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
-                elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILEDICTDOESNOTEXIST:
-                    exitcode = errors.REMOTEFILEOPENTIMEDOUT
-                    diagnostics = f'remote file open command was timed-out and: {diagnostics}'  # cannot give further info
-                else:  # REMOTEFILECOULDNOTBEOPENED
-                    exitcode = _exitcode
-        else:
-            exitcode, diagnostics, not_opened = parse_remotefileverification_dictionary(workdir)
-    else:
+    if not turls:
         logger.info('nothing to verify (for remote files)')
+        return exitcode, "", {}, lsetup_time
 
+    # copy pilot source into container directory, unless it is already there
+    diagnostics = copy_pilot_source(workdir)
+    if diagnostics:
+        raise PilotException(diagnostics)
+
+    os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH') + ':' + workdir
+
+    # first copy all scripts that are needed
+    # (in case of failure, do not set ec since this will be a pilot issue rather than site issue)
+    final_paths, diagnostics = prepare_file_open_scripts(workdir)
+    if diagnostics:
+        return exitcode, diagnostics, {}, lsetup_time
+
+    logger.debug(f'reading file: {final_paths["open_file.sh"]}')
+    script_content = read_file(final_paths['open_file.sh'])
+    if not script_content:
+        diagnostics = (f'cannot perform file open test - failed to read script content from path '
+                       f'{final_paths["open_file.sh"]}')
+        logger.warning(diagnostics)
+        return exitcode, diagnostics, {}, lsetup_time
+
+    # make sure that a progress file can only come from this verification
+    progress_path = get_remotefileverification_progress_path(workdir)
+    if os.path.exists(progress_path):
+        remove(progress_path)
+
+    logger.debug(f'creating file open command from path: {final_paths["open_remote_file.py"]}')
+    _cmd = get_file_open_command(final_paths['open_remote_file.py'], turls, nthreads, workdir=workdir,
+                                 rawfirst_turls=extract_rawfirst_turls(indata),
+                                 progress_file=os.path.basename(progress_path))
+    if not _cmd:
+        diagnostics = (f'cannot perform file open test - failed to create file open command from path '
+                       f'{final_paths["open_remote_file.py"]}')
+        logger.warning(diagnostics)
+        return exitcode, diagnostics, {}, lsetup_time
+
+    timeout = get_timeout_for_remoteio(indata)
+    cmd = create_root_container_command(workdir, _cmd, script_content)
+    path = os.path.join(workdir, 'open_remote_file_cmd.sh')
+    logger.info(f'executing file open verification script (path={path}, timeout={timeout}):\n\n\'{cmd}\'\n\n')
+    exitcode, stdout, lsetup_time, diagnostics = run_file_open_command(path, cmd, timeout, workdir)
+    if diagnostics:
+        return exitcode, diagnostics, {}, lsetup_time
+
+    log_file_open_output(exitcode, stdout, lsetup_time)
+    exitcode, diagnostics, outcomes = resolve_remote_open_result(exitcode, stdout, workdir, indata)
     if exitcode:
         logger.warning(f'remote file open exit code: {exitcode}')
 
-    return exitcode, diagnostics, not_opened, lsetup_time
+    return exitcode, diagnostics, outcomes, lsetup_time
+
+
+def log_file_open_output(exitcode: int, stdout: str, lsetup_time: int) -> None:
+    """Log the output of the remote file open verification script.
+
+    All captured container output is logged so that apptainer startup lines, lsetup
+    trace (ALRB_CONT_VERBOSE=3), and any error messages are visible in the
+    pilot log and not only in open_remote_file_cmd.stdout on disk.
+    It is logged at WARNING level on failure so the output is visible without raising
+    the log level at the site, and at DEBUG on success to keep normal logs quiet.
+
+    Args:
+        exitcode: exit code from execute_remote_file_open().
+        stdout: captured container output.
+        lsetup_time: lsetup time (s).
+    """
+    if stdout:
+        if exitcode:
+            logger.warning(f'container output from open_remote_file_cmd (ec={exitcode}):\n{stdout}')
+        else:
+            logger.debug(f'container output from open_remote_file_cmd:\n{stdout}')
+
+    logger.info(f'remote file open finished with ec={exitcode}')
+    if lsetup_time > 0:
+        logger.info(f"lsetup completed after {lsetup_time} seconds")
+    else:
+        logger.info("lsetup did not finish correctly")
+
+
+def prepare_file_open_scripts(workdir: str) -> tuple[dict, str]:
+    """Copy the scripts needed for the remote file open verification to the work directory.
+
+    Args:
+        workdir: working directory.
+
+    Returns:
+        tuple[dict, str]: final script paths ({script name: path}), diagnostics (set in case of failure).
+    """
+    final_paths = {}
+    for script in ('open_remote_file.py', 'open_file.sh'):
+
+        final_script_path = os.path.join(workdir, script)
+        script_path = os.path.join('pilot/scripts', script)
+        dir1 = os.path.join(os.path.join(os.environ['PILOT_HOME'], 'pilot3'), script_path)
+        dir2 = os.path.join(workdir, script_path)
+        full_script_path = dir1 if os.path.exists(dir1) else dir2
+        if not os.path.exists(full_script_path):
+            diagnostics = (
+                f'cannot perform file open test - script path does not exist: {full_script_path}'
+            )
+            logger.warning(diagnostics)
+            logger.warning(f'tested both path={dir1} and path={dir2} (none exists)')
+            return final_paths, diagnostics
+
+        try:
+            copy(full_script_path, final_script_path)
+        except PilotException as exc:
+            diagnostics = f'cannot perform file open test - pilot source copy failed: {exc}'
+            logger.warning(diagnostics)
+            return final_paths, diagnostics
+
+        # correct the path when containers have been used
+        if "open_remote_file.py" in script:
+            final_script_path = os.path.join('.', script)
+
+        final_paths[script] = final_script_path
+        logger.debug(f'final path={final_script_path}')
+
+    return final_paths, ''
+
+
+def resolve_remote_open_result(exitcode: int, stdout: str, workdir: str, indata: list) -> tuple[int, str, dict]:
+    """Interpret the outcome of the remote file open verification script.
+
+    When the script was killed on a time-out, the verification dictionary was never written and the
+    per-file outcomes are instead taken from the progress file that the script keeps up to date while
+    it is running. When the script failed in any other way, the per-file outcomes are unknown.
+
+    Args:
+        exitcode: exit code from execute_remote_file_open().
+        stdout: captured container output.
+        workdir: working directory.
+        indata: list of FileSpec objects.
+
+    Returns:
+        tuple[int, str, dict]: exit code, diagnostics, per-file outcomes ({turl: outcome}).
+    """
+    if not exitcode:
+        exitcode, diagnostics, _ = parse_remotefileverification_dictionary(workdir)
+        return exitcode, diagnostics, get_outcomes_from_dictionary(workdir, indata)
+
+    # first check for apptainer errors
+    _exitcode, error_message = errors.resolve_transform_error(exitcode, stdout)
+    if _exitcode != exitcode:  # a better error code was found (COMMANDTIMEDOUT error will be passed through)
+        if error_message:
+            logger.warning(f"found apptainer error in stderr: {error_message}")
+            logger.warning(f"will overwrite trf exit code {exitcode} due to previous error")
+        if _exitcode in {errors.REMOTEFILEOPENTIMEDOUT, errors.LSETUPTIMEDOUT}:
+            # the script was killed: report what is known per file, instead of the container output
+            # (which only holds the apptainer and lsetup start-up messages)
+            outcomes = get_outcomes_from_progress(workdir, indata)
+            return _exitcode, get_remote_open_summary(indata, outcomes), outcomes
+
+        return _exitcode, stdout, {}
+
+    # note: if the remote files could still be opened the reported error should not be REMOTEFILEOPENTIMEDOUT
+    _exitcode, diagnostics, _ = parse_remotefileverification_dictionary(workdir)
+    if not _exitcode:
+        logger.info('remote file could still be opened in spite of previous error')
+    elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILECOULDNOTBEOPENED:
+        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+    elif exitcode == errors.COMMANDTIMEDOUT and _exitcode == errors.REMOTEFILEDICTDOESNOTEXIST:
+        exitcode = errors.REMOTEFILEOPENTIMEDOUT
+        diagnostics = f'remote file open command was timed-out and: {diagnostics}'  # cannot give further info
+    else:  # REMOTEFILECOULDNOTBEOPENED
+        exitcode = _exitcode
+
+    return exitcode, diagnostics, get_outcomes_from_dictionary(workdir, indata)
 
 
 def run_file_open_command(path: str, cmd: str, timeout: int, workdir: str) -> tuple[int, str, int, str]:
@@ -384,7 +474,8 @@ def get_timeout_for_remoteio(indata: list) -> int:
     """Calculate a proper timeout to be used for remote i/o files.
 
     Note: open_remote_file.py attempts up to two open modes per file (ROOT format and raw),
-    each with an internal 30 s time-out, hence 60 s is budgeted per remote i/o file.
+    each with an internal 30 s time-out, hence REMOTEIO_PER_FILE_TIMEOUT (60 s) is budgeted
+    per remote i/o file.
 
     Args:
         indata: list of FileSpec objects.
@@ -394,7 +485,7 @@ def get_timeout_for_remoteio(indata: list) -> int:
     """
     remote_io = [fspec for fspec in indata if fspec.status == 'remote_io']
 
-    return len(remote_io) * 60 + 900
+    return len(remote_io) * REMOTEIO_PER_FILE_TIMEOUT + 900
 
 
 def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, list]:
@@ -464,9 +555,155 @@ def parse_remotefileverification_dictionary(workdir: str) -> tuple[int, str, lis
     return exitcode, diagnostics, not_opened
 
 
+def get_remotefileverification_progress_path(workdir: str) -> str:
+    """Return the path of the progress file written by the remote file open verification script.
+
+    Args:
+        workdir: working directory.
+
+    Returns:
+        str: path of the progress file.
+    """
+    name = getattr(config.Pilot, 'remotefileverification_progress', '') or _DEFAULT_REMOTEIO_PROGRESS_FILE
+
+    return os.path.join(workdir, name)
+
+
+def read_remote_open_file(path: str) -> dict:
+    """Read a JSON file written by the remote file open verification script.
+
+    Args:
+        path: path of the file.
+
+    Returns:
+        dict: file content (empty if the file does not exist or cannot be read).
+    """
+    if not os.path.exists(path):
+        logger.debug(f'{path} does not exist')
+        return {}
+
+    try:
+        content = read_json(path)
+    except PilotException as exc:
+        logger.warning(f'failed to read {path}: {exc}')
+        return {}
+
+    if not isinstance(content, dict):
+        logger.warning(f'unexpected content in {path}: {content}')
+        return {}
+
+    return content
+
+
+def get_outcomes_from_dictionary(workdir: str, indata: list) -> dict:
+    """Return the per-file outcomes from the verification dictionary written by a completed check.
+
+    A file that was opened in raw mode appears in the dictionary with ``filetype=raw`` appended to
+    its turl. A remote i/o file that does not appear in the dictionary at all gets no outcome.
+
+    Args:
+        workdir: working directory.
+        indata: list of FileSpec objects.
+
+    Returns:
+        dict: per-file outcomes ({turl: outcome}).
+    """
+    file_dictionary = read_remote_open_file(os.path.join(workdir, config.Pilot.remotefileverification_dictionary))
+    outcomes = {}
+    for fspec in indata:
+        if fspec.status != 'remote_io':
+            continue
+        if file_dictionary.get(fspec.turl) is True or file_dictionary.get(append_filetype_raw(fspec.turl)) is True:
+            outcomes[fspec.turl] = REMOTEIO_OPENED
+        elif file_dictionary.get(fspec.turl) is False:
+            outcomes[fspec.turl] = REMOTEIO_FAILED
+
+    return outcomes
+
+
+def get_outcomes_from_progress(workdir: str, indata: list, now: float = None) -> dict:
+    """Return the per-file outcomes from the progress file written by a check that was killed on a time-out.
+
+    Files that were still being opened when the check was killed are only reported as timed out if
+    they had used up their own time-out budget (REMOTEIO_PER_FILE_TIMEOUT); a file that had only just
+    been started when the overall time-out was reached cannot be blamed for it, and neither can files
+    that were never attempted. Those files get no outcome.
+
+    Args:
+        workdir: working directory.
+        indata: list of FileSpec objects.
+        now: current time (epoch seconds; default: time.time()).
+
+    Returns:
+        dict: per-file outcomes ({turl: outcome}).
+    """
+    progress = read_remote_open_file(get_remotefileverification_progress_path(workdir))
+    if not progress:
+        logger.warning('no remote file open progress available - the per-file outcome is unknown')
+        return {}
+
+    if now is None:
+        now = time.time()
+    states = {'opened': REMOTEIO_OPENED, 'failed': REMOTEIO_FAILED}
+    outcomes = {}
+    for fspec in indata:
+        entry = progress.get(fspec.turl) if fspec.status == 'remote_io' else None
+        if not isinstance(entry, dict):
+            continue
+        state = entry.get('state')
+        if state in states:
+            outcomes[fspec.turl] = states[state]
+        elif state == 'started':
+            start = entry.get('start')
+            if isinstance(start, (int, float)) and now - start >= REMOTEIO_PER_FILE_TIMEOUT:
+                logger.warning(f'remote file open of {fspec.lfn} did not complete within {int(now - start)} s')
+                outcomes[fspec.turl] = REMOTEIO_TIMED_OUT
+            else:
+                logger.info(f'remote file open of {fspec.lfn} was interrupted before its own time-out')
+
+    return outcomes
+
+
+def get_remote_open_summary(indata: list, outcomes: dict) -> str:
+    """Return a short summary of the per-file outcomes, for the error diagnostics.
+
+    Example: '1/4 file(s) opened, timed out: f2.root, 2 not checked'.
+
+    Args:
+        indata: list of FileSpec objects.
+        outcomes: per-file outcomes ({turl: outcome}).
+
+    Returns:
+        str: summary.
+    """
+    remote_io = [fspec for fspec in indata if fspec.status == 'remote_io']
+    lfns = {REMOTEIO_OPENED: [], REMOTEIO_FAILED: [], REMOTEIO_TIMED_OUT: []}
+    for fspec in remote_io:
+        outcome = outcomes.get(fspec.turl)
+        if outcome in lfns:
+            lfns[outcome].append(fspec.lfn)
+
+    def listing(names: list) -> str:
+        """Return the comma-separated names, limited to _MAX_LISTED_FILES."""
+        extra = len(names) - _MAX_LISTED_FILES
+        listed = ', '.join(names[:_MAX_LISTED_FILES])
+        return f'{listed} (+{extra} more)' if extra > 0 else listed
+
+    parts = [f'{len(lfns[REMOTEIO_OPENED])}/{len(remote_io)} file(s) opened']
+    if lfns[REMOTEIO_TIMED_OUT]:
+        parts.append(f'timed out: {listing(lfns[REMOTEIO_TIMED_OUT])}')
+    if lfns[REMOTEIO_FAILED]:
+        parts.append(f'failed: {listing(lfns[REMOTEIO_FAILED])}')
+    unchecked = len(remote_io) - sum(len(names) for names in lfns.values())
+    if unchecked:
+        parts.append(f'{unchecked} not checked')
+
+    return ', '.join(parts)
+
+
 def get_file_open_command(script_path: str, turls: str, nthreads: int,
                           stdout: str = 'remote_open.stdout', stderr: str = 'remote_open.stderr',
-                          workdir: str = '', rawfirst_turls: str = '') -> str:
+                          workdir: str = '', rawfirst_turls: str = '', *, progress_file: str = '') -> str:
     """Return the command for opening remote files.
 
     When the number of TURLs exceeds _TURL_CMDLINE_LIMIT the list is written to
@@ -491,6 +728,8 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
             ``turls.txt``; falls back to ``os.path.dirname(script_path)`` when empty.
         rawfirst_turls: comma-separated turls of input known not to be in ROOT format,
             to be opened in raw mode first (empty when there are none).
+        progress_file: name of the file in which the script records the per-file progress
+            (empty: no progress is recorded).
 
     Returns:
         str: command string.
@@ -508,6 +747,8 @@ def get_file_open_command(script_path: str, turls: str, nthreads: int,
     if rawfirst_turls:
         cmd += ' ' + get_turl_list_argument(rawfirst_turls, write_dir, 'rawfirst.txt',
                                             '--rawfirst', '--rawfirst-file')
+    if progress_file:
+        cmd += f' --progress-file={progress_file}'
     if stdout and stderr:
         cmd += f' 1>{stdout} 2>{stderr}'
 
@@ -629,50 +870,103 @@ def update_turls_with_filetype_raw(job: JobData) -> None:
             fspec.turl = raw_turl
 
 
-def process_remote_file_traces(path: str, job: JobData, not_opened_turls: list) -> None:
+def process_remote_file_traces(path: str, job: JobData, outcomes: dict) -> None:
     """Report traces for remote files.
 
     The function reads back the base trace report (common part of all traces)
-    and updates it per file before reporting it to the Rucio server.
+    and updates a copy of it per file. The traces are handed to the job's
+    background trace sender, so that sending them does not delay the payload
+    (production incident: PanDA job 7372130338, where 41 traces failed one at
+    a time before the payload could start).
+
+    A trace is only sent for a file whose outcome is known (see REMOTEIO_CLIENT_STATES).
+    If the outcome of the verification is unknown (e.g. the container could not be
+    started), no traces are sent at all, rather than reporting unverified files as opened.
 
     Args:
         path: path to base trace report.
         job: job object.
-        not_opened_turls: list of turls that could not be opened.
+        outcomes: per-file outcomes of the remote file open verification ({turl: outcome}).
     """
+    if not outcomes:
+        logger.info('the per-file outcome of the remote file open verification is unknown - no traces will be sent')
+        return
+
     try:
         base_trace_report = read_json(path)
     except PilotException as exc:
         logger.warning(f'failed to open base trace report (cannot send trace reports): {exc}')
-    else:
-        if not base_trace_report:
-            logger.warning('failed to read back base trace report (cannot send trace reports)')
-        else:
-            # update and send the trace info
-            if 'workdir' not in base_trace_report:
-                base_trace_report['workdir'] = job.workdir
-            for fspec in job.indata:
-                if fspec.status == 'remote_io':
-                    base_trace_report.update(url=fspec.turl)
-                    base_trace_report.update(remoteSite=fspec.ddmendpoint, filesize=fspec.filesize)
-                    base_trace_report.update(filename=fspec.lfn, guid=fspec.guid.replace('-', ''))
-                    base_trace_report.update(scope=fspec.scope, dataset=fspec.dataset)
-                    if fspec.turl in not_opened_turls:
-                        base_trace_report.update(clientState='FAILED_REMOTE_OPEN')
-                    else:
-                        protocol = get_protocol(fspec.surl, base_trace_report.get('eventType', ''))
-                        logger.debug(f'protocol={protocol}')
-                        if protocol:
-                            base_trace_report.update(protocol=protocol)
-                            logger.debug(f'added protocol={protocol} to trace report')
-                        base_trace_report.update(clientState='FOUND_ROOT')
+        return
 
-                    # copy the base trace report (only a dictionary) into a real trace report object
-                    trace_report = TraceReport(**base_trace_report)
-                    if trace_report:
-                        trace_report.send()
-                    else:
-                        logger.warning(f'failed to create trace report for turl={fspec.turl}')
+    if not base_trace_report:
+        logger.warning('failed to read back base trace report (cannot send trace reports)')
+        return
+
+    if 'workdir' not in base_trace_report:
+        base_trace_report['workdir'] = job.workdir
+    traces = get_remote_file_traces(base_trace_report, job, outcomes)
+    if traces:
+        get_or_create_sender(job).enqueue(traces)
+
+
+def get_remote_file_traces(base_trace_report: dict, job: JobData, outcomes: dict) -> list:
+    """Return the trace reports for the remote i/o files with a known outcome.
+
+    Args:
+        base_trace_report: base trace report (common part of all traces).
+        job: job object.
+        outcomes: per-file outcomes of the remote file open verification ({turl: outcome}).
+
+    Returns:
+        list: trace reports.
+    """
+    traces = []
+    for fspec in job.indata:
+        if fspec.status != 'remote_io':
+            continue
+        outcome = outcomes.get(fspec.turl)
+        if outcome not in REMOTEIO_CLIENT_STATES:
+            logger.info(f'outcome of remote file open is unknown for {fspec.lfn} - no trace will be sent')
+            continue
+
+        # copy the base trace report (only a dictionary) into a real trace report object
+        trace_report = TraceReport(**get_remote_file_trace_fields(base_trace_report, fspec, outcome))
+        if trace_report:
+            traces.append(trace_report)
+        else:
+            logger.warning(f'failed to create trace report for turl={fspec.turl}')
+
+    return traces
+
+
+def get_remote_file_trace_fields(base_trace_report: dict, fspec: FileSpec, outcome: str) -> dict:
+    """Return the trace report fields for a remote file.
+
+    A fresh copy of the base trace report is used for every file, so that no field set for
+    one file can leak into the trace of another.
+
+    Args:
+        base_trace_report: base trace report (common part of all traces).
+        fspec: FileSpec object.
+        outcome: outcome of the remote file open verification for this file.
+
+    Returns:
+        dict: trace report fields.
+    """
+    fields = dict(base_trace_report)
+    fields.update(url=fspec.turl, remoteSite=fspec.ddmendpoint, filesize=fspec.filesize,
+                  filename=fspec.lfn, guid=fspec.guid.replace('-', ''), scope=fspec.scope,
+                  dataset=fspec.dataset, clientState=REMOTEIO_CLIENT_STATES[outcome])
+    if outcome == REMOTEIO_OPENED:
+        protocol = get_protocol(fspec.surl, fields.get('eventType', ''))
+        logger.debug(f'protocol={protocol}')
+        if protocol:
+            fields.update(protocol=protocol)
+            logger.debug(f'added protocol={protocol} to trace report')
+    else:
+        fields.update(stateReason=REMOTEIO_STATE_REASONS[outcome])
+
+    return fields
 
 
 def get_protocol(surl: str, event_type: str) -> str:
@@ -750,7 +1044,7 @@ def get_payload_command(job: JobData, args: object = None) -> str:
         t0 = int(time.time())
         add_to_pilot_timing(job.jobid, PILOT_PRE_REMOTEIO, t0, args)
         try:
-            exitcode, diagnostics, not_opened_turls, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
+            exitcode, diagnostics, outcomes, lsetup_time = open_remote_files(job.indata, job.workdir, get_nthreads(catchall))
         except Exception as exc:
             logger.warning(f'caught std exception: {exc}')
         else:
@@ -764,7 +1058,7 @@ def get_payload_command(job: JobData, args: object = None) -> str:
                 logger.warning(f'base trace report does not exist ({path}) - '
                                f'input file traces should already have been sent')
             else:
-                process_remote_file_traces(path, job, not_opened_turls)  # ignore PyCharm warning, path is str
+                process_remote_file_traces(path, job, outcomes)  # ignore PyCharm warning, path is str
 
             # if the remoteIO file-open check fell back to ?filetype=raw for any input file,
             # propagate that modified TURL to fspec so the PFC handed to the payload is correct.
