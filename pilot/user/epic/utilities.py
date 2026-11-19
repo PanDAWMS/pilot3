@@ -123,6 +123,27 @@ def get_memory_monitor_setup(pid: int,
     return cmd, pid
 
 
+def is_payload_running(pid: int) -> bool:
+    """Check whether the payload process is still running.
+
+    The payload is waited for only after get_proper_pid() has returned, so a payload that has already exited is
+    a zombie until then, and os.kill(pid, 0) still succeeds on it. A zombie (or dead) process counts as finished.
+
+    Args:
+        pid: process id.
+
+    Returns:
+        bool: True if the process is running, False otherwise.
+    """
+    try:
+        with open(f'/proc/{pid}/stat', encoding='utf-8') as stat:
+            state = stat.read().rsplit(')', 1)[1].split()[0]
+    except (OSError, IndexError):
+        return is_process_running(pid)
+
+    return state not in ('Z', 'X')
+
+
 def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
     """Return a pid from the proper source to be used with the memory monitor.
 
@@ -144,14 +165,14 @@ def get_proper_pid(pid: int, jobid: int, use_container: bool = True) -> int:
         return pid
 
     # abort if main process has finished already
-    if not is_process_running(pid):
+    if not is_payload_running(pid):
         return -1
 
     i = 0
     imax = 120
     while i < imax:
         # abort if main process has finished already
-        if not is_process_running(pid):
+        if not is_payload_running(pid):
             return -1
 
         # lookup the process id using ps command or psutils
